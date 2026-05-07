@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.0",
+    date: "2026-05-07",
+    types: ["improvement", "feature"],
+    title: "🎨 تفاصيل الأوردر: تايم لاين على الصف الأعلى + 🔍 بحث للخامات والاكسسوار + قطع/راق",
+    changes: [
+      { type: "improvement", text: "📐 [Top row redesigned again per user feedback] الصف الأعلى دلوقتي فيه: التايم لاين (يأخذ المساحة المتبقية) + شبكة 2×2 من كروت الـ KPI + الصورة — كله على صف واحد على الديسكتوب. على الشاشات الأصغر من 1100 بكسل التايم لاين بـ يـ wrap لصف ثاني تحت الصورة + الكروت. النتيجة: نظرة شاملة على المرحلة + الأرقام + الصورة بدون scroll." },
+      { type: "improvement", text: "🏷 [Header: model number prominent + sizes inline] رقم الموديل دلوقتي بفونت كبير 30 بكسل (22 على الموبايل) بلون الـ accent ووزن 900. المقاسات جنبه في pill كبيرة (📐 6-8-10-12) بحجم 20 بكسل. رقم الـ PO + وصف الموديل في سطر ثاني صغير. النتيجة: رقم الموديل والمقاسات بقوا الـ identity الواضحة للصفحة." },
+      { type: "improvement", text: "📦 [Order pieces moved above tabs] قطع الموديل (chips بـ تشغيل/متاح) دلوقتي شريط ثابت تحت الـ banner مباشرة وقبل الـ tab bar — بدل ما كانت داخل tab القماش. كده دايماً ظاهرة بصرف النظر عن الـ tab المفتوحة." },
+      { type: "improvement", text: "📱 [Mobile-friendly tab bar — pill buttons] على الشاشات الأصغر من 720 بكسل، الـ tab bar دلوقتي كومة pill buttons داخل container مدوّر بدل الـ underlined tabs. الـ active tab بـ يمتلئ بلونه (background filled + text white + shadow). الـ tap targets أكبر بـ 1.5x مقارنة بالـ underline tabs، أسهل بكتير في اللمس." },
+      { type: "feature", text: "🔍 [OrdForm: searchable fabric input replaces dropdown] خامة A/B/C/D/E دلوقتي حقل بحث (SearchSel) بدل الـ dropdown الطويل. اكتب جزء من اسم الخامة → الـ list بـ تفلتر (max 8 نتائج). showAllOnFocus=true فلما تركّز على الحقل وهو فاضي بـ يعرض أول 8 خامات. السبب: عدد الخامات في المصنع كبير، الـ dropdown كان مرهق." },
+      { type: "feature", text: "🔢 [OrdForm: per-fabric \"قطع/راق\" input] حقل جديد جنب \"استهلاك/راق\" لكل خامة بـ يحدد عدد القطع في الراق الواحد لتلك الخامة. لما يتسجّل، أي صف لون موجود قيمته الـ pcsPerLayer = القيمة القديمة (default الـ size set) بـ يـ auto-update لـ القيمة الجديدة + الـ qty يُعاد حسابه (layers × pcsPerLayer). الصفوف الجديدة بـ تستخدم القيمة الجديدة كـ default. الإدخال اليدوي على مستوى الصف ما يـ overwrite-ش." },
+      { type: "feature", text: "🔘 [OrdForm: AccPicker rewritten — popup removed] الـ \"+ اختيار اكسسوارات\" popup الكبير اتشال نهائياً. مكانه: حقل بحث inline. اكتب جزء من اسم البند → النتايج بـ تظهر تحت (max 12). كل نتيجة فيها: الاسم + الوحدة + السعر/قطعة + 📦 المخزن المتاح. اضغط على الصف → بـ يضاف لجدول البنود تلقائياً. نفس النمط بالظبط زي الخامة. السبب: الـ popup كان يقطع الـ flow." },
+      { type: "improvement", text: "🖼 [DefaultModelImg: lazy + async decoding] الصور دلوقتي بـ تحمل lazy (loading=\"lazy\" + decoding=\"async\") — الصور خارج الـ viewport ما تـ trigger-ش HTTP request للـ Firebase Storage إلا لما تـ scroll قريب منها. النتيجة: الـ orders list فتحت أسرع بكتير، خصوصاً لو فيه 50+ أوردر، والـ initial paint ما يستناش كل الصور تـ load." },
+      { type: "fix", text: "🔧 [meta tag deprecation] index.html دلوقتي فيه <meta name=\"mobile-web-app-capable\"> جنب الـ apple-mobile-web-app-capable القديم. Chrome كان يطبع warning في الـ console لأن الـ apple-prefixed بمفرده اتـ deprecated. كده الـ console نظيف." },
+    ]
+  },
+  {
     version: "V19.79.0",
     date: "2026-05-07",
     types: ["improvement", "architectural"],

@@ -6,7 +6,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useState } from "react";
-import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel } from "../components/ui.jsx";
+import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel, SearchSel } from "../components/ui.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDL } from "../theme.js";
 import { gIcon, setF, sqty } from "../utils/format.js";
@@ -148,14 +148,22 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
         </div>
       </div>
     </div>
-    {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);const fabPieces=form["fabricPieces"+k]||[];return<div key={k}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",marginBottom:4,minWidth:500}}><tbody><tr>
+    {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);const fabPieces=form["fabricPieces"+k]||[];
+      /* V19.80.0: SearchSel options for fabric — searchable instead of long dropdown */
+      const fabOpts=data.fabrics.map(f=>({value:String(f.id),label:f.name+" — "+f.price+" ج.م/"+f.unit}));
+      /* V19.80.0: fabric-level pcsPerLayer override; falls back to size set's pcsPerSeries */
+      const fabricPpl=Number(form["pcsPerLayer"+k])||0;
+      const ssPps=(()=>{const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));return ss?ss.pcsPerSeries:0})();
+      const effectivePpl=fabricPpl||ssPps;
+      return<div key={k}>
+      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",marginBottom:4,minWidth:isMob?420:600}}><tbody><tr>
         <td style={{...TDL,fontWeight:700,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:FCOL[idx],marginLeft:4}}/>{"خامة "+k+(k==="A"?" *":"")}</td>
-        <td style={TD}><div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{flex:1}}><Sel value={fid} onChange={v=>updF("fabric"+k,v)}><option value="">{k==="A"?"-- اختر --":"-- اختياري --"}</option>{data.fabrics.map(f=><option key={f.id} value={f.id}>{f.name+" - "+f.price+" ج.م/"+f.unit}</option>)}</Sel></div>{upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap",flexShrink:0}}>+</Btn>}</div></td>
+        <td style={TD}><div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{flex:1,minWidth:0}}><SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus/></div>{upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap",flexShrink:0}}>+</Btn>}</div></td>
         <td style={{...TDL,whiteSpace:"nowrap"}}>استهلاك/راق</td><td style={{...TD,width:90}}><Inp type="number" step="any" value={form["cons"+k]} onChange={v=>updF("cons"+k,v)}/></td>
+        <td style={{...TDL,whiteSpace:"nowrap"}} title="القطع في الراق الواحد — يستخدم تلقائياً عند إضافة لون جديد">قطع/راق</td><td style={{...TD,width:80}}><Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v=>{const newPpl=Number(v)||0;updF("pcsPerLayer"+k,v);/* V19.80.0: also auto-update existing rows whose pcsPerLayer was the previous default (or 0/empty) — keeps the table in sync without overwriting manual edits */ const oldDefault=fabricPpl||ssPps;const cols=form["colors"+k]||[];const updated=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===oldDefault)?{...c,pcsPerLayer:newPpl,qty:(Number(c.layers)||0)*newPpl}:c);if(JSON.stringify(updated)!==JSON.stringify(cols))updF("colors"+k,updated)}} placeholder={ssPps?String(ssPps):"0"}/></td>
         <td style={{...TDL,whiteSpace:"nowrap"}}>تاريخ القص</td><td style={{...TD,width:130}}><Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)}/></td>
       </tr></tbody></table></div>
-      {fid&&<FCTable label={"خامة "+k} fabName={fb?fb.name:""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)} pcsPerSeries={(()=>{const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));return ss?ss.pcsPerSeries:0})()}/>}
+      {fid&&<FCTable label={"خامة "+k} fabName={fb?fb.name:""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)} pcsPerSeries={effectivePpl}/>}
       {fid&&(form.orderPieces||[]).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
         <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
         {(()=>{const takenByOther=new Set();FKEYS.filter(fk=>fk!==k).forEach(fk=>{(form["fabricPieces"+fk]||[]).forEach(p=>takenByOther.add(p))});

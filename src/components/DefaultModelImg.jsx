@@ -47,6 +47,7 @@ export function DefaultModelImg({src,modelNo,modelDesc,orderPieces,width,height,
       src={src} alt={modelNo||""}
       className={className} style={baseStyle}
       onClick={onClick} title={title}
+      loading="lazy" decoding="async"
       onError={(e)=>{e.currentTarget.style.display="none";const ph=e.currentTarget.nextElementSibling;if(ph)ph.style.display="flex"}}
     />;
   }

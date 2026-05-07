@@ -503,13 +503,19 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       data={data} upConfig={upConfig} user={user}
     />
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
+      {/* V19.80.0: prominent model number + sizes; PO + description as secondary line */}
+      <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
         <Btn ghost onClick={()=>setSel(null)} style={{fontSize:isMob?16:20}} title="إغلاق">✕</Btn>
-        <div>
-          <h1 style={{fontSize:isMob?16:20,fontWeight:800,margin:0}}>{order.poNumber?<>{"أمر تشغيل: "}<span style={{color:T.accent,fontFamily:"monospace"}}>{order.poNumber}</span></>:<>{"أمر تشغيل: "}<span style={{color:T.accent}}>{order.modelNo}</span></>}</h1>
-          {order.poNumber&&<div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{"موديل: "+order.modelNo+" — "+order.modelDesc}</div>}
-        </div>
-        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+        <div style={{minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:isMob?8:14,flexWrap:"wrap"}}>
+            <h1 style={{fontSize:isMob?22:30,fontWeight:900,margin:0,color:T.accent,letterSpacing:"-0.5px",lineHeight:1.05}}>🏷 {order.modelNo||"—"}</h1>
+            {order.sizeLabel&&<span style={{fontSize:isMob?15:20,fontWeight:800,color:T.text,padding:"3px 12px",borderRadius:8,background:T.accent+"10",border:"1px solid "+T.accent+"35",whiteSpace:"nowrap"}}>📐 {order.sizeLabel}</span>}
+          </div>
+          <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            {order.poNumber&&<span style={{fontFamily:"monospace",fontWeight:700,color:T.accent,letterSpacing:0.5}}>📋 {order.poNumber}</span>}
+            {order.poNumber&&order.modelDesc&&<span style={{color:T.textMut}}>•</span>}
+            {order.modelDesc&&<span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{order.modelDesc}</span>}
+          </div>
         </div>
       </div>
       {/* V16.37: Action row — desktop shows everything inline; mobile keeps
@@ -539,83 +545,120 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     </div>
     <div id="parea">
       {/* ═══════════════════════════════════════════════════════════════
-          V19.79.0 — Redesigned detail layout
+          V19.80.0 — Top row: timeline + 2x2 KPIs + image, all on one row
           ───────────────────────────────────────────────────────────────
-          Top section: model image + 4 KPI cards on a single row, height
-          matched to the image. On mobile/tablet the KPIs collapse to a
-          2-column grid alongside a smaller image. The previous in-card
-          incomplete-fabric warning is extracted into a banner below so
-          the top row stays uniform regardless of order state.
+          Desktop: [timeline (1fr) | 2x2 KPI grid | image]
+          Tablet (<1100px): [image | 2x2 KPI grid] then [timeline below]
+          Mobile (<540px): same 2-row layout, smaller image + tighter cards
          ═══════════════════════════════════════════════════════════════ */}
       <style>{`
-        .det-top-row{display:grid;grid-template-columns:auto repeat(4,1fr);gap:12px;margin-bottom:12px;align-items:stretch}
+        .det-top-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;margin-bottom:12px;align-items:stretch}
         .det-top-row > .det-img-cell{position:relative;display:flex;align-items:stretch}
-        .det-top-row > .det-img-cell > *:first-child{height:100%}
-        .det-top-row .metric-card{height:100%;box-sizing:border-box}
-        @media (max-width: 1024px){.det-top-row{grid-template-columns:auto repeat(2,1fr)}}
-        @media (max-width: 560px){.det-top-row{grid-template-columns:auto 1fr 1fr;gap:8px}}
+        .det-top-row > .det-img-cell > img,.det-top-row > .det-img-cell > div:first-child{height:100%}
+        .det-top-row > .det-kpis-cell{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:280px}
+        .det-top-row > .det-kpis-cell > div,.det-top-row > .det-kpis-cell > .metric-card{height:100%;box-sizing:border-box}
+        .det-top-row > .det-kpis-cell .metric-card{padding:10px 12px;height:100%}
+        .det-top-row > .det-timeline-cell{min-width:0;background:${T.cardSolid};border-radius:12px;padding:8px 12px;border:1px solid ${T.brd};overflow-x:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:center}
+        @media (max-width: 1100px){
+          .det-top-row{grid-template-columns:auto 1fr;grid-template-rows:auto auto}
+          .det-top-row > .det-img-cell{grid-column:1;grid-row:1}
+          .det-top-row > .det-kpis-cell{grid-column:2;grid-row:1;min-width:0}
+          .det-top-row > .det-timeline-cell{grid-column:1 / -1;grid-row:2}
+        }
+        @media (max-width: 540px){
+          .det-top-row{gap:8px}
+          .det-top-row > .det-kpis-cell{grid-template-columns:1fr 1fr;gap:6px;min-width:0}
+          .det-top-row > .det-kpis-cell .metric-card{padding:8px 10px}
+        }
         .det-meta-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:${T.bg};border:1px solid ${T.brd};font-size:${FS-1}px;font-weight:600;color:${T.textSec};white-space:nowrap}
         .det-tab-bar{display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid ${T.brd};padding:0 4px;margin-bottom:16px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
         .det-tab-bar::-webkit-scrollbar{height:4px}
         .det-tab-bar::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}
         .det-tab-pill{cursor:pointer;padding:10px 16px;border-radius:10px 10px 0 0;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:all 0.15s;border-bottom:3px solid transparent;color:${T.textSec};margin-bottom:-2px;user-select:none}
         .det-tab-pill:hover{background:${T.bg}}
+        @media (max-width: 720px){
+          .det-tab-bar{border-bottom:none;background:${T.cardSolid};padding:6px;border-radius:14px;margin-bottom:14px;border:1px solid ${T.brd};gap:4px}
+          .det-tab-pill{border-radius:10px;border-bottom:none !important;padding:10px 12px;font-size:${FS-1}px;flex-shrink:0}
+        }
+        .det-pieces-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;padding:10px 12px;background:${T.cardSolid};border-radius:12px;border:1px solid ${T.brd}}
       `}</style>
       <div className="det-top-row">
-        {/* Image */}
+        {/* Timeline — left column on desktop, full-width on tablet/mobile */}
+        <div className="det-timeline-cell">
+          {(()=>{const wds=order.workshopDeliveries||[];const dels=order.deliveries||[];
+            const totalWsDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+            const totalWsRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
+            const stockDel=getConfirmedStock(order);const isClosed=order.closed||!!order.settlement;
+            const phases=[];
+            phases.push({title:"تم القص",color:T.accent,date:order.date,details:["كمية: "+t.cutQty]});
+            const wsDetails=[];const wsNames=[...new Set(wds.map(w=>w.wsName))];
+            wsNames.forEach(n=>{const wdForWs=wds.filter(w=>w.wsName===n);const pieces=wdForWs.map(w=>(w.garmentType||"عام")+" ("+w.qty+")").join("، ");wsDetails.push(n+": "+pieces)});
+            if(wsDetails.length>0)phases.push({title:"في التشغيل",color:"#8B5CF6",date:wds[0]?.date,details:wsDetails});
+            else phases.push({title:"في التشغيل",color:"#8B5CF6",details:[]});
+            const rcvDetails=[];wsNames.forEach(n=>{const rcvd=wds.filter(w=>w.wsName===n).reduce((s,w)=>(w.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcvd>0)rcvDetails.push("استلام "+n+": "+rcvd)});
+            phases.push({title:"تشطيب وتعبئة",color:T.ok,details:rcvDetails.length>0?rcvDetails:[]});
+            const stockDetails=[];if(stockDel>0)stockDetails.push("مؤكد: "+stockDel+" قطعة");
+            const pendDel=dels.filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
+            if(pendDel>0)stockDetails.push("⏳ معلّق: "+pendDel);
+            phases.push({title:"مخزن نهائي",color:"#059669",details:stockDetails});
+            if(isClosed)phases.push({title:"مغلق ✅",color:"#64748B",details:order.settlement?["هالك: "+(order.settlement.qty||0)]:[]});
+            let curIdx=0;
+            if(totalWsDel>0)curIdx=1;
+            if(totalWsRcv>0)curIdx=2;
+            if(stockDel>0)curIdx=3;
+            if(isClosed)curIdx=phases.length-1;
+            return<Timeline phases={phases} currentIdx={curIdx}/>;
+          })()}
+        </div>
+        {/* 2x2 KPI grid */}
+        <div className="det-kpis-cell">
+          {/* KPI 1 — cut qty (clickable to per-piece editor) */}
+          <div onClick={canEdit?()=>{
+            const pieces=order.orderPieces||[];
+            const draft={};
+            pieces.forEach(p=>{draft[p]=getPieceCutQty(order,p)});
+            setPieceCutPopup({draft})
+          }:undefined} style={{cursor:canEdit?"pointer":"default",position:"relative",minWidth:0}} title={canEdit?"اضغط لضبط كمية القص لكل قطعة على حدة":""}>
+            <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
+            {canEdit&&(order.orderPieces||[]).some(p=>(order.pieceCutQty?.[p]!=null)&&Number(order.pieceCutQty[p])!==t.cutQty)&&<span style={{position:"absolute",top:4,insetInlineEnd:6,fontSize:9,color:T.warn,fontWeight:700,padding:"1px 5px",borderRadius:4,background:T.warn+"15"}} title="بعض القطع لها كمية قص يدوية مختلفة عن الإجمالي">يدوي</span>}
+          </div>
+          {/* KPI 2 — ready stock */}
+          <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
+          {/* KPI 3 — balance */}
+          <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
+          {/* KPI 4 — cost (compact; warning shown as banner below) */}
+          {(()=>{
+            const hasSettlement=!!order.settlement;
+            const delivered=order.deliveredQty||0;
+            const originalCostPer=r2(t.costPer);
+            const cutQ=t.cutQty||0;
+            const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cutQ:amt)},0);
+            const hasExtra=extraTotal>0;
+            let label,value,color,sub;
+            if(hasSettlement&&delivered>0){
+              const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
+              const diff=r2(actualCostPer-originalCostPer);
+              label="تكلفة القطعة الفعلية";value=Math.ceil(actualCostPer)+" ج.م";color=T.err;
+              sub="فرق +"+Math.ceil(diff)+" ج.م";
+            }else if(hasExtra){
+              const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
+              label="تكلفة القطعة الفعلية";value=Math.ceil(actualCostPer)+" ج.م";color="#F59E0B";
+              const diff=Math.ceil(actualCostPer-originalCostPer);
+              sub="إضافي +"+diff+" ج.م";
+            }else{
+              label="تكلفة القطعة";value=originalCostPer+" ج.م";color=T.accent;sub=null;
+            }
+            return<MetricCard label={label} value={value} icon="💰" color={color} sub={sub}/>;
+          })()}
+        </div>
+        {/* Image — right column on desktop, top-right on tablet/mobile */}
         <div className="det-img-cell">
           <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={isMob?100:140} style={{borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
           {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>✕</div>}
         </div>
-        {/* KPI 1 — cut qty (clickable to per-piece editor) */}
-        <div onClick={canEdit?()=>{
-          const pieces=order.orderPieces||[];
-          const draft={};
-          pieces.forEach(p=>{draft[p]=getPieceCutQty(order,p)});
-          setPieceCutPopup({draft})
-        }:undefined} style={{cursor:canEdit?"pointer":"default",position:"relative",minWidth:0}} title={canEdit?"اضغط لضبط كمية القص لكل قطعة على حدة":""}>
-          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
-          {canEdit&&(order.orderPieces||[]).some(p=>(order.pieceCutQty?.[p]!=null)&&Number(order.pieceCutQty[p])!==t.cutQty)&&<span style={{position:"absolute",top:4,insetInlineEnd:6,fontSize:9,color:T.warn,fontWeight:700,padding:"1px 5px",borderRadius:4,background:T.warn+"15"}} title="بعض القطع لها كمية قص يدوية مختلفة عن الإجمالي">يدوي</span>}
-        </div>
-        {/* KPI 2 — ready stock */}
-        <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
-        {/* KPI 3 — balance */}
-        <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
-        {/* KPI 4 — cost (compact; warning shown as banner below) */}
-        {(()=>{
-          /* V19.79.0: cost card stripped of inline warning strip; warning lives below */
-          const hasSettlement=!!order.settlement;
-          const delivered=order.deliveredQty||0;
-          const originalCostPer=r2(t.costPer);
-          const cutQ=t.cutQty||0;
-          const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cutQ:amt)},0);
-          const hasExtra=extraTotal>0;
-          let label,value,color,sub;
-          if(hasSettlement&&delivered>0){
-            const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
-            const diff=r2(actualCostPer-originalCostPer);
-            label="تكلفة القطعة الفعلية";
-            value=Math.ceil(actualCostPer)+" ج.م";
-            color=T.err;
-            sub="الأصلية: "+Math.ceil(originalCostPer)+" ج.م • فرق +"+Math.ceil(diff)+" ج.م";
-          }else if(hasExtra){
-            const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
-            label="تكلفة القطعة الفعلية";
-            value=Math.ceil(actualCostPer)+" ج.م";
-            color="#F59E0B";
-            const diff=Math.ceil(actualCostPer-originalCostPer);
-            sub="شامل تكاليف إضافية +"+diff+" ج.م";
-          }else{
-            label="تكلفة القطعة";
-            value=originalCostPer+" ج.م";
-            color=T.accent;
-            sub=null;
-          }
-          return<MetricCard label={label} value={value} icon="💰" color={color} sub={sub}/>;
-        })()}
       </div>
 
-      {/* ═══ Cost-incomplete warning banner (extracted from KPI card) ═══ */}
+      {/* ═══ Cost-incomplete warning banner ═══ */}
       {(()=>{
         const pieces=order.orderPieces||[];
         const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});
@@ -636,19 +679,16 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>;
       })()}
 
-      {/* ═══ Meta chips: status / date / sizes / marker / PO — replaces بيانات الموديل card ═══ */}
+      {/* ═══ Meta chips: status / date / marker / PO (sizes moved to header) ═══ */}
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12,alignItems:"center"}}>
         <span className="det-meta-chip" style={{padding:"3px 8px"}}>
           {canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><span onClick={()=>setStageProgressOrder(order)} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4}}><Badge t={order.status} cards={statusCards}/><span style={{fontSize:11,color:T.textSec,fontWeight:800}}>▾</span></span>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px",marginInlineStart:4}} title="تعديل">✏️</Btn>}</>}
         </span>
         <span className="det-meta-chip"><span>📅</span><span>{order.date}</span></span>
-        {order.sizeLabel&&<span className="det-meta-chip"><span>📐</span><span>{order.sizeLabel}</span></span>}
         {order.marker&&<span className="det-meta-chip"><span>📏 ماركر:</span><span>{order.marker}</span></span>}
-        {order.poNumber&&<span className="det-meta-chip" style={{fontFamily:"monospace",fontWeight:700,color:T.accent,background:T.accent+"10",borderColor:T.accent+"40"}}><span>🏷</span><span>{order.poNumber}</span></span>}
       </div>
-      {/* V15.46: Cut/workshop sync banner — per-piece mismatch detection.
-          Business logic: order is a SET; each piece (shirt/shorts/etc) goes to own workshops.
-          Sum of deliveries per piece should equal cutQty, NOT sum of ALL deliveries. */}
+
+      {/* ═══ Sync banner — cut/workshop quantity mismatch (urgent, kept full-width above tabs) ═══ */}
       {(()=>{const m=detectQtyMismatch(order);if(!m.hasMismatch||order.closed)return null;
         const lastSync=(order.cutSyncHistory||[]).slice(-1)[0];
         return<div style={{padding:"10px 14px",marginBottom:14,borderRadius:12,background:"#F59E0B08",border:"1.5px solid #F59E0B35"}}>
@@ -673,37 +713,17 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </div>
         </div>
       })()}
-      {/* Timeline - phases */}
-      {(()=>{const wds=order.workshopDeliveries||[];const dels=order.deliveries||[];
-        const totalWsDel=wds.reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-        const totalWsRcv=wds.reduce((s,wd)=>s+(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0),0);
-        const stockDel=getConfirmedStock(order);const isClosed=order.closed||!!order.settlement;
-        /* Build phases */
-        const phases=[];
-        /* 1. تم القص */
-        phases.push({title:"تم القص",color:T.accent,date:order.date,details:["كمية: "+t.cutQty]});
-        /* 2. في التشغيل */
-        const wsDetails=[];const wsNames=[...new Set(wds.map(w=>w.wsName))];
-        wsNames.forEach(n=>{const wdForWs=wds.filter(w=>w.wsName===n);const pieces=wdForWs.map(w=>(w.garmentType||"عام")+" ("+w.qty+")").join("، ");wsDetails.push(n+": "+pieces)});
-        if(wsDetails.length>0)phases.push({title:"في التشغيل",color:"#8B5CF6",date:wds[0]?.date,details:wsDetails});
-        else phases.push({title:"في التشغيل",color:"#8B5CF6",details:[]});
-        /* 3. تشطيب وتعبئة */
-        const rcvDetails=[];wsNames.forEach(n=>{const rcvd=wds.filter(w=>w.wsName===n).reduce((s,w)=>(w.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);if(rcvd>0)rcvDetails.push("استلام "+n+": "+rcvd)});
-        phases.push({title:"تشطيب وتعبئة",color:T.ok,details:rcvDetails.length>0?rcvDetails:[]});
-        /* 4. تسليم مخزن */
-        const stockDetails=[];if(stockDel>0)stockDetails.push("مؤكد: "+stockDel+" قطعة");
-        const pendDel=dels.filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);
-        if(pendDel>0)stockDetails.push("⏳ معلّق: "+pendDel);
-        phases.push({title:"مخزن نهائي",color:"#059669",details:stockDetails});
-        /* 5. مغلق */
-        if(isClosed)phases.push({title:"مغلق ✅",color:"#64748B",details:order.settlement?["هالك: "+(order.settlement.qty||0)]:[]});
-        /* Determine current phase */
-        let curIdx=0;
-        if(totalWsDel>0)curIdx=1;
-        if(totalWsRcv>0)curIdx=2;
-        if(stockDel>0)curIdx=3;
-        if(isClosed)curIdx=phases.length-1;
-        return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto",WebkitOverflowScrolling:"touch"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
+
+      {/* ═══ Order pieces (chips) — moved above tabs so they're always visible ═══ */}
+      {(order.orderPieces||[]).length>0&&<div className="det-pieces-row">
+        <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>{"قطع الموديل ("+order.orderPieces.length+"):"}</span>
+        {order.orderPieces.map((p,i)=>{
+          const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          const pieceCut=getPieceCutQty(order,p);
+          const avail=Math.max(0,pieceCut-delForP);
+          return<span key={i} style={{padding:"6px 12px",borderRadius:10,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS-1,fontWeight:700}}>{gIcon(p,data.garmentTypes)+" "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6,fontWeight:600}}>{" (تشغيل: "+delForP+" / متاح: "+avail+")"}</span></span>
+        })}
+      </div>}
       {/* ═══ Tab bar — sticky-ish; switches between section groups ═══ */}
       {(()=>{
         const wds=order.workshopDeliveries||[];
@@ -721,15 +741,18 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         ];
         return<div className="det-tab-bar" role="tablist">
           {TABS.map(tab=>{const isActive=activeTab===tab.id;
+            /* V19.80.0: on mobile, active tab is a filled pill button (full bg color, white text); on desktop it's an underlined tab. */
             return<div key={tab.id} role="tab" onClick={()=>setActiveTab(tab.id)} className="det-tab-pill" style={{
-              background:isActive?tab.color+"12":"transparent",
-              borderBottomColor:isActive?tab.color:"transparent",
-              color:isActive?tab.color:T.textSec,
+              background:isActive?(isMob?tab.color:tab.color+"12"):"transparent",
+              borderBottomColor:isActive&&!isMob?tab.color:"transparent",
+              border:isMob?("1.5px solid "+(isActive?tab.color:T.brd)):undefined,
+              color:isActive?(isMob?"#fff":tab.color):T.textSec,
               fontSize:FS,
+              boxShadow:isActive&&isMob?"0 2px 6px "+tab.color+"40":undefined,
             }}>
               <span style={{fontSize:FS+2}}>{tab.icon}</span>
               <span>{tab.label}</span>
-              {tab.badge>0&&<span style={{padding:"1px 8px",borderRadius:10,background:isActive?tab.color:T.brd,color:isActive?"#fff":T.textSec,fontSize:FS-3,fontWeight:800,minWidth:18,textAlign:"center"}}>{tab.badge}</span>}
+              {tab.badge>0&&<span style={{padding:"1px 8px",borderRadius:10,background:isActive?(isMob?"rgba(255,255,255,0.25)":tab.color):T.brd,color:isActive?"#fff":T.textSec,fontSize:FS-3,fontWeight:800,minWidth:18,textAlign:"center"}}>{tab.badge}</span>}
             </div>;
           })}
         </div>;
@@ -740,17 +763,6 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
          ═══════════════════════════════════════════════════════════════ */}
       {activeTab==="fabrics"&&<>
       {order.instructions&&<Card title="📝 تعليمات التشغيل" style={{marginBottom:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
-      {/* Order Pieces */}
-      {(order.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
-        <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{"قطع الموديل ("+order.orderPieces.length+"):"}</span>
-        {order.orderPieces.map((p,i)=>{
-          const delForP=(order.workshopDeliveries||[]).filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
-          /* V16.25: use per-piece cut qty so 'متاح' reflects actual cut for this piece, not global cutQty */
-          const pieceCut=getPieceCutQty(order,p);
-          const avail=Math.max(0,pieceCut-delForP);
-          return<span key={i} style={{padding:"8px 16px",borderRadius:12,background:avail>0?"#FEF3C7":"#D1FAE5",border:"1px solid "+(avail>0?T.warn:T.ok)+"40",fontSize:FS,fontWeight:600}}>{gIcon(p,data.garmentTypes)+" "+p}<span style={{fontSize:FS-2,color:T.textSec,marginRight:6}}>{" (تشغيل: "+delForP+" / متاح: "+avail+")"}</span></span>
-        })}
-      </div>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
         {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>
           {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{gIcon(p,data.garmentTypes)+" "+p}</span>)}</div>}

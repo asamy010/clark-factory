@@ -176,36 +176,39 @@ export function FCTable({label,fabName,colors,setColors,accent,readOnly,pcsPerSe
   </div>
 }
 
+/* V19.80.0: AccPicker rewritten — popup removed, replaced with inline search field
+   that filters dbAcc by name and adds the picked item on click. Mirrors the fabric
+   SearchSel pattern. The dropdown row shows name, unit, per-piece price, and stock. */
 export function AccPicker({accItems,dbAcc,onChange}){
-  const[showPick,setShowPick]=useState(false);
-  const[picked,setPicked]=useState({});
-  const available=dbAcc.filter(a=>!accItems.find(x=>x.accId===a.id));
-  const openPicker=()=>{setPicked({});setShowPick(true)};
-  const togglePick=(id)=>setPicked(p=>({...p,[id]:!p[id]}));
-  const addSelected=()=>{const ids=Object.keys(picked).filter(k=>picked[k]);const newItems=ids.map(id=>{const acc=dbAcc.find(a=>a.id===Number(id));return acc?{accId:acc.id,name:acc.name,unit:acc.unit,price:acc.price}:null}).filter(Boolean);if(newItems.length>0)onChange([...accItems,...newItems]);setShowPick(false)};
-  const selCount=Object.values(picked).filter(Boolean).length;
+  const[q,setQ]=useState("");
+  const[focused,setFocused]=useState(false);
+  const ref=useRef(null);
+  const available=(dbAcc||[]).filter(a=>!accItems.find(x=>x.accId===a.id));
+  const filtered=q.trim()?available.filter(a=>(a.name||"").toLowerCase().includes(q.toLowerCase())):available;
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  const addItem=(a)=>{onChange([...accItems,{accId:a.id,name:a.name,unit:a.unit,price:a.price}]);setQ("");setFocused(false)};
+  const showResults=focused&&available.length>0;
   return<div>
-    <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-      <Btn primary onClick={openPicker} disabled={available.length===0}>{"+ اختيار اكسسوارات ("+(available.length)+" متاح)"}</Btn>
+    {/* Inline search input — type to filter; click a result to add */}
+    <div ref={ref} style={{position:"relative",marginBottom:12,zIndex:focused?100:1}}>
+      <input value={q} onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}} onFocus={()=>setFocused(true)}
+        placeholder={available.length===0?"تم اختيار جميع الاكسسوارات المتاحة":"🔍 ابحث عن اكسسوار للإضافة..."}
+        disabled={available.length===0}
+        style={{width:"100%",padding:"10px 14px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:10,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
+      {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:2,background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,maxHeight:300,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,0.2)",zIndex:9999}}>
+        {filtered.length>0?filtered.slice(0,12).map(a=><div key={a.id} onMouseDown={e=>{e.preventDefault();addItem(a)}} style={{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"08"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:FS,color:T.text}}>{a.name}</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{(a.unit||"قطعة")+" — "}<b style={{color:T.accent}}>{(a.price||0)+" ج.م/قطعة"}</b></div>
+          </div>
+          <span style={{padding:"3px 10px",borderRadius:6,background:(a.stock||0)>0?T.ok+"15":T.warn+"15",color:(a.stock||0)>0?T.ok:T.warn,fontSize:FS-2,fontWeight:700,whiteSpace:"nowrap"}} title="المخزن المتاح">📦 {a.stock||0}</span>
+        </div>):<div style={{padding:14,textAlign:"center",color:T.textMut,fontSize:FS-1}}>{"لا توجد نتائج لـ \""+q+"\""}</div>}
+      </div>}
     </div>
-    {showPick&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowPick(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:450,maxHeight:"70vh",overflow:"auto",border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>اختر بنود الاكسسوار</div>
-          <Btn ghost small onClick={()=>setShowPick(false)} title="إغلاق">✕</Btn>
-        </div>
-        {available.length>0?<div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {available.map(a=><div key={a.id} onClick={()=>togglePick(a.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:picked[a.id]?T.accent+"12":T.bg,border:"1.5px solid "+(picked[a.id]?T.accent:T.brd),transition:"all 0.15s"}}>
-            <div style={{width:22,height:22,borderRadius:6,border:"2px solid "+(picked[a.id]?T.accent:T.brd),background:picked[a.id]?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:800,flexShrink:0}}>{picked[a.id]?"✓":""}</div>
-            <div style={{flex:1}}><div style={{fontWeight:600}}>{a.name}</div><div style={{fontSize:FS-2,color:T.textSec}}>{a.unit+" — "+a.price+" ج.م"}</div></div>
-          </div>)}
-        </div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>تم اضافة جميع الاكسسوارات</div>}
-        {selCount>0&&<div style={{marginTop:14,display:"flex",justifyContent:"center"}}><Btn primary onClick={addSelected}>{"اضافة "+selCount+" بند"}</Btn></div>}
-      </div>
-    </div>}
-    {accItems.length>0&&<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","الوحدة","السعر",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-      {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:600}}>{a.name}</td><td style={TD}>{a.unit}</td><td style={TD}><Inp type="number" value={a.price} onChange={v=>{const n=[...accItems];n[i]={...n[i],price:Number(v)||0};onChange(n)}} style={{width:90}}/></td><td style={TD}><Btn danger small onClick={()=>onChange(accItems.filter((_,j)=>j!==i))}>x</Btn></td></tr>)}
-    </tbody></table></div>}
+    {/* Selected items table — name / unit / per-piece price / remove */}
+    {accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","الوحدة","السعر/قطعة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+      {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:700}}>{a.name}</td><td style={TD}>{a.unit||"قطعة"}</td><td style={TD}><Inp type="number" value={a.price} onChange={v=>{const n=[...accItems];n[i]={...n[i],price:Number(v)||0};onChange(n)}} style={{width:90}}/></td><td style={TD}><Btn danger small onClick={()=>onChange(accItems.filter((_,j)=>j!==i))}>×</Btn></td></tr>)}
+    </tbody></table></div>:<div style={{textAlign:"center",padding:18,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>لم يتم اختيار اكسسوار بعد — ابحث في الخانة بالأعلى</div>}
   </div>
 }
 
