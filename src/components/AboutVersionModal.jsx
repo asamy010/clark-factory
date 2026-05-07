@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.4",
+    date: "2026-05-07",
+    types: ["fix"],
+    title: "🛡 قطع الموديل validation ضرورية + 🖼 إصلاح حجم الصورة الكبيرة",
+    changes: [
+      { type: "fix", text: "🛡 [validateOrder: pieces required] كان ممكن تـ save أوردر بدون أي قطعة موديل (orderPieces=[])، اللي يكسر منطق الـ workshop deliveries والـ per-piece cut quantities. دلوقتي الـ validateOrder يـ throw `قطع الموديل مطلوبة — أضف قطعة واحدة على الأقل` لو القائمة فاضية." },
+      { type: "fix", text: "🖼 [DetPg image — fixed 3:4 frame, no more layout blow-up] في V19.80.2 الصورة كانت `height:100% + aspectRatio:3/4 + width:auto` فلما الصورة الـ source كانت 1280×1707 بكسل (طبيعي من Firebase Storage)، الـ height:100% بـ يحل لـ height = صورة الطبيعية (1707px) لأن الـ row height غير مقيّد. النتيجة كانت row بطول 1707px والـ KPI cards تـ stretch تكون huge. الإصلاح: الصورة دلوقتي في إطار ثابت `140×187 px` على الديسكتوب (`105×140` على الموبايل) بـ `object-fit:cover` فأي حجم upload يتـ frame بشكل صحيح، مفيش blow-up أبداً. التناسب 3:4 portrait مضبوط (140/187 ≈ 0.749)." },
+      { type: "fix", text: "📷 [OrdForm image upload — 3:4 portrait preview] الـ preview بتاع رفع صورة الموديل كان 100×160 (5:8 ratio، مش 3:4). دلوقتي 120×160 على الديسكتوب (full-width على الموبايل) بـ `aspect-ratio:3/4` فالـ frame مضبوط. ضفنا أيضاً placeholder أنظف: 📷 + \"اضغط لاختيار صورة\" + hint \"3:4 طولي\". border-color يتغيّر للـ accent لما فيه صورة." },
+    ]
+  },
+  {
     version: "V19.80.3",
     date: "2026-05-07",
     types: ["fix", "feature"],

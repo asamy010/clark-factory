@@ -132,7 +132,21 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       <div style={{display:"flex",gap:8}}><Btn small onClick={()=>{updF("poNumber",genPO());setDupPoPopup(false)}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🔄 توليد رقم جديد</Btn><Btn ghost small onClick={()=>setDupPoPopup(false)}>تعديل يدوي</Btn></div>
     </div>}
     <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"auto 1fr",gap:10,marginBottom:10}}>
-      <div><div style={{width:isMob?"100%":100,height:isMob?120:160,borderRadius:10,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative"}}>{form.image?<img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:FS-1,color:T.textMut}}>صورة</span>}<input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>{uploadingImg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳ جاري الرفع...</div>}</div></div>
+      {/* V19.80.4: image upload preview — locked to 3:4 portrait (120×160 desktop,
+           full-width × auto on mobile). object-fit:cover so any upload size is
+           framed correctly. Clean dashed-border placeholder with upload icon. */}
+      <div><div style={{width:isMob?"100%":120,aspectRatio:"3 / 4",borderRadius:12,border:"2px dashed "+(form.image?T.accent+"40":T.brd),display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative",transition:"border-color 0.15s"}}>
+        {form.image
+          ?<img src={form.image} alt="" loading="eager" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          :<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,color:T.textMut,padding:8,textAlign:"center"}}>
+            <span style={{fontSize:32,opacity:0.4,lineHeight:1}}>📷</span>
+            <span style={{fontSize:FS-2,fontWeight:600}}>اضغط لاختيار صورة</span>
+            <span style={{fontSize:FS-3,opacity:0.7}}>3:4 طولي</span>
+          </div>
+        }
+        <input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+        {uploadingImg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳ جاري الرفع...</div>}
+      </div></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>

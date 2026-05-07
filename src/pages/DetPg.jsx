@@ -578,7 +578,14 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       <style>{`
         .det-top-row{display:grid;grid-template-columns:auto auto 1fr;gap:12px;margin-bottom:12px;align-items:stretch}
         .det-top-row > .det-img-cell{position:relative;display:flex;align-items:stretch}
-        .det-top-row > .det-img-cell > img,.det-top-row > .det-img-cell > div:first-child{height:100%}
+        /* V19.80.4: image cell uses a fixed-size container (3:4 portrait) so the
+           image is always boxed regardless of natural pixel size. Without this,
+           uploading a large image (e.g. 1280x1707) would force the row height
+           to the image's natural pixel count, blowing the layout up. The image
+           inside fills the box with object-fit:cover. */
+        .det-top-row > .det-img-cell > .det-img-frame{width:140px;height:187px;border-radius:14px;overflow:hidden;border:1px solid ${T.brd};box-shadow:${T.shadow};flex-shrink:0;align-self:flex-start}
+        @media (max-width: 540px){.det-top-row > .det-img-cell > .det-img-frame{width:105px;height:140px}}
+        .det-top-row > .det-img-cell > .det-img-frame > img,.det-top-row > .det-img-cell > .det-img-frame > div{width:100%;height:100%;object-fit:cover;border-radius:0;border:none;box-shadow:none}
         .det-top-row > .det-kpis-cell{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:280px}
         .det-top-row > .det-kpis-cell > div,.det-top-row > .det-kpis-cell > .metric-card{height:100%;box-sizing:border-box}
         .det-top-row > .det-kpis-cell .metric-card{padding:10px 12px;height:100%}
@@ -608,11 +615,15 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         .det-pieces-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;padding:10px 12px;background:${T.cardSolid};border-radius:12px;border:1px solid ${T.brd}}
       `}</style>
       <div className="det-top-row">
-        {/* V19.80.2: image cell — height tracks the row (matches the 2x2 KPI grid),
-             width derives from height via aspect-ratio:3/4. loading="eager" so the
-             hero image shows immediately on prev/next nav (no lazy delay). */}
+        {/* V19.80.4: image always rendered inside a fixed-size 3:4 portrait
+             frame (140×187 desktop / 105×140 mobile). No matter what natural
+             dimensions the source has, it's clamped via object-fit:cover so a
+             large upload can never blow the layout up. loading="eager" so the
+             hero image shows immediately on prev/next nav. */}
         <div className="det-img-cell">
-          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} loading="eager" style={{height:"100%",width:"auto",aspectRatio:"3 / 4",minHeight:isMob?140:160,borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          <div className="det-img-frame">
+            <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} loading="eager"/>
+          </div>
           {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,zIndex:2}}>✕</div>}
         </div>
         {/* 2x2 KPI grid → middle column (col 2: auto width) */}

@@ -543,6 +543,10 @@ export function validateOrder(form){
   if(!form.modelDesc.trim())e.push("وصف الموديل مطلوب");
   if(!form.sizeSetId)e.push("المقاسات مطلوبة");
   if(!form.date)e.push("التاريخ مطلوب");
+  /* V19.80.4: pieces are mandatory — multi-piece orders depend on per-piece
+     cut quantities and workshop deliveries, and a fabric without a piece
+     can't be linked to anything. At least one piece must be selected. */
+  if(!Array.isArray(form.orderPieces)||form.orderPieces.length===0)e.push("قطع الموديل مطلوبة — أضف قطعة واحدة على الأقل (قميص / شورت / إلخ)");
   if(!form.fabricA)e.push("خامة A مطلوبة");
   FKEYS.forEach(k=>{
     if(!form["fabric"+k])return;
