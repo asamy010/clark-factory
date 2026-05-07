@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.77.1",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "🛠 AI Agent Phase 2.5: 6 أدوات جديدة (5 → 11) — العميل، الرصيد، الطلبات، الإشعارات",
+    changes: [
+      { type: "feature", text: "🆕 [6 أدوات جديدة في clark-ai-agent v1.0.2-phase2.5] الـ Agent دلوقتي بـ يقدر يجاوب أسئلة عن العملاء والطلبات بدون escalation. الإجمالي: 5 → 11 tool. كله READ-ONLY أو NOTIFY-ONLY (بدون كتابة في CLARK collections — الـ security wrapper لسه فعّال)." },
+      { type: "feature", text: "👤 [get_customer_info] بدون phone بـ يرجع بيانات السائل نفسه كاملة (اسم، نوع، عنوان، تليفون، tier، خصم، flags). بـ phone مختلف بـ يرجع اسم/نوع فقط (PII guardrail)." },
+      { type: "feature", text: "💰 [get_customer_balance] الرصيد بنفس formula كشف الحساب بالظبط: gross − discount − cash_paid − receivable_checks. الناتج فيه breakdown كامل (gross, discount_amount, total_after_discount, cash_paid, checks_pending). PII strict: السائل فقط — أي customer_id غير الـ id بتاعه بـ يرفض. مفيد لأسئلة 'كم باقي عليّ؟'." },
+      { type: "feature", text: "📦 [get_customer_orders] قائمة طلبات السائل في الموسم النشط (آخر 30 نشاطاً): id، modelNo، modelDesc، sellPrice، delivered/returned/net، value، status، last_activity_date. مفيد لـ 'إيه طلباتي عند المصنع؟'." },
+      { type: "feature", text: "🔍 [get_order_status] تفاصيل طلب معيّن بـ id أو modelNo. PII protection: لو السائل ما اخدش بضاعة من الموديل ده، الـ tool بـ يرجع 'مفيش تسليم لحضرتك' بدلاً من تسريب deliveries عملاء آخرين. مفيد لـ 'ما حالة طلبي 3262111؟'." },
+      { type: "feature", text: "🛒 [notify_sales_team] لما العميل يقول 'عاوز أطلب 100 قطعة' — الـ Agent ما بـ يكتبش في الـ orders (per spec). بدلاً من ذلك بـ يبعت رسالة للـ sales team بالتفاصيل (items + customer_message + urgency + delivery/payment preferences) ويـ log في `aiAgentSalesNotifications` للـ admin يأكد ويسجل يدوياً." },
+      { type: "feature", text: "🔗 [notify_admin_phone_request] حل مشكلة الـ LIDs المجهولين. لما العميل يقول 'أنا أحمد المالك بس مش لاقيني' وهو @lid، الـ Agent بـ يبعت للأدمن: الـ LID + الاسم المدّعى + الرقم المدّعى. الأدمن من CLARK يربطه يدوياً (Schedule tab → القائمة البيضاء). بـ يـ log في `aiAgentSuggestions` بـ kind=lid_phone_mapping." },
+      { type: "feature", text: "🔌 [configLoader extended] أضيفت helpers: loadCustPayments + loadChecks (مع split-collection support للـ V19.49 migration) + loadActiveOrders (per-season caching, 30s TTL). كده الـ tools بـ تشتغل سواء البيانات inline في `factory/config` أو في الـ split collections." },
+      { type: "feature", text: "🎨 [Tools tab UI updated] كل tool دلوقتي ليه badge '✓ مفعّل' (deployed) أو '🚧 قريباً' (placeholder). الـ 11 المفعّلة دلوقتي: get_customer_info, search_products, get_product_details, get_customer_balance, get_customer_orders, get_order_status, get_faq_answer, get_company_info, notify_sales_team, notify_admin_phone_request, escalate_to_human. الـ placeholders اللي قريباً: generate_portal_link, generate_statement_pdf, send_otp, verify_otp." },
+    ]
+  },
+  {
     version: "V19.77.0",
     date: "2026-05-07",
     types: ["feature"],

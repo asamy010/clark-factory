@@ -2063,26 +2063,31 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
+  /* V19.77.1: deployed === backend tool actually wired in clark-ai-agent.
+     Items without `deployed: true` are placeholders for upcoming tools — they
+     show a "قريباً" badge so the admin can see what's planned. */
   const toolGroups = [
     {
       title: "📖 READ-ONLY (يقرأ فقط من Firestore)",
       color: "#0EA5E9",
       items: [
-        { key:"get_customer_info",     label:"معلومات العميل",          desc:"اسم، عنوان، tier، تاريخ" },
-        { key:"search_products",       label:"بحث في المنتجات",         desc:"الموديلات، الأسعار، المخزون", extras:[
+        { key:"get_customer_info",     label:"معلومات العميل",          desc:"اسم، عنوان، tier، الخصم — للسائل نفسه أو بحث محدود", deployed: true },
+        { key:"search_products",       label:"بحث في المنتجات",         desc:"الموديلات، الأسعار، المخزون", deployed: true, extras:[
           { field:"includePricing", label:"يعرض الأسعار", type:"bool" },
           { field:"includeStock",   label:"يعرض المخزون", type:"bool" },
           { field:"includeImages",  label:"يعرض الصور",   type:"bool" },
           { field:"maxResults",     label:"حد أقصى للنتائج", type:"number", suffix:"موديل" },
         ]},
-        { key:"get_customer_balance",  label:"رصيد العميل",             desc:"الرصيد + آخر دفعة + الشيكات" },
-        { key:"get_customer_orders",   label:"طلبات العميل",            desc:"آخر N طلبات + حالاتها" },
-        { key:"get_order_details",     label:"تفاصيل طلب",              desc:"بنود، سعر، حالة، تتبع" },
-        { key:"get_faq_answer",        label:"الأسئلة المتكررة",        desc:"يـmatch السؤال مع الـ FAQs" },
+        { key:"get_product_details",   label:"تفاصيل موديل",            desc:"كل بيانات موديل بـ كوده (catalog lookup)", deployed: true },
+        { key:"get_customer_balance",  label:"رصيد العميل",             desc:"نفس formula كشف الحساب — للسائل فقط (PII)", deployed: true },
+        { key:"get_customer_orders",   label:"طلبات العميل",            desc:"آخر 30 طلب نشاطاً + حالات — للسائل فقط", deployed: true },
+        { key:"get_order_status",      label:"حالة طلب",                desc:"تفاصيل order_id أو modelNo (السائل فقط)", deployed: true },
+        { key:"get_faq_answer",        label:"الأسئلة المتكررة",        desc:"يـmatch السؤال مع الـ FAQs", deployed: true },
+        { key:"get_company_info",      label:"معلومات المصنع",          desc:"المواسم، الأقمشة، المقاسات، الورش", deployed: true },
       ],
     },
     {
-      title: "📄 GENERATE (يولّد PDF/links من بيانات موجودة)",
+      title: "📄 GENERATE (يولّد PDF/links — قريباً)",
       color: "#8B5CF6",
       items: [
         { key:"generate_portal_link",   label:"لينك الـ portal",         desc:"يولّد URL مؤقت للـ customer portal", extras:[
@@ -2097,18 +2102,18 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
       title: "🔔 NOTIFY (يبعت رسالة، ما يـكتبش في DB)",
       color: "#F59E0B",
       items: [
-        { key:"notify_sales_team",          label:"إشعار فريق المبيعات",     desc:"⭐ بدلاً من create order. الفريق بـ يدخل الطلب يدوياً", extras:[
+        { key:"notify_sales_team",          label:"إشعار فريق المبيعات",     desc:"⭐ بدلاً من create order. الفريق بـ يدخل الطلب يدوياً", deployed: true, extras:[
           { field:"maxValueBeforeManual", label:"الحد الأقصى قبل المراجعة اليدوية", type:"number", suffix:"ج" },
         ]},
-        { key:"notify_admin_phone_request", label:"طلب إضافة رقم جديد",      desc:"بعد OTP verify، أدمن CLARK يضيف الرقم يدوياً", extras:[
+        { key:"notify_admin_phone_request", label:"طلب ربط رقم/LID",         desc:"يبعت للأدمن LID + اسم مدّعى — يـ surface في aiAgentSuggestions", deployed: true, extras:[
           { field:"requiresOtp", label:"يحتاج OTP أولاً", type:"bool" },
         ]},
-        { key:"escalate_to_human",          label:"تحويل لبشري",            desc:"بـ context كامل + آخر 5 رسائل" },
-        { key:"send_otp",                   label:"إرسال OTP",               desc:"الكود في Redis، مش Firestore", extras:[
+        { key:"escalate_to_human",          label:"تحويل لبشري",            desc:"بـ context كامل + آخر 5 رسائل", deployed: true },
+        { key:"send_otp",                   label:"إرسال OTP",               desc:"الكود في Redis، مش Firestore (قريباً)", extras:[
           { field:"ttlMin",      label:"مدة الصلاحية",    type:"number", suffix:"دقيقة" },
           { field:"maxAttempts", label:"حد المحاولات",     type:"number", suffix:"محاولة" },
         ]},
-        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يقرأ من Redis (read-only)" },
+        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يقرأ من Redis (read-only) — قريباً" },
       ],
     },
   ];
@@ -2142,11 +2147,19 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
                         onChange={e=>canEdit && setTool(item.key, "enabled", e.target.checked)}
                         style={{width:18,height:18}}/>
                       <div>
-                        <div style={{fontSize:FS, fontWeight:800, color:T.text}}>
-                          <code style={{fontSize:FS-1, padding:"1px 6px", borderRadius:5, background:T.bg, border:`1px solid ${T.brd}`, marginInlineEnd:8, fontFamily:"'Fira Code',monospace"}}>
+                        <div style={{fontSize:FS, fontWeight:800, color:T.text, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                          <code style={{fontSize:FS-1, padding:"1px 6px", borderRadius:5, background:T.bg, border:`1px solid ${T.brd}`, fontFamily:"'Fira Code',monospace"}}>
                             {item.key}
                           </code>
-                          {item.label}
+                          <span>{item.label}</span>
+                          {/* V19.77.1: deployment status badge */}
+                          <span style={{
+                            fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:700,
+                            background: item.deployed ? "#D1FAE5" : "#E0E7FF",
+                            color: item.deployed ? "#065F46" : "#3730A3",
+                          }}>
+                            {item.deployed ? "✓ مفعّل" : "🚧 قريباً"}
+                          </span>
                         </div>
                         <div style={{fontSize:FS-2, color:T.textMut, marginTop:2}}>{item.desc}</div>
                       </div>
