@@ -16,7 +16,7 @@ import { Btn, Card, Sel, Inp, DelBtn } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { gid } from "../utils/format.js";
-import { showToast } from "../utils/popups.js";
+import { ask, showToast } from "../utils/popups.js";
 import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG } from "../utils/automation/buildDailyReport.js";
 import {
   EVENT_VARIABLES,
@@ -306,12 +306,13 @@ export function AutomationPg({ data, upConfig, isMob, user }){
      returns "skipped: already-sent-today" — which makes the scheduled-flow
      impossible to verify end-to-end without waiting until tomorrow OR editing
      Firestore manually. Admin/manager only. */
-  const onResetSentToday = () => {
+  const onResetSentToday = async () => {
     if (!dailyReport?.lastSentAt) {
       showToast("⏭ مفيش lastSentAt مسجل — الـscheduler مش متوقف");
       return;
     }
-    if (!window.confirm("هتمسح علامة 'تم إرساله اليوم' عشان تختبر الـscheduler تاني. متأكد؟")) return;
+    /* V19.76.8: replaced native confirm() with custom themed popup */
+    if (!await ask("اختبار الـscheduler","هتمسح علامة 'تم إرساله اليوم' عشان تختبر الـscheduler تاني. متأكد؟")) return;
     updateAutomation(a => {
       if (!a.dailyReport) a.dailyReport = { ...DEFAULT_AUTOMATION_CONFIG.dailyReport };
       a.dailyReport.lastSentAt = null;
@@ -357,7 +358,8 @@ export function AutomationPg({ data, upConfig, isMob, user }){
   const sendAllPending = async () => {
     const pending = (eventTriggers.pending || []).filter(p => (p.attempts || 0) < 5);
     if (pending.length === 0) { showToast("⏭ مفيش pending"); return; }
-    if (!window.confirm(`هتبعت ${pending.length} رسائل pending. متأكد؟`)) return;
+    /* V19.76.8: replaced native confirm() with themed popup */
+    if (!await ask("إرسال الـpending","هتبعت "+pending.length+" رسالة pending. متأكد؟",{confirmText:"إرسال"})) return;
     setBusy(true);
     let ok = 0, fail = 0;
     for (const entry of pending) {
@@ -926,7 +928,7 @@ function PendingQueueSection({ pending, busy, onSendOne, onSendAll, onDiscard })
                 style={{background:T.ok, color:"#fff", border:"none", fontSize:FS-3, padding:"4px 10px"}}>
                 📤 إرسال
               </Btn>
-              <Btn ghost disabled={busy} onClick={() => { if (window.confirm("حذف هذه الـpending؟")) onDiscard(p.id); }}
+              <Btn ghost disabled={busy} onClick={async() => { if (await ask("حذف الـpending","حذف هذه الرسالة من الـpending؟",{danger:true,confirmText:"حذف"})) onDiscard(p.id); }}
                 style={{borderColor:T.err, color:T.err, fontSize:FS-3, padding:"4px 10px"}}>
                 🗑
               </Btn>

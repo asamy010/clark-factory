@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.76.8",
+    date: "2026-05-06",
+    types: ["fix", "ux"],
+    title: "🛠 منع تكرار رسالة الدفعة (content dedupe) + استبدال الـ confirm بـpopup مخصص",
+    changes: [
+      { type: "fix", text: "🐛 [User report: 'الدفعة برضه بتتكرر، بعد تسجيلها اتبعتت مرتين'] الـ atomic claim من V19.76.3 كان بيمنع الـ duplicate لما الـ idempotencyKey نفسه يتـ fired أكتر من مرة، بس مكنش بيـ catch السيناريو لو فيه حاجة (sync race، edit re-fire، أو caller بـ force=true) بـ تنشئ entries بـ مفاتيح مختلفة لنفس المحتوى. أضيف **content-based dedupe** كـ safety net نهائي: لو نفس (eventType + recipient phone + payloadSummary) كان موجود في eventHistory خلال آخر **30 ثانية**، الـ claim يرفض. الـ contentSig + recipPhone بيتحفظوا في الـ entry فالـ recordResult بـ يفضّلهم بعد success." },
+      { type: "fix", text: "🔍 [Diagnostic logging] أي dedupe دلوقتي بـ يطبع log واضح في Vercel: `[event-trigger] DEDUPED { eventType, idempotencyKey, reason, source }` — عشان لو لسه فيه duplicates في الـ field، الأدمن يقدر يـ grep الـ logs ويعرف هل المشكلة من الـ claim أو من الـ bridge نفسه. كذلك لو فيه caller بـ force=true بيتطبع `FORCE bypass — claim skipped`." },
+      { type: "ux", text: "🪟 [User request: 'عاوز ده بوب اب مش كده'] استبدال 6 استخدامات للـ `window.confirm()` (الـ native browser dialog) بالـ `ask()` المخصصة في 4 ملفات: TreasuryPg (حذف الشيكات المحددة)، AutomationPg (إلغاء الـ scheduler + إرسال pending + حذف pending)، CampaignsPg (إلغاء/حذف حملة)، TasksPg (حذف مهام البوت). الـ popup المخصصة RTL، themed، مع زر danger للحالات الخطيرة، وما تظهرش URL فوق العنوان زي الـ browser dialog." },
+    ]
+  },
+  {
     version: "V19.76.7",
     date: "2026-05-06",
     types: ["ux", "fix"],

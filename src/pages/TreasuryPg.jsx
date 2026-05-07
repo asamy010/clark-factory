@@ -3396,8 +3396,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </div>
               <div style={{display:"flex",gap:8}}>
                 <Btn small onClick={clearChkSel} style={{fontSize:FS-2}}>إلغاء التحديد</Btn>
-                <Btn small primary onClick={()=>{
-                  if(window.confirm("هتمسح "+selectedChkIds.size+" شيك. متأكد؟"))bulkDeleteChecks([...selectedChkIds]);
+                <Btn small primary onClick={async()=>{
+                  /* V19.76.8: replaced window.confirm with the app's custom ask() popup
+                     so the dialog matches the rest of the UI (RTL, themed, no browser chrome). */
+                  if(await ask("حذف الشيكات المحددة","هتمسح "+selectedChkIds.size+" شيك. متأكد؟",{danger:true,confirmText:"🗑 حذف"}))bulkDeleteChecks([...selectedChkIds]);
                 }} style={{background:T.err,color:"#fff",border:"none",fontWeight:700}}>
                   🗑️ حذف المحدد ({selectedChkIds.size})
                 </Btn>

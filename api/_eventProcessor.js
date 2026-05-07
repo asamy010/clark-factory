@@ -40,10 +40,21 @@ export function summarizePayload(eventType, p){
    delay is at most 25s for /send, so 60s is comfortably above the worst case. */
 const INFLIGHT_LOCK_MS = 60_000;
 
+/* ─── V19.76.8: Content-based dedupe window ───
+   Last-resort safety net for duplicate WhatsApp messages. If the SAME content
+   (eventType + recipient phone + payloadSummary) was claimed/fired within this
+   window — even with a different idempotencyKey — refuse. This catches cases
+   where two custPayments end up with different IDs but the same content
+   (e.g. a sync race that double-records, or an edit that fires anew within
+   seconds), something the per-key idempotency check misses. */
+const CONTENT_DEDUPE_MS = 30_000;
+
 /* ─── Append OR update existing eventHistory entry + maintain pending queue ───
    V19.76.3: now updates the in-flight entry written by claimEvent (instead of
    pushing a duplicate row). If no in-flight entry exists (claim was skipped or
-   already collapsed), falls back to unshift for backward compat. */
+   already collapsed), falls back to unshift for backward compat.
+   V19.76.8: preserves contentSig + recipPhone written by the claim so the
+   content-based dedupe in claimEvent still sees the entry post-success. */
 export async function recordResult(db, opts){
   const { idempotencyKey, eventType, payload, success, recipientCount, error, source } = opts;
   const ref = db.collection("factory").doc("config");
@@ -56,17 +67,22 @@ export async function recordResult(db, opts){
     const existingIdx = idempotencyKey
       ? history.findIndex(h => h.idempotencyKey === idempotencyKey)
       : -1;
+    const prior = existingIdx >= 0 ? history[existingIdx] : null;
     const finalEntry = {
       id: idempotencyKey || ("evt_" + Date.now().toString(36)),
       idempotencyKey,
       eventType,
-      at: existingIdx >= 0 ? (history[existingIdx].at || new Date().toISOString()) : new Date().toISOString(),
+      at: prior ? (prior.at || new Date().toISOString()) : new Date().toISOString(),
       completedAt: new Date().toISOString(),
       success: !!success,
       recipientCount: recipientCount || 0,
       error: error || null,
       source: source || "unknown",
       payloadSummary: summarizePayload(eventType, payload),
+      /* V19.76.8: keep the dedupe signature alive so claimEvent's content check
+         still sees this entry within CONTENT_DEDUPE_MS. */
+      recipPhone: prior?.recipPhone || "",
+      contentSig: prior?.contentSig || null,
       /* drop the inFlight flag — this entry is now final */
     };
     if (existingIdx >= 0) {
@@ -105,9 +121,18 @@ export async function recordResult(db, opts){
    saw an empty history and fired again → customer received TWO identical
    messages. The atomic claim closes that race. */
 export async function claimEvent(db, opts){
-  const { idempotencyKey, eventType, payload, source } = opts;
+  const { idempotencyKey, eventType, payload, source, customerPhone, supplierPhone } = opts;
   if (!idempotencyKey) return { claimed: true };/* defensive — caller already validates */
   const ref = db.collection("factory").doc("config");
+  /* V19.76.8: pre-compute the content dedupe key. summarizePayload returns the
+     same string for two events with the same key fields (customerName + amount,
+     etc.), so combining it with the recipient phone + eventType gives a stable
+     content signature. The dedupe applies only when at least one recipient phone
+     is present — owner-only events never collide on this path. */
+  const recipPhone = customerPhone || supplierPhone || "";
+  const contentSig = recipPhone
+    ? eventType + "|" + recipPhone + "|" + summarizePayload(eventType, payload)
+    : null;
   return await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const cfg = snap.exists ? snap.data() : {};
@@ -128,6 +153,25 @@ export async function claimEvent(db, opts){
       /* lock is stale (caller crashed) — fall through and reclaim */
     }
 
+    /* V19.76.8: content-based safety net — same recipient + same event content
+       claimed/sent within CONTENT_DEDUPE_MS counts as a duplicate even if the
+       idempotencyKey differs. Excludes the entry we're currently processing. */
+    if (contentSig) {
+      const now = Date.now();
+      const collision = history.find(h => {
+        if (!h || h.idempotencyKey === idempotencyKey) return false;
+        const sig = (h.contentSig) || (h.payloadSummary && h.eventType
+          ? h.eventType + "|" + (h.recipPhone || "") + "|" + h.payloadSummary
+          : null);
+        if (sig !== contentSig) return false;
+        const t = Date.parse(h.at || 0);
+        return Number.isFinite(t) && (now - t) < CONTENT_DEDUPE_MS;
+      });
+      if (collision) {
+        return { claimed: false, reason: "content-duplicate" };
+      }
+    }
+
     const claimEntry = {
       id: idempotencyKey,
       idempotencyKey,
@@ -137,6 +181,10 @@ export async function claimEvent(db, opts){
       success: false,/* not yet — recordResult will flip to true on success */
       source: source || "unknown",
       payloadSummary: summarizePayload(eventType, payload),
+      /* V19.76.8: persist the recipient + content signature so the content
+         dedupe check above sees them on subsequent calls. */
+      recipPhone,
+      contentSig,
     };
     if (existingIdx >= 0) {
       history[existingIdx] = claimEntry;
@@ -280,13 +328,22 @@ export async function processEvent(db, params){
      instant fire and the cron tick both pass the pre-check (because recordResult
      hasn't run yet) and both call bridgeSend → customer receives 2 messages.
      The transactional claim writes an `inFlight: true` entry; the loser of the
-     race sees it and returns deduped. `force` mode bypasses for manual replays. */
+     race sees it and returns deduped. `force` mode bypasses for manual replays.
+     V19.76.8: explicit log line on every dedupe so users can grep Vercel logs to
+     pinpoint where duplicate fires originate when they still happen. */
   if (!force) {
-    const claim = await claimEvent(db, { idempotencyKey, eventType, payload, source: source || "unknown" });
+    const claim = await claimEvent(db, { idempotencyKey, eventType, payload, source: source || "unknown", customerPhone, supplierPhone });
     if (!claim.claimed) {
+      console.log("[event-trigger] DEDUPED", { eventType, idempotencyKey, reason: claim.reason, source });
       return { ok: true, status: 200, body: { ok: true, deduped: true, reason: claim.reason } };
     }
+  } else {
+    /* V19.76.8: force-bypass surfaces clearly in logs. If the user reports a duplicate
+       and this line shows up, the duplicate came from a manual replay or some other
+       caller that explicitly set force=true. */
+    console.log("[event-trigger] FORCE bypass — claim skipped", { eventType, idempotencyKey, source });
   }
+  console.log("[event-trigger] FIRING bridge", { eventType, idempotencyKey, source, recipientCount: messages.length });
 
   /* Fire */
   let bridgeResult;

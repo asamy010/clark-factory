@@ -3539,8 +3539,9 @@ function exportCampaignsExcel(campaigns, data){
    ═══════════════════════════════════════════════════════════════════════ */
 function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
   const list = data.scheduledCampaigns || [];
-  const cancelOne = (id) => {
-    if (!window.confirm("إلغاء الحملة المجدولة؟")) return;
+  const cancelOne = async (id) => {
+    /* V19.76.8: themed popup instead of native confirm() */
+    if (!await ask("إلغاء الحملة","إلغاء الحملة المجدولة؟",{confirmText:"إلغاء الحملة"})) return;
     upConfig(d => {
       if (!Array.isArray(d.scheduledCampaigns)) return;
       const idx = d.scheduledCampaigns.findIndex(c => c.id === id);
@@ -3548,8 +3549,8 @@ function ScheduledCampaignsList({data, upConfig, onClose, canEdit}){
     });
     showToast("✓ تم الإلغاء");
   };
-  const deleteOne = (id) => {
-    if (!window.confirm("حذف نهائي للحملة؟")) return;
+  const deleteOne = async (id) => {
+    if (!await ask("حذف الحملة","حذف نهائي للحملة؟",{danger:true,confirmText:"حذف"})) return;
     upConfig(d => {
       if (Array.isArray(d.scheduledCampaigns)) {
         d.scheduledCampaigns = d.scheduledCampaigns.filter(c => c.id !== id);

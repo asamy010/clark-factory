@@ -9,7 +9,7 @@ import { useState } from "react";
 import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
 import { FS } from "../constants/index.js";
 import { T } from "../theme.js";
-import { showToast } from "../utils/popups.js";
+import { ask, showToast } from "../utils/popups.js";
 
 export function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   const[taskText,setTaskText]=useState("");const[taskTo,setTaskTo]=useState("");
@@ -28,9 +28,10 @@ export function TasksPg({data,upConfig,upTasks,isMob,user,userRole}){
   const toggleTask=(tid)=>{upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const t=arr.find(x=>String(x.id)===String(tid));if(t){t.done=!t.done;t.doneAt=t.done?new Date().toISOString():null}})};
   const delTask=(tid)=>{upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(x=>String(x.id)!==String(tid)):[]})};
   /* V15.64: Delete all bot tasks at once */
-  const clearBotTasks=()=>{
+  const clearBotTasks=async()=>{
     if(botTasks.length===0)return;
-    if(!window.confirm("هل تريد حذف "+botTasks.length+" مهمة من البوت القديم؟ هذا الإجراء لا يمكن التراجع عنه."))return;
+    /* V19.76.8: themed popup instead of native confirm() */
+    if(!await ask("حذف مهام البوت","هل تريد حذف "+botTasks.length+" مهمة من البوت القديم؟ هذا الإجراء لا يمكن التراجع عنه.",{danger:true,confirmText:"حذف"}))return;
     upTasks(d=>{d.tasks=Array.isArray(d.tasks)?d.tasks.filter(t=>!(t.fromEmail==="bot@clark"||t.fromUid==="bot"||t.botKey||(t.fromName||"").includes("Bot"))):[]});
     showToast("✓ تم حذف "+botTasks.length+" مهمة من البوت");
   };
