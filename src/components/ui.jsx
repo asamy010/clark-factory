@@ -150,14 +150,15 @@ export function ColorPicker({value,colorHex,onSelect}){
   </div>
 }
 
-export function FCTable({label,fabName,colors,setColors,accent,readOnly,pcsPerSeries}){
+export function FCTable({label,fabName,fabPrice,colors,setColors,accent,readOnly,pcsPerSeries}){
   const tQ=sqty(colors),tL=slay(colors);
   const pps=pcsPerSeries||0;
   const addC=()=>setColors([...colors,{color:"",colorHex:"",layers:0,pcsPerLayer:pps||0,qty:0}]);
   const upC=(i,fld,val)=>{const nc=colors.map((c,j)=>{if(j!==i)return c;const u={...c};u[fld]=(fld==="color"||fld==="colorHex")?val:(Number(val)||0);if(fld==="layers"||fld==="pcsPerLayer")u.qty=(Number(u.layers)||0)*(Number(u.pcsPerLayer)||0);return u});setColors(nc)};
   return<div style={{border:"1px solid "+T.brd,borderRadius:14,overflow:"visible",marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
     <div style={{padding:"10px 16px",background:accent,display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"14px 14px 0 0",flexWrap:"wrap",gap:8}}>
-      <span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>{label+": "+(fabName||"")}</span>
+      {/* V19.80.2: optional fabPrice prop appended to the title (e.g. "خامة A: قماش بوليفار - متر — 50 ج.م/متر") */}
+      <span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>{label+": "+(fabName||"")}{fabPrice?<span style={{fontWeight:800,marginInlineStart:6,padding:"2px 10px",borderRadius:8,background:"rgba(255,255,255,0.22)"}}>{fabPrice}</span>:null}</span>
       <div style={{display:"flex",gap:8}}>{pps>0&&<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"سيري: "+pps}</span>}<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"راقات: "+tL}</span><span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"قطع: "+tQ}</span></div>
     </div>
     <div style={{padding:12,overflowX:"auto"}}>

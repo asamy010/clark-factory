@@ -28,7 +28,7 @@ function pieceIconFor(modelDesc, orderPieces){
   return"👕";
 }
 
-export function DefaultModelImg({src,modelNo,modelDesc,orderPieces,width,height,style,className,onClick,title}){
+export function DefaultModelImg({src,modelNo,modelDesc,orderPieces,width,height,style,className,onClick,title,loading}){
   const hasImg = src && typeof src==="string" && src.trim().length>0;
   /* Standard 3:4 portrait. Width takes priority; height auto-derived. */
   const w = width || (height ? Math.round(height*3/4) : null);
@@ -43,11 +43,14 @@ export function DefaultModelImg({src,modelNo,modelDesc,orderPieces,width,height,
   };
 
   if(hasImg){
+    /* V19.80.2: `loading` prop overridable — detail view passes "eager" so the
+       hero image renders without the lazy delay; list view defaults to "lazy"
+       (off-screen tiles don't fire HTTP requests until scrolled into view). */
     return <img
       src={src} alt={modelNo||""}
       className={className} style={baseStyle}
       onClick={onClick} title={title}
-      loading="lazy" decoding="async"
+      loading={loading||"lazy"} decoding="async"
       onError={(e)=>{e.currentTarget.style.display="none";const ph=e.currentTarget.nextElementSibling;if(ph)ph.style.display="flex"}}
     />;
   }

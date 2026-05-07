@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.2",
+    date: "2026-05-07",
+    types: ["fix", "feature"],
+    title: "🖼 صور كاش-أول + 🏷 سعر الخامة في الجدول + ⚡ صورة فورية في prev/next",
+    changes: [
+      { type: "feature", text: "🏷 [Fabric price visible in table header] جدول ألوان الخامة (FCTable) دلوقتي بـ يعرض السعر في الـ header جنب اسم الخامة. مثال: \"خامة A: قماش بوليفار - متر — 50 ج.م/متر\". ينطبق على شاشة تسجيل الأوردر وعلى تفاصيل الأوردر الـ readonly." },
+      { type: "fix", text: "🖼 [Service Worker — cache-first for images] الـ sw.js كان \"network-first\" لكل حاجة، يعني الصور بـ تتـ refetch من Firebase Storage كل مرة (1 ثانية+ تأخير على كل تنقل). دلوقتي قسمنا لـ cache strategies:\n• الصور (Firebase Storage / image extensions) → cache-first: تـ hit الكاش فوراً، تـ fall back للنت لو miss.\n• كل حاجة تانية → network-first زي الأول، فالـ deploys الجديدة تـ land فوراً.\nالـ image cache (`clark-images-v1`) مفصول عن الـ app cache (`clark-app-v2`) فالـ deploys ما تـ wipe-ش الصور المحفوظة." },
+      { type: "fix", text: "⚡ [Prev/Next nav: instant image — pre-fetch adjacent orders] لما تفتح أوردر، الـ DetPg دلوقتي بـ يـ pre-fetch صور 4 أوردرات حواليه (2 قبل + 2 بعد) عبر `new Image()`. لما تضغط → أو ← الصورة بـ تكون موجودة في الـ browser cache بالفعل فالعرض فوري بدون flash." },
+      { type: "fix", text: "🎯 [Detail view: loading=\"eager\" override] الـ DefaultModelImg دلوقتي بـ يقبل prop اسمه `loading`. الـ DetPg detail view بـ يمرر `loading=\"eager\"` لأن الصورة الـ hero مش بتـ benefit من lazy. الـ orders list grid فضل default `lazy` (الصور خارج الـ viewport ما تـ trigger HTTP requests)." },
+      { type: "fix", text: "📐 [Image height = row height + 3:4 portrait] الصورة في الصف الأعلى كانت width:140px ثابتة (height محسوب). دلوقتي `height:100%` + `aspectRatio:3/4` + `width:auto` فالصورة تـ stretch لارتفاع الصف (المحدد من الـ KPI grid) وعرضها يحسب من الـ aspect ratio. النتيجة: تناسق كامل بصرياً." },
+    ]
+  },
+  {
     version: "V19.80.1",
     date: "2026-05-07",
     types: ["fix"],

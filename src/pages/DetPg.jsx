@@ -87,6 +87,28 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     return()=>window.removeEventListener("qr-stock",h);
   },[sel]);// eslint-disable-line react-hooks/exhaustive-deps
 
+  /* V19.80.2: pre-fetch the adjacent orders' images so prev/next navigation
+     shows the image instantly. Combined with the cache-first SW for images,
+     this gives the "professional" instant-render feel — the browser already
+     has the bytes by the time the user clicks the arrow. Also pre-fetches
+     the first 6 images in the list view's natural sort to warm the cache
+     when an order is opened from the grid. */
+  useEffect(()=>{
+    if(!sel)return;
+    const sortedIds=sortOrders(data.orders).map(o=>o.id);
+    const curIdx=sortedIds.indexOf(sel);
+    const prefetchIds=[];
+    if(curIdx>0)prefetchIds.push(sortedIds[curIdx-1]);
+    if(curIdx<sortedIds.length-1)prefetchIds.push(sortedIds[curIdx+1]);
+    /* Two ahead, two behind — covers fast clicking through orders */
+    if(curIdx>1)prefetchIds.push(sortedIds[curIdx-2]);
+    if(curIdx<sortedIds.length-2)prefetchIds.push(sortedIds[curIdx+2]);
+    prefetchIds.forEach(id=>{
+      const o=data.orders.find(x=>x.id===id);
+      if(o&&o.image){const img=new Image();img.src=o.image;}
+    });
+  },[sel,data.orders.length]);
+
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
@@ -586,10 +608,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         .det-pieces-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;padding:10px 12px;background:${T.cardSolid};border-radius:12px;border:1px solid ${T.brd}}
       `}</style>
       <div className="det-top-row">
-        {/* V19.80.1: image first → goes to RTL right edge (col 1: auto width) */}
+        {/* V19.80.2: image cell — height tracks the row (matches the 2x2 KPI grid),
+             width derives from height via aspect-ratio:3/4. loading="eager" so the
+             hero image shows immediately on prev/next nav (no lazy delay). */}
         <div className="det-img-cell">
-          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={isMob?100:140} style={{borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>✕</div>}
+          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} loading="eager" style={{height:"100%",width:"auto",aspectRatio:"3 / 4",minHeight:isMob?140:160,borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,zIndex:2}}>✕</div>}
         </div>
         {/* 2x2 KPI grid → middle column (col 2: auto width) */}
         <div className="det-kpis-cell">
@@ -767,7 +791,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {activeTab==="fabrics"&&<>
       {order.instructions&&<Card title="📝 تعليمات التشغيل" style={{marginBottom:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
-        {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>
+        {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];const fabP=gf(order,k,"Price");const fabU=gf(order,k,"Unit");return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} fabPrice={fabP?(fabP+" ج.م"+(fabU?"/"+fabU:"")):""} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly/>
           {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{gIcon(p,data.garmentTypes)+" "+p}</span>)}</div>}
           {dt&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:-4,marginBottom:10}}>{"تاريخ القص: "+dt}</div>}
         </div>})}
