@@ -45,6 +45,8 @@ import { FS, INIT_CONFIG } from "../constants/index.js";
 import { gid } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 import { compressImg43 } from "../utils/image.js";
+import { db } from "../firebase";
+import { collection, onSnapshot, query, orderBy, limit, doc, deleteDoc } from "firebase/firestore";
 
 const DEFAULT_AGENT = INIT_CONFIG.aiAgent;
 
@@ -57,6 +59,40 @@ const DAY_LABELS = [
   { key: "thu", label: "الخميس" },
   { key: "fri", label: "الجمعة" },
 ];
+
+/* V19.77 (Phase 2): live Firestore listener for agent collections.
+   Returns a docs array of {id, ...data}. Optional `q` lets you pass a
+   pre-built query (with where/orderBy/limit). The hook unsubscribes on
+   unmount and on dep change so stale listeners don't pile up.
+
+   Usage:
+     const conversations = useAgentCollection("aiAgentConversations",
+       q => query(q, orderBy("at", "desc"), limit(50))
+     );
+*/
+function useAgentCollection(name, queryBuilder) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!name) return;
+    setLoading(true);
+    const ref = collection(db, name);
+    const q = queryBuilder ? queryBuilder(ref) : ref;
+    const unsub = onSnapshot(q, (snap) => {
+      const out = [];
+      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      setDocs(out);
+      setLoading(false);
+    }, (err) => {
+      setError(err);
+      setLoading(false);
+    });
+    return () => unsub();
+  /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [name]);
+  return { docs, loading, error };
+}
 
 /* V19.76: 10 tabs. Catalog = single source of truth for products,
    read by the agent's search_products tool. */
@@ -918,6 +954,17 @@ function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
           </div>
         </div>
 
+        {/* V19.77 (Phase 2): Recent Senders panel — captures non-whitelisted WIDs
+            so the admin can promote them to the whitelist with one click. The
+            agent writes to aiAgentRecentSenders every time test mode rejects. */}
+        <RecentSendersPanel
+          tm={tm}
+          updateAgent={updateAgent}
+          canEdit={canEdit}
+          isMob={isMob}
+          fieldStyle={fieldStyle}
+        />
+
         {/* Outside-whitelist behavior */}
         <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 2fr", gap:12}}>
           <div>
@@ -1120,6 +1167,171 @@ function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
 }
 
 /* ════════════════════════════════════════════════════════════
+   RECENT SENDERS PANEL (V19.77, Phase 2)
+   ─────────────────────────────────────────────────────────────
+   Live subscription to aiAgentRecentSenders — entries written by
+   the agent whenever a non-whitelisted WID messages during test
+   mode. Each row shows the WID + count + recent message + a
+   one-click "+ ضيف للـ whitelist" button so the admin doesn't
+   have to grep agent logs to discover an opaque LID.
+   ════════════════════════════════════════════════════════════ */
+function RecentSendersPanel({ tm, updateAgent, canEdit, isMob, fieldStyle }){
+  const { docs: senders, loading } = useAgentCollection("aiAgentRecentSenders",
+    ref => query(ref, orderBy("lastSeenAt", "desc"), limit(20))
+  );
+
+  /* Filter out senders already in the whitelist */
+  const whitelistUserParts = useMemo(() => {
+    const s = new Set();
+    (tm.whitelist || []).forEach(e => {
+      const wid = e.wid || "";
+      const userPart = wid.split("@")[0].replace(/\D/g, "");
+      if (userPart) s.add(userPart);
+    });
+    return s;
+  }, [tm.whitelist]);
+
+  const visibleSenders = senders.filter(s => !whitelistUserParts.has(s.userPart));
+
+  const promoteToWhitelist = (sender, label) => {
+    updateAgent(a => {
+      if (!a.testMode) a.testMode = JSON.parse(JSON.stringify(DEFAULT_AGENT.testMode));
+      if (!Array.isArray(a.testMode.whitelist)) a.testMode.whitelist = [];
+      const userPart = (sender.wid || "").split("@")[0];
+      const dup = a.testMode.whitelist.find(e => (e.wid || "").split("@")[0] === userPart);
+      if (dup) return;
+      a.testMode.whitelist.push({
+        id: gid(),
+        wid: sender.wid,
+        label: (label || "").trim() || null,
+        addedAt: new Date().toISOString(),
+        addedFromRecentSender: true,
+      });
+    });
+  };
+
+  const dismissSender = async (sender) => {
+    if (!await ask("إخفاء", "تخفي السيندر ده من القائمة؟ مش هيـattempt يتمسح من الـ collection — بس هيختفي من الـ panel ده طالما مش هيبعت تاني.", { confirmText: "إخفاء" })) return;
+    try {
+      await deleteDoc(doc(db, "aiAgentRecentSenders", sender.id));
+      showToast("✓ تم الإخفاء");
+    } catch (err) {
+      showToast("⛔ فشل الحذف: " + (err.message || err));
+    }
+  };
+
+  if (!tm.enabled) return null;/* only relevant during test mode */
+
+  return (
+    <div style={{
+      marginTop: 14,
+      padding: 12,
+      borderRadius: 10,
+      background: "#FFFFFF",
+      border: "1px solid #FCD34D",
+    }}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom:10}}>
+        <label style={{...fieldStyle, marginBottom:0, fontSize:FS-1, color:"#92400E"}}>
+          📬 آخر اللي بعتوا ومش في الـ whitelist ({visibleSenders.length})
+        </label>
+        {loading && <span style={{fontSize:FS-3, color:T.textMut}}>⏳ بيحمّل...</span>}
+      </div>
+
+      {visibleSenders.length === 0 && !loading && (
+        <div style={{fontSize:FS-2, color:"#78350F", padding:"8px 4px", lineHeight:1.6}}>
+          {senders.length === 0
+            ? "لسه مفيش أحد بعت ورفض. لما رقم خارج الـ whitelist يبعت، هيظهر هنا تلقائياً."
+            : "كل اللي بعتوا موجودين في الـ whitelist بالفعل ✓"}
+        </div>
+      )}
+
+      {visibleSenders.length > 0 && (
+        <div style={{display:"grid", gap:6}}>
+          {visibleSenders.map(s => (
+            <RecentSenderRow
+              key={s.id}
+              sender={s}
+              canEdit={canEdit}
+              isMob={isMob}
+              onPromote={(label) => promoteToWhitelist(s, label)}
+              onDismiss={() => dismissSender(s)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecentSenderRow({ sender, canEdit, isMob, onPromote, onDismiss }){
+  const [label, setLabel] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const lastSeen = sender.lastSeenAt ? new Date(sender.lastSeenAt) : null;
+  const ago = lastSeen ? timeAgo(lastSeen) : "—";
+  return (
+    <div style={{
+      padding: 10,
+      borderRadius: 8,
+      background: "#FFFBEB",
+      border: "1px solid #FDE68A",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+    }}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, flexWrap:"wrap"}}>
+        <div style={{flex:1, minWidth:200}}>
+          <div style={{fontSize:FS-1, fontWeight:700, color:"#78350F", fontFamily:"'Fira Code', monospace", wordBreak:"break-all"}}>
+            {sender.isLid && <span title="WhatsApp privacy LID — رقم مجهول" style={{marginInlineEnd:6}}>🔒</span>}
+            {sender.wid}
+          </div>
+          <div style={{fontSize:FS-3, color:T.textMut, marginTop:2}}>
+            {sender.count} رسالة · آخرها {ago}
+          </div>
+        </div>
+        {canEdit && (
+          <div style={{display:"flex", gap:6, flexShrink:0}}>
+            <Btn small onClick={()=>setExpanded(!expanded)} style={{background:"#10B98115", color:"#059669", border:"1px solid #10B98140", fontWeight:700}}>
+              + للـ whitelist
+            </Btn>
+            <Btn ghost small onClick={onDismiss} title="إخفاء">🗑</Btn>
+          </div>
+        )}
+      </div>
+
+      {sender.recentMessage && (
+        <div style={{
+          fontSize:FS-2, color:T.textSec, lineHeight:1.5,
+          padding:"4px 8px", background:T.bg, borderRadius:6,
+          fontStyle:"italic",
+          display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden"
+        }}>
+          "{sender.recentMessage}"
+        </div>
+      )}
+
+      {expanded && canEdit && (
+        <div style={{display:"flex", gap:6, marginTop:4, flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 200px", minWidth:0}}>
+            <Inp value={label} onChange={setLabel} placeholder="اسم اختياري (مثال: عميل جديد)..."/>
+          </div>
+          <Btn primary onClick={() => { onPromote(label); }} style={{flexShrink:0}}>✓ ضيف</Btn>
+          <Btn ghost onClick={()=>{setExpanded(false); setLabel("")}} style={{flexShrink:0}}>إلغاء</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Minimal "5 minutes ago" / "yesterday" / etc. helper for the panel */
+function timeAgo(date) {
+  const sec = (Date.now() - date.getTime()) / 1000;
+  if (sec < 60) return "الآن";
+  if (sec < 3600) return Math.floor(sec/60) + "د";
+  if (sec < 86400) return Math.floor(sec/3600) + "س";
+  return Math.floor(sec/86400) + "يوم";
+}
+
+/* ════════════════════════════════════════════════════════════
    PLACEHOLDER TAB — for tabs not yet implemented
    ════════════════════════════════════════════════════════════ */
 function PlaceholderTab({ title, icon, phase, desc }){
@@ -1162,50 +1374,90 @@ function PlaceholderTab({ title, icon, phase, desc }){
 }
 
 /* ════════════════════════════════════════════════════════════
-   DASHBOARD TAB (V19.72) — KPIs + chart + cost
-   The agent backend writes daily aggregates to
-   data.aiAgentAnalytics[YYYY-MM-DD]. Until it ships, those are
-   empty — render zeros + clear empty-state hint.
+   DASHBOARD TAB
+   V19.72 (placeholder) → V19.77 (live, Phase 2):
+   Reads aiAgentAnalytics live via Firestore listener. Each doc id is
+   a YYYY-MM-DD Cairo dayKey written by the agent's hourly cron.
+
+   New schema (clark-ai-agent v1.0.1):
+     turnsTotal, turnsSuccessful, turnsCanned, turnsSkipped, turnsFailed
+     uniqueSenders, avgDurationMs
+     toolUsage{}, stages{}
+     tokens{ input, output, cacheRead, cacheWrite }
+     estimatedCostUsd
    ════════════════════════════════════════════════════════════ */
 function DashboardTab({ agent, data, isMob }){
   const [range, setRange] = useState("today");/* today | 7d | 30d */
-  const analytics = data?.aiAgentAnalytics || {};
 
-  /* Build last-N-days array of keys (oldest first) */
+  /* Live subscription — only mounted while this tab is rendered */
+  const { docs: analyticsDocs, loading } = useAgentCollection("aiAgentAnalytics");
+
+  /* Index by dayKey for O(1) lookup */
+  const analytics = useMemo(() => {
+    const m = {};
+    for (const d of analyticsDocs) m[d.dayKey || d.id] = d;
+    return m;
+  }, [analyticsDocs]);
+
+  /* Build last-N-days array of keys (oldest first) using Cairo timezone */
+  const cairoToday = useMemo(() => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const m = {}; for (const p of parts) m[p.type] = p.value;
+    return `${m.year}-${m.month}-${m.day}`;
+  }, [analyticsDocs]);
+
   const days = useMemo(() => {
     const n = range === "today" ? 1 : range === "7d" ? 7 : 30;
     const out = [];
-    const today = new Date(); today.setHours(0,0,0,0);
+    const [yy, mm, dd] = cairoToday.split("-").map(Number);
+    const todayDate = new Date(Date.UTC(yy, mm-1, dd));
     for (let i = n-1; i >= 0; i--) {
-      const d = new Date(today); d.setDate(d.getDate() - i);
+      const d = new Date(todayDate); d.setUTCDate(d.getUTCDate() - i);
       const key = d.toISOString().slice(0,10);
-      const label = d.toLocaleDateString("ar-EG", { month: "numeric", day: "numeric" });
+      const label = `${d.getUTCDate()}/${d.getUTCMonth()+1}`;
       out.push({ key, label, ...(analytics[key] || {}) });
     }
     return out;
-  }, [range, analytics]);
+  }, [range, analytics, cairoToday]);
 
   const totals = useMemo(() => days.reduce((acc, d) => ({
-    conversations:    acc.conversations    + (d.conversations_count    || 0),
-    messages:         acc.messages         + (d.messages_count         || 0),
-    voice:            acc.voice            + (d.voice_messages_count   || 0),
-    images:           acc.images           + (d.image_messages_count   || 0),
-    escalations:      acc.escalations      + (d.escalations_count      || 0),
-    salesNotifs:      acc.salesNotifs      + (d.sales_notifications_sent || 0),
-    salesConv:        acc.salesConv        + (d.sales_conversions      || 0),
-    uniqueCustomers:  acc.uniqueCustomers  + (d.unique_customers       || 0),
-    cost:             acc.cost             + (d.cost_usd_anthropic||0) + (d.cost_usd_whisper||0) + (d.cost_usd_vision||0),
-    avgResp:          (d.avg_response_time_ms || 0),/* last day's avg */
-    csat:             (d.avg_satisfaction || 0),
-  }), { conversations:0, messages:0, voice:0, images:0, escalations:0, salesNotifs:0, salesConv:0, uniqueCustomers:0, cost:0, avgResp:0, csat:0 }), [days]);
+    turnsTotal:       acc.turnsTotal       + (d.turnsTotal       || 0),
+    turnsSuccessful:  acc.turnsSuccessful  + (d.turnsSuccessful  || 0),
+    turnsCanned:      acc.turnsCanned      + (d.turnsCanned      || 0),
+    turnsSkipped:     acc.turnsSkipped     + (d.turnsSkipped     || 0),
+    turnsFailed:      acc.turnsFailed      + (d.turnsFailed      || 0),
+    uniqueSenders:    acc.uniqueSenders    + (d.uniqueSenders    || 0),
+    cost:             acc.cost             + (d.estimatedCostUsd || 0),
+    inputTokens:      acc.inputTokens      + (d.tokens?.input    || 0),
+    outputTokens:     acc.outputTokens     + (d.tokens?.output   || 0),
+    cacheReadTokens:  acc.cacheReadTokens  + (d.tokens?.cacheRead  || 0),
+    cacheWriteTokens: acc.cacheWriteTokens + (d.tokens?.cacheWrite || 0),
+    avgResp:          (d.avgDurationMs || 0),/* last day's avg */
+  }), {
+    turnsTotal:0, turnsSuccessful:0, turnsCanned:0, turnsSkipped:0, turnsFailed:0,
+    uniqueSenders:0, cost:0, inputTokens:0, outputTokens:0, cacheReadTokens:0,
+    cacheWriteTokens:0, avgResp:0,
+  }), [days]);
+
+  /* Tool usage aggregated across all days in range */
+  const toolTotals = useMemo(() => {
+    const t = {};
+    for (const d of days) {
+      const u = d.toolUsage || {};
+      for (const [k, v] of Object.entries(u)) t[k] = (t[k] || 0) + v;
+    }
+    return Object.entries(t).sort((a,b) => b[1]-a[1]).slice(0, 5);
+  }, [days]);
 
   const chartData = days.map(d => ({
     name: d.label,
-    محادثات: d.conversations_count || 0,
-    تحويلات: d.escalations_count   || 0,
+    محادثات: d.turnsTotal     || 0,
+    "test mode": d.turnsSkipped || 0,
   }));
 
-  const hasAnyData = totals.conversations + totals.escalations + totals.cost > 0;
+  const hasAnyData = totals.turnsTotal > 0;
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
@@ -1236,7 +1488,7 @@ function DashboardTab({ agent, data, isMob }){
       </div>
 
       {/* Empty-state banner */}
-      {!hasAnyData && (
+      {!hasAnyData && !loading && (
         <div style={{
           padding:"14px 18px", marginBottom:14, borderRadius:12,
           background:"#FEF3C7", border:"1px solid #FCD34D",
@@ -1244,31 +1496,36 @@ function DashboardTab({ agent, data, isMob }){
         }}>
           <span style={{fontSize:28}}>⏳</span>
           <div style={{flex:1, minWidth:200}}>
-            <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>الـ Agent لسه مش بيـولّد بيانات</div>
+            <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>مفيش محادثات لسه في الفترة دي</div>
             <div style={{fontSize:FS-1, color:"#78350F", marginTop:2, lineHeight:1.5}}>
-              الـ backend (Phase D) لما يبني هيـكتب الإحصائيات في `aiAgentAnalytics/`. حالياً الكروت بـ0 — ده طبيعي.
+              الـ Agent بـ يـ aggregate كل ساعة في `aiAgentAnalytics/{`{دvتاريخ}`}`. لو الـ Agent شغّال بس لسه مفيش رسائل، الكروت هتبقى 0.
             </div>
           </div>
+        </div>
+      )}
+      {loading && (
+        <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:T.brd+"20", fontSize:FS-1, color:T.textMut}}>
+          ⏳ بيحمّل البيانات من Firestore...
         </div>
       )}
 
       {/* KPI grid */}
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10, marginBottom:14}}>
-        <KpiCard icon="💬" label="محادثات" value={totals.conversations} color="#0EA5E9"/>
-        <KpiCard icon="📨" label="رسائل"  value={totals.messages}      color="#10B981"/>
-        <KpiCard icon="🆘" label="تحويلات لبشري" value={totals.escalations} color="#EF4444"/>
-        <KpiCard icon="💰" label="تكلفة (USD)" value={totals.cost.toFixed(2)} color="#8B5CF6"/>
+        <KpiCard icon="💬" label="محادثات" value={totals.turnsTotal} color="#0EA5E9"/>
+        <KpiCard icon="✅" label="ناجحة"   value={totals.turnsSuccessful} color="#10B981"/>
+        <KpiCard icon="👥" label="عملاء" value={totals.uniqueSenders} color="#F59E0B"/>
+        <KpiCard icon="💰" label="تكلفة (USD)" value={"$"+totals.cost.toFixed(3)} color="#8B5CF6"/>
       </div>
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10, marginBottom:14}}>
-        <KpiCard icon="🔔" label="إشعارات مبيعات" value={totals.salesNotifs} color="#F59E0B"/>
-        <KpiCard icon="✅" label="طلبات أُكدت"   value={totals.salesConv}   color="#059669"/>
-        <KpiCard icon="🎤" label="رسائل صوتية"   value={totals.voice}       color="#06B6D4"/>
-        <KpiCard icon="📷" label="صور"           value={totals.images}      color="#EC4899"/>
+        <KpiCard icon="🤖" label="رد آلي (off-hours)" value={totals.turnsCanned} color="#06B6D4"/>
+        <KpiCard icon="⏭" label="مش في الـ whitelist" value={totals.turnsSkipped} color="#94A3B8"/>
+        <KpiCard icon="❌" label="فشل" value={totals.turnsFailed} color="#EF4444"/>
+        <KpiCard icon="⚡" label="متوسط الزمن" value={totals.avgResp ? `${(totals.avgResp/1000).toFixed(1)} ث` : "—"} color="#059669"/>
       </div>
 
       {/* Chart */}
       <div style={cardStyle}>
-        <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>📈 المحادثات والتحويلات</h3>
+        <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>📈 المحادثات على مدار الفترة</h3>
         <div style={{width:"100%", height: isMob?180:240}}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -1277,31 +1534,35 @@ function DashboardTab({ agent, data, isMob }){
               <YAxis allowDecimals={false} tick={{ fill: T.textSec, fontSize: FS-2 }}/>
               <Tooltip contentStyle={{ background: T.cardSolid, border: `1px solid ${T.brd}`, borderRadius: 8, fontSize: FS-1 }}/>
               <Bar dataKey="محادثات" fill="#8B5CF6" radius={[4,4,0,0]}/>
-              <Bar dataKey="تحويلات" fill="#EF4444" radius={[4,4,0,0]}/>
+              <Bar dataKey="test mode" fill="#94A3B8" radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Cost breakdown + secondary KPIs */}
+      {/* Token + tool usage panel */}
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:14}}>
         <div style={cardStyle}>
-          <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>💰 توزيع التكلفة</h3>
-          <CostRow label="Anthropic (Claude)" value={days.reduce((s,d)=>s+(d.cost_usd_anthropic||0),0)} color="#8B5CF6"/>
-          <CostRow label="OpenAI (Whisper)"   value={days.reduce((s,d)=>s+(d.cost_usd_whisper||0),0)}   color="#10B981"/>
-          <CostRow label="Claude Vision"      value={days.reduce((s,d)=>s+(d.cost_usd_vision||0),0)}    color="#EC4899"/>
+          <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>🪙 استخدام الـ tokens</h3>
+          <CostRow label="Input"        value={totals.inputTokens}      color="#0EA5E9" suffix=" tk" precision={0}/>
+          <CostRow label="Output"       value={totals.outputTokens}     color="#10B981" suffix=" tk" precision={0}/>
+          <CostRow label="Cache write"  value={totals.cacheWriteTokens} color="#F59E0B" suffix=" tk" precision={0}/>
+          <CostRow label="Cache read (مدّخّر)" value={totals.cacheReadTokens}  color="#8B5CF6" suffix=" tk" precision={0}/>
           <div style={{marginTop:10, paddingTop:10, borderTop:`2px solid ${T.brd}`, display:"flex", justifyContent:"space-between", fontSize:FS, fontWeight:800}}>
-            <span>الإجمالي</span>
-            <span>${totals.cost.toFixed(3)}</span>
+            <span>الإجمالي بـ USD</span>
+            <span>${totals.cost.toFixed(4)}</span>
           </div>
         </div>
         <div style={cardStyle}>
-          <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>⚡ مؤشرات سريعة</h3>
-          <KpiRow label="عملاء مختلفين"       value={totals.uniqueCustomers}/>
-          <KpiRow label="متوسط زمن الرد"       value={totals.avgResp ? `${(totals.avgResp/1000).toFixed(2)} ث` : "—"}/>
-          <KpiRow label="رضا العميل"           value={totals.csat ? `${totals.csat.toFixed(1)} / 5` : "—"}/>
-          <KpiRow label="معدل التحويل"         value={totals.conversations ? `${((totals.escalations/totals.conversations)*100).toFixed(0)}%` : "—"}/>
-          <KpiRow label="معدل تأكيد الطلبات"   value={totals.salesNotifs ? `${((totals.salesConv/totals.salesNotifs)*100).toFixed(0)}%` : "—"}/>
+          <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>🛠 الأدوات الأكثر استخداماً</h3>
+          {toolTotals.length === 0 ? (
+            <div style={{fontSize:FS-1, color:T.textMut, padding:"8px 0"}}>لا يوجد استخدام للأدوات في الفترة المحددة.</div>
+          ) : toolTotals.map(([name, count]) => (
+            <KpiRow key={name} label={name} value={count}/>
+          ))}
+          <div style={{marginTop:10, paddingTop:10, borderTop:`2px solid ${T.brd}`, fontSize:FS-2, color:T.textMut, lineHeight:1.6}}>
+            💡 الأدوات الـ 5 المتاحة: get_faq_answer · search_products · get_product_details · get_company_info · escalate_to_human
+          </div>
         </div>
       </div>
     </div>
@@ -1323,14 +1584,19 @@ function KpiCard({ icon, label, value, color }){
   );
 }
 
-function CostRow({ label, value, color }){
+function CostRow({ label, value, color, suffix = "", precision = 3 }){
+  /* V19.77: support non-USD rows (token counts) via suffix + precision overrides. */
+  const formatted = precision === 0
+    ? Number(value || 0).toLocaleString("en-US")
+    : Number(value || 0).toFixed(precision);
+  const display = suffix ? formatted + suffix : "$" + formatted;
   return (
     <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", fontSize:FS-1}}>
       <span style={{display:"flex", alignItems:"center", gap:8, color:T.textSec}}>
         <span style={{width:10,height:10,borderRadius:"50%",background:color,display:"inline-block"}}/>
         {label}
       </span>
-      <span style={{fontWeight:700, color:T.text, fontVariantNumeric:"tabular-nums"}}>${value.toFixed(3)}</span>
+      <span style={{fontWeight:700, color:T.text, fontVariantNumeric:"tabular-nums"}}>{display}</span>
     </div>
   );
 }
@@ -1345,25 +1611,54 @@ function KpiRow({ label, value }){
 }
 
 /* ════════════════════════════════════════════════════════════
-   CONVERSATION LOGS TAB (V19.72)
-   Reads from data.aiAgentConversations (empty until backend ships).
-   Shows filter bar + empty state with mock card structure preview.
+   CONVERSATION LOGS TAB
+   V19.72 (placeholder) → V19.77 (live, Phase 2):
+   Live subscription to aiAgentConversations. Each Firestore doc =
+   one turn (NOT a thread of N messages). Cards group consecutive
+   turns by wid so the view reads like a thread.
    ════════════════════════════════════════════════════════════ */
 function LogsTab({ agent, data, isMob }){
-  const conversations = data?.aiAgentConversations || [];
+  /* Pull last 200 turns ordered by `at` desc. The orderBy needs
+     a single-field index (auto-created by Firestore on first query). */
+  const { docs: turns, loading, error } = useAgentCollection("aiAgentConversations",
+    ref => query(ref, orderBy("at", "desc"), limit(200))
+  );
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
+  /* Group consecutive turns by wid for display as threads */
+  const threads = useMemo(() => {
+    /* turns are newest-first; group by wid */
+    const byWid = {};
+    for (const t of turns) {
+      const k = t.wid || "(unknown)";
+      if (!byWid[k]) byWid[k] = { wid: k, turns: [], lastAt: t.at };
+      byWid[k].turns.push(t);
+    }
+    /* turns inside each thread should be oldest→newest for display */
+    for (const k of Object.keys(byWid)) byWid[k].turns.reverse();
+    /* Sort threads by latest activity (newest first) */
+    return Object.values(byWid).sort((a,b) => String(b.lastAt).localeCompare(String(a.lastAt)));
+  }, [turns]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return conversations.filter(c => {
-      if (statusFilter === "escalated" && !c.escalated) return false;
-      if (statusFilter === "resolved"  &&  c.escalated) return false;
+    return threads.filter(th => {
+      const last = th.turns[th.turns.length-1] || {};
+      const isSkipped = th.turns.some(t => t.skipped || t.canned);
+      const isError = th.turns.some(t => t.error);
+      if (statusFilter === "ok"      && (isSkipped || isError)) return false;
+      if (statusFilter === "skipped" && !isSkipped) return false;
+      if (statusFilter === "error"   && !isError) return false;
       if (!q) return true;
-      const hay = [c.customer_name, c.phone, c.last_message, ...(c.messages||[]).map(m=>m.text)].join(" ").toLowerCase();
+      const hay = [
+        th.wid, last.customerName, last.phone,
+        ...th.turns.flatMap(t => [t.userMessage, t.assistantReply]),
+      ].filter(Boolean).join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [conversations, search, statusFilter]);
+  }, [threads, search, statusFilter]);
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
@@ -1371,54 +1666,56 @@ function LogsTab({ agent, data, isMob }){
     <div>
       <div style={{...cardStyle, display:"flex", flexWrap:"wrap", gap:10, alignItems:"center"}}>
         <div style={{flex:"1 1 240px", minWidth:200}}>
-          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث: اسم/تليفون/كلمة..."/>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث: WID/اسم/رقم/كلمة..."/>
         </div>
         <div style={{flex:"0 0 180px", minWidth:140}}>
           <Sel value={statusFilter} onChange={setStatusFilter}>
             <option value="">كل الحالات</option>
-            <option value="resolved">تم الحل (الـ Agent)</option>
-            <option value="escalated">حُوّل لبشري</option>
+            <option value="ok">رد طبيعي</option>
+            <option value="skipped">رد آلي/متخطّى</option>
+            <option value="error">فشل</option>
           </Sel>
         </div>
       </div>
 
       <div style={{display:"flex", gap:10, marginBottom:14, flexWrap:"wrap"}}>
-        <StatPill label="إجمالي" value={conversations.length} color="#0EA5E9"/>
-        <StatPill label="ظاهر" value={filtered.length} color="#10B981"/>
-        <StatPill label="حُوّل" value={conversations.filter(c=>c.escalated).length} color="#EF4444"/>
+        <StatPill label="إجمالي turns" value={turns.length} color="#0EA5E9"/>
+        <StatPill label="threads" value={threads.length} color="#10B981"/>
+        <StatPill label="ظاهر" value={filtered.length} color="#8B5CF6"/>
+        <StatPill label="فشل" value={turns.filter(t=>t.error).length} color="#EF4444"/>
       </div>
 
-      {filtered.length === 0 ? (
+      {loading && (
+        <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:T.brd+"20", fontSize:FS-1, color:T.textMut}}>
+          ⏳ بيحمّل الـ conversations من Firestore...
+        </div>
+      )}
+
+      {error && (
+        <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:"#FEE2E2", color:"#991B1B", fontSize:FS-1, lineHeight:1.6}}>
+          ⚠️ خطأ في تحميل الـ conversations: {error.message || String(error)}<br/>
+          <span style={{fontSize:FS-3, color:"#7F1D1D"}}>
+            ممكن يحتاج Firestore يـ create index — افتح Firebase Console → Firestore → Indexes ودوّس على الـ link اللي في الـ console error.
+          </span>
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 ? (
         <div style={{...cardStyle, textAlign:"center", padding:"50px 24px"}}>
           <div style={{fontSize:56, marginBottom:14, opacity:0.5}}>💬</div>
           <div style={{fontSize:FS+3, fontWeight:800, color:T.text, marginBottom:6}}>
-            {conversations.length === 0 ? "مفيش محادثات لسه" : "مفيش نتائج بالفلتر"}
+            {turns.length === 0 ? "مفيش محادثات لسه" : "مفيش نتائج بالفلتر"}
           </div>
           <div style={{fontSize:FS-1, color:T.textMut, marginBottom:14, maxWidth:480, margin:"0 auto 14px", lineHeight:1.6}}>
-            {conversations.length === 0
-              ? "لما الـ Agent backend يبني (Phase D) ويبدأ يـrespond على واتساب، كل محادثة هتـكتب في `aiAgentConversations` وتظهر هنا. هتقدر تـreview، تـsearch، وتـtrain من الـ logs."
+            {turns.length === 0
+              ? "أول رسالة من عميل هتظهر هنا فوراً. الـ agent بـ يكتب كل turn في `aiAgentConversations` Firestore collection."
               : "غيّر شروط البحث أو الفلتر."}
           </div>
-          {conversations.length === 0 && (
-            <div style={{
-              maxWidth:480, margin:"20px auto 0", padding:"12px 16px",
-              background:T.bg, borderRadius:10, border:`1px dashed ${T.brd}`,
-              fontSize:FS-2, color:T.textSec, textAlign:"right", lineHeight:1.7,
-            }}>
-              <strong style={{color:T.text}}>📋 شكل كل محادثة لما تـسجَّل:</strong><br/>
-              • اسم العميل + رقم تليفون + tier + stage<br/>
-              • الـ messages (timestamps + من + النص)<br/>
-              • الـ tools اللي اتـcalled<br/>
-              • التكلفة بالـ tokens<br/>
-              • هل اتـحوّلت لبشري؟ الـ reason؟<br/>
-              • تقييم العميل (CSAT)
-            </div>
-          )}
         </div>
       ) : (
         <div style={{display:"grid", gap:10}}>
-          {filtered.slice(0, 50).map(c => (
-            <ConversationCard key={c.id || c.conversation_id} conv={c}/>
+          {filtered.slice(0, 50).map(th => (
+            <ConversationThreadCard key={th.wid} thread={th}/>
           ))}
           {filtered.length > 50 && (
             <div style={{textAlign:"center", padding:14, color:T.textMut, fontSize:FS-1}}>
@@ -1431,47 +1728,78 @@ function LogsTab({ agent, data, isMob }){
   );
 }
 
-function ConversationCard({ conv }){
+function ConversationThreadCard({ thread }){
   const [open, setOpen] = useState(false);
-  const c = conv;
+  const t = thread;
+  const last = t.turns[t.turns.length-1] || {};
+  const isLid = String(t.wid).includes("@lid");
+  const totalDuration = t.turns.reduce((s, x) => s + (x.durationMs || 0), 0);
+  const allTools = t.turns.flatMap(x => x.toolsUsed || []);
+  const cost = t.turns.reduce((s, x) => {
+    const u = x.usage || {};
+    return s + (Number(u.input_tokens)||0)*1.0/1e6
+             + (Number(u.output_tokens)||0)*5.0/1e6
+             + (Number(u.cache_creation_input_tokens)||0)*1.25/1e6
+             + (Number(u.cache_read_input_tokens)||0)*0.10/1e6;
+  }, 0);
+  const status = last.error ? "error" : (last.canned || last.skipped) ? "skipped" : "ok";
+  const statusBadge = status === "error" ? { label: "❌ فشل", bg: "#FEE2E2", color: "#991B1B" }
+                    : status === "skipped" ? { label: last.canned ? "🤖 رد آلي" : "⏭ متخطّى", bg: "#E5E7EB", color: "#374151" }
+                    : { label: "✅ تم", bg: "#D1FAE5", color: "#065F46" };
   return (
     <div style={{background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:12, padding:12}}>
       <div onClick={()=>setOpen(!open)} style={{cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap"}}>
         <div style={{flex:1, minWidth:200}}>
           <div style={{fontSize:FS, fontWeight:800, color:T.text}}>
-            👤 {c.customer_name || c.phone || "(مجهول)"}
-            {c.tier_at_start && <span style={{fontSize:FS-2, color:T.textMut, fontWeight:600, marginInlineStart:8}}>· {c.tier_at_start}</span>}
+            👤 {last.customerName || (isLid ? "🔒 LID مجهول" : t.wid.split("@")[0])}
+            {last.stage && <span style={{fontSize:FS-2, color:T.textMut, fontWeight:600, marginInlineStart:8}}>· {last.stage}</span>}
+            {isLid && !last.customerName && <span style={{fontSize:FS-3, fontFamily:"monospace", color:T.textMut, fontWeight:600, marginInlineStart:8}}>· {t.wid}</span>}
           </div>
           <div style={{fontSize:FS-1, color:T.textSec, marginTop:4, lineHeight:1.5,
             display:"-webkit-box", WebkitLineClamp:1, WebkitBoxOrient:"vertical", overflow:"hidden"}}>
-            {c.last_message || (c.messages?.[c.messages.length-1]?.text) || "(فاضي)"}
+            {last.userMessage || "(فاضي)"}
           </div>
         </div>
         <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0}}>
           <span style={{
             fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:700,
-            background: c.escalated ? "#FEE2E2" : "#D1FAE5",
-            color: c.escalated ? "#991B1B" : "#065F46",
-          }}>{c.escalated ? "🆘 حُوّل" : "✅ تم"}</span>
+            background: statusBadge.bg, color: statusBadge.color,
+          }}>{statusBadge.label}</span>
           <span style={{fontSize:FS-3, color:T.textMut}}>
-            {(c.messages?.length || 0)} رسالة
+            {t.turns.length} turn · {(totalDuration/1000).toFixed(1)} ث · ${cost.toFixed(4)}
           </span>
         </div>
       </div>
-      {open && (c.messages||[]).length > 0 && (
-        <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`, maxHeight:300, overflow:"auto"}}>
-          {c.messages.map((m, i) => (
-            <div key={i} style={{
-              padding:"6px 10px", marginBottom:4, borderRadius:8,
-              background: m.from === "agent" ? "#8B5CF608" : T.bg,
-              fontSize:FS-1, color:T.text,
-            }}>
-              <strong style={{color: m.from === "agent" ? "#7C3AED" : T.textSec, fontSize:FS-2}}>
-                {m.from === "agent" ? "🤖 Agent" : "👤 العميل"}
-              </strong>
-              <div style={{marginTop:2}}>{m.text}</div>
+      {open && (
+        <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`, maxHeight:400, overflow:"auto"}}>
+          {t.turns.map((tn, i) => (
+            <div key={tn.id || i} style={{marginBottom:14, paddingBottom:10, borderBottom: i<t.turns.length-1 ? `1px dashed ${T.brd}` : "none"}}>
+              {tn.userMessage && (
+                <div style={{padding:"6px 10px", marginBottom:6, borderRadius:8, background:T.bg, fontSize:FS-1, color:T.text}}>
+                  <strong style={{color:T.textSec, fontSize:FS-2}}>👤 العميل</strong>
+                  <div style={{marginTop:2, whiteSpace:"pre-wrap"}}>{tn.userMessage}</div>
+                </div>
+              )}
+              {tn.assistantReply && (
+                <div style={{padding:"6px 10px", marginBottom:6, borderRadius:8, background:"#8B5CF608", fontSize:FS-1, color:T.text}}>
+                  <strong style={{color:"#7C3AED", fontSize:FS-2}}>🤖 Agent</strong>
+                  <div style={{marginTop:2, whiteSpace:"pre-wrap"}}>{tn.assistantReply}</div>
+                </div>
+              )}
+              <div style={{fontSize:FS-3, color:T.textMut, marginTop:4, display:"flex", flexWrap:"wrap", gap:8}}>
+                {tn.at && <span>{new Date(tn.at).toLocaleString("ar-EG")}</span>}
+                {(tn.toolsUsed||[]).length > 0 && <span>🛠 {tn.toolsUsed.join(", ")}</span>}
+                {tn.iterations > 1 && <span>🔄 {tn.iterations} iter</span>}
+                {tn.error && <span style={{color:"#EF4444"}}>❌ {tn.error}</span>}
+                {tn.skippedReason && <span>⏭ {tn.skippedReason}</span>}
+              </div>
             </div>
           ))}
+          {allTools.length > 0 && (
+            <div style={{marginTop:8, fontSize:FS-2, color:T.textSec}}>
+              <strong>الأدوات في الـ thread:</strong> {Array.from(new Set(allTools)).join(" · ")}
+            </div>
+          )}
         </div>
       )}
     </div>

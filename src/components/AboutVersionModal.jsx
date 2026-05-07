@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.77.0",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "🤖 AI Agent Phase 2: Logs + Dashboard analytics + Recent Senders panel (live)",
+    changes: [
+      { type: "feature", text: "💬 [Logs tab live] الـ tab '💬 سجل المحادثات' كان فاضي طول الوقت لأن الـ agent ما كانش بيكتب في `aiAgentConversations`. دلوقتي الـ agent (clark-ai-agent v1.0.1-phase2) بـ يكتب doc لكل turn — userMessage + assistantReply + toolsUsed + iterations + durationMs + usage tokens + at + dayKey + idempotencyKey (بحيث webhook retries مش تـduplicate). الـ Logs tab بـ يـsubscribe live (200 turn آخر) ويـ group by wid فيظهروا كـ threads. فيه filter على status (ok/skipped/error) + بحث على wid/اسم/كلمة." },
+      { type: "feature", text: "📊 [Dashboard live] الـ tab '📊 لوحة التحكم' كان دايماً 0 لأن مفيش aggregator. الـ agent دلوقتي عنده hourly cron (node-cron) بـ يقرا من aiAgentConversations لـ today + yesterday ويـ aggregate في `aiAgentAnalytics/{YYYY-MM-DD}` بـ: turnsTotal/Successful/Canned/Skipped/Failed، uniqueSenders، avgDurationMs، toolUsage map، stages map، tokens (input/output/cacheRead/cacheWrite)، estimatedCostUsd. الـ Dashboard بـ يـsubscribe live ويـ render KPI cards + chart + token breakdown + top tools. الـ pricing constants للـ Claude Haiku 3.5 (input $1, output $5, cache write $1.25, cache read $0.10 per 1M)." },
+      { type: "feature", text: "📬 [Recent Senders panel] لما test mode شغّال + رقم خارج الـ whitelist يبعت، الـ agent بـ يـcapture في `aiAgentRecentSenders` (doc per WID, idempotent — بيـ increment counter). الـ panel الجديد في Schedule tab بـ يعرض آخر 20 sender (مش متضمنين whitelist) مع: WID + count + recent message + lastSeen ago + زر '+ للـ whitelist' يضيفه بكليكة واحدة (مع اسم اختياري). LIDs بـ flag بـ 🔒 + warning. الـ admin مش هيحتاج يـgrep agent logs عشان يجيب الـ LID — الـ panel بـ يجمعها تلقائياً." },
+      { type: "feature", text: "🛡 [Security wrapper extended] `aiAgentRecentSenders` ضيف للـ AGENT_OWNED_COLLECTIONS في الـ agent's firebase-security.js. الـ READ-ONLY constraint على CLARK collections (customers/orders/factory/...) لسه فعّال — الـ agent بـ يكتب فقط في الـ aiAgent* collections." },
+      { type: "feature", text: "🔧 [useAgentCollection hook] hook عام في AIAgentPg بـ يـsubscribe على أي Firestore collection بـ optional query builder (orderBy/limit). بـ يـ unsub on unmount. مستخدم في 3 أماكن: aiAgentAnalytics (Dashboard) + aiAgentConversations (Logs) + aiAgentRecentSenders (Recent Senders panel)." },
+      { type: "feature", text: "📦 [clark-ai-agent v1.0.1-phase2 deployed] 4 ملفات جديدة: conversationLog.js (persistTurn) + recentSenders.js (recordRecentSender) + analytics.js (rollUpDay/rollUpTodayAndYesterday). orchestrator.js + webhook.js + index.js اتعدّلوا. الـ deploy via deploy.mjs نجح، الـ health check passed (anthropic+firebase+redis OK). الـ analytics cron بـ يـrun hourly + once on boot." },
+    ]
+  },
+  {
     version: "V19.76.8",
     date: "2026-05-06",
     types: ["fix", "ux"],
