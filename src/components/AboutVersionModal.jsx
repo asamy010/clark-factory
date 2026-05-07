@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.77.2",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "🔔 AI Agent: tab '🔔 اقتراحات الـ AI' — Admin review queue",
+    changes: [
+      { type: "feature", text: "🆕 [11th tab: '🔔 اقتراحات الـ AI'] الـ Agent بـ يـ flag حاجات للأدمن يقررها (مثلاً: notify_admin_phone_request بـ يكتب suggestion من نوع `lid_phone_mapping` لما عميل LID يقول 'أنا أحمد المالك'). قبل V19.77.2 الـ suggestions كانت بتـ pile في Firestore بدون UI. دلوقتي الـ tab الجديد بـ يعرضها live مع decisions: ✓ ربط / ✗ تجاهل / 🚫 حظر." },
+      { type: "feature", text: "🔢 [Live pending-count badge] الـ tab بـ يعرض badge أحمر بـ عدد الـ pending suggestions (لو > 0). الأدمن يشوف فوراً لو فيه حاجة محتاجة مراجعة. الـ count بـ يـ subscribe live (subscribe على `aiAgentSuggestions` وفلترة حسب `status === 'pending'`)." },
+      { type: "feature", text: "🔗 [Action: ربط LID بحساب عميل] لو الـ kind === 'lid_phone_mapping': زر '✓ ربط بعميل' يفتح inline picker بـ بحث (اسم/تليفون) في الـ customers. لما تختار + تأكد، الـ workflow: (1) يضيف الـ wid لـ customer.additional_phones[] بـ metadata `{added_via: 'ai_suggestion', suggestion_id, added_at}`. (2) يـ mark الـ suggestion بـ `status:'linked', decision:'linked', linked_customer_id, reviewed_at`. كده الـ agent بـ يـ recognize الـ LID فوراً في الرسالة الجاية." },
+      { type: "feature", text: "✗ [Actions: تجاهل / حظر] للـ suggestions اللي مش هتنفع (LID مش معروف، spam، إلخ). تجاهل = يـ flag كـ ignored. حظر = يـ flag كـ blocked (للمستقبل ممكن نـ filter الـ blocked WIDs قبل الـ availability gate). الـ decisions كلها بتـ write مباشرة لـ Firestore (مش عبر upConfig — الـ aiAgentSuggestions مش جزء من الـ data prop)." },
+      { type: "feature", text: "🎨 [Filter chips + decided history] الـ tab فيه: pending/linked/ignored/blocked/all chips كل واحدة بـ count. الـ decided suggestions بتفضل ظاهرة في الـ history مع `linked_customer_id` + `reviewed_at` للـ audit trail." },
+      { type: "feature", text: "📐 [Forward-looking design] الـ component generic — مش مربوط بـ kind=lid_phone_mapping بس. أي kind جديد (faq_suggestion, customer_observation, stage_transition) بـ يظهر بـ JSON dump fallback لحد ما نضيفله UI specific. الـ kind filter chips بـ تظهر بس لو فيه > 1 kind في الـ data." },
+    ]
+  },
+  {
     version: "V19.77.1",
     date: "2026-05-07",
     types: ["feature"],

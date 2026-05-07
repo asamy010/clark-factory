@@ -46,7 +46,7 @@ import { gid } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 import { compressImg43 } from "../utils/image.js";
 import { db } from "../firebase";
-import { collection, onSnapshot, query, orderBy, limit, doc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit, doc, deleteDoc, setDoc } from "firebase/firestore";
 
 const DEFAULT_AGENT = INIT_CONFIG.aiAgent;
 
@@ -95,7 +95,10 @@ function useAgentCollection(name, queryBuilder) {
 }
 
 /* V19.76: 10 tabs. Catalog = single source of truth for products,
-   read by the agent's search_products tool. */
+   read by the agent's search_products tool.
+   V19.77.2: 11th tab "اقتراحات الـ AI" surfaces aiAgentSuggestions —
+   things the agent flagged for the admin to review (LID-to-phone
+   mappings via notify_admin_phone_request, FAQ proposals later, etc.). */
 const TABS = [
   { key: "dashboard",   label: "لوحة التحكم",        icon: "📊" },
   { key: "personality", label: "الشخصية",            icon: "🎭" },
@@ -104,6 +107,7 @@ const TABS = [
   { key: "tools",       label: "الأدوات",            icon: "🛠" },
   { key: "schedule",    label: "الجدول الزمني",      icon: "⏰" },
   { key: "logs",        label: "سجل المحادثات",      icon: "💬" },
+  { key: "suggestions", label: "اقتراحات الـ AI",    icon: "🔔" },
   { key: "sandbox",     label: "اختبار",             icon: "🧪" },
   { key: "funnel",      label: "مراحل العميل",       icon: "🎯" },
   { key: "profiles",    label: "ملفات العملاء",      icon: "👥" },
@@ -152,6 +156,14 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
      server changes externally AND we have no unsaved local changes. */
   const [draft, setDraft] = useState(() => deepClone(serverAgent));
   const [dirty, setDirty] = useState(false);
+
+  /* V19.77.2: top-level subscription to count pending suggestions.
+     Used for the badge on the "اقتراحات الـ AI" tab. Cheap — only counts. */
+  const { docs: allSuggestions } = useAgentCollection("aiAgentSuggestions");
+  const pendingSuggestionsCount = useMemo(
+    () => allSuggestions.filter(s => (s.status || "pending") === "pending").length,
+    [allSuggestions]
+  );
 
   /* If the server-side aiAgent changes (another admin saved, listener fired),
      update our draft IFF we don't have unsaved local changes. */
@@ -336,6 +348,21 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
             {t.phase && (
               <span className={"phase-pill phase-"+t.phase}>Phase {t.phase}</span>
             )}
+            {/* V19.77.2: pending-suggestions badge on the relevant tab */}
+            {t.key === "suggestions" && pendingSuggestionsCount > 0 && (
+              <span style={{
+                marginInlineStart:6,
+                padding:"1px 7px",
+                borderRadius:9,
+                fontSize:FS-3,
+                fontWeight:800,
+                background:"#EF4444",
+                color:"#fff",
+                lineHeight:1.4,
+              }}>
+                {pendingSuggestionsCount}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -349,6 +376,7 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
         {tab==="tools"       && <ToolsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="schedule"    && <ScheduleTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="logs"        && <LogsTab agent={agent} data={data} isMob={isMob}/>}
+        {tab==="suggestions" && <SuggestionsTab agent={agent} data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
         {tab==="sandbox"     && <SandboxTab agent={agent} data={data} isMob={isMob}/>}
         {tab==="funnel"      && <FunnelTab agent={agent} data={data} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="profiles"    && <ProfilesTab agent={agent} data={data} updateAgent={updateAgent} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
@@ -1800,6 +1828,322 @@ function ConversationThreadCard({ thread }){
               <strong>الأدوات في الـ thread:</strong> {Array.from(new Set(allTools)).join(" · ")}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   SUGGESTIONS TAB (V19.77.2 — Phase 3)
+   ─────────────────────────────────────────────────────────────
+   Live subscription to aiAgentSuggestions — proposals the agent
+   wrote for the admin to review/decide. Currently the only kind
+   the agent emits is "lid_phone_mapping" (via the V19.77.1
+   notify_admin_phone_request tool). Designed open so future kinds
+   (FAQ proposals, customer observations, etc.) drop in cleanly.
+
+   Decisions: linked / ignored / blocked. Each decision writes
+   back to the same doc + (for linked) updates the customer record
+   to add the LID to additional_phones[]. The agent's read-only
+   wrapper doesn't apply here — this UI is the CLARK admin app, not
+   the agent.
+   ════════════════════════════════════════════════════════════ */
+function SuggestionsTab({ agent, data, upConfig, canEdit, isMob }){
+  const { docs: suggestions, loading, error } = useAgentCollection("aiAgentSuggestions",
+    ref => query(ref, orderBy("sent_at", "desc"), limit(100))
+  );
+
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [kindFilter, setKindFilter] = useState("all");
+
+  const filtered = useMemo(() => {
+    return suggestions.filter(s => {
+      if (statusFilter !== "all" && (s.status || "pending") !== statusFilter) return false;
+      if (kindFilter !== "all" && s.kind !== kindFilter) return false;
+      return true;
+    });
+  }, [suggestions, statusFilter, kindFilter]);
+
+  const counts = useMemo(() => {
+    const out = { pending: 0, linked: 0, ignored: 0, blocked: 0, total: suggestions.length };
+    for (const s of suggestions) {
+      const st = s.status || "pending";
+      if (out[st] !== undefined) out[st]++;
+    }
+    return out;
+  }, [suggestions]);
+
+  const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
+
+  return (
+    <div>
+      {/* Header + filters */}
+      <div style={{...cardStyle, display:"flex", flexWrap:"wrap", gap:10, alignItems:"center"}}>
+        <div style={{flex:"1 1 200px"}}>
+          <h3 style={{margin:0, fontSize:FS+1, fontWeight:800, color:T.text}}>🔔 اقتراحات الـ AI</h3>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, lineHeight:1.5}}>
+            الـ Agent بـ يـ flag حاجات للأدمن يقرر فيها (ربط LID، اقتراحات FAQ، إلخ). راجع بانتظام.
+          </div>
+        </div>
+        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+          {[
+            { val:"pending", label:`⏳ تحت المراجعة (${counts.pending})` },
+            { val:"linked",  label:`✓ مربوط (${counts.linked})` },
+            { val:"ignored", label:`✗ تجاهل (${counts.ignored})` },
+            { val:"blocked", label:`🚫 محظور (${counts.blocked})` },
+            { val:"all",     label:`الكل (${counts.total})` },
+          ].map(opt => (
+            <Btn key={opt.val} small primary={statusFilter===opt.val} onClick={()=>setStatusFilter(opt.val)}>
+              {opt.label}
+            </Btn>
+          ))}
+        </div>
+      </div>
+
+      {/* Kind filter (only relevant if there are multiple kinds) */}
+      {(() => {
+        const kinds = Array.from(new Set(suggestions.map(s => s.kind).filter(Boolean)));
+        if (kinds.length <= 1) return null;
+        return (
+          <div style={{...cardStyle, display:"flex", flexWrap:"wrap", gap:6, alignItems:"center"}}>
+            <span style={{fontSize:FS-1, fontWeight:700, color:T.textSec, marginInlineEnd:8}}>النوع:</span>
+            <Btn small primary={kindFilter==="all"} onClick={()=>setKindFilter("all")}>الكل</Btn>
+            {kinds.map(k => (
+              <Btn key={k} small primary={kindFilter===k} onClick={()=>setKindFilter(k)}>
+                {labelForKind(k)}
+              </Btn>
+            ))}
+          </div>
+        );
+      })()}
+
+      {loading && (
+        <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:T.brd+"20", fontSize:FS-1, color:T.textMut}}>
+          ⏳ بيحمّل من Firestore...
+        </div>
+      )}
+
+      {error && (
+        <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:"#FEE2E2", color:"#991B1B", fontSize:FS-1}}>
+          ⚠️ {error.message || String(error)}
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 ? (
+        <div style={{...cardStyle, textAlign:"center", padding:"50px 24px"}}>
+          <div style={{fontSize:56, marginBottom:14, opacity:0.5}}>🔔</div>
+          <div style={{fontSize:FS+3, fontWeight:800, color:T.text, marginBottom:6}}>
+            {suggestions.length === 0 ? "مفيش اقتراحات لسه" : "مفيش نتائج بالفلتر"}
+          </div>
+          <div style={{fontSize:FS-1, color:T.textMut, maxWidth:480, margin:"0 auto", lineHeight:1.6}}>
+            {suggestions.length === 0
+              ? "لما الـ Agent يحتاج قرار من الأدمن (مثلاً: عميل مجهول الـ LID وعاوز يربطه باسم)، الاقتراح هيظهر هنا لمراجعتك."
+              : "غيّر الفلتر فوق عشان تشوف اقتراحات تانية."}
+          </div>
+        </div>
+      ) : (
+        <div style={{display:"grid", gap:10}}>
+          {filtered.map(s => (
+            <SuggestionCard
+              key={s.id}
+              suggestion={s}
+              data={data}
+              upConfig={upConfig}
+              canEdit={canEdit}
+              isMob={isMob}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function labelForKind(kind) {
+  if (kind === "lid_phone_mapping") return "🔗 ربط رقم/LID";
+  if (kind === "faq_suggestion")    return "📚 اقتراح FAQ";
+  if (kind === "customer_observation") return "🔍 ملاحظة عميل";
+  if (kind === "stage_transition") return "📊 تغيير مرحلة";
+  return kind;
+}
+
+function SuggestionCard({ suggestion, data, upConfig, canEdit, isMob }){
+  const [expandLink, setExpandLink] = useState(false);
+  const [pickedCustomerId, setPickedCustomerId] = useState("");
+  const [search, setSearch] = useState("");
+  const s = suggestion;
+  const status = s.status || "pending";
+  const isPending = status === "pending";
+
+  const sentAt = s.sent_at ? new Date(s.sent_at) : null;
+  const ago = sentAt ? sentAt.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" }) : "—";
+
+  const customers = data?.customers || [];
+  const filteredCustomers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? customers.filter(c =>
+          (c.name || "").toLowerCase().includes(q)
+          || (c.phone || "").toLowerCase().includes(q))
+      : customers;
+    return list.slice(0, 30);
+  }, [customers, search]);
+
+  /* Apply linked decision: write to customers + mark suggestion */
+  const applyLink = async () => {
+    if (!pickedCustomerId) {
+      showToast("⚠️ اختار عميل");
+      return;
+    }
+    if (!await ask(
+      "ربط الـ LID/الرقم",
+      `هتربط '${s.wid}' بحساب العميل المختار. الـ LID هـ يضاف لـ additional_phones — كل الرسائل من اللحظة دي هتـ match.`,
+      { confirmText: "ربط" }
+    )) return;
+
+    /* Update customer.additional_phones in CLARK */
+    upConfig(d => {
+      if (!Array.isArray(d.customers)) d.customers = [];
+      const cust = d.customers.find(c => c.id === pickedCustomerId);
+      if (!cust) return;
+      if (!Array.isArray(cust.additional_phones)) cust.additional_phones = [];
+      /* Prefer storing as object so we know it came from a suggestion */
+      cust.additional_phones.push({
+        number: s.wid,
+        added_via: "ai_suggestion",
+        added_at: new Date().toISOString(),
+        suggestion_id: s.id,
+      });
+    });
+
+    /* Mark the suggestion decided — direct Firestore write (no upConfig path
+       because aiAgentSuggestions isn't merged into data). */
+    try {
+      await setDoc(doc(db, "aiAgentSuggestions", s.id), {
+        status: "linked",
+        decision: "linked",
+        linked_customer_id: pickedCustomerId,
+        reviewed_at: new Date().toISOString(),
+      }, { merge: true });
+      showToast("✓ تم الربط");
+    } catch (err) {
+      showToast("⛔ فشل الكتابة: " + (err.message || err));
+    }
+    setExpandLink(false);
+    setPickedCustomerId("");
+  };
+
+  const setDecision = async (decision) => {
+    const msg = decision === "ignored" ? "تتجاهل الاقتراح ده؟" : "تحظر الـ WID ده؟ لن يـ pop up مرة تانية.";
+    if (!await ask("تأكيد", msg)) return;
+    try {
+      await setDoc(doc(db, "aiAgentSuggestions", s.id), {
+        status: decision,
+        decision,
+        reviewed_at: new Date().toISOString(),
+      }, { merge: true });
+      showToast("✓ تم");
+    } catch (err) {
+      showToast("⛔ " + (err.message || err));
+    }
+  };
+
+  const statusBadge = status === "linked"  ? { label: "✓ مربوط", bg: "#D1FAE5", color: "#065F46" }
+                    : status === "ignored" ? { label: "✗ تجاهل", bg: "#E5E7EB", color: "#374151" }
+                    : status === "blocked" ? { label: "🚫 محظور", bg: "#FEE2E2", color: "#991B1B" }
+                    : { label: "⏳ قيد المراجعة", bg: "#FEF3C7", color: "#92400E" };
+
+  return (
+    <div style={{background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:12, padding:14}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap", marginBottom:10}}>
+        <div style={{flex:1, minWidth:240}}>
+          <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:6}}>
+            <span style={{fontSize:FS-2, padding:"2px 8px", borderRadius:8, fontWeight:700, background:"#E0E7FF", color:"#3730A3"}}>
+              {labelForKind(s.kind)}
+            </span>
+            <span style={{fontSize:FS-2, padding:"2px 8px", borderRadius:8, fontWeight:700, background: statusBadge.bg, color: statusBadge.color}}>
+              {statusBadge.label}
+            </span>
+            <span style={{fontSize:FS-3, color:T.textMut}}>· {ago}</span>
+          </div>
+          {s.kind === "lid_phone_mapping" ? (
+            <div>
+              <div style={{fontSize:FS-1, fontWeight:700, color:T.text, fontFamily:"'Fira Code',monospace", wordBreak:"break-all", marginBottom:4}}>
+                {s.is_lid && <span title="WhatsApp privacy LID" style={{marginInlineEnd:6}}>🔒</span>}
+                {s.wid}
+              </div>
+              {s.claimed_name  && <div style={{fontSize:FS-1, color:T.textSec}}>👤 الاسم المدّعى: <strong>{s.claimed_name}</strong></div>}
+              {s.claimed_phone && <div style={{fontSize:FS-1, color:T.textSec}}>📞 الرقم المدّعى: <strong>{s.claimed_phone}</strong></div>}
+              {s.reason && <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, fontStyle:"italic"}}>"{s.reason}"</div>}
+            </div>
+          ) : (
+            <pre style={{fontSize:FS-2, color:T.textSec, lineHeight:1.5, whiteSpace:"pre-wrap", wordBreak:"break-word"}}>
+              {JSON.stringify(s, null, 2)}
+            </pre>
+          )}
+        </div>
+
+        {isPending && canEdit && (
+          <div style={{display:"flex", flexDirection:"column", gap:6, flexShrink:0}}>
+            {s.kind === "lid_phone_mapping" && (
+              <Btn small onClick={()=>setExpandLink(!expandLink)} style={{background:"#10B98115", color:"#059669", border:"1px solid #10B98140", fontWeight:700}}>
+                ✓ ربط بعميل
+              </Btn>
+            )}
+            <Btn small ghost onClick={()=>setDecision("ignored")} title="إخفاء بدون أي action">✗ تجاهل</Btn>
+            <Btn small onClick={()=>setDecision("blocked")} style={{background:"#FEE2E2", color:"#991B1B", border:"1px solid #FCA5A5", fontWeight:700}}>🚫 حظر</Btn>
+          </div>
+        )}
+      </div>
+
+      {expandLink && isPending && canEdit && s.kind === "lid_phone_mapping" && (
+        <div style={{marginTop:10, paddingTop:10, borderTop:`1px dashed ${T.brd}`}}>
+          <div style={{fontSize:FS-1, fontWeight:700, color:T.text, marginBottom:6}}>
+            اختار العميل اللي هتربط الـ LID بحسابه:
+          </div>
+          <div style={{display:"flex", gap:6, marginBottom:8, flexWrap:"wrap", alignItems:"center"}}>
+            <div style={{flex:"1 1 200px", minWidth:160}}>
+              <Inp value={search} onChange={setSearch} placeholder="🔍 بحث: اسم/تليفون..."/>
+            </div>
+            {pickedCustomerId && (
+              <Btn primary onClick={applyLink}>✓ تأكيد الربط</Btn>
+            )}
+          </div>
+          <div style={{maxHeight:240, overflowY:"auto", border:`1px solid ${T.brd}`, borderRadius:8, padding:6, background:T.bg}}>
+            {filteredCustomers.length === 0 ? (
+              <div style={{fontSize:FS-2, color:T.textMut, padding:"10px 8px", textAlign:"center"}}>مفيش نتائج</div>
+            ) : filteredCustomers.map(c => (
+              <label key={c.id} style={{
+                display:"flex", alignItems:"center", gap:8,
+                padding:"6px 10px", borderRadius:6, cursor:"pointer",
+                background: pickedCustomerId === c.id ? "#10B98115" : "transparent",
+                border: `1px solid ${pickedCustomerId === c.id ? "#10B98140" : "transparent"}`,
+                marginBottom:2,
+              }}>
+                <input type="radio" name={"link-target-"+s.id}
+                  checked={pickedCustomerId === c.id}
+                  onChange={()=>setPickedCustomerId(c.id)}
+                  style={{width:16,height:16}}/>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontSize:FS-1, fontWeight:700, color:T.text}}>{c.name || "(بدون اسم)"}</div>
+                  <div style={{fontSize:FS-3, color:T.textMut, fontFamily:"'Fira Code',monospace"}}>{c.phone || "—"}</div>
+                </div>
+              </label>
+            ))}
+            {customers.length > 30 && search.trim() === "" && (
+              <div style={{fontSize:FS-3, color:T.textMut, padding:"8px", textAlign:"center"}}>
+                ظاهر أول 30 — اكتب فلتر للبحث في الباقي ({customers.length} عميل)
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!isPending && s.linked_customer_id && (
+        <div style={{marginTop:8, fontSize:FS-2, color:T.textMut, padding:"6px 10px", background:T.bg, borderRadius:6}}>
+          مربوط بعميل: <code style={{fontFamily:"'Fira Code',monospace"}}>{s.linked_customer_id}</code>
+          {s.reviewed_at && <span> · بتاريخ {new Date(s.reviewed_at).toLocaleString("ar-EG", {dateStyle:"short", timeStyle:"short"})}</span>}
         </div>
       )}
     </div>
