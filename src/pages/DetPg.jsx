@@ -95,10 +95,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
 
   /* V19.80.2: pre-fetch the adjacent orders' images so prev/next navigation
      shows the image instantly. Combined with the cache-first SW for images,
-     this gives the "professional" instant-render feel — the browser already
-     has the bytes by the time the user clicks the arrow. Also pre-fetches
-     the first 6 images in the list view's natural sort to warm the cache
-     when an order is opened from the grid. */
+     the browser already has the bytes by the time the user clicks the arrow. */
   useEffect(()=>{
     if(!sel)return;
     const sortedIds=sortOrders(data.orders).map(o=>o.id);
@@ -106,7 +103,6 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     const prefetchIds=[];
     if(curIdx>0)prefetchIds.push(sortedIds[curIdx-1]);
     if(curIdx<sortedIds.length-1)prefetchIds.push(sortedIds[curIdx+1]);
-    /* Two ahead, two behind — covers fast clicking through orders */
     if(curIdx>1)prefetchIds.push(sortedIds[curIdx-2]);
     if(curIdx<sortedIds.length-2)prefetchIds.push(sortedIds[curIdx+2]);
     prefetchIds.forEach(id=>{
@@ -114,6 +110,42 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       if(o&&o.image){const img=new Image();img.src=o.image;}
     });
   },[sel,data.orders.length]);
+  /* V19.80.8: bulk-prefetch ALL orders' model images during browser idle time.
+     The user complained that opening order details still showed a loading flash.
+     Reason: only orders that had been visible (and lazy-loaded) in the list grid
+     were in the cache; clicking an order the user hadn't scrolled to triggered
+     a fresh Firebase Storage fetch (~200-500ms). This effect dispatches new
+     Image() requests in idle callbacks, populating the cache-first SW image
+     cache (clark-images-v1) with every model image. Subsequent clicks are
+     guaranteed instant. The prefetched-URL set persists across renders so we
+     never re-issue a request for an already-prefetched image. */
+  const prefetchedRef=useRef(new Set());
+  useEffect(()=>{
+    if(!Array.isArray(data?.orders)||data.orders.length===0)return;
+    const idleCb=window.requestIdleCallback||((cb)=>setTimeout(()=>cb({timeRemaining:()=>50,didTimeout:false}),300));
+    const cancelIdle=window.cancelIdleCallback||clearTimeout;
+    let cancelled=false;
+    /* Newest first — most likely to be opened soon. */
+    const queue=[...data.orders].reverse().map(o=>o.image).filter(Boolean).filter(u=>!prefetchedRef.current.has(u));
+    let handle;
+    const processNext=(deadline)=>{
+      if(cancelled)return;
+      while(queue.length>0&&deadline.timeRemaining()>5){
+        const url=queue.shift();
+        if(!prefetchedRef.current.has(url)){
+          prefetchedRef.current.add(url);
+          const img=new Image();
+          img.src=url;
+        }
+      }
+      if(queue.length>0)handle=idleCb(processNext,{timeout:2000});
+    };
+    handle=idleCb(processNext,{timeout:2000});
+    return()=>{
+      cancelled=true;
+      if(handle)try{cancelIdle(handle)}catch(_){}
+    };
+  },[data?.orders?.length]);
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;

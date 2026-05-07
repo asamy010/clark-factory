@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.8",
+    date: "2026-05-07",
+    types: ["fix"],
+    title: "⚡ صور تفاصيل الأوردر بقت فورية — bulk prefetch في الـ idle time",
+    changes: [
+      { type: "fix", text: "⚡ [Bulk image prefetch on idle] المشكلة: لما تفتح أوردر مش كنت scrolled-to في الـ list view، صورته كانت بـ تـ trigger HTTP request جديد لـ Firebase Storage (200-500ms+ delay). الـ V19.80.2 prefetch كان بـ يـ cover ±2 أوردر مجاورة بس عند فتح أوردر — مش الـ list كله. السبب: lazy-loading في الـ list view بـ يـ skip الأوردرات خارج الـ viewport، فالـ cache بقى partial." },
+      { type: "fix", text: "🔧 [Solution: requestIdleCallback bulk prefetch] DetPg دلوقتي بـ يـ dispatch `new Image()` requests لكل صور الأوردرات أثناء idle time عند تحميل الصفحة. الـ browser بـ يـ fetch بحدود الـ network bandwidth، الـ cache-first SW (clark-images-v1) بـ يـ store الـ responses. بعد مرور ثواني قليلة (حسب عدد الأوردرات + سرعة الإنترنت) الـ cache بقى warm كامل، فأي click على أي أوردر = صورة فورية بدون wait." },
+      { type: "fix", text: "🛡 [Deduplication via prefetchedRef] استخدمنا `useRef(new Set())` فالـ URLs المـ prefetched ما تتـ re-fetched لو الـ effect re-ran (مثلاً لما يضاف أوردر جديد). كل URL بـ يدخل الـ cache مرة واحدة بس عمر الـ session. \"Newest first\" في الـ queue (orders.reverse()) لأن الأحدث الأكثر probable يتفتح. fallback لـ `setTimeout` لو الـ browser ما يـ support requestIdleCallback." },
+    ]
+  },
+  {
     version: "V19.80.7",
     date: "2026-05-07",
     types: ["feature", "improvement"],
