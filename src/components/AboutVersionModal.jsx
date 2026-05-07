@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.78.1",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "💬 AI Agent: Message debouncing — رد واحد على رسائل متعددة متتالية",
+    changes: [
+      { type: "feature", text: "🎯 [User report: 'العميل يبعت السلام عليكم، ازيك ياغالي، ايه الاخبار — الـ Agent بيرد 3 ردود نفس الكلام، عاوز رد واحد'] الـ Agent دلوقتي بـ يـ debounce الرسائل المتتالية. لو 3 رسائل (أو أكتر) جوا في خلال 4 ثواني، الـ Agent يستنى آخر واحدة وبعدين يرد على المضمون كله مرة واحدة. ده بـ يقلل التكلفة (3 calls → 1) ويخلي الردود طبيعية أكتر." },
+      { type: "feature", text: "⚙️ [How it works — 'latest caller wins'] كل رسالة بـ تتـ enqueue في Redis list، مع monotonic seq number. الـ caller الأخير يـ overwrite الـ `mlatest` key. كل caller يـ sleep 4s، ثم يـ check: لو لسه أنا الأخير → flush الـ queue + process. لو حد أحدث منّي → drop out (ما يتعملش anything). كده pure correctness بدون race conditions، حتى لو 10 webhooks جوا في نفس الـ ms." },
+      { type: "feature", text: "📝 [Combined batch format] الـ orchestrator بـ يستلم الرسائل المجموعة كـ user content واحد:\n[العميل بعت 3 رسائل متتالية في خلال ثوانٍ — رد على المضمون كله مرة واحدة]\n\n1. السلام عليكم\n2. ازيك ياغالي\n3. ايه الاخبار\n\nالـ Claude بـ يفهم الـ framing ويرد بـ greeting موحّد." },
+      { type: "feature", text: "🎚 [Configurable] env var `TEXT_DEBOUNCE_MS` بـ يتحكم في الـ window. Default 4000ms (4s). 0 = disable batching تماماً (back to single-message processing). Max 15000ms. Voice + image messages بـ يـ bypass الـ debouncer (immediate processing — مش مناسب يـ batch صورة مع رسالة نصية)." },
+      { type: "feature", text: "📊 [Analytics] الـ persistTurn دلوقتي بـ يحفظ `batchSize` في `aiAgentConversations` — يعرض في Logs tab + يساعد الأدمن يفهم customer behavior (متوسط batch size، أيام بـ flurry، إلخ)." },
+    ]
+  },
+  {
     version: "V19.78.0",
     date: "2026-05-07",
     types: ["feature"],
