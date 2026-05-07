@@ -1,19 +1,23 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Service Worker — V19.80.2
+   CLARK Service Worker — V19.80.10
    ───────────────────────────────────────────────────────────────
    Two cache strategies:
    1. Images (Firebase Storage / common image extensions): cache-first.
-      Once an image is loaded for a model, it's served from cache forever
-      so navigating between orders / coming back from an order edit shows
-      the image instantly (no flash, no re-fetch). Browser auto-evicts on
-      storage pressure; typical model image is 100-500KB so the cache
-      stays small. The user's policy: "keep images in cache regardless
-      of size; max image size is 5MB."
+      The SW always fetches images with explicit `mode: 'cors'` so the
+      cached Response is readable by JS (`response.blob()`). Without this,
+      an <img>'s default no-cors fetch caches an OPAQUE response — display
+      works but `fetch(url).blob()` returns 0 bytes, breaking Web Share
+      (e.g. the WhatsApp image-share flow in DetPg's sendWa). Firebase
+      Storage with default download URLs supports CORS for any origin.
    2. Everything else: network-first with cache fallback (offline).
+
+   Cache version bump (v1 → v2) on the image cache invalidates older
+   opaque entries from V19.80.2-V19.80.9 so users get clean CORS
+   responses after upgrade.
    ═══════════════════════════════════════════════════════════════ */
 
 const APP_CACHE = 'clark-app-v2';
-const IMG_CACHE = 'clark-images-v1';
+const IMG_CACHE = 'clark-images-v2';
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];
 const STATIC_ASSETS = ['/'];
 
@@ -23,8 +27,8 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  /* Delete any cache that isn't in our keep-list. Keeps the image cache
-     across SW updates so users don't lose cached model images on deploy. */
+  /* Delete any cache that isn't in our keep-list. The image-cache rename
+     to v2 here drops the V19.80.2-V19.80.9 opaque entries automatically. */
   e.waitUntil(caches.keys().then(keys => Promise.all(
     keys.filter(k => !KEEP_CACHES.includes(k)).map(k => caches.delete(k))
   )));
@@ -45,20 +49,33 @@ self.addEventListener('fetch', e => {
   let url;
   try { url = new URL(e.request.url); } catch (_) { return; }
 
-  /* Image cache-first: hit cache immediately, fall back to network on miss. */
+  /* Image cache-first with forced-CORS fetch. */
   if (isImageRequest(url)) {
     e.respondWith(
       caches.open(IMG_CACHE).then(cache =>
         cache.match(e.request).then(cached => {
           if (cached) return cached;
-          return fetch(e.request).then(resp => {
-            /* Only cache successful responses (skip 4xx/5xx). Firebase Storage
-               returns 200 for valid token-signed download URLs. */
-            if (resp && resp.ok) {
+          /* Force cors mode so the cached Response is JS-readable for
+             Web Share (sendWa). <img> elements accept cors responses too,
+             so this works for both display and programmatic fetch. */
+          const corsReq = new Request(e.request.url, {
+            method: 'GET',
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'default'
+          });
+          return fetch(corsReq).then(resp => {
+            if (resp && resp.ok && resp.type !== 'opaque') {
               cache.put(e.request, resp.clone()).catch(() => {});
             }
             return resp;
-          }).catch(() => cached || Response.error());
+          }).catch(() => {
+            /* CORS fetch failed (server doesn't allow CORS for this origin).
+               Fall back to original-mode fetch so <img> still loads, but
+               DON'T cache an opaque response — that would re-introduce the
+               broken-share bug. */
+            return fetch(e.request).catch(() => Response.error());
+          });
         })
       )
     );

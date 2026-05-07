@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.10",
+    date: "2026-05-07",
+    types: ["fix"],
+    title: "📱 إصلاح مشاركة الصورة على الواتساب — opaque cache fix",
+    changes: [
+      { type: "fix", text: "📱 [WhatsApp share image broken — root cause] لما تضغط زر واتساب، الـ DetPg's sendWa بـ يـ `fetch(image).blob()` ثم يـ pass الـ File لـ `navigator.share`. بعد V19.80.2 الـ image cache كان بـ يخزن responses من `<img>` كـ \"opaque\" (الـ <img> default mode هو no-cors). الـ opaque cached response لما الـ app يـ fetch-ها، الـ blob() يرجع 0 bytes → الـ navigator.share يـ reject بصمت → fallback لـ wa.me text only بدون صورة." },
+      { type: "fix", text: "🔧 [SW: forced-CORS fetch for images] الـ public/sw.js دلوقتي بـ يعمل `fetch(corsReq)` بـ `mode:'cors'` لكل image requests، بصرف النظر عن mode الـ original request. النتيجة: الـ cached Response دايماً CORS-readable. Firebase Storage download URLs بـ يدعموا CORS لأي origin (الـ token query param بـ يعمل authentication). الـ `<img>` elements بـ يقبلوا CORS responses فالـ display مش متأثر." },
+      { type: "fix", text: "🗑 [Cache version bump v1 → v2] الـ IMG_CACHE اتغير من `clark-images-v1` لـ `clark-images-v2`. الـ activate handler بـ يحذف أي cache مش في الـ KEEP_CACHES list — فالـ v1 الـ poisoned (containing opaque responses من V19.80.2-V19.80.9) بـ يـ deleted تلقائي عند تفعيل الـ SW الجديدة. user-side: بعد reload الصفحة مرة، كل الصور بـ تـ refetch وتتـ cache صحيح." },
+      { type: "fix", text: "🛡 [Defensive fallback] لو الـ CORS fetch فشل (مثلاً CORS مش configured على bucket معيّن)، الـ SW بـ يـ fall back لـ original-mode fetch بس **بدون caching** — فما يـ poison الـ cache مرة تانية. الـ `<img>` بـ يشتغل، والـ app's share بـ يحاول CORS fetch جديد كل مرة بدلاً من يـ stuck على cached opaque." },
+    ]
+  },
+  {
     version: "V19.80.9",
     date: "2026-05-07",
     types: ["feature"],
