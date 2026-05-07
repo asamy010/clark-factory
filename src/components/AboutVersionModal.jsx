@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.9",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "📃 قائمة الأوردرات: pagination — أول 25 + زر عرض المزيد",
+    changes: [
+      { type: "feature", text: "📃 [Initial render: first 25 orders only] قائمة الأوردرات (table view + cards view) دلوقتي بـ تـ render أول 25 أوردر فقط من الـ filtered list. لو فيه 100 أوردر، الصفحة بـ تظهر 25 أول مرة، وكل DOM nodes الباقية ما بتـ mount-ش — أسرع initial paint بـ 4× لو فيه أوردرات كتيرة." },
+      { type: "feature", text: "⬇ [زر عرض المزيد + عرض الكل] لما `filtered.length > detVis`، شريط أسفل القائمة بـ يظهر:\n• \"يعرض N من أصل M\" — counter\n• زر \"⬇ عرض المزيد (25)\" — يضيف 25 أوردر للعرض\n• زر \"عرض الكل (M)\" — لو الباقي > 25، يـ load كل الباقي مرة واحدة\n\nبعد ما تـ load كل الـ filtered، شريط صغير أسفل بـ يعرض زر \"⬆ عرض الـ 25 الأولى فقط\" للـ collapse." },
+      { type: "feature", text: "🔄 [Auto-reset on filter change] لما تغيّر أي filter (search, status, workshop, sort)، الـ detVis بـ يـ reset أوتوماتيك لـ 25. بدون ده، لو كنت كاشف 100 أوردر وعملت filter ضيق، هتبقى عند 100 لكن الـ filtered الجديدة 5 بس — مش خطأ، بس الـ reset أنظف وأسرع." },
+      { type: "improvement", text: "⚡ [Combined with bulk image prefetch from V19.80.8] الـ prefetch بـ يـ cache صور كل الأوردرات في الـ background بصرف النظر عن الـ pagination. فلو ضغطت \"عرض المزيد\" → الـ DOM nodes تـ mount + الصور تـ resolve فوراً من الـ cache. الـ pagination بـ يخلي الـ DOM خفيف، والـ prefetch بـ يخلي الصور جاهزة. الـ best of both." },
+    ]
+  },
+  {
     version: "V19.80.8",
     date: "2026-05-07",
     types: ["fix"],

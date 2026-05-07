@@ -34,6 +34,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[detView,setDetView]=useState(()=>{try{return localStorage.getItem("clark_det_view")||"cards"}catch(e){return"cards"}});/* "cards"|"table" */
   const[detWs,setDetWs]=useState("");/* workshop filter */
   const[detSort,setDetSort]=useState("recent");/* recent|oldest|qty|cost|name */
+  /* V19.80.9: paginated list view — show first 25 orders, "عرض المزيد" loads next 25 */
+  const[detVis,setDetVis]=useState(25);
+  /* Reset to 25 whenever filters/search/sort change so the user starts fresh after each filter tweak */
+  useEffect(()=>{setDetVis(25)},[detQ,detSt,detWs,detSort]);
   /* V14.51: expandable workshop timelines + print dropdown */
   const[wsExpand,setWsExpand]=useState({});/* {wsKey: bool} - auto-open for incomplete */
   const[showPrintMenu,setShowPrintMenu]=useState(false);
@@ -291,7 +295,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               </tr>
             </thead>
             <tbody>
-              {sortOrders(filtered,detSort).map(o=>{const t=calcOrder(o);
+              {sortOrders(filtered,detSort).slice(0,detVis).map(o=>{const t=calcOrder(o);
                 const progress=t.cutQty>0?Math.round(((o.deliveredQty||0)/t.cutQty)*100):0;
                 const now=new Date();let lastDate=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});
                 const ageDays=Math.floor((now-new Date(lastDate))/(1000*60*60*24));
@@ -340,7 +344,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           6B. CARDS VIEW — Modern minimal
          ═══════════════════════════════════════════════════════════════ */}
       {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:16}}>
-        {sortOrders(filtered,detSort).map(o=>{const t=calcOrder(o);
+        {sortOrders(filtered,detSort).slice(0,detVis).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
           /* Progress */
           const progress=t.cutQty>0?Math.round(((o.deliveredQty||0)/t.cutQty)*100):0;
@@ -508,6 +512,25 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </div>
           </div>;
         })}
+      </div>}
+
+      {/* V19.80.9: paginated load-more — shown when filtered list has more orders than detVis.
+          Shows how many remain; clicking adds 25 more (or "عرض الكل" if 25 is more than what's left). */}
+      {filtered.length>detVis&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,marginTop:18,padding:"8px 0"}}>
+        <div style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>
+          {"يعرض "}<span style={{color:T.text,fontWeight:800}}>{detVis}</span>{" من أصل "}<span style={{color:T.text,fontWeight:800}}>{filtered.length}</span>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+          <Btn primary onClick={()=>setDetVis(c=>c+25)} style={{padding:"10px 24px",fontSize:FS,fontWeight:700}}>
+            {"⬇ عرض المزيد ("+Math.min(25,filtered.length-detVis)+")"}
+          </Btn>
+          {filtered.length-detVis>25&&<Btn onClick={()=>setDetVis(filtered.length)} style={{padding:"10px 18px",fontSize:FS-1,background:T.bg,color:T.textSec,border:"1px solid "+T.brd,fontWeight:700}}>
+            {"عرض الكل ("+filtered.length+")"}
+          </Btn>}
+        </div>
+      </div>}
+      {filtered.length>0&&filtered.length<=detVis&&filtered.length>25&&<div style={{display:"flex",justifyContent:"center",marginTop:14}}>
+        <Btn onClick={()=>setDetVis(25)} style={{padding:"6px 14px",fontSize:FS-2,background:T.bg,color:T.textMut,border:"1px solid "+T.brd}}>⬆ عرض الـ 25 الأولى فقط</Btn>
       </div>}
 
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
