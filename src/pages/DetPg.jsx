@@ -59,6 +59,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const customers=data.customers||[];
   /* V16.16: collapsible sales-to-customers section on order detail card */
   const[salesExpand,setSalesExpand]=useState(false);
+  /* V19.79.0: redesigned detail view — tab navigation persisted in localStorage */
+  const[activeTab,setActiveTab]=useState(()=>{try{return localStorage.getItem("clark_det_tab")||"fabrics"}catch(e){return"fabrics"}});
+  useEffect(()=>{try{localStorage.setItem("clark_det_tab",activeTab)}catch(e){}},[activeTab]);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   /* V16.26: keep a fresh ref to data so the QR-stock listener can read the
      latest order even when sel hasn't changed (effect captures closures). */
@@ -535,96 +538,113 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       </div>
     </div>
     <div id="parea">
-      {/* V16.43: Mobile layout — image inline next to the 2x2 stats grid (was stacked above on mobile, wasting vertical space). */}
-      <div style={{display:"flex",flexDirection:"row",gap:isMob?8:10,marginBottom:12,alignItems:"flex-start"}}>
-        {isMob&&<div style={{flexShrink:0,position:"relative",alignSelf:"stretch"}}>
-          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={90} style={{height:"100%",maxHeight:"100%",minHeight:120,borderRadius:10,border:"1px solid "+T.brd,aspectRatio:"unset"}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:9,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:9}}>✕</div>}
-        </div>}
-        <div style={{flex:1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:isMob?6:12,minWidth:0}}>
-          {/* V16.24: Cut qty card — click to open per-piece edit popup */}
-          <div onClick={canEdit?()=>{
-            const pieces=order.orderPieces||[];
-            const draft={};
-            pieces.forEach(p=>{draft[p]=getPieceCutQty(order,p)});
-            setPieceCutPopup({draft})
-          }:undefined} style={{cursor:canEdit?"pointer":"default",position:"relative"}} title={canEdit?"اضغط لضبط كمية القص لكل قطعة على حدة":""}>
-            <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
-            {canEdit&&(order.orderPieces||[]).some(p=>(order.pieceCutQty?.[p]!=null)&&Number(order.pieceCutQty[p])!==t.cutQty)&&<span style={{position:"absolute",top:4,insetInlineEnd:6,fontSize:9,color:T.warn,fontWeight:700,padding:"1px 5px",borderRadius:4,background:T.warn+"15"}} title="بعض القطع لها كمية قص يدوية مختلفة عن الإجمالي">يدوي</span>}
-          </div>
-          <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
-          <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
-          {(()=>{
-            /* V15.10: Merged cost card — shows cost + inline warning for incomplete pieces.
-               V18.99: Now includes extra costs (هالك / تشغيل / نقل / إلخ) in the displayed cost.
-               Both costType="total" (legacy) and costType="perPiece" are honored. */
-            const hasSettlement=!!order.settlement;
-            const delivered=order.deliveredQty||0;
-            const originalCostPer=r2(t.costPer);
-            const pieces=order.orderPieces||[];
-            const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});
-            const missing=pieces.filter(p=>!linked.has(p));
-            const hasWarning=pieces.length>1&&missing.length>0;
-            const done=pieces.filter(p=>linked.has(p));
-
-            /* V18.99: Compute extra costs total — costType-aware */
-            const cutQ=t.cutQty||0;
-            const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{
-              const amt=Number(x.amount)||0;
-              return s+(x.costType==="perPiece"?amt*cutQ:amt);
-            },0);
-            const hasExtra=extraTotal>0;
-
-            /* Compute displayed cost */
-            let label,value,color,sub;
-            if(hasSettlement&&delivered>0){
-              /* V18.99: Include extra costs in actual-per-piece calc */
-              const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
-              const diff=r2(actualCostPer-originalCostPer);
-              label="تكلفة القطعة الفعلية";
-              value=Math.ceil(actualCostPer)+" ج.م";
-              color=T.err;
-              sub="الأصلية: "+Math.ceil(originalCostPer)+" ج.م • فرق +"+Math.ceil(diff)+" ج.م";
-            }else if(hasExtra){
-              /* V18.99: No settlement, but extra costs exist — show actual cost-per-piece including extras */
-              const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
-              label=hasWarning?"تكلفة القطعة الفعلية (جزئية)":"تكلفة القطعة الفعلية";
-              value=Math.ceil(actualCostPer)+" ج.م";
-              color="#F59E0B";
-              const diff=Math.ceil(actualCostPer-originalCostPer);
-              sub=(hasWarning?(done.length+"/"+pieces.length+" قطعة • "):"")+"شامل تكاليف إضافية +"+diff+" ج.م";
-            }else{
-              label=hasWarning?"تكلفة القطعة (جزئية)":"تكلفة القطعة";
-              value=originalCostPer+" ج.م";
-              color=hasWarning?"#F59E0B":T.accent;
-              sub=hasWarning?done.length+"/"+pieces.length+" قطعة مقصوصة":null;
-            }
-
-            /* Render the metric card — hasWarning makes it span 2 columns in the grid so the strip has room */
-            return<div className="metric-card" style={{background:T.card,backdropFilter:"blur(12px)",borderRadius:12,padding:"14px 16px",border:"1px solid "+(hasWarning?"#F59E0B40":T.brd),boxShadow:T.shadow,minWidth:0,gridColumn:hasWarning&&isMob?"1 / -1":"auto",display:"flex",flexDirection:"column",gap:10,overflow:"hidden"}}>
-              {/* Top row — same layout as MetricCard */}
-              <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-                <div style={{width:isMob?32:40,height:isMob?32:40,borderRadius:10,background:color+"12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMob?16:20,flexShrink:0}}>💰</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div className="metric-label" style={{fontSize:FS-2,color:T.textSec,marginBottom:2,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
-                  <div className="metric-value" style={{fontSize:isMob?18:22,fontWeight:800,color}}>{value}</div>
-                  {sub&&<div className="metric-sub" style={{fontSize:FS-3,color:T.textMut,marginTop:1}}>{sub}</div>}
-                </div>
-              </div>
-              {/* V15.10: Inline warning strip — shown inside the cost card for context */}
-              {hasWarning&&<div style={{borderTop:"1px dashed #F59E0B40",paddingTop:10,display:"flex",flexDirection:"column",gap:6}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:FS-2,fontWeight:800,color:"#F59E0B"}}>
-                  <span>⚠️</span><span>تكلفة غير مكتملة — ناقص خامات</span>
-                </div>
-                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {missing.map(p=><span key={"m-"+p} style={{padding:"2px 8px",borderRadius:6,background:"#EF444412",color:"#EF4444",fontWeight:700,fontSize:FS-2,border:"1px solid #EF444425",whiteSpace:"nowrap"}}>{"❌ "+p}</span>)}
-                  {done.map(p=><span key={"d-"+p} style={{padding:"2px 8px",borderRadius:6,background:"#10B98112",color:"#10B981",fontWeight:700,fontSize:FS-2,border:"1px solid #10B98125",whiteSpace:"nowrap"}}>{"✅ "+p}</span>)}
-                </div>
-              </div>}
-            </div>;
-          })()}
+      {/* ═══════════════════════════════════════════════════════════════
+          V19.79.0 — Redesigned detail layout
+          ───────────────────────────────────────────────────────────────
+          Top section: model image + 4 KPI cards on a single row, height
+          matched to the image. On mobile/tablet the KPIs collapse to a
+          2-column grid alongside a smaller image. The previous in-card
+          incomplete-fabric warning is extracted into a banner below so
+          the top row stays uniform regardless of order state.
+         ═══════════════════════════════════════════════════════════════ */}
+      <style>{`
+        .det-top-row{display:grid;grid-template-columns:auto repeat(4,1fr);gap:12px;margin-bottom:12px;align-items:stretch}
+        .det-top-row > .det-img-cell{position:relative;display:flex;align-items:stretch}
+        .det-top-row > .det-img-cell > *:first-child{height:100%}
+        .det-top-row .metric-card{height:100%;box-sizing:border-box}
+        @media (max-width: 1024px){.det-top-row{grid-template-columns:auto repeat(2,1fr)}}
+        @media (max-width: 560px){.det-top-row{grid-template-columns:auto 1fr 1fr;gap:8px}}
+        .det-meta-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:${T.bg};border:1px solid ${T.brd};font-size:${FS-1}px;font-weight:600;color:${T.textSec};white-space:nowrap}
+        .det-tab-bar{display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid ${T.brd};padding:0 4px;margin-bottom:16px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+        .det-tab-bar::-webkit-scrollbar{height:4px}
+        .det-tab-bar::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}
+        .det-tab-pill{cursor:pointer;padding:10px 16px;border-radius:10px 10px 0 0;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:all 0.15s;border-bottom:3px solid transparent;color:${T.textSec};margin-bottom:-2px;user-select:none}
+        .det-tab-pill:hover{background:${T.bg}}
+      `}</style>
+      <div className="det-top-row">
+        {/* Image */}
+        <div className="det-img-cell">
+          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={isMob?100:140} style={{borderRadius:14,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
+          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12}}>✕</div>}
         </div>
-        {/* V15.10: Old separate warning card removed — merged into cost card above for a cleaner layout */}
+        {/* KPI 1 — cut qty (clickable to per-piece editor) */}
+        <div onClick={canEdit?()=>{
+          const pieces=order.orderPieces||[];
+          const draft={};
+          pieces.forEach(p=>{draft[p]=getPieceCutQty(order,p)});
+          setPieceCutPopup({draft})
+        }:undefined} style={{cursor:canEdit?"pointer":"default",position:"relative",minWidth:0}} title={canEdit?"اضغط لضبط كمية القص لكل قطعة على حدة":""}>
+          <MetricCard label="كمية القص" value={t.cutQty} icon="✂️" color={T.accent}/>
+          {canEdit&&(order.orderPieces||[]).some(p=>(order.pieceCutQty?.[p]!=null)&&Number(order.pieceCutQty[p])!==t.cutQty)&&<span style={{position:"absolute",top:4,insetInlineEnd:6,fontSize:9,color:T.warn,fontWeight:700,padding:"1px 5px",borderRadius:4,background:T.warn+"15"}} title="بعض القطع لها كمية قص يدوية مختلفة عن الإجمالي">يدوي</span>}
+        </div>
+        {/* KPI 2 — ready stock */}
+        <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
+        {/* KPI 3 — balance */}
+        <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
+        {/* KPI 4 — cost (compact; warning shown as banner below) */}
+        {(()=>{
+          /* V19.79.0: cost card stripped of inline warning strip; warning lives below */
+          const hasSettlement=!!order.settlement;
+          const delivered=order.deliveredQty||0;
+          const originalCostPer=r2(t.costPer);
+          const cutQ=t.cutQty||0;
+          const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cutQ:amt)},0);
+          const hasExtra=extraTotal>0;
+          let label,value,color,sub;
+          if(hasSettlement&&delivered>0){
+            const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
+            const diff=r2(actualCostPer-originalCostPer);
+            label="تكلفة القطعة الفعلية";
+            value=Math.ceil(actualCostPer)+" ج.م";
+            color=T.err;
+            sub="الأصلية: "+Math.ceil(originalCostPer)+" ج.م • فرق +"+Math.ceil(diff)+" ج.م";
+          }else if(hasExtra){
+            const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
+            label="تكلفة القطعة الفعلية";
+            value=Math.ceil(actualCostPer)+" ج.م";
+            color="#F59E0B";
+            const diff=Math.ceil(actualCostPer-originalCostPer);
+            sub="شامل تكاليف إضافية +"+diff+" ج.م";
+          }else{
+            label="تكلفة القطعة";
+            value=originalCostPer+" ج.م";
+            color=T.accent;
+            sub=null;
+          }
+          return<MetricCard label={label} value={value} icon="💰" color={color} sub={sub}/>;
+        })()}
+      </div>
+
+      {/* ═══ Cost-incomplete warning banner (extracted from KPI card) ═══ */}
+      {(()=>{
+        const pieces=order.orderPieces||[];
+        const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});
+        const missing=pieces.filter(p=>!linked.has(p));
+        const hasWarning=pieces.length>1&&missing.length>0;
+        if(!hasWarning)return null;
+        const done=pieces.filter(p=>linked.has(p));
+        return<div style={{padding:"10px 14px",marginBottom:12,borderRadius:12,background:"#F59E0B08",border:"1.5px solid #F59E0B40",display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:18,marginTop:2}}>⚠️</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:FS,fontWeight:800,color:"#F59E0B"}}>تكلفة غير مكتملة — ناقص خامات</div>
+            <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>{done.length+"/"+pieces.length+" قطعة مرتبطة بخامة"}</div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
+              {missing.map(p=><span key={"m-"+p} style={{padding:"2px 8px",borderRadius:6,background:"#EF444412",color:"#EF4444",fontWeight:700,fontSize:FS-2,border:"1px solid #EF444425",whiteSpace:"nowrap"}}>{"❌ "+p}</span>)}
+              {done.map(p=><span key={"d-"+p} style={{padding:"2px 8px",borderRadius:6,background:"#10B98112",color:"#10B981",fontWeight:700,fontSize:FS-2,border:"1px solid #10B98125",whiteSpace:"nowrap"}}>{"✅ "+p}</span>)}
+            </div>
+          </div>
+        </div>;
+      })()}
+
+      {/* ═══ Meta chips: status / date / sizes / marker / PO — replaces بيانات الموديل card ═══ */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12,alignItems:"center"}}>
+        <span className="det-meta-chip" style={{padding:"3px 8px"}}>
+          {canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><span onClick={()=>setStageProgressOrder(order)} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4}}><Badge t={order.status} cards={statusCards}/><span style={{fontSize:11,color:T.textSec,fontWeight:800}}>▾</span></span>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px",marginInlineStart:4}} title="تعديل">✏️</Btn>}</>}
+        </span>
+        <span className="det-meta-chip"><span>📅</span><span>{order.date}</span></span>
+        {order.sizeLabel&&<span className="det-meta-chip"><span>📐</span><span>{order.sizeLabel}</span></span>}
+        {order.marker&&<span className="det-meta-chip"><span>📏 ماركر:</span><span>{order.marker}</span></span>}
+        {order.poNumber&&<span className="det-meta-chip" style={{fontFamily:"monospace",fontWeight:700,color:T.accent,background:T.accent+"10",borderColor:T.accent+"40"}}><span>🏷</span><span>{order.poNumber}</span></span>}
       </div>
       {/* V15.46: Cut/workshop sync banner — per-piece mismatch detection.
           Business logic: order is a SET; each piece (shirt/shorts/etc) goes to own workshops.
@@ -684,22 +704,42 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         if(stockDel>0)curIdx=3;
         if(isClosed)curIdx=phases.length-1;
         return<div style={{marginBottom:14,background:T.cardSolid,borderRadius:10,padding:"10px 14px",border:"1px solid "+T.brd,overflowX:"auto",WebkitOverflowScrolling:"touch"}}><Timeline phases={phases} currentIdx={curIdx}/></div>})()}
-      <div style={{display:"grid",gridTemplateColumns:!isMob?"auto 1fr":"1fr",gap:16,marginBottom:16}}>
-        {}
-        {!isMob&&<div style={{position:"relative"}}>
-          <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} width={135} style={{borderRadius:16,border:"1px solid "+T.brd,boxShadow:T.shadow}}/>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:4,right:4,width:22,height:22,borderRadius:11,background:"rgba(0,0,0,0.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11}}>✕</div>}
-        </div>}
-        <Card title="بيانات الموديل">
-          <div style={{marginBottom:8}}>
-            {order.poNumber&&<div style={{fontSize:FS+4,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:1}}>{"📋 "+order.poNumber}</div>}
-            <div style={{fontSize:order.poNumber?FS+1:FS+4,fontWeight:700,color:order.poNumber?T.textSec:T.accent}}>{(order.poNumber?"🏷 ":"🏷 ")+order.modelNo}<span style={{fontSize:FS,fontWeight:600,color:T.textSec,marginRight:10}}>{" — "+order.modelDesc}</span></div>
-          </div>
-          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><tbody>
-          <tr><td style={TDL}>المقاسات</td><td style={TDB}>{order.sizeLabel}</td><td style={TDL}>الحالة</td><td style={TD}><div style={{display:"flex",alignItems:"center",gap:6}}>{canEdit&&editStatusMode?<><Sel value={order.status} onChange={v=>{updOrder(sel,o=>{o.status=v});setEditStatusMode(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusMode(false)} title="إغلاق">✕</Btn></>:<><span onClick={()=>setStageProgressOrder(order)} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,transition:"transform 0.15s"}} onMouseEnter={(e)=>{e.currentTarget.style.transform="scale(1.04)"}} onMouseLeave={(e)=>{e.currentTarget.style.transform=""}}><Badge t={order.status} cards={statusCards}/><span style={{fontSize:11,color:T.textSec,fontWeight:800}}>▾</span></span>{canEdit&&<Btn ghost small onClick={()=>setEditStatusMode(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn>}</>}</div></td></tr>
-          <tr><td style={TDL}>التاريخ</td><td style={TD}>{order.date}</td>{order.marker?<><td style={TDL}>ماركر</td><td style={TD}>{order.marker}</td></>:<><td></td><td></td></>}</tr>
-        </tbody></table></div></Card>
-      </div>
+      {/* ═══ Tab bar — sticky-ish; switches between section groups ═══ */}
+      {(()=>{
+        const wds=order.workshopDeliveries||[];
+        const wsCount=new Set(wds.map(w=>w.wsName)).size;
+        const dels=order.deliveries||[];
+        const custDels=order.customerDeliveries||[];
+        const att=(order.attachments||[]).length;
+        const TABS=[
+          {id:"fabrics",label:"القماش والخامات",icon:"🧵",color:T.accent,badge:activeFabs.length},
+          {id:"accessories",label:"الاكسسوار",icon:"🔘",color:"#0EA5E9",badge:accItems.length},
+          {id:"costs",label:"التكاليف",icon:"💰",color:"#F59E0B",badge:(order.extraCosts||[]).length},
+          {id:"workshops",label:"التشغيل والورش",icon:"🏭",color:"#8B5CF6",badge:wsCount},
+          {id:"sales",label:"المبيعات والمخزن",icon:"📦",color:"#10B981",badge:dels.length+custDels.length},
+          {id:"settlement",label:"التسوية والمرفقات",icon:"⚖️",color:"#EF4444",badge:att+(order.settlement?1:0)},
+        ];
+        return<div className="det-tab-bar" role="tablist">
+          {TABS.map(tab=>{const isActive=activeTab===tab.id;
+            return<div key={tab.id} role="tab" onClick={()=>setActiveTab(tab.id)} className="det-tab-pill" style={{
+              background:isActive?tab.color+"12":"transparent",
+              borderBottomColor:isActive?tab.color:"transparent",
+              color:isActive?tab.color:T.textSec,
+              fontSize:FS,
+            }}>
+              <span style={{fontSize:FS+2}}>{tab.icon}</span>
+              <span>{tab.label}</span>
+              {tab.badge>0&&<span style={{padding:"1px 8px",borderRadius:10,background:isActive?tab.color:T.brd,color:isActive?"#fff":T.textSec,fontSize:FS-3,fontWeight:800,minWidth:18,textAlign:"center"}}>{tab.badge}</span>}
+            </div>;
+          })}
+        </div>;
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: القماش والخامات — pieces, fabric color tables, materials cost, instructions
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="fabrics"&&<>
+      {order.instructions&&<Card title="📝 تعليمات التشغيل" style={{marginBottom:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
       {/* Order Pieces */}
       {(order.orderPieces||[]).length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
         <span style={{fontSize:FS,fontWeight:700,color:T.text}}>{"قطع الموديل ("+order.orderPieces.length+"):"}</span>
@@ -726,10 +766,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </tbody>
         </table></div>
       </Card>
+      </>}
 
-      {/* ══════════════════════════════════════════════════════════════
-          🏭 EXTERNAL WORKSHOP SECTION V14.51 — Professional redesign
-         ══════════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: التشغيل والورش — full workshop section (V14.51 redesign)
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="workshops"&&<>
       {(()=>{const wds=order.workshopDeliveries||[];
         if(wds.length===0){
           /* Empty state — still show card to encourage action */
@@ -974,8 +1016,13 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>;
       })()}
 
-      <div style={{display:"grid",gridTemplateColumns:isMob||isTab?"1fr":"1.5fr 1fr",gap:16,marginBottom:16}}>
-        <Card title="تكاليف الاكسسوار">{accItems.length>0?<div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
+      </>}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: الاكسسوار — accessories cost table
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="accessories"&&<>
+        <Card title={"تكاليف الاكسسوار"+(accItems.length>0?" ("+accItems.length+" بند)":"")} style={{marginBottom:16}}>{accItems.length>0?<div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
           <thead><tr>
             <th style={{...TH,padding:"10px 12px",textAlign:"right",width:"50%"}}>الوصف</th>
             <th style={{...TH,padding:"10px 12px",textAlign:"center",width:"22%",whiteSpace:"nowrap"}}>سعر القطعة</th>
@@ -994,6 +1041,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </tr>
           </tbody>
         </table></div>:<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة بنود</div>}</Card>
+      </>}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: المبيعات والمخزن — stock delivery + sales-to-customers
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="sales"&&<>
         {(()=>{
           const wds=order.workshopDeliveries||[];
           const pieces=order.orderPieces||[];
@@ -1041,8 +1094,6 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?7:6} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
-          {/* ── Settlement & Close ── */}
-      </div>
 
       {/* V16.16: Sales to customers — collapsible block.
           Reads o.customerDeliveries / o.customerReturns directly off the order
@@ -1107,10 +1158,13 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </div>}
         </Card>;
       })()}
+      </>}
 
-      {/* Attachments */}
-      {(order.attachments||[]).length>0&&<Card title="ملفات مرفقة" style={{marginBottom:16}}><div style={{display:"flex",flexWrap:"wrap",gap:10}}>{order.attachments.map((a,i)=><a key={i} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"10px 16px",borderRadius:10,background:T.accentBg,border:"1px solid "+T.brd,fontSize:FS,color:T.accent,fontWeight:600,textDecoration:"none"}}>{"📎 "+a.name}</a>)}</div></Card>}
-      <Card title="ملخص تكلفة الموديل" accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"}>
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: التكاليف — full cost summary (materials + accessories + extras + add-extra button)
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="costs"&&<>
+      <Card title="ملخص تكلفة الموديل" accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} style={{marginBottom:16}}>
         {(()=>{const pieces=order.orderPieces||[];const linked=new Set();FKEYS.forEach(k=>{if(gf(order,k))(order["fabricPieces"+k]||[]).forEach(p=>linked.add(p))});const missing=pieces.filter(p=>!linked.has(p));
           return missing.length>0&&pieces.length>1?<div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B10",border:"1px solid #F59E0B30",marginBottom:10,fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>{"⚠️ تكلفة غير مكتملة — ناقص: "+missing.join("، ")}</div>:null})()}
         {(()=>{
@@ -1180,6 +1234,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </div>}
         </>;})()}
       </Card>
+      </>}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          TAB: التسوية والمرفقات — settlement + Firebase Storage attachments
+         ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="settlement"&&<>
           {(()=>{
             const stockDel=getConfirmedStock(order);
             const remain=t.cutQty-stockDel;
@@ -1287,9 +1347,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               </div>}
             </Card>
           })()}
-      {order.instructions&&<Card title="تعليمات التشغيل" style={{marginTop:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
       {/* V15.90: Attachments card — files stored in Firebase Storage, metadata only in Firestore */}
       <AttachmentsCard order={order} updOrder={updOrder} sel={sel} canEdit={canEdit} userName={userName} isMob={isMob}/>
+      </>}
     </div>
     {/* WhatsApp Choice Popup */}
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
