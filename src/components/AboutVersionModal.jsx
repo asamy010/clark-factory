@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.3",
+    date: "2026-05-07",
+    types: ["fix", "feature"],
+    title: "🔍 dropdown البحث ما يـ clip-ش + ➕ خامات ديناميكية A→H + صف ضغط احترافي",
+    changes: [
+      { type: "fix", text: "🔍 [SearchSel dropdown clipping fixed] الـ dropdown كان `position:absolute` فلما الـ SearchSel جوة `<div style={overflow:auto}>` (زي wrapper جدول الخامة في OrdForm) الـ dropdown كان يتـ clip ما يظهرش. دلوقتي الـ dropdown بـ يتـ render في portal على `document.body` بـ `position:fixed` + computed coords من الـ input. يـ track الـ scroll/resize فيـ follow الـ input. النتيجة: الـ dropdown دايماً ظاهر وفوق أي صف تحته." },
+      { type: "feature", text: "➕ [Dynamic fabric slots — initially A only, + إضافة خامة reveals next] OrdForm بدل ما يـ render 5 خامات (A-E) دايماً، دلوقتي يبدأ بـ خامة A فقط. زر `+ إضافة خامة B` يـ reveal الـ next slot. الترتيب: A → B → C → ... → H (8 slots). كل slot غير A فيه ✕ button يـ clear بياناته؛ الـ ✕ على آخر slot يـ decrement الـ visible count." },
+      { type: "feature", text: "🔠 [FKEYS extended A→E to A→H] الـ schema دلوقتي يدعم 8 خامات (كان 5). الـ orders القديمة بدون F/G/H بـ يقروا undefined لتلك الـ slots — مفيش schema migration محتاج. الـ FCOL لون مختلف لكل slot." },
+      { type: "feature", text: "📐 [2-per-row fabric layout on wide desktop] على الشاشات ≥1280px، صفوف الخامات تتوزع 2-per-row في grid. على الشاشات الأصغر تـ collapse لـ 1-per-row. كل block خامة compact: ●Letter [SearchSel] [+] [استهلاك] [قطع/راق] [تاريخ] [✕]." },
+      { type: "fix", text: "📏 [Compressed row height + smaller font] الـ inputs دلوقتي بـ `padding:4px 6px` (كان 6-8px) و `fontSize:FS-1` (كان FS) — صف الخامة الواحد بقى ~42px ارتفاع بدل ~52px. النتيجة: شاشة أنظف وأكتر احترافية، ومساحة كافية على شاشات أصغر." },
+    ]
+  },
+  {
     version: "V19.80.2",
     date: "2026-05-07",
     types: ["fix", "feature"],

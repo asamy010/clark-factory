@@ -6,6 +6,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { T, TH, TD, TDB, TDL } from "../theme.js";
 import { FS, COLORS_DB } from "../constants/index.js";
 import { sqty, slay, safeCalc } from "../utils/format.js";
@@ -71,19 +72,44 @@ export function Sel({value,onChange,children}){
   return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
-export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus}){
-  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const[hi,setHi]=useState(0);const ref=useRef(null);
+export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus,sx}){
+  const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const[hi,setHi]=useState(0);
+  const[rect,setRect]=useState(null);
+  const ref=useRef(null);
   const selected=options.find(o=>o.value===value);
   const limit=maxResults||5;
   /* V18.52: when showAllOnFocus is true and input is empty, show all options
-     (clamped to limit). Otherwise legacy behavior: show results only when typing. */
+     (clamped to limit). Otherwise legacy behavior: show results only when typing.
+     V19.80.3: dropdown rendered in a body-level portal with position:fixed so
+     it escapes any clipping ancestor (e.g. table wrappers with overflow-x:auto
+     in OrdForm) and always layers above following rows. */
   const showResults=focused&&(q.length>0||showAllOnFocus);
   const filtered=q
     ?options.filter(o=>o.label.toLowerCase().includes(q.toLowerCase())).slice(0,limit)
     :(showAllOnFocus?options.slice(0,limit):[]);
-  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+  const updateRect=()=>{if(ref.current){const r=ref.current.getBoundingClientRect();setRect({top:r.bottom,left:r.left,width:r.width})}};
+  useEffect(()=>{
+    const h=e=>{
+      if(ref.current&&!ref.current.contains(e.target)){
+        /* don't close when click lands inside the portal dropdown */
+        if(e.target.closest&&e.target.closest(".searchsel-portal"))return;
+        setFocused(false);
+      }
+    };
+    document.addEventListener("mousedown",h);
+    return()=>document.removeEventListener("mousedown",h);
+  },[]);
   /* Reset highlight when filtered list changes */
   useEffect(()=>{setHi(0)},[q,focused]);
+  /* Track input position so the fixed-position dropdown follows it on scroll/resize */
+  useEffect(()=>{
+    if(!focused)return;
+    updateRect();
+    const onScroll=()=>updateRect();
+    window.addEventListener("scroll",onScroll,true);
+    window.addEventListener("resize",onScroll);
+    return()=>{window.removeEventListener("scroll",onScroll,true);window.removeEventListener("resize",onScroll)};
+  },[focused]);
   const onKey=(e)=>{
     if(e.key==="Escape"){setFocused(false);return}
     if(!showResults||filtered.length===0)return;
@@ -94,17 +120,20 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
   return<div ref={ref} style={{position:"relative",zIndex:focused?999:1}}>
     <input value={focused?q:(selected?selected.label:"")}
       onChange={e=>{setQ(e.target.value);if(!focused)setFocused(true)}}
-      onFocus={()=>{setFocused(true);setQ("")}}
+      onFocus={()=>{setFocused(true);setQ("");setTimeout(updateRect,0)}}
       onKeyDown={onKey}
       placeholder={placeholder||"اكتب للبحث..."}
-      style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s"}}/>
+      style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s",...(sx||{})}}/>
     {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
-    {showResults&&<div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:1,zIndex:9999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 8px 24px rgba(0,0,0,0.2)",maxHeight:280,overflowY:"auto"}}>
-      {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
-        onMouseEnter={()=>setHi(i)}
-        style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)
-      :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
-    </div>}
+    {showResults&&rect&&typeof document!=="undefined"&&createPortal(
+      <div className="searchsel-portal" style={{position:"fixed",top:rect.top+2,left:rect.left,width:rect.width,zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 12px 32px rgba(0,0,0,0.22)",maxHeight:280,overflowY:"auto"}}>
+        {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+          onMouseEnter={()=>setHi(i)}
+          style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)
+        :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
+      </div>,
+      document.body
+    )}
   </div>
 }
 

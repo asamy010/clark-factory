@@ -24,6 +24,12 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   const[copyMode,setCopyMode]=useState(false);const[copyFrom,setCopyFrom]=useState("");
   const[copyFields,setCopyFields]=useState({fabrics:true,pieces:true,sizes:true,acc:true,instructions:true});
   const[qfab,setQfab]=useState(null);/* quick add fabric popup */
+  /* V19.80.3: dynamic fabric slots — initially A only; "+ إضافة خامة" reveals
+     the next letter (B, C, ... up to FKEYS.length). Initial value derived from
+     existing form data so editing an order with 3 fabrics shows 3 slots. */
+  const[visibleFabricCount,setVisibleFabricCount]=useState(()=>{
+    let n=1;for(let i=FKEYS.length-1;i>=0;i--){if(initial&&initial["fabric"+FKEYS[i]]){n=i+1;break}}return n;
+  });
   /* V19.36: track upload progress so the user sees feedback while Storage processes the file */
   const[uploadingImg,setUploadingImg]=useState(false);
   const fabObj=id=>data.fabrics.find(x=>x.id===Number(id));
@@ -148,28 +154,84 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
         </div>
       </div>
     </div>
-    {FKEYS.map((k,idx)=>{const fid=form["fabric"+k];const fb=fabObj(fid);const fabPieces=form["fabricPieces"+k]||[];
-      /* V19.80.0: SearchSel options for fabric — searchable instead of long dropdown */
-      const fabOpts=data.fabrics.map(f=>({value:String(f.id),label:f.name+" — "+f.price+" ج.م/"+f.unit}));
-      /* V19.80.0: fabric-level pcsPerLayer override; falls back to size set's pcsPerSeries */
-      const fabricPpl=Number(form["pcsPerLayer"+k])||0;
+    {/* ═══════════════════════════════════════════════════════════════
+        V19.80.3 — Fabric area: dynamic slots, 2-per-row on wide desktop
+        ───────────────────────────────────────────────────────────────
+        Initially only fabric A is visible. "+ إضافة خامة" reveals the next
+        letter sequentially (B, C, …, H). Each non-A slot has a ✕ button
+        that clears its data; clicking ✕ on the highest visible slot also
+        decrements the visible count (back to fewer slots).
+        Layout: 2-col grid on screens ≥1280px, 1-col below.
+        Inputs are compact — smaller padding + FS-1 font for a tight,
+        professional look.
+       ═══════════════════════════════════════════════════════════════ */}
+    {(()=>{
       const ssPps=(()=>{const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));return ss?ss.pcsPerSeries:0})();
-      const effectivePpl=fabricPpl||ssPps;
-      return<div key={k}>
-      <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",marginBottom:4,minWidth:isMob?420:600}}><tbody><tr>
-        <td style={{...TDL,fontWeight:700,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:10,height:10,borderRadius:3,background:FCOL[idx],marginLeft:4}}/>{"خامة "+k+(k==="A"?" *":"")}</td>
-        <td style={TD}><div style={{display:"flex",gap:4,alignItems:"center"}}><div style={{flex:1,minWidth:0}}><SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus/></div>{upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap",flexShrink:0}}>+</Btn>}</div></td>
-        <td style={{...TDL,whiteSpace:"nowrap"}}>استهلاك/راق</td><td style={{...TD,width:90}}><Inp type="number" step="any" value={form["cons"+k]} onChange={v=>updF("cons"+k,v)}/></td>
-        <td style={{...TDL,whiteSpace:"nowrap"}} title="القطع في الراق الواحد — يستخدم تلقائياً عند إضافة لون جديد">قطع/راق</td><td style={{...TD,width:80}}><Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v=>{const newPpl=Number(v)||0;updF("pcsPerLayer"+k,v);/* V19.80.0: also auto-update existing rows whose pcsPerLayer was the previous default (or 0/empty) — keeps the table in sync without overwriting manual edits */ const oldDefault=fabricPpl||ssPps;const cols=form["colors"+k]||[];const updated=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===oldDefault)?{...c,pcsPerLayer:newPpl,qty:(Number(c.layers)||0)*newPpl}:c);if(JSON.stringify(updated)!==JSON.stringify(cols))updF("colors"+k,updated)}} placeholder={ssPps?String(ssPps):"0"}/></td>
-        <td style={{...TDL,whiteSpace:"nowrap"}}>تاريخ القص</td><td style={{...TD,width:130}}><Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)}/></td>
-      </tr></tbody></table></div>
-      {fid&&<FCTable label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)} pcsPerSeries={effectivePpl}/>}
-      {fid&&(form.orderPieces||[]).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
-        <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
-        {(()=>{const takenByOther=new Set();FKEYS.filter(fk=>fk!==k).forEach(fk=>{(form["fabricPieces"+fk]||[]).forEach(p=>takenByOther.add(p))});
-        return(form.orderPieces||[]).map(p=>{const sel=fabPieces.includes(p);const taken=takenByOther.has(p);if(taken&&!sel)return<span key={p} style={{padding:"5px 12px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#F1F5F9",color:T.textMut+"80",border:"1px dashed "+T.brd,textDecoration:"line-through",cursor:"default"}}>{p}</span>;return<span key={p} onClick={()=>{const np=sel?fabPieces.filter(x=>x!==p):[...fabPieces,p];updF("fabricPieces"+k,np)}} style={{padding:"5px 12px",borderRadius:10,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>})})()}
-      </div>}
-    </div>})}
+      const fabOpts=data.fabrics.map(f=>({value:String(f.id),label:f.name+" — "+f.price+" ج.م/"+f.unit}));
+      const visible=FKEYS.slice(0,visibleFabricCount);
+      const removeFabric=(k)=>{
+        setForm(p=>{const n={...p};n["fabric"+k]="";n["cons"+k]="";n["pcsPerLayer"+k]="";n["cutDate"+k]="";n["colors"+k]=[];n["fabricPieces"+k]=[];n["fabric"+k+"Label"]="";n["fabric"+k+"Price"]=0;n["fabric"+k+"Unit"]="";return n});
+        const idx=FKEYS.indexOf(k);
+        if(idx===visibleFabricCount-1)setVisibleFabricCount(c=>Math.max(1,c-1));
+      };
+      return<>
+        <style>{`
+          .ord-fab-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:10px}
+          @media (min-width: 1280px){.ord-fab-grid{grid-template-columns:1fr 1fr}}
+          .ord-fab-block{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;background:${T.cardSolid};border:1.5px solid ${T.brd};flex-wrap:wrap;min-height:42px}
+          .ord-fab-letter{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:${FS-1}px;font-weight:800;border:1px solid;white-space:nowrap;flex-shrink:0}
+          .ord-fab-dot{display:inline-block;width:8px;height:8px;border-radius:2px;flex-shrink:0}
+          .ord-fab-search{flex:1;min-width:140px}
+          .ord-fab-mini-label{font-size:${FS-2}px;color:${T.textSec};white-space:nowrap;flex-shrink:0;font-weight:600}
+        `}</style>
+        <div className="ord-fab-grid">
+          {visible.map((k,idx)=>{
+            const fid=form["fabric"+k];
+            const fabricPpl=Number(form["pcsPerLayer"+k])||0;
+            return<div key={k} className="ord-fab-block">
+              <span className="ord-fab-letter" style={{background:FCOL[idx]+"15",color:FCOL[idx],borderColor:FCOL[idx]+"40"}}>
+                <span className="ord-fab-dot" style={{background:FCOL[idx]}}/>
+                <span>{"خامة "+k+(k==="A"?" *":"")}</span>
+              </span>
+              <div className="ord-fab-search">
+                <SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus sx={{padding:"5px 9px",fontSize:FS-1}}/>
+              </div>
+              {upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="إضافة خامة جديدة للمخزن">+</Btn>}
+              <span className="ord-fab-mini-label">استهلاك/راق</span>
+              <Inp type="number" step="any" value={form["cons"+k]} onChange={v=>updF("cons"+k,v)} style={{width:60,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+              <span className="ord-fab-mini-label" title="القطع في الراق الواحد — يستخدم تلقائياً عند إضافة لون جديد">قطع/راق</span>
+              <Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v=>{const newPpl=Number(v)||0;updF("pcsPerLayer"+k,v);const oldDefault=fabricPpl||ssPps;const cols=form["colors"+k]||[];const updated=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===oldDefault)?{...c,pcsPerLayer:newPpl,qty:(Number(c.layers)||0)*newPpl}:c);if(JSON.stringify(updated)!==JSON.stringify(cols))updF("colors"+k,updated)}} placeholder={ssPps?String(ssPps):"0"} style={{width:55,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+              <span className="ord-fab-mini-label">تاريخ</span>
+              <Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)} style={{width:130,padding:"4px 6px",fontSize:FS-1}}/>
+              {idx>0&&<Btn small onClick={()=>removeFabric(k)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="حذف الخامة">✕</Btn>}
+            </div>;
+          })}
+        </div>
+        {visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>
+          <Btn small onClick={()=>setVisibleFabricCount(c=>Math.min(FKEYS.length,c+1))} style={{background:T.ok+"10",color:T.ok,border:"1.5px dashed "+T.ok+"50",padding:"7px 18px",fontWeight:700,fontSize:FS-1}}>
+            {"+ إضافة خامة "+FKEYS[visibleFabricCount]}
+          </Btn>
+        </div>}
+        {/* FCTable + pieces chips for each visible fabric — full width below */}
+        {visible.map(k=>{
+          const fid=form["fabric"+k];
+          if(!fid)return null;
+          const fb=fabObj(fid);
+          const fabPieces=form["fabricPieces"+k]||[];
+          const idx=FKEYS.indexOf(k);
+          const fabricPpl=Number(form["pcsPerLayer"+k])||0;
+          const effectivePpl=fabricPpl||ssPps;
+          return<div key={"col-"+k}>
+            <FCTable label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)} pcsPerSeries={effectivePpl}/>
+            {(form.orderPieces||[]).length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+              <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
+              {(()=>{const takenByOther=new Set();FKEYS.filter(fk=>fk!==k).forEach(fk=>{(form["fabricPieces"+fk]||[]).forEach(p=>takenByOther.add(p))});
+              return(form.orderPieces||[]).map(p=>{const sel=fabPieces.includes(p);const taken=takenByOther.has(p);if(taken&&!sel)return<span key={p} style={{padding:"5px 12px",borderRadius:10,fontSize:FS-2,fontWeight:600,background:"#F1F5F9",color:T.textMut+"80",border:"1px dashed "+T.brd,textDecoration:"line-through",cursor:"default"}}>{p}</span>;return<span key={p} onClick={()=>{const np=sel?fabPieces.filter(x=>x!==p):[...fabPieces,p];updF("fabricPieces"+k,np)}} style={{padding:"5px 12px",borderRadius:10,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>})})()}
+            </div>}
+          </div>;
+        })}
+      </>;
+    })()}
     <div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:FS,fontWeight:700,color:T.accent}}>بنود التشغيل والاكسسوار</div><Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2}}>+ اضافة الكل</Btn></div><AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/></div>
     <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>تعليمات التشغيل</label><textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات التشغيل..." style={{width:"100%",height:100,padding:14,borderRadius:14,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:16,borderTop:"1px solid "+T.brd,flexWrap:"wrap",gap:10}}>

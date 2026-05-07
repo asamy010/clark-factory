@@ -10,11 +10,14 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V19.80.2";
+export const APP_VERSION = "V19.80.3";
 
-export const FKEYS = ["A","B","C","D","E"];
+/* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
+   sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
+   without F/G/H simply read undefined for those slots — no schema migration. */
+export const FKEYS = ["A","B","C","D","E","F","G","H"];
 
-export const FCOL = ["#0EA5E9","#10B981","#F59E0B","#8B5CF6","#EF4444"];
+export const FCOL = ["#0EA5E9","#10B981","#F59E0B","#8B5CF6","#EF4444","#06B6D4","#84CC16","#EC4899"];
 
 export const WS_TYPES=[
   {key:"خياطة خارجي",icon:"🏭",color:"#8B5CF6",internal:false},
