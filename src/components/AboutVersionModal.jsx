@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.5",
+    date: "2026-05-07",
+    types: ["fix", "feature"],
+    title: "📦 كرت الخامة الموحّد + 🔍 zoom للصورة + ✂️ تناسق ارتفاع الصفوف",
+    changes: [
+      { type: "fix", text: "✂️ [Row height inconsistency fixed] في V19.80.3 لما تختار خامة، الـ SearchSel كان بـ يعرض subline \"✓ name\" تحت الـ input. النتيجة: الصف الواحد ارتفاعه يتغير (طويل لو فيه خامة، قصير لو فاضي). دلوقتي الـ subline اتشال — الـ input نفسه بـ يعرض اسم الخامة لما مش focused، فالـ subline كان duplication. الصفوف بقت موحّدة الارتفاع." },
+      { type: "fix", text: "📦 [Each fabric is now ONE self-contained card] قبل: في V19.80.3 الصف العلوي فيه شريط البحث والمدخلات، والـ FCTable الكاملة بتنزل تحت كله. الـ headers كانت في مكان والـ bodies في مكان تاني — مش مترابطة بصرياً. دلوقتي كل خامة في كرت واحد متماسك:\n┌─ ●Letter + SearchSel + [+] [✕]\n├─ استهلاك / قطع/راق / تاريخ القص (لما الخامة محددة)\n├─ FCTable (الـ header الملوّن + جدول الألوان)\n└─ chips قطع الخامة\n\n2 كروت في الصف على الديسكتوب ≥1280px، 1 على الشاشات الأصغر." },
+      { type: "fix", text: "➕ [+ إضافة خامة moved to BELOW the cards] الزر كان فوق الـ FCTables (مع شريط البحث). دلوقتي تحت كل الكروت — منطقياً صح: \"خلصت من الخامة دي، عاوز أضيف التانية\". الـ click يـ reveal كرت جديد فاضي بـ خانة بحث تنتظر الاختيار." },
+      { type: "feature", text: "🔍 [Click model image to zoom — 3:4 portrait lightbox] في صفحة تفاصيل الأوردر، الضغط على الصورة دلوقتي يفتح lightbox modal بـ height:90vh و aspect-ratio:3/4 و object-fit:cover (بدون stretching للصورة). cursor:zoom-in على hover. الـ Esc أو click على الـ backdrop يـ close. زر ✕ أعلى يسار. شارة الـ PO/model number أسفل اليمين. الصورة بـ تـ load من الـ Firebase Storage cache (الـ SW بـ يـ cache-first الصور من V19.80.2) فالعرض فوري بدون re-download." },
+    ]
+  },
+  {
     version: "V19.80.4",
     date: "2026-05-07",
     types: ["fix"],

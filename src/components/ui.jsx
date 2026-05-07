@@ -124,7 +124,10 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
       onKeyDown={onKey}
       placeholder={placeholder||"اكتب للبحث..."}
       style={{width:"100%",padding:"6px 10px",border:"2px solid "+(focused?T.accent:T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",transition:"border 0.15s",...(sx||{})}}/>
-    {selected&&!focused&&<div style={{fontSize:FS-3,color:T.ok,marginTop:2}}>{"✓ "+selected.label}</div>}
+    {/* V19.80.5: removed the "✓ selected" subline — it caused the SearchSel height
+         to differ between selected and unselected states, breaking row alignment.
+         The input itself shows the selected label when not focused, so the subline
+         was redundant duplication. */}
     {showResults&&rect&&typeof document!=="undefined"&&createPortal(
       <div className="searchsel-portal" style={{position:"fixed",top:rect.top+2,left:rect.left,width:rect.width,zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 12px 32px rgba(0,0,0,0.22)",maxHeight:280,overflowY:"auto"}}>
         {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}

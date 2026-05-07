@@ -62,6 +62,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   /* V19.79.0: redesigned detail view — tab navigation persisted in localStorage */
   const[activeTab,setActiveTab]=useState(()=>{try{return localStorage.getItem("clark_det_tab")||"fabrics"}catch(e){return"fabrics"}});
   useEffect(()=>{try{localStorage.setItem("clark_det_tab",activeTab)}catch(e){}},[activeTab]);
+  /* V19.80.5: click model image to open a 3:4 portrait zoom modal. The image
+     URL is the same Firebase Storage URL already shown in the cell, so the
+     cache-first SW (V19.80.2) means the zoom shows instantly without a
+     re-download. Esc or backdrop click closes. */
+  const[imgZoom,setImgZoom]=useState(false);
+  useEffect(()=>{if(!imgZoom)return;const h=e=>{if(e.key==="Escape")setImgZoom(false)};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h)},[imgZoom]);
   const isInternal=(name)=>{const w=workshops.find(x=>x.name===name);return w?wsIsInternal(w.type):false};
   /* V16.26: keep a fresh ref to data so the QR-stock listener can read the
      latest order even when sel hasn't changed (effect captures closures). */
@@ -621,10 +627,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
              large upload can never blow the layout up. loading="eager" so the
              hero image shows immediately on prev/next nav. */}
         <div className="det-img-cell">
-          <div className="det-img-frame">
+          {/* V19.80.5: click to zoom (only when an image is set) */}
+          <div className="det-img-frame" onClick={order.image?()=>setImgZoom(true):undefined} style={{cursor:order.image?"zoom-in":"default"}} title={order.image?"عرض بالحجم الكامل":""}>
             <DefaultModelImg src={order.image} modelNo={order.modelNo} modelDesc={order.modelDesc} orderPieces={order.orderPieces} loading="eager"/>
           </div>
-          {canEdit&&order.image&&<div onClick={async()=>{if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,zIndex:2}}>✕</div>}
+          {canEdit&&order.image&&<div onClick={async(e)=>{e.stopPropagation();if(await ask("حذف الصورة","متأكد من حذف صورة الأوردر؟",{danger:true})){const path=order.imageStoragePath;updOrder(sel,o=>{o.image="";o.imageStoragePath=""});if(path)deleteOrderImage(path).catch(err=>console.warn("[V19.36] storage cleanup failed:",err))}}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:12,background:"rgba(0,0,0,0.65)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,zIndex:2}}>✕</div>}
         </div>
         {/* 2x2 KPI grid → middle column (col 2: auto width) */}
         <div className="det-kpis-cell">
@@ -1777,6 +1784,15 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     />}
     {/* V19.0: Stage progress modal — opens when clicking interactive stage badge */}
     {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
+    {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
+        The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
+    {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
+      <div style={{position:"relative",height:"90vh",aspectRatio:"3 / 4",maxWidth:"95vw",borderRadius:16,overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
+        <img src={order.image} alt={order.modelNo||""} loading="eager" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+      </div>
+      <button onClick={(e)=>{e.stopPropagation();setImgZoom(false)}} style={{position:"absolute",top:18,insetInlineEnd:18,width:40,height:40,borderRadius:20,background:"rgba(0,0,0,0.55)",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",fontSize:18,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="إغلاق (Esc)">✕</button>
+      <div style={{position:"absolute",bottom:18,insetInlineStart:18,padding:"6px 14px",borderRadius:10,background:"rgba(0,0,0,0.55)",color:"#fff",fontSize:FS-1,fontWeight:700,fontFamily:"monospace",letterSpacing:0.5}}>{order.poNumber||order.modelNo}</div>
+    </div>}
   </div>
 }
 
