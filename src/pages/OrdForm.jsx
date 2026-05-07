@@ -192,8 +192,8 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       };
       return<>
         <style>{`
-          .ord-fab-grid{display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px;align-items:start}
-          @media (min-width: 1280px){.ord-fab-grid{grid-template-columns:1fr 1fr}}
+          .ord-blocks-grid{display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px;align-items:start}
+          @media (min-width: 1280px){.ord-blocks-grid{grid-template-columns:1fr 1fr}}
           .ord-fab-card{background:${T.cardSolid};border:1.5px solid ${T.brd};border-inline-start-width:4px;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
           .ord-fab-search-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
           .ord-fab-letter{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:${FS-1}px;font-weight:800;border:1px solid;white-space:nowrap;flex-shrink:0}
@@ -202,8 +202,17 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
           .ord-fab-inputs-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed ${T.brd};border-bottom:1px dashed ${T.brd}}
           .ord-fab-mini-label{font-size:${FS-2}px;color:${T.textSec};white-space:nowrap;flex-shrink:0;font-weight:600}
           .ord-fab-card .fctable-wrap{margin-bottom:0 !important}
+          /* V19.80.7: extras blocks (accessories + instructions) live inside the
+             same grid as fabrics so they fluidly fill empty cells. When the
+             fabric count is odd (1, 3, 5...) the second column has only one
+             empty cell on the last row → both extras stack inside that single
+             cell via .ord-extras-stack. When the fabric count is even, extras
+             flow into separate cells side-by-side. */
+          .ord-block-card{background:${T.cardSolid};border:1.5px solid ${T.brd};border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+          .ord-block-header{display:flex;justify-content:space-between;align-items:center;font-size:${FS}px;font-weight:700;color:${T.accent}}
+          .ord-extras-stack{display:flex;flex-direction:column;gap:12px;min-width:0}
         `}</style>
-        <div className="ord-fab-grid">
+        <div className="ord-blocks-grid">
           {visible.map((k,idx)=>{
             const fid=form["fabric"+k];
             const fb=fabObj(fid);
@@ -242,6 +251,25 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
               </div>}
             </div>;
           })}
+          {/* V19.80.7: Accessories + Instructions cards live INSIDE the grid so
+              they fluidly fill the cells left empty by fabrics. Even fabric
+              count → side-by-side. Odd fabric count → stacked together in the
+              single trailing cell so the layout never has a hole. */}
+          {(()=>{
+            const fabricsFillFullRow=visible.length%2===0;
+            const accCard=<div className="ord-block-card" key="acc">
+              <div className="ord-block-header">
+                <span>📦 بنود التشغيل والاكسسوار{(form.accItems||[]).length>0?" ("+(form.accItems||[]).length+")":""}</span>
+                {(data.accessories||[]).length>(form.accItems||[]).length&&<Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2,padding:"3px 9px"}}>+ اضافة الكل</Btn>}
+              </div>
+              <AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/>
+            </div>;
+            const instCard=<div className="ord-block-card" key="inst">
+              <div className="ord-block-header"><span>📝 تعليمات التشغيل</span></div>
+              <textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات تشغيل المصنع، الورش، التشطيب..." style={{width:"100%",minHeight:120,padding:12,borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box",resize:"vertical",flex:1}}/>
+            </div>;
+            return fabricsFillFullRow?<>{accCard}{instCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}</div>;
+          })()}
         </div>
         {visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>
           <Btn small onClick={()=>setVisibleFabricCount(c=>Math.min(FKEYS.length,c+1))} style={{background:T.ok+"10",color:T.ok,border:"1.5px dashed "+T.ok+"50",padding:"7px 18px",fontWeight:700,fontSize:FS-1}}>
@@ -250,8 +278,8 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
         </div>}
       </>;
     })()}
-    <div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:FS,fontWeight:700,color:T.accent}}>بنود التشغيل والاكسسوار</div><Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2}}>+ اضافة الكل</Btn></div><AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/></div>
-    <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>تعليمات التشغيل</label><textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات التشغيل..." style={{width:"100%",height:100,padding:14,borderRadius:14,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical"}}/></div>
+    {/* V19.80.7: Accessories + Instructions are rendered inside the .ord-blocks-grid above,
+        so they auto-flow into empty cells left by fabrics. The standalone divs here are gone. */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:16,borderTop:"1px solid "+T.brd,flexWrap:"wrap",gap:10}}>
       <div style={{fontSize:20,fontWeight:800}}>{"كمية القص (A): "}<span style={{color:T.accent}}>{mainQty}</span></div>
       <div style={{display:"flex",gap:10}}><Btn ghost onClick={handleCancel}>الغاء</Btn><Btn primary onClick={save}>حفظ</Btn></div>

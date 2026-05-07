@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.7",
+    date: "2026-05-07",
+    types: ["feature", "improvement"],
+    title: "🧩 الاكسسوار + التعليمات بقوا بلوكات متحركة تملأ الشبكة",
+    changes: [
+      { type: "feature", text: "🧩 [Fluid block layout — extras fill empty grid cells] الاكسسوار والتعليمات دلوقتي بلوكات داخل نفس الـ grid اللي فيه الخامات. لما تـ add/remove خامات، الاكسسوار والتعليمات بـ يـ shift أوتوماتيك ليملأوا الخلايا الفاضية. كل ده عبر CSS auto-flow بدون JavaScript layout logic." },
+      { type: "feature", text: "📐 [Layout examples]\n• خامة A فقط (1، فردي): A | [Stack(Acc, Inst)] — البلوكان متراصين في الخلية الفاضية في صف واحد\n• A + B (2، زوجي): A | B  ⟶  Acc | Inst — جنب بعض في الصف اللي بعدهم\n• A, B, C (3، فردي): A | B  ⟶  C | [Stack(Acc, Inst)] — Stack في الخلية الأخيرة\n• A, B, C, D (4، زوجي): A | B  ⟶  C | D  ⟶  Acc | Inst — جنب بعض\n\nالقاعدة: لو visibleFabricCount % 2 == 0 → side-by-side؛ غير كده → stacked في خلية واحدة." },
+      { type: "improvement", text: "🎨 [Block cards consistent design] كل block (خامة / اكسسوار / تعليمات) دلوقتي في نفس شكل الكرت: `border:1.5px solid + border-radius:12 + padding:10×12 + flex column gap:8`. الفرق: الخامة عندها border-inline-start-width:4px بلون الـ accent بتاعها كـ identity. النتيجة: شبكة بصرياً متجانسة وأنيقة." },
+      { type: "improvement", text: "🏷 [Accessories card header shows count] عنوان كرت الاكسسوار دلوقتي بـ يعرض العدد لو فيه بنود مختارة: \"📦 بنود التشغيل والاكسسوار (5)\". زر \"+ اضافة الكل\" بـ يخفى لما تكون كل البنود متاحة فعلاً." },
+    ]
+  },
+  {
     version: "V19.80.6",
     date: "2026-05-07",
     types: ["improvement"],
