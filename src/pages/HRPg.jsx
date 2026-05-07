@@ -524,14 +524,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[wsPayType,setWsPayType]=useState("payment");/* payment | purchase */
   const[wsPayDate,setWsPayDate]=useState("");
   const[wsPayNote,setWsPayNote]=useState("");
-  /* V15.34: Weekly other expenses — planned, registered in treasury on week close (like ws payments) */
+  /* V15.34: Weekly other expenses — planned, registered in treasury on week close (like ws payments)
+     V19.80.11: default account now SUB CASH (per user request). Supplier-id state added so that
+     a "دفعة مورد" category links the payment to a specific supplier from data.suppliers. */
   const[showOtherExpForm,setShowOtherExpForm]=useState(false);
   const[otherExpDate,setOtherExpDate]=useState("");
   const[otherExpCategory,setOtherExpCategory]=useState("");
   const[otherExpCategoryCustom,setOtherExpCategoryCustom]=useState("");
   const[otherExpAmount,setOtherExpAmount]=useState("");
   const[otherExpDesc,setOtherExpDesc]=useState("");
-  const[otherExpAccount,setOtherExpAccount]=useState("MAIN CASH");
+  const[otherExpAccount,setOtherExpAccount]=useState("SUB CASH");
+  const[otherExpSupplierId,setOtherExpSupplierId]=useState("");
 
   const openWeek=hrWeeks.find(w=>w.id===openWeekId);
   
@@ -1393,28 +1396,37 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   /* V15.34: Weekly other expenses — planned, registered in treasury on week close */
   const weeklyOtherExpenses=openWeek?(openWeek.weeklyOtherExpenses||[]):[];
   const totalWeeklyOtherExpenses=weeklyOtherExpenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const resetOtherExpForm=()=>{setOtherExpDate(openWeek?.weekStart||today);setOtherExpCategory("");setOtherExpCategoryCustom("");setOtherExpAmount("");setOtherExpDesc("");setOtherExpAccount("MAIN CASH")};
+  const resetOtherExpForm=()=>{setOtherExpDate(openWeek?.weekStart||today);setOtherExpCategory("");setOtherExpCategoryCustom("");setOtherExpAmount("");setOtherExpDesc("");setOtherExpAccount("SUB CASH");setOtherExpSupplierId("")};
   const saveWeeklyOtherExp=()=>{
     if(!openWeek)return;
     const amt=Number(otherExpAmount)||0;
     if(amt<=0){showToast("⚠️ المبلغ لازم يكون أكبر من صفر");return}
     const finalCat=(otherExpCategory==="__custom__"?otherExpCategoryCustom.trim():otherExpCategory).trim();
     if(!finalCat){showToast("⚠️ التصنيف مطلوب");return}
+    /* V19.80.11: when category is "دفعة مورد", a supplier MUST be selected so the
+       payment is linked to a specific account in the suppliers ledger. The supplier
+       name is mirrored into the desc field for at-a-glance readability in the table. */
+    const isSupplierPayment=finalCat==="دفعة مورد";
+    const supplier=isSupplierPayment?(data.suppliers||[]).find(s=>String(s.id)===String(otherExpSupplierId)):null;
+    if(isSupplierPayment&&!supplier){showToast("⚠️ اختر المورد لربط الدفعة");return}
     const useDateSave=otherExpDate||openWeek.weekStart||today;
     const expId=gid();
+    const finalDesc=otherExpDesc||(supplier?("دفعة لمورد "+supplier.name):"");
     upConfig(d=>{
       const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);if(wi<0)return;
       if(!d.hrWeeks[wi].weeklyOtherExpenses)d.hrWeeks[wi].weeklyOtherExpenses=[];
       d.hrWeeks[wi].weeklyOtherExpenses.push({
         id:expId,date:useDateSave,category:finalCat,amount:amt,
-        desc:otherExpDesc||"",account:otherExpAccount||"MAIN CASH",
+        desc:finalDesc,account:otherExpAccount||"SUB CASH",
+        supplierId:supplier?supplier.id:null,
+        supplierName:supplier?supplier.name:null,
         createdBy:userName||"",createdAt:new Date().toISOString(),
         planned:true/* Flag: will be registered in treasury on week close */
       });
       addAudit(d,{
         category:"other_expense",action:"add_weekly",
-        target:finalCat+" — W"+d.hrWeeks[wi].weekNum,
-        newValue:fmt0(amt)+" ج"+(otherExpDesc?" — "+otherExpDesc:""),
+        target:finalCat+" — W"+d.hrWeeks[wi].weekNum+(supplier?" — "+supplier.name:""),
+        newValue:fmt0(amt)+" ج"+(finalDesc?" — "+finalDesc:""),
         user:userName,severity:amt>5000?"warning":"info",
         notes:"مصروف أسبوعي (خطة — سيُسجَّل في الخزنة عند الإقفال)"
       });
@@ -1716,9 +1728,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             id:exTxId,type:"out",amount:r2(Number(ex.amount)||0),
             desc:"مصروف — "+ex.category+" W"+openWeek.weekNum+(ex.desc?" — "+ex.desc:""),
             category:ex.category||"مصاريف أخرى",
-            account:ex.account||"MAIN CASH",season:d.activeSeason||"",
+            account:ex.account||"SUB CASH",season:d.activeSeason||"",
             date:ex.date||useDate,day:exDayName,
             sourceType:"hr_other_expense",weekId:openWeek.id,
+            /* V19.80.11: propagate supplier link so the treasury entry shows up
+               under the supplier's account when category is "دفعة مورد". */
+            ...(ex.supplierId?{supplierId:ex.supplierId,supplierName:ex.supplierName||""}:{}),
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
           });
           /* Link back: mark as registered on the planned entry */
@@ -4318,19 +4333,29 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                   <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>التاريخ</div>
                   <Inp type="date" value={otherExpDate} onChange={setOtherExpDate}/>
                 </div>
-                {/* Category */}
+                {/* V19.80.11: Category — SearchSel with built-in filter (was a long Sel dropdown).
+                    Type to filter the categories list; "✏️ تصنيف مخصص..." appears at the bottom. */}
                 <div>
                   <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>التصنيف</div>
-                  <Sel value={otherExpCategory} onChange={v=>{setOtherExpCategory(v);if(v!=="__custom__")setOtherExpCategoryCustom("")}}>
-                    <option value="">— اختر تصنيف —</option>
-                    {_outCats.map(c=><option key={c} value={c}>{c}</option>)}
-                    <option value="__custom__">✏️ تصنيف مخصص...</option>
-                  </Sel>
+                  <SearchSel value={otherExpCategory} onChange={v=>{setOtherExpCategory(v);if(v!=="__custom__")setOtherExpCategoryCustom("");if(v!=="دفعة مورد")setOtherExpSupplierId("")}}
+                    options={[..._outCats.map(c=>({value:c,label:c})),{value:"__custom__",label:"✏️ تصنيف مخصص..."}]}
+                    placeholder="ابحث / اختر تصنيف..." maxResults={10} showAllOnFocus/>
                 </div>
               </div>
               {otherExpCategory==="__custom__"&&<div style={{marginBottom:10}}>
                 <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4,fontWeight:700}}>تصنيف مخصص</div>
                 <Inp value={otherExpCategoryCustom} onChange={setOtherExpCategoryCustom} placeholder="اكتب التصنيف..."/>
+              </div>}
+              {/* V19.80.11: Supplier picker — appears only when التصنيف = دفعة مورد.
+                  Required so the payment is linked to a supplier account. */}
+              {otherExpCategory==="دفعة مورد"&&<div style={{marginBottom:10,padding:"10px 12px",borderRadius:10,background:"#0EA5E908",border:"1.5px solid #0EA5E930"}}>
+                <div style={{fontSize:FS-2,color:"#0369A1",marginBottom:6,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>
+                  <span>🏷</span><span>اختر المورد *</span>
+                </div>
+                <SearchSel value={otherExpSupplierId} onChange={setOtherExpSupplierId}
+                  options={(data.suppliers||[]).map(s=>({value:s.id,label:s.name+(s.phone?" — "+s.phone:"")}))}
+                  placeholder="ابحث عن المورد بالاسم أو التليفون..." maxResults={8} showAllOnFocus/>
+                {(data.suppliers||[]).length===0&&<div style={{fontSize:FS-3,color:T.warn,marginTop:6,fontWeight:600}}>⚠️ لا يوجد موردين مسجلين — أضفهم من شاشة المشتريات أولاً</div>}
               </div>}
               <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
                 {/* Amount */}
@@ -4376,10 +4401,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 <tbody>
                   {weeklyOtherExpenses.map((ex,i)=><tr key={ex.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
                     <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
-                    <td style={{...TD,fontWeight:700,color:"#DC2626"}}>{ex.category}</td>
+                    <td style={{...TD,fontWeight:700,color:"#DC2626"}}>
+                      {ex.category}
+                      {/* V19.80.11: supplier badge when this expense is linked to a supplier */}
+                      {ex.supplierName&&<span style={{display:"inline-block",marginInlineStart:6,padding:"2px 8px",borderRadius:6,background:"#0EA5E912",color:"#0369A1",fontSize:FS-3,fontWeight:700,border:"1px solid #0EA5E930"}}>🏷 {ex.supplierName}</span>}
+                    </td>
                     <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{ex.desc||"—"}</td>
                     <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{fmt0(ex.amount)}</td>
-                    <td style={{...TD,textAlign:"center",color:T.textSec,fontSize:FS-2,fontFamily:"monospace"}}>{ex.account||"MAIN CASH"}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec,fontSize:FS-2,fontFamily:"monospace"}}>{ex.account||"SUB CASH"}</td>
                     <td style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-2,direction:"ltr"}}>{ex.date}</td>
                     {canEdit&&!isLocked&&<td style={{...TD,textAlign:"center"}}>
                       <span onClick={()=>deleteWeeklyOtherExp(ex.id)} style={{cursor:"pointer",padding:"2px 8px",borderRadius:6,fontSize:FS-1,background:T.err+"10",color:T.err,border:"1px solid "+T.err+"25"}} title="حذف">🗑</span>

@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.11",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "🏷 مصاريف الأسبوع: ربط دفعة المورد + بحث للتصنيف + SUB CASH default",
+    changes: [
+      { type: "feature", text: "🔍 [Category — searchable filter] في شاشة \"💼 مصاريف أخرى\" داخل HRPg، الـ category dropdown اتـ replace بـ SearchSel. اكتب جزء من اسم التصنيف → الـ list بـ تـ filter. الـ \"✏️ تصنيف مخصص...\" لسه ظاهر في آخر الـ list. السبب: قائمة التصنيفات بقت طويلة (تكلفة، مشتريات، مرتبات، خيط، تشغيل، نقل، كهرباء، ...) فالبحث أسرع." },
+      { type: "feature", text: "🏷 [دفعة مورد → supplier picker] لما تختار \"دفعة مورد\" كتصنيف، حقل جديد بـ يـ appear تحته (في box أزرق تركيزي): SearchSel للموردين بـ filter بالاسم أو التليفون. الـ supplier required — لو ما اخترتش، الـ save بـ يرفض بـ toast \"⚠️ اختر المورد لربط الدفعة\". الـ supplierId + supplierName بـ يتـ saved في expense record + بـ يـ propagate لـ treasury entry لما تـ close الأسبوع، فالـ payment يظهر في حساب المورد الصحيح." },
+      { type: "feature", text: "💰 [Default account: MAIN CASH → SUB CASH] الـ default للحساب اتغير لـ \"SUB CASH\" (كان MAIN CASH) عبر المصاريف الأسبوعية كلها — في الـ initial useState، في الـ resetOtherExpForm، في الـ fallback عند الـ posting للخزنة، وفي الـ display column في الـ table. السبب: الـ user أوضح أن الـ SUB CASH هو الـ default المتوقع للمصاريف الأسبوعية." },
+      { type: "feature", text: "📋 [Supplier badge in expense list] في جدول المصاريف، الـ supplierName بـ يظهر كـ chip أزرق صغير جنب التصنيف لو الدفعة مرتبطة بمورد. مثال: \"دفعة مورد 🏷 محمد سنترال\". بسهولة تتعرف على دفعات الموردين بصرياً من غير ما تـ open التفاصيل." },
+    ]
+  },
+  {
     version: "V19.80.10",
     date: "2026-05-07",
     types: ["fix"],
