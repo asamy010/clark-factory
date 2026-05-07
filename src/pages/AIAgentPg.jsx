@@ -2431,15 +2431,11 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
       ],
     },
     {
-      title: "📄 GENERATE (يولّد PDF/links — قريباً)",
+      title: "📄 GENERATE (يولّد روابط موقّعة)",
       color: "#8B5CF6",
       items: [
-        { key:"generate_portal_link",   label:"لينك الـ portal",         desc:"يولّد URL مؤقت للـ customer portal", extras:[
-          { field:"ttlHours", label:"مدة الصلاحية", type:"number", suffix:"ساعة" },
-        ]},
-        { key:"generate_statement_pdf", label:"كشف حساب PDF",            desc:"PDF كشف الحساب من بيانات Firestore", extras:[
-          { field:"businessHoursOnly", label:"يعمل خلال ساعات العمل فقط", type:"bool" },
-        ]},
+        { key:"generate_portal_link",   label:"لينك الـ portal",         desc:"رابط HMAC-signed صالح 90 يوم — السائل فقط", deployed: true },
+        { key:"generate_statement_pdf", label:"كشف حساب PDF",            desc:"بيـ delegate لـ portal link مع focus=statement", deployed: true },
       ],
     },
     {
@@ -2449,15 +2445,12 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
         { key:"notify_sales_team",          label:"إشعار فريق المبيعات",     desc:"⭐ بدلاً من create order. الفريق بـ يدخل الطلب يدوياً", deployed: true, extras:[
           { field:"maxValueBeforeManual", label:"الحد الأقصى قبل المراجعة اليدوية", type:"number", suffix:"ج" },
         ]},
-        { key:"notify_admin_phone_request", label:"طلب ربط رقم/LID",         desc:"يبعت للأدمن LID + اسم مدّعى — يـ surface في aiAgentSuggestions", deployed: true, extras:[
-          { field:"requiresOtp", label:"يحتاج OTP أولاً", type:"bool" },
-        ]},
+        { key:"notify_admin_phone_request", label:"طلب ربط رقم/LID",         desc:"يبعت للأدمن LID + اسم مدّعى — يـ surface في aiAgentSuggestions", deployed: true },
         { key:"escalate_to_human",          label:"تحويل لبشري",            desc:"بـ context كامل + آخر 5 رسائل", deployed: true },
-        { key:"send_otp",                   label:"إرسال OTP",               desc:"الكود في Redis، مش Firestore (قريباً)", extras:[
+        { key:"send_otp",                   label:"إرسال OTP",               desc:"6-digit code في Redis، 5 دقايق default، 3 محاولات أقصى", deployed: true, extras:[
           { field:"ttlMin",      label:"مدة الصلاحية",    type:"number", suffix:"دقيقة" },
-          { field:"maxAttempts", label:"حد المحاولات",     type:"number", suffix:"محاولة" },
         ]},
-        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يقرأ من Redis (read-only) — قريباً" },
+        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يـ verify الكود — one-time use، يـ delete بعد النجاح", deployed: true },
       ],
     },
   ];

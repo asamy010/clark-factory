@@ -25,6 +25,24 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.78.0",
+    date: "2026-05-07",
+    types: ["feature"],
+    title: "🤖 AI Agent Phase 3 COMPLETE: 15 tools + Stage/Tier + Voice + Vision + OTP + Auto-FAQ",
+    changes: [
+      { type: "feature", text: "🎉 [Phase 3 شُحن — كل المراحل اكتملت] الـ Agent دلوقتي عنده 15 أداة (5 → 11 → 15)، stage classifier 7-stage، tier helper بـ thresholds قابلة للتخصيص، صوت بـ Whisper، صور بـ Claude Vision، OTP system، portal links، auto-FAQ suggestions. clark-ai-agent v1.0.3-phase3 اتـ deployed على VPS." },
+      { type: "feature", text: "🎯 [Stage Classifier — 7 مراحل] auto-classify كل عميل لما الـ profile يـ load: Stranger (مش مسجل) → Awareness (مسجل بدون orders) → Decision (طلب أول حديث) → Customer (2-5 orders) → Repeat (6+ orders) → Dormant (أكتر من 90 يوم بدون نشاط). Admin override (`customer.stage`) يكسب على الـ heuristic. الـ stage بـ يظهر في الـ system prompt context block فالـ Agent يعدّل أسلوبه (e.g. Repeat customer → معاملة VIP)." },
+      { type: "feature", text: "🏆 [Tier Helper — Bronze/Silver/Gold/Platinum] auto-classify بناءً على gross purchases في الموسم النشط. Default thresholds: 0/50K/200K/500K — admin يقدر يخصصها في `config.aiAgent.tiers`. الـ tier + total بـ يظهروا في الـ context (e.g. 'Tier: Gold (320K ج.م إجمالي مشتريات الموسم)') فالـ Agent عارف يقدّر العميل." },
+      { type: "feature", text: "🔐 [OTP System (Redis-backed)] tools `send_otp` + `verify_otp`: 6-digit code، 5 دقايق default TTL، 3 محاولات أقصى. الـ code one-time use (يـ delete بعد النجاح). Audit trail في `aiAgentOtps`. مفيد قبل: عرض الرصيد لـ stranger مدّعي، ربط LID جديد، إرسال portal link." },
+      { type: "feature", text: "🔗 [generate_portal_link] HMAC-SHA256 signed URLs بنفس scheme clark-factory's `/api/customer-portal-sign`. عند تشغيل الـ agent على VPS، الأدمن يضيف `CUSTOMER_PORTAL_SECRET` (نفس قيمة Vercel) في agent's .env فالروابط تكون مقبولة. صالحة 90 يوم. PII strict — السائل فقط. اختياري: focus=statement لفتح الـ portal على كشف الحساب مباشرة." },
+      { type: "feature", text: "📄 [generate_statement_pdf] tool منفصل لما العميل يقول 'ابعتلي كشف حسابي PDF'. بـ يـ delegate للـ portal link مع focus=statement + رسالة 'افتح الرابط واضغط طباعة'. أبسط من إنشاء PDF في الـ agent (لا يحتاج PDF library)." },
+      { type: "feature", text: "🎙 [Voice (Whisper)] الـ webhook دلوقتي بـ يقبل type='voice' مع audio + audio_mime base64. بيـ transcribe عبر OpenAI Whisper API ($0.006/min) بـ language='ar'، ثم يـ pipe الـ text للـ orchestrator زي رسالة عادية. لو OPENAI_API_KEY مش set، الـ agent بـ يبعت رسالة 'الصوت مش مفعّل، اكتب الاستفسار'. الـ memory بـ يحفظها كـ '[رسالة صوتية مفرّغة] {text}'." },
+      { type: "feature", text: "📷 [Image (Claude Vision)] الـ webhook بـ يقبل type='image' مع image base64. الـ orchestrator بـ يبني user content multi-block (image + caption text) فالـ Claude Vision (Haiku 3.5 supports vision) يحلل. مفيد لما العميل يبعت صورة موديل: 'احكي إيه ده'. الـ memory بـ يحفظها كـ '[صورة من العميل] — caption' بدون storing الـ base64." },
+      { type: "feature", text: "📚 [Auto-FAQ Suggester] لما الـ Agent يـ escalate (يستخدم escalate_to_human)، السؤال ما اتأجابش عبر FAQs/tools. الـ orchestrator بـ يـ trigger `suggestFaq()` اللي بـ يكتب suggestion من نوع `faq_suggestion` في aiAgentSuggestions. Idempotency: 7-day dedupe بـ hash السؤال (نفس السؤال يـ bump counter). الأدمن يـ review في tab '🔔 اقتراحات الـ AI' الجديد." },
+      { type: "feature", text: "🛠 [Tools tab updated] كل الـ 15 أداة دلوقتي بـ ✓ مفعّل badge. مفيش placeholders. الـ admin يقدر يـ enable/disable أي أداة + extras (TTL للـ OTP، إلخ)." },
+    ]
+  },
+  {
     version: "V19.77.2",
     date: "2026-05-07",
     types: ["feature"],
