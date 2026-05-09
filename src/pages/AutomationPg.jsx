@@ -11,13 +11,13 @@
    configuration + manual-trigger surface.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Btn, Card, Sel, Inp, DelBtn } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { gid } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
-import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG } from "../utils/automation/buildDailyReport.js";
+import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG, DEFAULT_DAILY_TEMPLATE, DAILY_REPORT_VARIABLES } from "../utils/automation/buildDailyReport.js";
 import {
   EVENT_VARIABLES,
   DEFAULT_EVENT_TEMPLATES,
@@ -85,6 +85,8 @@ const SECTION_LABELS = {
 export function AutomationPg({ data, upConfig, isMob, user }){
   const [tab, setTab] = useState("dailyReport");/* dailyReport | recipients | history | preview */
   const [previewText, setPreviewText] = useState("");
+  /* V19.80.15: live-resolved variables for the inline template preview */
+  const [previewVars, setPreviewVars] = useState({});
   const [busy, setBusy] = useState(false);
 
   const automation = data.automation || DEFAULT_AUTOMATION_CONFIG;
@@ -588,6 +590,34 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </div>
       </div>
 
+      {/* V19.80.15: editable WhatsApp message template with variable insertion.
+          Lets the admin customize the daily report's wording without code changes.
+          The default template mirrors the previous hardcoded layout, so behavior
+          stays identical until the user edits. Click any variable chip to insert
+          it at the cursor position. */}
+      <DailyReportTemplateEditor
+        template={dailyReport.template || DEFAULT_DAILY_TEMPLATE}
+        onChange={(v) => setReportField("template", v)}
+        onReset={async () => {
+          const ok = await ask("استرجاع القالب الافتراضي؟ القالب الحالي هيتم استبداله.");
+          if (!ok) return;
+          setReportField("template", DEFAULT_DAILY_TEMPLATE);
+          showToast("✓ تم استرجاع القالب الافتراضي");
+        }}
+        previewVars={previewVars}
+        onComputePreview={() => {
+          try {
+            const result = buildDailyReport(data, { config: dailyReport });
+            setPreviewVars(result.vars || {});
+            setPreviewText(result.text);
+          } catch (e) {
+            showToast("⚠️ خطأ في بناء المعاينة: " + (e.message || ""));
+          }
+        }}
+        previewText={previewText}
+        isMob={isMob}
+      />
+
       {/* V19.69.5: main action row — only "preview" + "test send" visible by default.
           The scheduler-trigger and lastSentAt-reset buttons moved to a collapsible
           "أدوات تشخيص" panel below, since they're debug tools (the VPS cron handles
@@ -1049,6 +1079,125 @@ function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleR
 }
 
 /* ─── Template editor (textarea + variables hint + preview) ─── */
+/* V19.80.15: Daily report template editor — textarea + clickable variable
+   chips that insert at the cursor position + inline preview that resolves
+   the template against live data. Layout mirrors the per-event TemplateEditor
+   below for visual consistency, but with daily-report-specific variable list
+   and a multi-line preview area (the daily report message is much longer). */
+function DailyReportTemplateEditor({ template, onChange, onReset, previewVars, onComputePreview, previewText, isMob }) {
+  const [showPreview, setShowPreview] = useState(false);
+  const taRef = useRef(null);
+
+  const insertVar = (name) => {
+    const tag = `{${name}}`;
+    const ta = taRef.current;
+    const cur = template || "";
+    if (!ta) {
+      onChange(cur + tag);
+      return;
+    }
+    const start = ta.selectionStart ?? cur.length;
+    const end = ta.selectionEnd ?? cur.length;
+    const next = cur.slice(0, start) + tag + cur.slice(end);
+    onChange(next);
+    /* Restore caret position right after the inserted tag */
+    setTimeout(() => {
+      try {
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + tag.length;
+      } catch (_) { /* ignore — focus race */ }
+    }, 0);
+  };
+
+  /* Variable groups for clearer organization in the chip area */
+  const groups = [
+    { label: "📅 الترويسة",  vars: ["date", "factoryName"] },
+    { label: "💰 المبيعات",   vars: ["salesValue", "salesQty", "salesInvoices", "topCustomer", "topCustomerValue", "topCustomerQty"] },
+    { label: "🛒 المشتريات",  vars: ["purchasesValue", "purchasesInvoices", "purchasesReceipts"] },
+    { label: "💵 الخزنة",    vars: ["treasuryIn", "treasuryOut", "netCash"] },
+    { label: "🏭 التشغيل",   vars: ["deliveredToday", "lateOrdersCount"] },
+    { label: "⚠️ تحذيرات",  vars: ["dueChecksCount", "dueChecksAmount"] },
+    { label: "📋 المهام",    vars: ["tasksOpen"] },
+    { label: "📦 أقسام كاملة (drop-in blocks)", vars: ["salesSection", "purchasesSection", "treasurySection", "productionSection", "alertsSection", "tasksSection", "comparisonSection"] },
+  ];
+
+  return (
+    <div style={{marginBottom:14, padding:"12px 14px", background:T.accent+"06",
+      border:"1px solid "+T.accent+"25", borderRadius:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:FS, fontWeight:800, color:T.accent}}>
+          📝 قالب رسالة الواتساب
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <span onClick={() => { setShowPreview(s => !s); if (!showPreview) onComputePreview(); }} style={{
+            fontSize:FS-2, color:T.ok, cursor:"pointer", fontWeight:700,
+            padding:"3px 9px", borderRadius:6, background:T.ok+"12", border:"1px solid "+T.ok+"30"}}>
+            {showPreview ? "إخفاء المعاينة" : "👁 معاينة مباشرة"}
+          </span>
+          <span onClick={onReset} style={{
+            fontSize:FS-2, color:T.warn, cursor:"pointer", fontWeight:700,
+            padding:"3px 9px", borderRadius:6, background:T.warn+"12", border:"1px solid "+T.warn+"30"}}>
+            ↺ القالب الافتراضي
+          </span>
+        </div>
+      </div>
+
+      <textarea ref={taRef} value={template || ""}
+        onChange={(e) => onChange(e.target.value)}
+        rows={isMob ? 10 : 14}
+        spellCheck={false}
+        style={{width:"100%", padding:"10px 12px", fontSize:FS-1,
+          fontFamily:"'Cairo', monospace, sans-serif",
+          border:"1.5px solid "+T.brd, borderRadius:8,
+          background:T.cardSolid, color:T.text, resize:"vertical", lineHeight:1.7,
+          direction:"rtl", textAlign:"start", boxSizing:"border-box"}}/>
+
+      <div style={{marginTop:10}}>
+        <div style={{fontSize:FS-2, color:T.textSec, marginBottom:6, fontWeight:700}}>
+          المتغيرات المتاحة (اضغط لإدراج عند مكان المؤشر):
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {groups.map(g => (
+            <div key={g.label} style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
+              <span style={{fontSize:FS-3, color:T.textMut, fontWeight:700, marginInlineEnd:4, minWidth:isMob?"auto":140}}>
+                {g.label}:
+              </span>
+              {g.vars.map(v => (
+                <span key={v} onClick={() => insertVar(v)} title={"إدراج {" + v + "}"} style={{
+                  padding:"3px 8px", borderRadius:5, fontSize:FS-3, fontWeight:700,
+                  background:T.accent+"15", color:T.accent, border:"1px solid "+T.accent+"30",
+                  cursor:"pointer", fontFamily:"monospace", whiteSpace:"nowrap",
+                  transition:"all 0.1s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = T.accent+"25"}
+                onMouseLeave={(e) => e.currentTarget.style.background = T.accent+"15"}
+                >{`{${v}}`}</span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {showPreview && (
+        <div style={{marginTop:12, padding:"10px 14px", background:"#0d1117", color:"#e6edf3",
+          borderRadius:8, fontSize:FS-1, lineHeight:1.7, fontFamily:"inherit",
+          whiteSpace:"pre-wrap", direction:"rtl", textAlign:"start",
+          maxHeight:isMob?320:480, overflowY:"auto",
+          border:"1px solid "+T.ok+"40",
+          boxShadow:"inset 0 1px 0 rgba(255,255,255,0.05)"}}>
+          {previewText || "(اضغط 👁 معاينة لتشوف الناتج بالقيم الفعلية)"}
+        </div>
+      )}
+
+      <div style={{marginTop:10, fontSize:FS-3, color:T.textMut, lineHeight:1.6}}>
+        💡 <b>نصيحة:</b> الـ{" "}<code style={{background:T.bg,padding:"1px 5px",borderRadius:3,fontFamily:"monospace"}}>{"{xxxSection}"}</code>{" "}
+        بـ تـ insert كتلة كاملة من الـ section (تختفي تلقائياً لو الـ section متوقّفة من فوق).
+        الـ granular vars (زي{" "}<code style={{background:T.bg,padding:"1px 5px",borderRadius:3,fontFamily:"monospace"}}>{"{salesValue}"}</code>{")"} بـ تـ insert رقم/نص واحد.
+      </div>
+    </div>
+  );
+}
+
 function TemplateEditor({ role, template, variables, eventType, onChange, onReset }){
   const [showPreview, setShowPreview] = useState(false);
   const sample = samplePayload(eventType);

@@ -366,6 +366,203 @@ function _comparisonSection(data, date) {
   ].join("\n");
 }
 
+/* ── V19.80.15: variable computation for templated daily reports ──
+   Returns a flat string-typed object suitable for substituteTemplate().
+   All numeric fields are pre-formatted with thousand separators (and
+   currency suffix where natural) so the template author doesn't have to
+   compose currency strings. Section blocks are also pre-rendered so the
+   template can include `{salesSection}` etc. as drop-in chunks. */
+function _computeVars(data, date, alertThresholds) {
+  const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("ar-EG", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
+  const factoryName = data.factoryName || "CLARK Factory";
+
+  /* Sales — same logic as _salesSection, repeated here so we have raw vars */
+  let salesQty = 0, salesValue = 0;
+  const byCustomer = {};
+  (data.orders || []).forEach(o => {
+    (o.customerDeliveries || []).forEach(d => {
+      if (String(d.date || "").slice(0, 10) !== date) return;
+      const qty = Number(d.qty) || 0;
+      const price = Number(d.price) || Number(o.sellPrice) || 0;
+      const value = qty * price;
+      salesQty += qty;
+      salesValue += value;
+      const cName = d.custName || "—";
+      if (!byCustomer[cName]) byCustomer[cName] = { qty: 0, value: 0 };
+      byCustomer[cName].qty += qty;
+      byCustomer[cName].value += value;
+    });
+  });
+  const todaySalesInvs = _dayItems(data.salesInvoices, date)
+    .filter(i => i.status === "posted" || i.status === "draft");
+  const topCustomersList = Object.entries(byCustomer)
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.value - a.value);
+  const top1 = topCustomersList[0] || { name: "—", value: 0, qty: 0 };
+
+  /* Purchases */
+  const todayPurReceipts = _dayItems(data.purchaseReceipts, date);
+  const todayPurInvs = _dayItems(data.purchaseInvoices, date);
+  let purchasesValue = 0;
+  todayPurInvs.forEach(i => { purchasesValue += Number(i.total) || 0; });
+
+  /* Treasury */
+  const todayTx = _dayItems(data.treasury, date);
+  let treasuryIn = 0, treasuryOut = 0;
+  todayTx.forEach(t => {
+    const amt = Number(t.amount) || 0;
+    if (amt <= 0) return;
+    if (t.type === "in") treasuryIn += amt;
+    else if (t.type === "out") treasuryOut += amt;
+  });
+
+  /* Production */
+  const orders = data.orders || [];
+  let deliveredToday = 0;
+  orders.forEach(o => {
+    (o.customerDeliveries || []).forEach(d => {
+      if (String(d.date || "").slice(0, 10) === date) deliveredToday += Number(d.qty) || 0;
+    });
+  });
+  const lateOrders = orders.filter(o => {
+    if (o.status === "تم التسليم لمخزن الجاهز") return false;
+    let last = String(o.date || "").slice(0, 10);
+    (o.workshopDeliveries || []).forEach(wd => {
+      if (wd.date > last) last = wd.date;
+      (wd.receives || []).forEach(r => { if (r.date > last) last = r.date; });
+    });
+    (o.customerDeliveries || []).forEach(d => { if (d.date > last) last = d.date; });
+    return _daysBetween(last, date) > 7;
+  });
+
+  /* Alerts */
+  const dueChecks = (data.checks || []).filter(c => {
+    if (c.status === "محصل" || c.status === "مرتد" || c.status === "ملغي") return false;
+    const due = String(c.dueDate || c.date || "").slice(0, 10);
+    if (!due) return false;
+    const days = _daysBetween(date, due);
+    return days >= 0 && days <= 7;
+  });
+  const dueChecksAmount = dueChecks.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+  /* Tasks */
+  const openTasks = (data.tasks || []).filter(t => !t.done);
+
+  return {
+    /* Header bits */
+    date: dateLabel,
+    dateRaw: date,
+    factoryName,
+
+    /* Sales granular */
+    salesValue: _money(salesValue),
+    salesQty: _fmt(salesQty),
+    salesInvoices: String(todaySalesInvs.length),
+    topCustomer: top1.name,
+    topCustomerValue: _money(top1.value),
+    topCustomerQty: _fmt(top1.qty),
+
+    /* Purchases granular */
+    purchasesValue: _money(purchasesValue),
+    purchasesInvoices: String(todayPurInvs.length),
+    purchasesReceipts: String(todayPurReceipts.length),
+
+    /* Treasury granular */
+    treasuryIn: _money(treasuryIn),
+    treasuryOut: _money(treasuryOut),
+    netCash: _money(treasuryIn - treasuryOut),
+
+    /* Production granular */
+    deliveredToday: _fmt(deliveredToday),
+    lateOrdersCount: String(lateOrders.length),
+
+    /* Alerts granular */
+    dueChecksCount: String(dueChecks.length),
+    dueChecksAmount: _money(dueChecksAmount),
+
+    /* Tasks granular */
+    tasksOpen: String(openTasks.length),
+
+    /* Pre-rendered section blocks — drop-in for templates */
+    salesSection: _salesSection(data, date),
+    purchasesSection: _purchasesSection(data, date),
+    treasurySection: _treasurySection(data, date),
+    productionSection: _productionSection(data, date),
+    alertsSection: _alertsSection(data, date, alertThresholds),
+    tasksSection: _tasksSection(data),
+    comparisonSection: _comparisonSection(data, date),
+  };
+}
+
+/* Substitute `{key}` placeholders with values from vars. Unknown keys are
+   left as `{key}` so the user spots typos in preview. Empty values are
+   replaced with empty string (and lines that become empty after substitution
+   are squeezed via _squeezeBlanks below). */
+function _applyTemplate(template, vars) {
+  if (!template || typeof template !== "string") return "";
+  return template.replace(/\{(\w+)\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(vars, key)) return match;
+    const v = vars[key];
+    if (v === null || v === undefined) return "";
+    return String(v);
+  });
+}
+
+/* After substitution, sections that were toggled OFF (we still skip those
+   below) leave gaps of 3+ newlines. Squash them to 2 for clean spacing. */
+function _squeezeBlanks(s) {
+  return String(s || "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* Default template used when config.template is empty/missing. Mirrors the
+   pre-V19.80.15 hardcoded layout so existing reports look identical until
+   the user customizes. */
+export const DEFAULT_DAILY_TEMPLATE = [
+  "🏭 *{factoryName} — التقرير اليومي*",
+  "📅 {date}",
+  "━━━━━━━━━━━━━━━━━━━━",
+  "",
+  "{salesSection}",
+  "",
+  "{purchasesSection}",
+  "",
+  "{treasurySection}",
+  "",
+  "{productionSection}",
+  "",
+  "{alertsSection}",
+  "",
+  "{tasksSection}",
+  "",
+  "━━━━━━━━━━━━━━━━━━━━",
+  "🤖 _تم الإرسال تلقائياً من نظام CLARK_",
+].join("\n");
+
+/* List of available variable names — used by the AutomationPg UI to render
+   clickable variable chips. Keep in sync with _computeVars output keys. */
+export const DAILY_REPORT_VARIABLES = [
+  /* Header */
+  "date", "factoryName",
+  /* Sales */
+  "salesValue", "salesQty", "salesInvoices",
+  "topCustomer", "topCustomerValue", "topCustomerQty",
+  /* Purchases */
+  "purchasesValue", "purchasesInvoices", "purchasesReceipts",
+  /* Treasury */
+  "treasuryIn", "treasuryOut", "netCash",
+  /* Production */
+  "deliveredToday", "lateOrdersCount",
+  /* Alerts */
+  "dueChecksCount", "dueChecksAmount",
+  /* Tasks */
+  "tasksOpen",
+  /* Section blocks */
+  "salesSection", "purchasesSection", "treasurySection",
+  "productionSection", "alertsSection", "tasksSection", "comparisonSection",
+];
+
 /* ── Main builder ── */
 export function buildDailyReport(data, opts) {
   const config = opts?.config || {};
@@ -374,32 +571,30 @@ export function buildDailyReport(data, opts) {
     production: true, alerts: true, tasks: true, comparison: false,
   };
   const date = opts?.date || new Date().toISOString().slice(0, 10);
-  const factoryName = (data.factoryName || "CLARK Factory");
 
-  const parts = [];
-  /* Header */
-  const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("ar-EG", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  });
-  parts.push(`🏭 *${factoryName} — التقرير اليومي*`);
-  parts.push(`📅 ${dateLabel}`);
-  parts.push("━━━━━━━━━━━━━━━━━━━━");
+  /* V19.80.15: compute all granular vars + section blocks, then apply the
+     template (custom or default). Sections that are toggled off resolve
+     their `{xxxSection}` to an empty string so the layout still works. */
+  const vars = _computeVars(data, date, config.alertThresholds);
+  /* Blank out section vars whose toggle is off */
+  if (!sections.sales)      vars.salesSection = "";
+  if (!sections.purchases)  vars.purchasesSection = "";
+  if (!sections.treasury)   vars.treasurySection = "";
+  if (!sections.production) vars.productionSection = "";
+  if (!sections.alerts)     vars.alertsSection = "";
+  if (!sections.tasks)      vars.tasksSection = "";
+  if (!sections.comparison) vars.comparisonSection = "";
 
-  if (sections.sales)      parts.push(_salesSection(data, date));
-  if (sections.purchases)  parts.push(_purchasesSection(data, date));
-  if (sections.treasury)   parts.push(_treasurySection(data, date));
-  if (sections.production) parts.push(_productionSection(data, date));
-  if (sections.alerts)     parts.push(_alertsSection(data, date, config.alertThresholds));
-  if (sections.tasks)      parts.push(_tasksSection(data));
-  if (sections.comparison) parts.push(_comparisonSection(data, date));
-
-  parts.push("━━━━━━━━━━━━━━━━━━━━");
-  parts.push("🤖 _تم الإرسال تلقائياً من نظام CLARK_");
+  const template = (config.template && String(config.template).trim())
+    ? String(config.template)
+    : DEFAULT_DAILY_TEMPLATE;
+  const text = _squeezeBlanks(_applyTemplate(template, vars));
 
   return {
     date,
-    text: parts.join("\n\n"),
+    text,
     sectionsIncluded: Object.entries(sections).filter(([, v]) => v).map(([k]) => k),
+    vars,/* exposed for callers that want to inspect values (e.g. preview UI) */
   };
 }
 

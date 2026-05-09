@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.15",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "📝 قالب رسالة التقرير اليومي قابل للتعديل + متغيرات قابلة للإدراج",
+    changes: [
+      { type: "feature", text: "📝 [Editable WhatsApp template for daily report] إعدادات الـ Automation → التقرير اليومي دلوقتي فيها textarea يـ allow الـ admin يـ customize نص الرسالة بالكامل. الـ default template بـ يطابق الـ output القديم بالظبط، فالسلوك مش متغير لحد ما تـ edit." },
+      { type: "feature", text: "🏷 [27 متغير قابل للإدراج] لائحة الـ variables منظمة في 8 مجموعات (ترويسة، مبيعات، مشتريات، خزنة، تشغيل، تحذيرات، مهام، أقسام كاملة). الضغط على chip يـ insert الـ variable عند مكان الـ cursor في الـ textarea تلقائي. أمثلة:\n• `{date}` → \"الأحد، 9 مايو 2026\"\n• `{factoryName}` → \"CLARK Factory\"\n• `{salesValue}` → \"3,750 ج.م\"\n• `{topCustomer}` → اسم أعلى عميل\n• `{netCash}` → الصافي بعد الخزنة\n• `{salesSection}` → كتلة كاملة (drop-in block)" },
+      { type: "feature", text: "👁 [Inline live preview] زر \"معاينة مباشرة\" بـ يـ render الـ template بالقيم الفعلية من الـ data. الـ preview بـ يظهر في box أسود (terminal-style) تحت الـ textarea مباشرة فالـ admin يقدر يـ tweak الـ template ويرى الـ output الحقيقي بدون ما يضغط \"ارسل تجربة\". الـ section toggles لسه شغّالة — لو طفّيت قسم، الـ `{xxxSection}` المقابل يـ resolve لـ string فاضي و`_squeezeBlanks` يـ collapse الفراغ." },
+      { type: "feature", text: "↺ [Reset to default] زر \"القالب الافتراضي\" بـ يـ restore الـ template الأصلي بـ confirmation dialog. مفيد لو الـ admin عمل تعديلات وعاوز يرجّع للـ original. الـ DEFAULT_DAILY_TEMPLATE constant مـ exposed من buildDailyReport.js للـ reuse." },
+      { type: "feature", text: "🛠 [_computeVars + _applyTemplate في buildDailyReport.js] الـ helper الجديد بـ يحسب 27 variable في pass واحد، يـ pre-render الـ section blocks، ويـ apply الـ template عبر regex substitution. الـ unknown placeholders بـ تفضل as-is (مثل `{typo}`) فالـ admin يـ catch الأخطاء في الـ preview. الـ `vars` object مـ exposed في الـ return value فأي UI يـ inspect الأرقام الـ raw." },
+    ]
+  },
+  {
     version: "V19.80.14",
     date: "2026-05-09",
     types: ["fix"],
