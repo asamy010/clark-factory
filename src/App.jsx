@@ -5501,13 +5501,12 @@ export default function App(){
          output. The QR data itself doesn't change — the warehouse QR scanner
          keeps working as normal. */
       const secondGrade=!!barcodePopup._secondGrade;
-      /* V19.84.1: tracking is unconditional now — the V19.81.0 opt-out
-         checkbox was removed per user request ("شيل تشيك بوكس"). Every
-         printed label gets a unique pieceId + Firestore doc so the
-         CLARK:P:<id> format is the only one we emit going forward. Legacy
-         QRs printed before V19.81.0 still resolve via the lookup page's
-         legacy-aware parser. */
-      const trackPieces = true;
+      /* V19.85.0: tracking restored as opt-in. Default OFF — the user must
+         tick the checkbox to switch from the legacy CLARK:orderId:qty format
+         to the per-piece CLARK:P:<id> format. (V19.84.1 had removed the
+         checkbox entirely; V19.85.0 restores it but flips the default per
+         user request: "احتفظ بالاوبشن بس لما المستخدم يحب يشغله".) */
+      const trackPieces = !!barcodePopup._trackPieces;
       const qrMMEffective=secondGrade?Math.round(qrMM*0.8):qrMM;
       /* V19.70.26: QC-2 box larger and more legible. Was ≈18% of QR (too small to read
          on a typical 30-40mm QR), now ≈26% giving more headroom for the bigger text.
@@ -5644,16 +5643,33 @@ export default function App(){
               </div>
             </div>
           </label>
-          {/* V19.84.1: subtle hint that tracking is always on (replaced the
-              full opt-out checkbox per user request). One line, no UI clutter. */}
-          <div style={{
-            fontSize:FS-3,color:T.textMut,marginBottom:10,padding:"6px 10px",
-            borderRadius:8,background:"#0EA5E908",border:"1px solid #0EA5E920",
-            display:"flex",alignItems:"center",gap:6,
+          {/* V19.85.0: tracking checkbox restored as opt-in (default OFF).
+              When ON: each label gets a unique pieceId + Firestore doc, scannable
+              from the lookup/sell/return tabs. When OFF: legacy CLARK:orderId:qty
+              format (faster, no DB writes, no individual tracking). */}
+          <label style={{
+            display:"flex",alignItems:"center",gap:10,marginBottom:12,
+            padding:"8px 12px",borderRadius:10,
+            background:trackPieces?"#0EA5E915":T.bg+"60",
+            border:"1px solid "+(trackPieces?"#0EA5E960":T.brd),
+            cursor:"pointer",transition:"all 0.2s",
           }}>
-            <span>🔍</span>
-            <span>كل ليبل بيتطبع بـ QR فريد ومتسجل في النظام تلقائياً (تتبع كل قطعة)</span>
-          </div>
+            <input
+              type="checkbox"
+              checked={trackPieces}
+              onChange={e=>setBarcodePopup(p=>({...p,_trackPieces:e.target.checked}))}
+              style={{width:20,height:20,cursor:"pointer",accentColor:"#0EA5E9",flexShrink:0}}
+            />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:T.text,lineHeight:1.2}}>
+                🔍 تتبع كل قطعة (اختياري)
+              </div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,lineHeight:1.3}}>
+                لما تفعّله، كل ليبل بيتطبع بـ <span style={{fontFamily:"monospace",fontWeight:800}}>QR فريد</span> ويتسجل في النظام —
+                تقدر بعدها تـ scan أي قطعة وتعرف لمين راحت ودورة حياتها كاملة.
+              </div>
+            </div>
+          </label>
           <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden",flexWrap:"wrap"}}>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>

@@ -418,6 +418,78 @@ export async function releasePiece(pieceId, { by }) {
   return { ok: true };
 }
 
+/* V19.85.0 — aggregate analytics over the most recent N pieces. Reads up
+   to `limit` docs (default 1000) sorted by createdAt desc, then computes
+   client-side: counts by status, top customers, top models, return rate
+   per model (returns / sales). Excludes series docs from totals so the
+   contained-pieces don't double-count.
+
+   For factories with > 1000 pieces, analytics reflects the most recent
+   slice. Larger ranges would need server-side aggregation (cloud function
+   or scheduled rollup) — out of scope for V19.85.0. */
+export async function getAggregatedStats(opts) {
+  const max = (opts && opts.limit) || 1000;
+  const ref = collection(db, "pieces");
+  const q = query(ref, orderBy("createdAt", "desc"), limit(max));
+  const snap = await getDocs(q);
+  const stats = {
+    total: 0,
+    sampleSize: 0,
+    byStatus: { in_warehouse: 0, with_customer: 0, scrapped: 0 },
+    byModel: {},      /* modelNo → { count, modelDesc } */
+    byCustomer: {},   /* customerName → count (currently with) */
+    returnsByModel: {}, /* modelNo → { sold, returned, modelDesc } */
+    seriesTotal: 0,   /* tracked series docs (separate from pieces) */
+  };
+  snap.forEach(docSnap => {
+    const p = docSnap.data();
+    stats.sampleSize++;
+    if (p.type === "series") {
+      stats.seriesTotal++;
+      return; /* don't fold series into per-piece counts */
+    }
+    stats.total++;
+    stats.byStatus[p.status] = (stats.byStatus[p.status] || 0) + 1;
+    if (!stats.byModel[p.modelNo]) stats.byModel[p.modelNo] = { count: 0, modelDesc: p.modelDesc || "" };
+    stats.byModel[p.modelNo].count++;
+    if (p.currentCustomerName && p.status === "with_customer") {
+      stats.byCustomer[p.currentCustomerName] = (stats.byCustomer[p.currentCustomerName] || 0) + 1;
+    }
+    if (!stats.returnsByModel[p.modelNo]) stats.returnsByModel[p.modelNo] = { sold: 0, returned: 0, modelDesc: p.modelDesc || "" };
+    /* Was it ever sold? Was it ever returned? */
+    const hist = p.history || [];
+    if (hist.some(h => h.action === "sold")) stats.returnsByModel[p.modelNo].sold++;
+    if (hist.some(h => h.action === "returned")) stats.returnsByModel[p.modelNo].returned++;
+  });
+  return stats;
+}
+
+/* V19.85.0 — bulk return helper. Takes an array of pieceIds and a single
+   reason string; calls markReturned for each (with cascadeSeries=true so
+   a scanned series triggers all contained pieces). Returns a summary
+   {ok, fail, fromCustomers}. */
+export async function markReturnedBulk(pieceIds, { reason, by, cascadeSeries }) {
+  let ok = 0, fail = 0;
+  const fromCustomers = new Set();
+  const failures = [];
+  for (const id of pieceIds) {
+    try {
+      const r = await markReturned(id, { reason, by, cascadeSeries: cascadeSeries !== false });
+      if (r.ok) {
+        ok++;
+        if (r.fromCustomerName) fromCustomers.add(r.fromCustomerName);
+      } else {
+        fail++;
+        failures.push({ id, error: r.error });
+      }
+    } catch (e) {
+      fail++;
+      failures.push({ id, error: e?.message || String(e) });
+    }
+  }
+  return { ok, fail, fromCustomers: [...fromCustomers], failures };
+}
+
 /* V19.84.0 — list every piece currently held by a given customer. Indexed
    on `currentCustomerId` so this is a single Firestore query (no client-side
    scan). Sort by `updatedAt` desc so the most recent purchases bubble to the

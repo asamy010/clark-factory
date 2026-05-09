@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { Btn, Card, Inp, SearchSel } from "../components/ui.jsx";
 import { QrScanner } from "../components/QrScanner.jsx";
-import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, getCurrentPiecesForCustomer } from "../utils/pieces.js";
+import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, markReturnedBulk, getCurrentPiecesForCustomer, getAggregatedStats } from "../utils/pieces.js";
 import { fmt } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 
@@ -53,10 +53,11 @@ function _fmtDateTime(iso) {
 }
 
 const TABS = [
-  { key: "lookup",   label: "🔍 استعلام",     color: "#0EA5E9" },
-  { key: "sell",     label: "📦 تسليم",        color: "#10B981" },
-  { key: "return",   label: "↩️ إرجاع",         color: "#F59E0B" },
-  { key: "customer", label: "👥 سجل العميل",   color: "#8B5CF6" },
+  { key: "lookup",    label: "🔍 استعلام",     color: "#0EA5E9" },
+  { key: "sell",      label: "📦 تسليم",        color: "#10B981" },
+  { key: "return",    label: "↩️ إرجاع",         color: "#F59E0B" },
+  { key: "customer",  label: "👥 سجل العميل",   color: "#8B5CF6" },
+  { key: "analytics", label: "📊 إحصائيات",     color: "#EC4899" },
 ];
 
 export function PiecesPg({ data, isMob, T, FS, user }) {
@@ -82,10 +83,11 @@ export function PiecesPg({ data, isMob, T, FS, user }) {
       }}>{t.label}</div>)}
     </div>
 
-    {tab === "lookup"   && <LookupTab   data={data} T={_T} FS={_FS} />}
-    {tab === "sell"     && <SellTab     data={data} T={_T} FS={_FS} user={user} />}
-    {tab === "return"   && <ReturnTab   data={data} T={_T} FS={_FS} user={user} />}
-    {tab === "customer" && <CustomerTab data={data} T={_T} FS={_FS} />}
+    {tab === "lookup"    && <LookupTab    data={data} T={_T} FS={_FS} />}
+    {tab === "sell"      && <SellTab      data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "return"    && <ReturnTab    data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "customer"  && <CustomerTab  data={data} T={_T} FS={_FS} />}
+    {tab === "analytics" && <AnalyticsTab data={data} T={_T} FS={_FS} />}
   </div>;
 }
 
@@ -381,26 +383,34 @@ function SellTab({ data, T, FS, user }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TAB 3 — Return (V19.82.0): scan one piece → mark returned
-   ═══════════════════════════════════════════════════════════════ */
+   TAB 3 — Return (V19.85.0): bulk scan → mark all returned in one batch
+   ═══════════════════════════════════════════════════════════════
+   Pre-V19.85 this was single-piece-at-a-time. The user pointed out that
+   real returns often come in groups (10 pieces from one customer), so
+   confirming each one was friction. New behavior mirrors the Sell tab:
+   keep scanning, build up a list, enter a single reason, confirm-all.
+   Each scan still validates (must be tracked, must be with_customer,
+   no duplicates). Cancel-release: nothing writes to Firestore until
+   the confirm button. */
 function ReturnTab({ T, FS, user }) {
-  const [scanActive, setScanActive] = useState(true);
-  const [piece, setPiece] = useState(null);
+  const [scanActive, setScanActive] = useState(false);
+  const [scanned, setScanned] = useState([]); /* [{piece, scannedAt, cascadeSeries}] */
   const [reason, setReason] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [errMsg, setErrMsg] = useState("");
-  const [success, setSuccess] = useState(null); /* {customerName, modelNo, ...} */
-  /* V19.83.0 — when a series is scanned, the user must explicitly choose
-     between cascading the return to all contained pieces or just the series
-     itself (effectively a "partial return" placeholder). Default to cascade. */
-  const [cascadeSeries, setCascadeSeries] = useState(true);
+  const [lastSummary, setLastSummary] = useState(null);
+
+  const scannedIds = new Set(scanned.map(s => s.piece.id));
 
   async function handleScan(text) {
-    setErrMsg(""); setSuccess(null);
+    setErrMsg(""); setLastSummary(null);
     const parsed = parseQr(text);
     if (parsed.kind !== "piece") {
       const msg = parsed.kind === "legacy" ? "⚠️ ده QR قديم بدون تتبع" : "⚠️ ده مش CLARK QR";
       setErrMsg(msg); showToast(msg); return;
+    }
+    if (scannedIds.has(parsed.pieceId)) {
+      showToast("⚠️ القطعة دي اتعملها scan قبل كده في الجلسة دي"); return;
     }
     try {
       const p = await getPiece(parsed.pieceId);
@@ -409,145 +419,327 @@ function ReturnTab({ T, FS, user }) {
         showToast("⚠️ القطعة في الحالة: " + (STATUS_LABEL[p.status]?.label || p.status) + " — مش ممكن إرجاعها");
         return;
       }
-      setPiece(p);
-      setScanActive(false);
+      /* Series-vs-piece overlap detection — same logic as SellTab */
+      if (p.type === "series" && Array.isArray(p.containedPieceIds)) {
+        const overlap = p.containedPieceIds.find(cid => scannedIds.has(cid));
+        if (overlap) {
+          showToast("⚠️ في قطعة ضمن السيري ده اتعملها scan قبل كده");
+          return;
+        }
+      }
+      if (p.parentSeriesId && scannedIds.has(p.parentSeriesId)) {
+        showToast("⚠️ السيري ده اتعملها scan قبل كده — السيري كامل بيشمل القطعة دي");
+        return;
+      }
+      /* Default cascade=true for series; user can flip per piece */
+      setScanned(prev => [...prev, { piece: p, scannedAt: Date.now(), cascadeSeries: true }]);
     } catch (e) {
       setErrMsg("خطأ: " + (e?.message || e));
     }
   }
 
-  async function confirmReturn() {
-    if (!piece) return;
+  function removeScan(pieceId) {
+    setScanned(prev => prev.filter(s => s.piece.id !== pieceId));
+  }
+  function toggleCascade(pieceId) {
+    setScanned(prev => prev.map(s => s.piece.id === pieceId ? { ...s, cascadeSeries: !s.cascadeSeries } : s));
+  }
+
+  async function confirmAll() {
+    if (scanned.length === 0) { showToast("⚠️ مفيش قطع متعملها scan"); return; }
+    const proceed = await ask(
+      "تأكيد إرجاع",
+      "هتـ return " + scanned.length + " قطعة" + (reason ? " بسبب: " + reason : "") + ". الإجراء ده هـ يشيل الربط بالعميل ويرجّع القطع للمخزن."
+    );
+    if (!proceed) return;
     setConfirming(true);
-    try {
-      const r = await markReturned(piece.id, {
-        reason: reason || "بدون سبب محدد",
-        by: user?.email || "",
-        cascadeSeries: piece.type === "series" ? cascadeSeries : false,
-      });
-      if (r.ok) {
-        setSuccess({
-          fromCustomerName: r.fromCustomerName || piece.currentCustomerName,
-          modelNo: piece.modelNo,
-          size: piece.size,
-          cascade: r.cascade,
+    const by = user?.email || user?.displayName || "";
+    let ok = 0, fail = 0;
+    const fromCustomers = new Set();
+    const failures = [];
+    for (const s of scanned) {
+      try {
+        const r = await markReturned(s.piece.id, {
+          reason: reason || "بدون سبب محدد",
+          by,
+          cascadeSeries: s.piece.type === "series" ? s.cascadeSeries : false,
         });
-        setPiece(null); setReason(""); setScanActive(true); setCascadeSeries(true);
-        showToast("✓ تم استلام إرجاع من " + (r.fromCustomerName || piece.currentCustomerName) + (r.cascade ? " (شامل " + r.cascade + " قطعة في السيري)" : ""));
-      } else {
-        showToast("⛔ فشل الإرجاع: " + r.error);
+        if (r.ok) {
+          ok++;
+          if (r.fromCustomerName) fromCustomers.add(r.fromCustomerName);
+        } else {
+          fail++; failures.push({ piece: s.piece, error: r.error });
+        }
+      } catch (e) {
+        fail++; failures.push({ piece: s.piece, error: e?.message || String(e) });
       }
-    } catch (e) {
-      showToast("⛔ خطأ: " + (e?.message || e));
-    } finally {
-      setConfirming(false);
+    }
+    setConfirming(false);
+    setLastSummary({ ok, fail, fromCustomers: [...fromCustomers], failures });
+    if (fail === 0) {
+      showToast("✓ تم استلام " + ok + " إرجاع من " + fromCustomers.size + " عميل");
+      setScanned([]); setReason("");
+    } else {
+      showToast("⚠️ " + ok + " ناجح، " + fail + " فشل");
+      setScanned(prev => prev.filter(s => !failures.some(f => f.piece.id === s.piece.id)));
     }
   }
 
-  function reset() {
-    setPiece(null); setReason(""); setScanActive(true); setErrMsg(""); setSuccess(null);
+  /* Group scanned by current customer for display */
+  const byCustomer = {};
+  scanned.forEach(s => {
+    const k = s.piece.currentCustomerName || "—";
+    if (!byCustomer[k]) byCustomer[k] = [];
+    byCustomer[k].push(s);
+  });
+
+  return <div>
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+        <Btn small onClick={() => setScanActive(s => !s)} style={{
+          background: scanActive ? "#EF4444" : "#F59E0B", color: "#FFF", fontWeight: 700,
+        }}>{scanActive ? "✕ إيقاف الكاميرا" : "📷 ابدأ scan الإرجاعات"}</Btn>
+        <div style={{ fontSize: FS - 2, color: T.textSec, flex: 1, minWidth: 100 }}>
+          امسح كل قطعة مرتجعة. هتشوفها في القائمة مع اسم العميل اللي راحت له. ضغط "تأكيد" يعمل return للكل دفعة واحدة.
+        </div>
+      </div>
+      {scanActive && <div style={{ marginBottom: 10 }}>
+        <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={260} />
+      </div>}
+      {errMsg && <div style={{ padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2, marginBottom: 8 }}>
+        ⚠️ {errMsg}
+      </div>}
+    </Card>
+
+    {lastSummary && lastSummary.fail === 0 && lastSummary.ok > 0 && (
+      <Card style={{ marginBottom: 14, background: "#D1FAE5", border: "1px solid #10B981" }}>
+        <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#065F46" }}>
+          ✓ تم استلام {lastSummary.ok} إرجاع
+        </div>
+        <div style={{ fontSize: FS - 1, color: "#065F46", marginTop: 4 }}>
+          من {lastSummary.fromCustomers.length} عميل: <b>{lastSummary.fromCustomers.join("، ")}</b>
+        </div>
+        <div style={{ fontSize: FS - 3, color: "#047857", marginTop: 6 }}>
+          كل القطع رجعت للمخزن وممكن تتباع لعملاء تانيين.
+        </div>
+      </Card>
+    )}
+
+    {scanned.length > 0 && <Card style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>
+          ↩️ {scanned.length} قطعة مرتجعة في الجلسة
+        </div>
+        <Btn small onClick={confirmAll} disabled={confirming} style={{
+          background: "#F59E0B", color: "#FFF", fontWeight: 800, fontSize: FS,
+        }}>{confirming ? "⏳ جاري الحفظ..." : "✓ تأكيد إرجاع الكل"}</Btn>
+      </div>
+
+      {/* Single reason field for the whole batch */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec, display: "block", marginBottom: 4 }}>
+          سبب الإرجاع (اختياري — لكل القطع في الجلسة)
+        </label>
+        <Inp value={reason} onChange={setReason} placeholder="مقاس غلط / عيب / إلخ..." />
+      </div>
+
+      {/* List grouped by customer */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {Object.entries(byCustomer).map(([custName, items]) => (
+          <div key={custName} style={{ border: "1px solid " + T.brd, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "8px 12px", background: "#F59E0B15", fontSize: FS - 1, fontWeight: 800, color: "#92400E" }}>
+              👤 {custName} · {items.length} قطعة
+            </div>
+            {items.map(s => {
+              const isSeries = s.piece.type === "series";
+              const containedCount = Array.isArray(s.piece.containedPieceIds) ? s.piece.containedPieceIds.length : 0;
+              return <div key={s.piece.id} style={{
+                padding: "8px 12px", borderTop: "1px solid " + T.brd, fontSize: FS - 2,
+                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+                background: isSeries && containedCount > 0 ? "#F59E0B05" : "transparent",
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: T.text, fontWeight: 700 }}>
+                    {isSeries && containedCount > 0 ? "🔗 " : ""}
+                    {s.piece.modelNo}
+                    {s.piece.size ? " · مقاس " + s.piece.size : ""}
+                    {isSeries ? " · سيري" : ""}
+                    {isSeries && containedCount > 0 && (
+                      <label style={{ marginInlineStart: 8, fontSize: FS - 3, cursor: "pointer", color: s.cascadeSeries ? "#0EA5E9" : T.textMut }}>
+                        <input type="checkbox" checked={s.cascadeSeries} onChange={() => toggleCascade(s.piece.id)} style={{ marginInlineEnd: 3, accentColor: "#0EA5E9" }} />
+                        {s.cascadeSeries ? "إرجاع كامل (+" + containedCount + " قطعة)" : "إرجاع السيري بس"}
+                      </label>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: "monospace", color: T.textMut, fontSize: FS - 3 }}>{s.piece.id}</div>
+                </div>
+                <span onClick={() => removeScan(s.piece.id)} style={{
+                  cursor: "pointer", padding: "3px 8px", borderRadius: 6, background: "#EF444415",
+                  color: "#EF4444", fontWeight: 700, fontSize: FS - 2,
+                }}>✕</span>
+              </div>;
+            })}
+          </div>
+        ))}
+      </div>
+    </Card>}
+
+    {scanned.length === 0 && !lastSummary && <div style={{
+      padding: 24, textAlign: "center", color: T.textMut, fontSize: FS - 1,
+      background: T.bg, borderRadius: 10, border: "1px dashed " + T.brd,
+    }}>📷 افتح الكاميرا وامسح القطع المرتجعة (واحدة أو أكتر)</div>}
+  </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TAB 5 — Analytics (V19.85.0): aggregate stats over recent pieces
+   ═══════════════════════════════════════════════════════════════
+   Reads up to 1000 most recent pieces and aggregates client-side. Surfaces
+   four lenses on the data:
+     • Status snapshot (in_warehouse / with_customer / scrapped)
+     • Top customers (by piece count currently held)
+     • Top models (by production count)
+     • Return rate per model (returned / sold), ordered desc
+   For factories beyond 1000 pieces this reflects the most recent slice;
+   server-side rollup would be needed for full historical aggregates. */
+function AnalyticsTab({ T, FS }) {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+
+  async function load() {
+    setLoading(true); setErrMsg(""); setStats(null);
+    try {
+      const s = await getAggregatedStats({ limit: 1000 });
+      setStats(s);
+    } catch (e) {
+      setErrMsg("خطأ في القراءة: " + (e?.message || e));
+    } finally { setLoading(false); }
+  }
+
+  /* Auto-load on first mount */
+  if (!stats && !loading && !errMsg) {
+    setTimeout(load, 0);
   }
 
   return <div>
-    {!piece && <Card style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: FS, fontWeight: 700, color: T.text, marginBottom: 8 }}>
-        📷 امسح QR القطعة المرتجعة
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: FS - 1, color: T.textSec, lineHeight: 1.6, flex: 1, minWidth: 200 }}>
+          إحصائيات شاملة على آخر 1000 قطعة منتجة. للـ factories بأكتر من ده، الأرقام بتعكس آخر شريحة من الإنتاج.
+        </div>
+        <Btn small onClick={load} disabled={loading} style={{
+          background: "#EC4899", color: "#FFF", fontWeight: 700,
+        }}>{loading ? "⏳ جاري التحميل..." : "🔄 تحديث"}</Btn>
       </div>
-      <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>
-        النظام هـ يقولك القطعة دي راحت لمين قبل كده، وتقدر تأكد الإرجاع وتدخل السبب.
-      </div>
-      {scanActive && <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={280} />}
-      {!scanActive && <Btn small onClick={() => setScanActive(true)} style={{
-        background: "#0EA5E9", color: "#FFF", fontWeight: 700,
-      }}>📷 فتح الكاميرا تاني</Btn>}
       {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
         ⚠️ {errMsg}
       </div>}
-    </Card>}
+    </Card>
 
-    {success && <Card style={{ marginBottom: 14, background: "#D1FAE5", border: "1px solid #10B981" }}>
-      <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#065F46" }}>
-        ✓ تم استلام الإرجاع بنجاح
+    {stats && <>
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 14 }}>
+        <KPICard color="#0EA5E9" label="إجمالي القطع" value={stats.total} hint={"عينة من " + stats.sampleSize + " doc"} />
+        <KPICard color="#10B981" label="📦 في المخزن" value={stats.byStatus.in_warehouse || 0} />
+        <KPICard color="#F59E0B" label="🛒 مع عملاء" value={stats.byStatus.with_customer || 0} />
+        <KPICard color="#EF4444" label="🗑 تالفة/ملغية" value={stats.byStatus.scrapped || 0} />
+        <KPICard color="#8B5CF6" label="🔗 سيريهات" value={stats.seriesTotal} />
       </div>
-      <div style={{ fontSize: FS - 1, color: "#065F46", marginTop: 4 }}>
-        من العميل: <b>{success.fromCustomerName}</b> · موديل: <b>{success.modelNo}</b>
-        {success.size ? " · مقاس: " + success.size : ""}
-      </div>
-      <div style={{ fontSize: FS - 3, color: "#047857", marginTop: 6 }}>
-        القطعة رجعت للمخزن وممكن تتباع لعميل تاني.
-      </div>
-    </Card>}
 
-    {piece && <Card style={{ marginBottom: 14, border: "2px solid #F59E0B" }}>
-      <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 6 }}>
-        ↩️ تأكيد إرجاع
+      {/* Top customers + Top models */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <Card>
+          <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>👥 أعلى 5 عملاء (قطع حالياً)</div>
+          {Object.keys(stats.byCustomer).length === 0 ? <div style={{ color: T.textMut, fontSize: FS - 2, textAlign: "center", padding: 12 }}>مفيش قطع مع عملاء حالياً</div>
+            : <RankList items={Object.entries(stats.byCustomer).map(([k, v]) => ({ label: k, count: v }))} top={5} color="#8B5CF6" T={T} FS={FS} />}
+        </Card>
+        <Card>
+          <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🏷 أعلى 5 موديلات (إنتاج)</div>
+          {Object.keys(stats.byModel).length === 0 ? <div style={{ color: T.textMut, fontSize: FS - 2, textAlign: "center", padding: 12 }}>مفيش بيانات إنتاج</div>
+            : <RankList items={Object.entries(stats.byModel).map(([k, v]) => ({ label: k, count: v.count, sub: v.modelDesc }))} top={5} color="#0EA5E9" T={T} FS={FS} />}
+        </Card>
       </div>
-      <div style={{ background: "#FEF3C7", padding: 12, borderRadius: 8, marginBottom: 10 }}>
-        <div style={{ fontSize: FS, fontWeight: 800, color: "#92400E" }}>
-          القطعة دي مع: <b>{piece.currentCustomerName || "—"}</b>
-        </div>
-        <div style={{ fontSize: FS - 2, color: "#78350F", marginTop: 4 }}>
-          موديل: <b>{piece.modelNo}</b>
-          {piece.size ? " · مقاس " + piece.size : ""}
-          {piece.type === "series" ? " · 🔗 سيري" : ""}
-          {" · "}<span style={{ fontFamily: "monospace", fontSize: FS - 3 }}>{piece.id}</span>
-        </div>
-        {piece.type === "series" && Array.isArray(piece.containedPieceIds) && piece.containedPieceIds.length > 0 && (
-          <div style={{ fontSize: FS - 2, color: "#78350F", marginTop: 6, fontWeight: 700 }}>
-            🔗 السيري ده فيه {piece.containedPieceIds.length} قطعة مرتبطة
+
+      {/* Return rate per model */}
+      <Card>
+        <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>↩️ نسبة الإرجاع لكل موديل</div>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 8 }}>عدد الإرجاعات ÷ عدد البيعات. الأعلى نسبة في الأول — مؤشر محتمل لعيوب أو مشاكل في الموديل.</div>
+        <ReturnRateTable returns={stats.returnsByModel} T={T} FS={FS} />
+      </Card>
+    </>}
+  </div>;
+}
+
+function KPICard({ color, label, value, hint }) {
+  return <div style={{
+    padding: "12px 14px", borderRadius: 10,
+    background: color + "0F", border: "1px solid " + color + "30",
+  }}>
+    <div style={{ fontSize: 11, color: color, fontWeight: 700, marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 22, fontWeight: 900, color: color }}>{Number(value || 0).toLocaleString()}</div>
+    {hint && <div style={{ fontSize: 9, color: "#94A3B8", marginTop: 2 }}>{hint}</div>}
+  </div>;
+}
+
+function RankList({ items, top, color, T, FS }) {
+  const sorted = items.sort((a, b) => b.count - a.count).slice(0, top || 5);
+  const max = sorted[0]?.count || 1;
+  return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    {sorted.map((item, idx) => {
+      const pct = (item.count / max) * 100;
+      return <div key={item.label} style={{ position: "relative", padding: "8px 10px", borderRadius: 8, background: T.bg, overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, width: pct + "%", background: color + "15", transition: "width 0.4s" }} />
+        <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>
+              <span style={{ color: color, fontWeight: 900, marginInlineEnd: 6 }}>#{idx + 1}</span>
+              {item.label}
+            </div>
+            {item.sub && <div style={{ fontSize: FS - 4, color: T.textMut }}>{item.sub}</div>}
           </div>
-        )}
-      </div>
-
-      {/* V19.83.0 — series cascade choice */}
-      {piece.type === "series" && Array.isArray(piece.containedPieceIds) && piece.containedPieceIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: 10, background: "#0EA5E908", border: "1px solid #0EA5E930", borderRadius: 8 }}>
-          <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, marginBottom: 6 }}>
-            📦 إرجاع السيري كامل أم قطعة واحدة فقط؟
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <label style={{
-              flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-              background: cascadeSeries ? "#0EA5E915" : "transparent",
-              border: "2px solid " + (cascadeSeries ? "#0EA5E9" : T.brd),
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
-              <input type="radio" name="cascade" checked={cascadeSeries} onChange={() => setCascadeSeries(true)} style={{ width: 16, height: 16, accentColor: "#0EA5E9" }} />
-              <div>
-                <div style={{ fontWeight: 700, color: T.text, fontSize: FS - 1 }}>السيري كامل</div>
-                <div style={{ fontSize: FS - 3, color: T.textMut }}>الـ{piece.containedPieceIds.length} قطعة + السيري</div>
-              </div>
-            </label>
-            <label style={{
-              flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-              background: !cascadeSeries ? "#F59E0B15" : "transparent",
-              border: "2px solid " + (!cascadeSeries ? "#F59E0B" : T.brd),
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
-              <input type="radio" name="cascade" checked={!cascadeSeries} onChange={() => setCascadeSeries(false)} style={{ width: 16, height: 16, accentColor: "#F59E0B" }} />
-              <div>
-                <div style={{ fontWeight: 700, color: T.text, fontSize: FS - 1 }}>السيري بس</div>
-                <div style={{ fontSize: FS - 3, color: T.textMut }}>القطع تفضل مع العميل (إرجاع جزئي)</div>
-              </div>
-            </label>
-          </div>
+          <div style={{ fontSize: FS, fontWeight: 800, color: color, whiteSpace: "nowrap" }}>{item.count}</div>
         </div>
-      )}
+      </div>;
+    })}
+  </div>;
+}
 
-      <label style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, display: "block", marginBottom: 4 }}>
-        سبب الإرجاع (اختياري)
-      </label>
-      <Inp value={reason} onChange={setReason} placeholder="مقاس غلط / عيب / إلخ..." />
+function ReturnRateTable({ returns, T, FS }) {
+  const rows = Object.entries(returns)
+    .filter(([_, v]) => v.sold > 0)
+    .map(([modelNo, v]) => ({
+      modelNo,
+      modelDesc: v.modelDesc,
+      sold: v.sold,
+      returned: v.returned,
+      rate: v.sold > 0 ? (v.returned / v.sold) * 100 : 0,
+    }))
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, 15);
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-        <Btn small onClick={reset} style={{ background: "transparent", color: T.textSec, border: "1px solid " + T.brd }}>
-          إلغاء (مسح + scan تاني)
-        </Btn>
-        <Btn small onClick={confirmReturn} disabled={confirming} style={{
-          background: "#F59E0B", color: "#FFF", fontWeight: 800,
-        }}>{confirming ? "⏳ جاري الحفظ..." : "✓ تأكيد الإرجاع"}</Btn>
-      </div>
-    </Card>}
+  if (rows.length === 0) return <div style={{ color: T.textMut, fontSize: FS - 2, textAlign: "center", padding: 12 }}>
+    مفيش بيعات مسجّلة في العينة الحالية — استخدم تاب 📦 تسليم لتسجيل البيعات.
+  </div>;
+
+  return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    {rows.map(r => {
+      const color = r.rate >= 30 ? "#EF4444" : r.rate >= 15 ? "#F59E0B" : "#10B981";
+      return <div key={r.modelNo} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>{r.modelNo}</div>
+          {r.modelDesc && <div style={{ fontSize: FS - 4, color: T.textMut }}>{r.modelDesc}</div>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: FS - 3, color: T.textSec, whiteSpace: "nowrap" }}>
+            {r.returned} / {r.sold}
+          </div>
+          <Pill color={color} bg={color + "20"} style={{ fontSize: FS - 1, minWidth: 56, textAlign: "center", justifyContent: "center" }}>
+            {r.rate.toFixed(1)}%
+          </Pill>
+        </div>
+      </div>;
+    })}
   </div>;
 }
 

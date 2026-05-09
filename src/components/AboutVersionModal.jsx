@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.85.0",
+    date: "2026-05-09",
+    types: ["feature","fix"],
+    title: "📊 Analytics + Bulk Return + استرجاع الـ checkbox (Phase 5 لتتبع القطع)",
+    changes: [
+      { type: "fix", text: "🔄 [User: \"احتفظ بالاوبشن بس لما المستخدم يحب يشغله\"] الـ tracking checkbox رجع كـ opt-in (default OFF). الـ V19.84.1 شالت الـ checkbox تماماً، الـ user أوضح إنه عاوز الخيار يفضل موجود لكن المستخدم يفعّله بإرادته. دلوقتي اللي عايز tracking يضغط الـ checkbox؛ غير كده الـ format بـ يفضل legacy CLARK:orderId:qty." },
+      { type: "feature", text: "↩️ [Bulk Return — Phase 5] تاب الإرجاع اتعمله rewrite. قبل: قطعة واحدة فقط لكل تأكيد (صعب لو في 10 قطع راجعين دفعة واحدة). دلوقتي:\n• امسح كذا قطعة على التوالي → كل واحدة بـ تتـ validate وتنضاف لقائمة\n• الـ list grouped حسب العميل اللي راحت ليه (واضح كده مين رجّع إيه)\n• حقل واحد للسبب يـ apply على كل القطع في الجلسة\n• زر تأكيد بـ يعمل markReturned للكل في loop واحد\n• Series cascade toggle لكل سيري على حدة (تختار إرجاع كامل أم سيري بس)\n• Cancel-release: مفيش writes للـ Firestore لحد ما تضغط تأكيد" },
+      { type: "feature", text: "📊 [Analytics tab — Phase 5] تاب جديد \"📊 إحصائيات\" الخامس. بيقرا آخر 1000 قطعة من Firestore ويـ aggregate client-side:\n• 5 KPI cards: إجمالي قطع، في المخزن، مع عملاء، تالفة، عدد السيريهات\n• Top 5 عملاء حالياً (bar chart بـ progress fill)\n• Top 5 موديلات بالإنتاج\n• Return rate per model — جدول بـ مؤشر ملوّن (أخضر < 15%، أصفر < 30%، أحمر ≥ 30%) ترتيب تنازلي حسب النسبة → الموديلات اللي بـ ترجع كتير في الأول، مؤشر مفيد للـ defects" },
+      { type: "feature", text: "🛠 [Helpers جديدة في pieces.js]\n• `getAggregatedStats({limit})` — Firestore query بـ orderBy createdAt desc + client-side reduce\n• `markReturnedBulk(pieceIds[], opts)` — bulk wrapper حول markReturned للحالات اللي مش محتاجة UI" },
+      { type: "doc", text: "📅 [Phase 6 المحتمل لاحقاً] Deep CustDeliver integration (الـ scan-to-sell بقى يولّد customer deliveries في الـ matrix الموجود ويأثر على KASF)، Packing workflow (link existing pieces بسيري post-production)، Server-side analytics rollup (لـ factories بأكتر من 1K قطعة في الـ snapshot الواحد)." },
+    ]
+  },
+  {
     version: "V19.84.1",
     date: "2026-05-09",
     types: ["fix"],
