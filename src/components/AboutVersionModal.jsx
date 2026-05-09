@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.82.0",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "📦 Scan-to-Sell + ↩️ Scan-to-Return (Phase 2 لتتبع القطع)",
+    changes: [
+      { type: "feature", text: "📦 [تاب جديد \"تسليم بالـ scanner\"] في صفحة تتبع القطع. الـ workflow:\n• اختر العميل من dropdown\n• ابدأ الـ scan — كل QR قطعة بـ يضاف لقائمة الجلسة\n• الـ summary بـ يعرض groups بالموديل + المقاس (\"3261122 / مقاس 8 × 5\")\n• Validation تلقائي:\n  - QR قديم → reject (\"اطبع QR جديد\")\n  - QR مش CLARK → reject\n  - قطعة مع عميل تاني → reject (\"اعملها إرجاع الأول\")\n  - قطعة ملغية → reject\n  - **scan مكرر في نفس الجلسة → reject** (الـ bug اللي قلت عليه — كان بـ يضاف 2 من نفس الـ piece)\n• زر \"✕\" لكل قطعة في القائمة لو حد scan-ها بالغلط\n• زر \"تأكيد التسليم\" بـ يعمل markSold لكل قطعة في batch — لو واحدة فشلت، الناجحة تتـ commit والفاشلة تفضل في القائمة" },
+      { type: "feature", text: "↩️ [تاب جديد \"إرجاع بالـ scanner\"] للـ مرتجع المجهول. الـ workflow:\n• افتح الكاميرا → امسح القطعة المرتجعة\n• النظام بـ يطلع: \"القطعة دي مع: <اسم العميل>\" — لو عميل مجهول، النظام يعرفه من الـ history\n• ادخل سبب الإرجاع (اختياري — مقاس غلط، عيب، إلخ)\n• اضغط تأكيد → القطعة ترجع `in_warehouse` + الـ history يضاف إليه `returned` event بـ اسم العميل اللي رجعها\n• القطعة بقت قابلة للبيع لعميل تاني" },
+      { type: "feature", text: "🛡 [Cancel-release semantics] الـ scans ما بـ تـ commit أي حاجة لـ Firestore لحد ما تضغط \"تأكيد\". لو قفلت الصفحة أو رحت لتاب تاني قبل الـ confirm → الـ DB ما اتمستش، والقطع لسه `in_warehouse` ومتاحة للـ scan تاني. ده اللي طلبته — \"لو عمل كانسل للبيع ده يقدر يعمل سكان من جديد\"." },
+      { type: "feature", text: "🎨 [Tab bar في PiecesPg] الصفحة بقت 3 تابات:\n• 🔍 استعلام (الـ lookup من V19.81.0)\n• 📦 تسليم (جديد)\n• ↩️ إرجاع (جديد)\nالكاميرا بـ تـ stop تلقائياً لما تنتقل من تاب لتاني (ما تتركش الكاميرا شغّالة في الـ background)." },
+    ]
+  },
+  {
     version: "V19.81.0",
     date: "2026-05-09",
     types: ["feature","architectural"],
