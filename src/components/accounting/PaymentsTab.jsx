@@ -140,8 +140,24 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
       const orphans = [];
       (config.treasury || []).forEach(tx => {
         if (!tx || !tx.id) return;
-        if (tx.sourceType) return;
         if (tombstones.has(tx.id)) return;
+        /* V19.80.12: handle treasury entries that ALREADY carry supplierId/custId
+           but have no matching custPayments/supplierPayments record. This is the
+           common case for HR weekly "دفعة مورد" expenses (V19.80.11) — the
+           treasury entry has supplierId set on creation, but no supplierPayment
+           was pushed. Just create the missing payment record using the linked ID. */
+        if (tx.type === "out" && tx.supplierId && !supPayTxIds.has(tx.id)) {
+          const s = suppliers.find(x => String(x.id) === String(tx.supplierId));
+          if (s) { orphans.push({kind: "supplier", tx, party: s}); return; }
+        }
+        if (tx.type === "in" && tx.custId && !custPayTxIds.has(tx.id)) {
+          const c = customers.find(x => String(x.id) === String(tx.custId));
+          if (c) { orphans.push({kind: "customer", tx, party: c}); return; }
+        }
+        /* Legacy path: treasury entry with no party ID — try matching by name in desc.
+           Skip entries that have a sourceType (those are HR/cost/manufacturing entries
+           that aren't standalone "دفعة عميل/مورد" rows). */
+        if (tx.sourceType) return;
         const haystack = ((tx.desc||"") + " " + (tx.notes||"")).trim();
         if (!haystack) return;
         if (tx.type === "in" && tx.category === "دفعة عميل" && !tx.custId && !custPayTxIds.has(tx.id)) {

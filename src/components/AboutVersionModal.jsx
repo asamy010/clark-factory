@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.12",
+    date: "2026-05-07",
+    types: ["fix"],
+    title: "🛠 إصلاحات قفل الأسبوع: مزامنة دفعات المورد + استرجاع الـ stale-link + ورشة ورشة",
+    changes: [
+      { type: "fix", text: "🏷 [دفعة مورد الأسبوعية كانت تظهر \"غير مزامنة\"] لما V19.80.11 ضافت ربط دفعة المورد بـ supplierId، الـ treasury entry كان بـ يـ create لكن مفيش supplierPayment record موازي. الـ orphan detector في PaymentsTab كان بـ يـ flag-ها كـ \"غير مزامنة\". الإصلاح: عند قفل الأسبوع، لو الـ ex.supplierId موجود، الـ HRPg دلوقتي بـ يـ push supplierPayment record كمان مع تـ link للـ treasuryTxId. النتيجة: الدفعة تظهر في كشف المورد + ما تظهرش كـ orphan." },
+      { type: "fix", text: "🔧 [زر \"مزامنة الدفعات اليتيمة\" بقى يصلح الحالة دي] الزر كان بـ يـ skip أي treasury entry عنده sourceType (مثل hr_other_expense) — فما كانش بـ يصلح الـ entries القديمة. دلوقتي الـ logic بـ يـ check الأول: لو الـ entry عنده supplierId/custId مع مفيش matching supplierPayments/custPayments، يـ create الـ payment record من الـ linked ID مباشرة. الـ legacy by-name matching فضل للـ entries بدون party ID." },
+      { type: "fix", text: "📤 [مصاريف لم تُرحَّل عند قفل الأسبوع — stale treasuryTxId] الـ logic كان: لو treasuryTxId موجود → tag بـ snapshotId. لكن لو الـ tx اتـ deleted من قبل وأعدت الـ close، الـ tx ما يتـ found-ش، الـ if(tx) فاضي، فالـ entry بقى ضايع — لا snapshot ولا re-creation. الإصلاح: الـ stale check دلوقتي بـ يتأكد من وجود الـ tx فعلاً؛ لو مش موجود، الـ else branch بـ يشغّل ويـ recreate الـ entry. ينطبق على wsPayments + otherExpenses + weeklyAdvances الثلاثة." },
+      { type: "fix", text: "🔡 [دفعة ورشة ورشة] الـ desc generation للـ workshop payments كان: 'دفعة ورشة ' + p.wsName. لو الـ wsName نفسه بـ يبدأ بـ 'ورشة' (مثل 'ورشة محمد ستنرال')، الناتج كان 'دفعة ورشة ورشة محمد ستنرال'. الإصلاح: regex بسيط بـ يـ strip أي 'ورشة' في الـ wsName قبل الـ concat. الناتج دلوقتي 'دفعة ورشة محمد ستنرال W19' بصرف النظر عن formatting الـ wsName في الـ workshops collection." },
+    ]
+  },
+  {
     version: "V19.80.11",
     date: "2026-05-07",
     types: ["feature"],

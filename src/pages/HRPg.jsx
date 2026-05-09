@@ -1644,10 +1644,13 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
          Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId.
          V15.88: wAdvs now declared outside if/else block (see line ~1437). */
       wAdvs.forEach(a=>{
-        if(a.treasuryTxId&&d.treasury){
+        /* V19.80.12: stale-link recovery — if the linked treasury entry was deleted,
+           treat as un-posted and recreate it. Without this, an advance silently went
+           missing from the treasury when its tx was deleted before re-close. */
+        const _existingAdvTx=a.treasuryTxId?(d.treasury||[]).find(t=>t.id===a.treasuryTxId):null;
+        if(_existingAdvTx){
           /* Legacy advance — already in treasury, just tag for rollback support */
-          const tx=d.treasury.find(t=>t.id===a.treasuryTxId);
-          if(tx)tx.snapshotId=snapshotId;
+          _existingAdvTx.snapshotId=snapshotId;
         }else{
           /* New planned advance — register in treasury on close */
           const advTxId=gid();
@@ -1674,13 +1677,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             if(advUpd){advUpd.treasuryTxId=advTxId;advUpd.planned=false}}
         }
       });
-      /* V15.27: Weekly Workshop Payments — register planned ws payments in treasury + data.wsPayments */
+      /* V15.27: Weekly Workshop Payments — register planned ws payments in treasury + data.wsPayments
+         V19.80.12: stale-link recovery — if p.treasuryTxId is set but the actual treasury entry
+         no longer exists (someone deleted it), recreate the entry instead of silently skipping.
+         Also strip a duplicate "ورشة" prefix from p.wsName so the desc doesn't read
+         "دفعة ورشة ورشة محمد ستنرال". */
       const wWsPays=(openWeek.weeklyWsPayments||[]);
       wWsPays.forEach(p=>{
-        if(p.treasuryTxId&&d.treasury){
+        const _existingTx=p.treasuryTxId?(d.treasury||[]).find(t=>t.id===p.treasuryTxId):null;
+        if(_existingTx){
           /* Already registered earlier — tag with snapshotId for rollback */
-          const tx=d.treasury.find(t=>t.id===p.treasuryTxId);
-          if(tx)tx.snapshotId=snapshotId;
+          _existingTx.snapshotId=snapshotId;
         }else{
           const wsPayId=gid();const wsTxId=gid();
           /* V15.89: If date was auto-assigned (user didn't pick it), use the actual close date
@@ -1696,10 +1703,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             createdBy:userName||"",treasuryTxId:wsTxId,
             sourceWeekId:openWeek.id,/* V15.27: link back to week for cascade delete */
           });
+          /* V19.80.12: avoid "ورشة ورشة" duplication when wsName already starts with "ورشة" */
+          const _wsLabel=(p.wsName||"").replace(/^\s*ورشة\s+/,"");
           /* Register in treasury */
           d.treasury.unshift({
             id:wsTxId,type:"out",amount:r2(Number(p.amount)||0),
-            desc:(p.type==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+p.wsName+" W"+openWeek.weekNum+(p.note?" — "+p.note:""),
+            desc:(p.type==="payment"?"دفعة ورشة ":"مشتريات ورشة ")+_wsLabel+" W"+openWeek.weekNum+(p.note?" — "+p.note:""),
             category:p.type==="payment"?"تشغيل خارجي":"مشتريات",
             account:"SUB CASH",season:d.activeSeason||"",
             date:effDate,day:wsDayName,
@@ -1713,13 +1722,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             if(pUpd){pUpd.treasuryTxId=wsTxId;pUpd.wsPaymentId=wsPayId;pUpd.planned=false}}
         }
       });
-      /* V15.34: Weekly Other Expenses — register planned expenses in treasury (NOT in wsPayments) */
+      /* V15.34: Weekly Other Expenses — register planned expenses in treasury (NOT in wsPayments)
+         V19.80.12: stale-link recovery (same as wsPayments above) — if treasuryTxId is set but
+         the treasury entry was deleted, recreate it. Without this, a deleted-then-reclosed week
+         left expenses missing from the treasury silently. */
       const wOtherExps=(openWeek.weeklyOtherExpenses||[]);
       wOtherExps.forEach(ex=>{
-        if(ex.treasuryTxId&&d.treasury){
+        const _existingTx=ex.treasuryTxId?(d.treasury||[]).find(t=>t.id===ex.treasuryTxId):null;
+        if(_existingTx){
           /* Already registered earlier — tag with snapshotId for rollback */
-          const tx=d.treasury.find(t=>t.id===ex.treasuryTxId);
-          if(tx)tx.snapshotId=snapshotId;
+          _existingTx.snapshotId=snapshotId;
         }else{
           const exTxId=gid();
           const exDayName=dayName(ex.date||useDate);
@@ -1736,6 +1748,30 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             ...(ex.supplierId?{supplierId:ex.supplierId,supplierName:ex.supplierName||""}:{}),
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
           });
+          /* V19.80.12: also push a supplierPayment record when the expense is linked
+             to a supplier ("دفعة مورد" category). Without this, the supplier ledger
+             never sees the payment AND the orphan detector in PaymentsTab flags the
+             treasury entry as "غير مزامنة" because no supplierPayment.treasuryTxId
+             matches. With this, the supplier statement shows the payment and the
+             orphan flag goes away. */
+          if(ex.supplierId){
+            if(!Array.isArray(d.supplierPayments))d.supplierPayments=[];
+            d.supplierPayments.push({
+              id:gid(),
+              supplierId:ex.supplierId,
+              supplierName:ex.supplierName||"",
+              amount:r2(Number(ex.amount)||0),
+              date:ex.date||useDate,
+              note:ex.desc||"",
+              method:"كاش",
+              account:ex.account||"SUB CASH",
+              by:userName||"",
+              treasuryTxId:exTxId,
+              createdAt:new Date().toISOString(),
+              sourceType:"hr_other_expense_supplier",
+              sourceWeekId:openWeek.id,
+            });
+          }
           /* Link back: mark as registered on the planned entry */
           const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
           if(wiUpd>=0){const exUpd=(d.hrWeeks[wiUpd].weeklyOtherExpenses||[]).find(x=>x.id===ex.id);
