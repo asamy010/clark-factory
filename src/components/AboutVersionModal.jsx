@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.88.0",
+    date: "2026-05-09",
+    types: ["fix","feature"],
+    title: "🔧 إصلاحات: Firestore index + overflow + نقل إدارة الورش لتشغيل خارجي",
+    changes: [
+      { type: "fix", text: "🐞 [Firestore composite-index error في Customer History] التاب \"سجل العميل\" كان بـ يفشل بـ خطأ \"The query requires an index. You can create it here: ...\" لأن الـ query كان بـ يـ combine 2 where + orderBy على fields مختلفة (محتاج composite index يدوي). الحل: simplification — query واحد بـ where على currentCustomerId فقط (auto-indexed)، ثم filter + sort client-side. نفس الإصلاح اتطبق على searchByModel. مفيش حاجة محتاجة index manually create-ها بقى." },
+      { type: "fix", text: "📦 [Error overflow] لما كان فيه error message طويل (URL مثلاً)، النص كان بـ يطلع من المستطيل الأحمر ويـ overlap على باقي الصفحة. تم إضافة `wordBreak: break-all + overflowWrap: anywhere` على كل error boxes في PiecesPg (6 مواضع). دلوقتي أي خطأ بـ يـ wrap داخل المستطيل بنظافة." },
+      { type: "feature", text: "🏭 [نقل إدارة الورش من قاعدة البيانات إلى تشغيل خارجي] الـ user عاوز يشتغل من مكان واحد. الزر الجديد \"إدارة الورش\" بقى **أول كارت** في صفحة تشغيل خارجي (قبل تسليم ورشة، استلام، حسابات الورش، إلخ). الـ ExtProdPg buttons grid اتـ extend من 5 لـ 6 columns على الـ desktop. الـ component نفسه (WsManager) reused من DBPg — مفيش duplication، اللي بـ يعدّل ورشة من أي مكان بـ يظهر في كل الأماكن. الـ DBPg لسه فيه التاب القديم (لمن متعود عليه)، لكن الـ workflow الافتراضي بقى من تشغيل خارجي." },
+      { type: "doc", text: "💡 [تحسينات إضافية اقتراحية لـ ExtProdPg — لاحقاً لو حبيت]\n• Top quick-stats banner: عدد ورش active + إجمالي الرصيد + ورشة الشهر (highest receives)\n• Bulk approve زر للـ pending workshop receives في صفحة واحدة\n• \"Late deliveries\" tab منفصل بدل ما يكون hidden في receive flow\nمفيش urgency، نقدر نتعامل معاهم لو حبيت تشتغل عليها بعدين." },
+    ]
+  },
+  {
     version: "V19.87.0",
     date: "2026-05-09",
     types: ["feature"],

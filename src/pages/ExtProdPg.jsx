@@ -22,10 +22,27 @@ import { printPage } from "../utils/print.js";
 import { loadQR } from "../utils/qr.js";
 import { exportExcel, printLabel, printReceipt, printReceiveReceipt } from "../utils/print-extras.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
+/* V19.88.0: workshops management was inside DBPg → الورش tab. The user
+   asked to move it here as the first action card so external-production
+   workflows have everything in one place. WsManager is reused as-is from
+   DBPg (no duplication). */
+import { WsManager } from "./DBPg.jsx";
 
-export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,season,user}){
+export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCards,season,user,renameInOrders}){
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[mode,setMode]=useState(null);
+  /* V19.88.0: same recycle-bin-aware delete as DBPg uses for workshops.
+     Lifted into ExtProdPg so we can reuse WsManager without round-tripping. */
+  const safeDelete=(collection,id,type)=>{
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const arr=d[collection]||[];const item=arr.find(x=>x.id===id);
+      if(item)d.recycleBin.unshift({...item,_type:type,_collection:collection,_deletedAt:new Date().toISOString()});
+      d[collection]=arr.filter(x=>x.id!==id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم الحذف — يمكن الاستعادة من سلة المحذوفات");
+  };
   const[reviewWs,setReviewWs]=useState(null);/* V18.91: workshop name for review request modal */
   const[selWs,setSelWs]=useState("");
   const[selOrder,setSelOrder]=useState("");
@@ -504,8 +521,13 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       </div>}
     </div>}
 
-    {/* Mode buttons row — V18.77: removed "إضافة دفعة" (use Treasury directly), 5 buttons */}
-    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(5,1fr)",gap:12,marginBottom:20}}>
+    {/* Mode buttons row — V18.77: 5 buttons. V19.88.0: added "إدارة الورش" as
+        the FIRST card per user request (was hidden inside DBPg → الورش tab). */}
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:12,marginBottom:20}}>
+      <div onClick={()=>setMode("ws")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px #06B6D430";e.currentTarget.style.borderColor="#06B6D440"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
+        <div style={{fontSize:32,marginBottom:8}}>🏭</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:"#06B6D4"}}>إدارة الورش</div>
+      </div>
       <div onClick={()=>setMode("deliver")} style={{background:T.card,borderRadius:14,padding:isMob?16:22,border:"1px solid "+T.brd,boxShadow:T.shadow,cursor:"pointer",textAlign:"center",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 25px -8px "+T.accent+"30";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=T.shadow;e.currentTarget.style.borderColor=T.brd}}>
         <div style={{fontSize:32,marginBottom:8}}>📤</div>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>تسليم ورشة</div>
@@ -678,6 +700,26 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   const wsMoves=[];
   if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx,createdBy:wd.createdBy||""});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:r.isSettlement?"settlement":"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx,createdBy:r.createdBy||"",isSettlement:!!r.isSettlement})})}})});
   wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._ts-a._ts);
+
+  if(mode==="ws")return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"🏭 إدارة الورش"}</h1>
+      <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
+    </div>
+    {/* V19.88.0: render the same WsManager that DBPg uses — single source of truth.
+        renameInOrders comes from App.jsx; safeDelete is local (recycle-bin aware). */}
+    <WsManager
+      data={data}
+      workshops={data.workshops||[]}
+      upConfig={upConfig}
+      canEdit={canEdit}
+      isMob={isMob}
+      orders={data.orders||[]}
+      renameInOrders={renameInOrders}
+      wsPayments={data.wsPayments||[]}
+      safeDelete={safeDelete}
+    />
+  </div>;
 
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>

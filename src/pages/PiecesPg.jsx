@@ -200,7 +200,7 @@ function LookupTab({ data, T, FS }) {
       {scanActive && <div style={{ marginBottom: 12 }}>
         <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={280} />
       </div>}
-      {errMsg && <div style={{ padding: 10, borderRadius: 8, background: "#FEE2E2", color: "#B91C1C", fontWeight: 700, fontSize: FS - 2 }}>
+      {errMsg && <div style={{ padding: 10, borderRadius: 8, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontWeight: 700, fontSize: FS - 2 }}>
         ⚠️ {errMsg}
       </div>}
     </Card>
@@ -468,7 +468,7 @@ function SellTab({ data, T, FS, user, upSales, updOrder }) {
         {scanActive && <div style={{ marginBottom: 10 }}>
           <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={260} />
         </div>}
-        {errMsg && <div style={{ padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2, marginBottom: 8 }}>
+        {errMsg && <div style={{ padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontSize: FS - 2, marginBottom: 8 }}>
           ⚠️ {errMsg}
         </div>}
       </>}
@@ -719,7 +719,7 @@ function ReturnTab({ data, T, FS, user, updOrder }) {
       {scanActive && <div style={{ marginBottom: 10 }}>
         <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={260} />
       </div>}
-      {errMsg && <div style={{ padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2, marginBottom: 8 }}>
+      {errMsg && <div style={{ padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontSize: FS - 2, marginBottom: 8 }}>
         ⚠️ {errMsg}
       </div>}
     </Card>
@@ -845,7 +845,7 @@ function AnalyticsTab({ T, FS }) {
           background: "#EC4899", color: "#FFF", fontWeight: 700,
         }}>{loading ? "⏳ جاري التحميل..." : "🔄 تحديث"}</Btn>
       </div>
-      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
+      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontSize: FS - 2 }}>
         ⚠️ {errMsg}
       </div>}
     </Card>
@@ -1028,7 +1028,7 @@ function CustomerTab({ data, T, FS }) {
           background: "#8B5CF6", color: "#FFF", fontWeight: 700,
         }}>{loading ? "⏳ جاري التحميل..." : "🔄 تحديث"}</Btn>
       </div>}
-      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
+      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontSize: FS - 2 }}>
         ⚠️ {errMsg}
       </div>}
     </Card>
@@ -1241,7 +1241,7 @@ function PackingTab({ T, FS, user }) {
       {scanActive && <div style={{ marginTop: 10 }}>
         <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={240} />
       </div>}
-      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
+      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", wordBreak: "break-all", overflowWrap: "anywhere", fontSize: FS - 2 }}>
         ⚠️ {errMsg}
       </div>}
     </Card>

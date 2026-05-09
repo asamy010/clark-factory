@@ -600,14 +600,14 @@ export async function markReturnedBulk(pieceIds, { reason, by, cascadeSeries }) 
   return { ok, fail, fromCustomers: [...fromCustomers], failures };
 }
 
-/* V19.84.0 — list every piece currently held by a given customer. Indexed
-   on `currentCustomerId` so this is a single Firestore query (no client-side
-   scan). Sort by `updatedAt` desc so the most recent purchases bubble to the
-   top of the customer's account view.
+/* V19.84.0 / V19.88.0 — list every piece currently held by a given customer.
 
-   Used by the Customer History tab in PiecesPg: scan an anonymous return →
-   resolve to a customer → glance at everything else they're still holding,
-   so the warehouse keeper can decide whether the return is plausible. */
+   V19.88.0 fix: pre-V19.88 we used (where customerId) + (where status) +
+   (orderBy updatedAt) which Firestore rejects without a hand-built composite
+   index. The user hit the dreaded "The query requires an index" error.
+   Switched to a SINGLE where on `currentCustomerId` (auto-indexed per-field),
+   then filtered + sorted client-side. Cheap because the result set is
+   bounded by how many pieces ONE customer holds — typically dozens. */
 export async function getCurrentPiecesForCustomer(customerId, opts) {
   if (!customerId) return [];
   const max = (opts && opts.limit) || 500;
@@ -615,30 +615,39 @@ export async function getCurrentPiecesForCustomer(customerId, opts) {
   const q = query(
     ref,
     where("currentCustomerId", "==", customerId),
-    where("status", "==", "with_customer"),
-    orderBy("updatedAt", "desc"),
     limit(max)
   );
   const snap = await getDocs(q);
-  const out = [];
-  snap.forEach(d => out.push(d.data()));
-  return out;
+  const all = [];
+  snap.forEach(d => {
+    const p = d.data();
+    if (p && p.status === "with_customer") all.push(p);
+  });
+  all.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  return all;
 }
 
 /* Manual fallback search by modelNo. Returns the most recent N pieces of
-   that model (sorted by createdAt desc). Useful when a piece's QR sticker
-   is damaged and the user needs to look up the most likely candidates. */
+   that model (sorted by createdAt desc client-side). Useful when a piece's
+   QR sticker is damaged and the user needs to look up the most likely
+   candidates.
+
+   V19.88.0: dropped the orderBy(createdAt) from the server query — the
+   `where + orderBy on different field` combo needs a composite index.
+   Pulling them all and sorting client-side avoids the Firebase console
+   trip; the limit is small (default 50) so the cost is negligible. */
 export async function searchByModel(modelNo, opts) {
   const max = (opts && opts.limit) || 50;
   const ref = collection(db, "pieces");
-  /* Firestore composite indexes are required for combined where + orderBy.
-     We keep this query simple — single where + orderBy on createdAt — which
-     Firestore auto-indexes per-field. */
-  const q = query(ref, where("modelNo", "==", modelNo || ""), orderBy("createdAt", "desc"), limit(max));
+  /* Pull a slightly bigger window than the limit so the client-side sort
+     gives a meaningful "most recent" subset even if the wire order isn't
+     date-sorted. 3x cap is a reasonable compromise. */
+  const q = query(ref, where("modelNo", "==", modelNo || ""), limit(max * 3));
   const snap = await getDocs(q);
   const results = [];
   snap.forEach(d => results.push(d.data()));
-  return results;
+  results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  return results.slice(0, max);
 }
 
 /* Resolve a parsed QR into a UI-friendly summary (used by the lookup page).
