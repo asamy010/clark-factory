@@ -418,6 +418,31 @@ export async function releasePiece(pieceId, { by }) {
   return { ok: true };
 }
 
+/* V19.84.0 — list every piece currently held by a given customer. Indexed
+   on `currentCustomerId` so this is a single Firestore query (no client-side
+   scan). Sort by `updatedAt` desc so the most recent purchases bubble to the
+   top of the customer's account view.
+
+   Used by the Customer History tab in PiecesPg: scan an anonymous return →
+   resolve to a customer → glance at everything else they're still holding,
+   so the warehouse keeper can decide whether the return is plausible. */
+export async function getCurrentPiecesForCustomer(customerId, opts) {
+  if (!customerId) return [];
+  const max = (opts && opts.limit) || 500;
+  const ref = collection(db, "pieces");
+  const q = query(
+    ref,
+    where("currentCustomerId", "==", customerId),
+    where("status", "==", "with_customer"),
+    orderBy("updatedAt", "desc"),
+    limit(max)
+  );
+  const snap = await getDocs(q);
+  const out = [];
+  snap.forEach(d => out.push(d.data()));
+  return out;
+}
+
 /* Manual fallback search by modelNo. Returns the most recent N pieces of
    that model (sorted by createdAt desc). Useful when a piece's QR sticker
    is damaged and the user needs to look up the most likely candidates. */

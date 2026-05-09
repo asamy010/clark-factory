@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { Btn, Card, Inp, SearchSel } from "../components/ui.jsx";
 import { QrScanner } from "../components/QrScanner.jsx";
-import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned } from "../utils/pieces.js";
+import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, getCurrentPiecesForCustomer } from "../utils/pieces.js";
 import { fmt } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 
@@ -53,9 +53,10 @@ function _fmtDateTime(iso) {
 }
 
 const TABS = [
-  { key: "lookup", label: "🔍 استعلام", color: "#0EA5E9" },
-  { key: "sell",   label: "📦 تسليم",    color: "#10B981" },
-  { key: "return", label: "↩️ إرجاع",     color: "#F59E0B" },
+  { key: "lookup",   label: "🔍 استعلام",     color: "#0EA5E9" },
+  { key: "sell",     label: "📦 تسليم",        color: "#10B981" },
+  { key: "return",   label: "↩️ إرجاع",         color: "#F59E0B" },
+  { key: "customer", label: "👥 سجل العميل",   color: "#8B5CF6" },
 ];
 
 export function PiecesPg({ data, isMob, T, FS, user }) {
@@ -81,9 +82,10 @@ export function PiecesPg({ data, isMob, T, FS, user }) {
       }}>{t.label}</div>)}
     </div>
 
-    {tab === "lookup" && <LookupTab data={data} T={_T} FS={_FS} />}
-    {tab === "sell"   && <SellTab   data={data} T={_T} FS={_FS} user={user} />}
-    {tab === "return" && <ReturnTab data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "lookup"   && <LookupTab   data={data} T={_T} FS={_FS} />}
+    {tab === "sell"     && <SellTab     data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "return"   && <ReturnTab   data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "customer" && <CustomerTab data={data} T={_T} FS={_FS} />}
   </div>;
 }
 
@@ -546,6 +548,173 @@ function ReturnTab({ T, FS, user }) {
         }}>{confirming ? "⏳ جاري الحفظ..." : "✓ تأكيد الإرجاع"}</Btn>
       </div>
     </Card>}
+  </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TAB 4 — Customer history (V19.84.0): all pieces currently with X
+   ═══════════════════════════════════════════════════════════════
+   Pick a customer → see every tracked piece they're currently holding,
+   grouped by model+size. Lets the warehouse keeper sanity-check a return
+   ("does this customer even have a size 12?") and gives a quick glance at
+   the customer's outstanding items. Pricing is best-effort — pulled from
+   the parent order's sellPrice when available, otherwise hidden.
+   ═══════════════════════════════════════════════════════════════ */
+function CustomerTab({ data, T, FS }) {
+  const customers = (data && data.customers) || [];
+  const orders = (data && data.orders) || [];
+  const [custId, setCustId] = useState("");
+  const [pieces, setPieces] = useState(null); /* null = not loaded, [] = loaded but empty */
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+
+  const cust = customers.find(c => c.id === custId);
+  const custName = cust?.name || "";
+
+  async function loadPieces() {
+    if (!custId) return;
+    setLoading(true); setErrMsg(""); setPieces(null);
+    try {
+      const list = await getCurrentPiecesForCustomer(custId, { limit: 500 });
+      setPieces(list);
+    } catch (e) {
+      setErrMsg("خطأ في القراءة: " + (e?.message || e));
+      setPieces([]);
+    } finally { setLoading(false); }
+  }
+
+  /* Auto-load when customer changes */
+  if (custId && pieces === null && !loading) {
+    /* Defer to next tick so we don't trigger inside render */
+    setTimeout(loadPieces, 0);
+  }
+
+  /* Group by modelNo + size for the summary card */
+  const groups = {};
+  let totalCount = 0;
+  let totalValue = 0;
+  let valueIsExact = true;
+  (pieces || []).forEach(p => {
+    if (p.type === "series") return; /* avoid double-counting (the series + its pieces both come back) */
+    totalCount++;
+    const k = p.modelNo + (p.size ? " · مقاس " + p.size : "");
+    if (!groups[k]) groups[k] = { count: 0, modelNo: p.modelNo, size: p.size, ids: [] };
+    groups[k].count++;
+    groups[k].ids.push(p.id);
+    const order = orders.find(o => o.id === p.orderId);
+    const price = Number(order?.sellPrice) || 0;
+    if (price > 0) totalValue += price;
+    else valueIsExact = false;
+  });
+
+  return <div>
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 6, fontSize: FS - 1, color: T.textSec, lineHeight: 1.6 }}>
+        اختر عميل وشوف كل القطع اللي عنده دلوقتي. مفيد بعد scan لمرتجع مجهول — تعرف العميل، تيجي هنا تتأكد من اللي عنده وتحدد لو الإرجاع منطقي.
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: FS - 1, fontWeight: 700, color: T.textSec, marginBottom: 4, display: "block" }}>العميل</label>
+        <SearchSel value={custId} onChange={v => { setCustId(v); setPieces(null); }}
+          options={customers.map(c => ({ value: c.id, label: c.name + (c.phone ? " — " + c.phone : "") }))}
+          placeholder="اختر عميل..." />
+      </div>
+      {custId && <div style={{ display: "flex", gap: 8 }}>
+        <Btn small onClick={loadPieces} disabled={loading} style={{
+          background: "#8B5CF6", color: "#FFF", fontWeight: 700,
+        }}>{loading ? "⏳ جاري التحميل..." : "🔄 تحديث"}</Btn>
+      </div>}
+      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
+        ⚠️ {errMsg}
+      </div>}
+    </Card>
+
+    {custId && pieces !== null && pieces.length === 0 && !loading && (
+      <Card style={{ padding: 24, textAlign: "center", color: T.textMut }}>
+        <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+        <div style={{ fontSize: FS, fontWeight: 700 }}>مفيش قطع تتبع حالياً مع <b style={{ color: T.text }}>{custName}</b></div>
+        <div style={{ fontSize: FS - 2, marginTop: 6 }}>
+          إما إن العميل ده ما اشتراش قطع متتبَّعة (ممكن قطع legacy)، أو القطع اتـ return-ت بالفعل.
+        </div>
+      </Card>
+    )}
+
+    {pieces !== null && pieces.length > 0 && <>
+      {/* Summary card */}
+      <Card style={{ marginBottom: 14, background: "#8B5CF608", border: "1px solid #8B5CF625" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text }}>
+              📊 {custName}
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec }}>
+              {totalCount} قطعة في {Object.keys(groups).length} موديل/مقاس
+            </div>
+          </div>
+          {totalValue > 0 && <div style={{ textAlign: "left" }}>
+            <div style={{ fontSize: FS - 2, color: T.textMut }}>إجمالي تقريبي</div>
+            <div style={{ fontSize: FS + 4, fontWeight: 900, color: "#8B5CF6" }}>
+              {fmt(totalValue)} ج.م
+              {!valueIsExact && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 400, marginInlineStart: 4 }}>(تقريبي)</span>}
+            </div>
+          </div>}
+        </div>
+      </Card>
+
+      {/* Grouped breakdown */}
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>📋 التوزيع حسب الموديل/المقاس</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {Object.entries(groups).sort((a, b) => b[1].count - a[1].count).map(([k, g]) => {
+            const order = orders.find(o => o.modelNo === g.modelNo);
+            const price = Number(order?.sellPrice) || 0;
+            const value = price * g.count;
+            return <div key={k} style={{
+              padding: "10px 12px", borderRadius: 8, background: T.bg, border: "1px solid " + T.brd,
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: FS, fontWeight: 700, color: T.text }}>{k}</div>
+                {order?.modelDesc && <div style={{ fontSize: FS - 3, color: T.textMut }}>{order.modelDesc}</div>}
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <Pill color="#8B5CF6" bg="#EDE9FE" style={{ fontSize: FS }}>× {g.count}</Pill>
+                {price > 0 && <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>{fmt(value)} ج.م</div>}
+              </div>
+            </div>;
+          })}
+        </div>
+      </Card>
+
+      {/* Detailed pieces list */}
+      <Card>
+        <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 8 }}>
+          🔍 تفاصيل كل القطع ({totalCount})
+        </div>
+        <div style={{ maxHeight: 460, overflowY: "auto", border: "1px solid " + T.brd, borderRadius: 8 }}>
+          {(pieces || []).filter(p => p.type !== "series").map(p => {
+            const order = orders.find(o => o.id === p.orderId);
+            const lastSold = (p.history || []).filter(h => h.action === "sold").pop();
+            return <div key={p.id} style={{
+              padding: "10px 12px", borderBottom: "1px solid " + T.brd, fontSize: FS - 2,
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: T.text, fontWeight: 700 }}>
+                  {p.modelNo}
+                  {p.size ? " · مقاس " + p.size : ""}
+                  {p.parentSeriesId ? <span style={{ marginInlineStart: 6, fontSize: FS - 4, color: "#0EA5E9" }}>🔗 ضمن سيري</span> : null}
+                </div>
+                {order?.modelDesc && <div style={{ fontSize: FS - 3, color: T.textMut }}>{order.modelDesc}</div>}
+                <div style={{ fontFamily: "monospace", fontSize: FS - 4, color: T.textMut, marginTop: 2 }}>{p.id}</div>
+              </div>
+              {lastSold && <div style={{ fontSize: FS - 3, color: T.textSec, textAlign: "left" }}>
+                اتباعت: {(lastSold.date || "").slice(0, 10)}
+              </div>}
+            </div>;
+          })}
+        </div>
+      </Card>
+    </>}
   </div>;
 }
 

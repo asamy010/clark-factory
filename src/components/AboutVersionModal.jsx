@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.84.0",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "👥 سجل القطع لكل عميل (Phase 4 لتتبع القطع)",
+    changes: [
+      { type: "feature", text: "👥 [Tab جديد \"سجل العميل\"] الـ4th tab في صفحة تتبع القطع. الـ workflow:\n• اختر عميل من dropdown\n• النظام يـ query Firestore على pieces بـ `currentCustomerId == X` و `status == with_customer`\n• يعرض كل القطع اللي معاه دلوقتي في 3 sections:\n  ▸ summary card: total count + total value (من orders[].sellPrice)\n  ▸ grouped breakdown: حسب الموديل + المقاس مع counts و values\n  ▸ detailed list: كل قطعة منفصلة مع تاريخ آخر بيع لها" },
+      { type: "feature", text: "🎯 [Use case أساسي] لو scan-ت مرتجع مجهول في تاب الإرجاع وعرفت العميل، تعال هنا → تأكد إن العميل ده فعلاً عنده قطعة من النوع ده ومقاس ده. لو القطعة المرتجعة مش موجودة في كشفه، يبقى في حاجة غلط — ممكن العميل غلط في الـ packing، أو في scan لقطعة عميل تاني." },
+      { type: "feature", text: "📊 [Total value calculation] الـ total بـ يحسب من `orders[].sellPrice` لكل قطعة. لو الموديل مالوش سعر مخزّن، الـ count بـ يفضل لكن الـ value بـ يطلع \"تقريبي\" مع disclaimer. السيريهات بـ تتحسب مرة واحدة (مش مع contained pieces) عشان ما يحصلش double-counting." },
+      { type: "feature", text: "🛠 [Helper جديد `getCurrentPiecesForCustomer`] في pieces.js. Query indexed على currentCustomerId + status (Firestore يـ auto-index per-field)، sorted بـ updatedAt desc. أحدث المشتريات في الأول. Default limit 500 piece للـ pagination future-proofing." },
+      { type: "doc", text: "📅 [Phase 5 — قادم لو حبيت] Analytics dashboard (return rate per model/customer)، packing workflow (link existing pieces بسيري جديد بعد الإنتاج)، Integration deep مع CustDeliverPg matrix (الـ scan-to-sell بقى يولّد customer deliveries في الجلسات الموجودة)." },
+    ]
+  },
+  {
     version: "V19.83.0",
     date: "2026-05-09",
     types: ["feature","fix"],
