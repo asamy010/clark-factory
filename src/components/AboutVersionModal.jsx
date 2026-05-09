@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.17",
+    date: "2026-05-09",
+    types: ["feature","fix"],
+    title: "🚑 زر استرداد حركات الخزنة المفقودة من الـ snapshots",
+    changes: [
+      { type: "feature", text: "🚑 [زر جديد في PaymentsTab — \"🚑 استرداد حركات الخزنة المفقودة\"] companion للـ V19.80.16 root-cause fix. يمشي على كل أسبوع مقفول ويـ scan الـ snapshots:\n• `closedRecords[]` → كل سطر بـ thursdayPay > 0 — يدوّر على treasury entry بـ sourceType=hr_salary + weekId + empId. لو مش موجود → يعتبره مفقود.\n• `weeklyAdvances[]` → يدوّر على treasury entry بـ id = a.treasuryTxId. لو مش موجود → مفقود.\n• `weeklyWsPayments[]` → نفس الفكرة.\n• `weeklyOtherExpenses[]` → نفس الفكرة." },
+      { type: "feature", text: "📋 [Preview modal قبل التنفيذ] الزر بـ يفتح modal بـ list مفصّلة بكل حركة مفقودة (4 أقسام: مرتبات/سلف/ورش/مصاريف أخرى)، اسم الموظف/المورد، التاريخ، المبلغ، إجمالي كل قسم. الـ user يقدر يـ verify قبل ما يضغط \"استرد الحركات\". لو مفيش حركات مفقودة → toast \"كل الحركات سليمة\"." },
+      { type: "feature", text: "🔧 [الـ recovery logic] للـ entries اللي عندها treasuryTxId مخزّن (السلف/الورش/المصاريف): الحركة الجديدة بـ تتعمل بـ نفس الـ ID الأصلي عشان أي روابط (supplierPayments/wsPayments/hrLog) تستمر تشتغل. للـ مرتبات (مفيش treasuryTxId stored back): فـ generate fresh id. الـ recoveredAt + recoveredFrom marker بـ يتحطّوا على كل entry للـ audit. الـ supplierPayments/hrLog/wsPayments بـ تتـ recreate تلقائي لو كانت مفقودة." },
+      { type: "fix", text: "📝 [Audit log] كل run بـ يـ unshift entry في auditLog: action=\"v19.80.17_recovery\" + meta بعدد كل category. ينضمن forensic trail لو احتجنا نـ trace لاحقاً." },
+      { type: "doc", text: "ℹ️ [للتحويلات بين الخزن المفقودة] لو الـ treasuryTransfers record نفسه ضايع (مش مجرد الـ legs)، الـ recovery ده مش هـ يـ catch-ها لأن مفيش source data للـ recreate من. الـ admin محتاج يعمل التحويل تاني يدوياً عبر التحويل الموجود في صفحة الخزنة." },
+    ]
+  },
+  {
     version: "V19.80.16",
     date: "2026-05-09",
     types: ["fix"],

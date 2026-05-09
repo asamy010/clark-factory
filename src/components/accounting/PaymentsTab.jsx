@@ -276,6 +276,273 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
     }
   };
 
+  /* V19.80.17: RECOVER MISSING CLOSE-WEEK TREASURY ENTRIES
+     Companion to the V19.80.16 root-cause fix (silent-rejection / blind-cleanup).
+     Pre-V19.80.16 incidents may have left closed weeks with `weeklyAdvances`/
+     `weeklyWsPayments`/`weeklyOtherExpenses`/`closedRecords` snapshots referencing
+     treasuryTxIds that no longer exist in `config.treasury` (the entries were
+     never persisted to Firestore in the first place — see V19.80.16 changelog).
+     This scanner walks every closed week, cross-references each snapshot entry
+     against the live treasury, and recreates the missing entries from the
+     snapshot data. Salaries (no treasuryTxId stored back) are matched by
+     weekId+empId+sourceType=hr_salary; misses are recreated with a fresh id. */
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryPreview, setRecoveryPreview] = useState(null);
+
+  const _dayName = (date) => {
+    const days = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+    if (!date) return "";
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return "";
+    return days[d.getDay()] || "";
+  };
+  const _r2 = (n) => Math.round(Number(n)*100)/100;
+  const _gidR = () => "rec_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
+
+  const previewMissingCloseWeekEntries = () => {
+    const treasuryIds = new Set((config.treasury || []).map(t => t.id).filter(Boolean));
+    /* For salary lookup: index treasury by weekId+empId where sourceType=hr_salary */
+    const salaryByKey = new Set();
+    (config.treasury || []).forEach(t => {
+      if (t && t.sourceType === "hr_salary" && t.weekId && t.empId) {
+        salaryByKey.add(t.weekId + "::" + t.empId);
+      }
+    });
+    const missing = { salaries: [], advances: [], wsPayments: [], otherExps: [] };
+
+    (config.hrWeeks || []).forEach(w => {
+      if (w.status !== "closed") return;
+      /* Salaries — from closedRecords snapshot. No treasuryTxId stored back, match by composite key. */
+      if (Array.isArray(w.closedRecords)) {
+        w.closedRecords.forEach(r => {
+          const thursdayPay = Number(r.thursdayPay) || 0;
+          if (thursdayPay <= 0) return;
+          if (salaryByKey.has(w.id + "::" + r.empId)) return;
+          missing.salaries.push({ week: w, record: r });
+        });
+      }
+      /* Weekly advances */
+      (w.weeklyAdvances || []).forEach(a => {
+        if (a.planned) return;
+        if (!a.treasuryTxId) return;
+        if (treasuryIds.has(a.treasuryTxId)) return;
+        missing.advances.push({ week: w, advance: a });
+      });
+      /* Workshop payments */
+      (w.weeklyWsPayments || []).forEach(p => {
+        if (p.planned) return;
+        if (!p.treasuryTxId) return;
+        if (treasuryIds.has(p.treasuryTxId)) return;
+        missing.wsPayments.push({ week: w, payment: p });
+      });
+      /* Other expenses */
+      (w.weeklyOtherExpenses || []).forEach(ex => {
+        if (ex.planned) return;
+        if (!ex.treasuryTxId) return;
+        if (treasuryIds.has(ex.treasuryTxId)) return;
+        missing.otherExps.push({ week: w, expense: ex });
+      });
+    });
+
+    const total = missing.salaries.length + missing.advances.length + missing.wsPayments.length + missing.otherExps.length;
+    if (total === 0) {
+      showToast("✓ كل الحركات سليمة — لا حركات مفقودة في الخزنة");
+      return;
+    }
+    setRecoveryPreview(missing);
+  };
+
+  const confirmRecovery = () => {
+    if (!recoveryPreview || !upConfig) return;
+    setRecovering(true);
+    try {
+      const m = recoveryPreview;
+      upConfig(d => {
+        if (!Array.isArray(d.treasury)) d.treasury = [];
+        if (!Array.isArray(d.hrLog)) d.hrLog = [];
+        if (!Array.isArray(d.supplierPayments)) d.supplierPayments = [];
+        if (!Array.isArray(d.wsPayments)) d.wsPayments = [];
+        if (!Array.isArray(d.auditLog)) d.auditLog = [];
+        const now = new Date().toISOString();
+        const season = d.activeSeason || "";
+
+        m.salaries.forEach(({ week: w, record: r }) => {
+          const thursdayPay = _r2(Number(r.thursdayPay) || 0);
+          const date = w.closedAt || w.actualClosedAt || w.weekEnd || "";
+          d.treasury.unshift({
+            id: _gidR(),
+            type: "out",
+            amount: thursdayPay,
+            desc: "مرتب " + (r.empName || "") + " W" + w.weekNum,
+            category: "مرتبات",
+            account: "SUB CASH",
+            season,
+            date,
+            day: _dayName(date),
+            sourceType: "hr_salary",
+            weekId: w.id,
+            empId: r.empId,
+            by: "RECOVERY-V19.80.17",
+            createdAt: now,
+            snapshotId: w.snapshotId || null,
+            recoveredAt: now,
+            recoveredFrom: "missing-close-week-entry",
+          });
+        });
+
+        m.advances.forEach(({ week: w, advance: a }) => {
+          d.treasury.unshift({
+            id: a.treasuryTxId,
+            type: "out",
+            amount: _r2(Number(a.amount) || 0),
+            desc: "سلفة " + (a.empName || "") + " W" + w.weekNum + (a.note ? " — " + a.note : ""),
+            category: "مرتبات",
+            account: "SUB CASH",
+            season,
+            date: a.date || "",
+            day: _dayName(a.date || ""),
+            sourceType: "hr_weekly_advance",
+            weekId: w.id,
+            empId: a.empId,
+            weeklyAdvanceId: a.id,
+            by: "RECOVERY-V19.80.17",
+            createdAt: now,
+            snapshotId: w.snapshotId || null,
+            recoveredAt: now,
+            recoveredFrom: "missing-close-week-entry",
+          });
+          const hrLogExists = (d.hrLog || []).some(h => h.weeklyAdvanceId === a.id);
+          if (!hrLogExists) {
+            d.hrLog.unshift({
+              id: _gidR(),
+              type: "weekly_advance",
+              empId: a.empId,
+              empName: a.empName || "",
+              empJob: a.empJob || "",
+              amount: Number(a.amount) || 0,
+              note: a.note || "",
+              weekId: w.id,
+              weekStart: w.weekStart,
+              weekEnd: w.weekEnd,
+              date: a.date || "",
+              by: "RECOVERY-V19.80.17",
+              createdAt: now,
+              weeklyAdvanceId: a.id,
+              treasuryTxId: a.treasuryTxId,
+              snapshotId: w.snapshotId || null,
+            });
+          }
+        });
+
+        m.wsPayments.forEach(({ week: w, payment: p }) => {
+          const _wsLabel = (p.wsName || "").replace(/^\s*ورشة\s+/, "");
+          d.treasury.unshift({
+            id: p.treasuryTxId,
+            type: "out",
+            amount: _r2(Number(p.amount) || 0),
+            desc: (p.type === "payment" ? "دفعة ورشة " : "مشتريات ورشة ") + _wsLabel + " W" + w.weekNum + (p.note ? " — " + p.note : ""),
+            category: p.type === "payment" ? "تشغيل خارجي" : "مشتريات",
+            account: "SUB CASH",
+            season,
+            date: p.date || "",
+            day: _dayName(p.date || ""),
+            sourceType: "hr_weekly_ws_payment",
+            weekId: w.id,
+            wsName: p.wsName || "",
+            wsPaymentId: p.wsPaymentId || null,
+            by: "RECOVERY-V19.80.17",
+            createdAt: now,
+            snapshotId: w.snapshotId || null,
+            recoveredAt: now,
+            recoveredFrom: "missing-close-week-entry",
+          });
+          if (p.wsPaymentId) {
+            const wsPayExists = (d.wsPayments || []).some(wp => wp.id === p.wsPaymentId);
+            if (!wsPayExists) {
+              d.wsPayments.push({
+                id: p.wsPaymentId,
+                wsName: p.wsName || "",
+                wsId: p.wsId || null,
+                amount: Number(p.amount) || 0,
+                type: p.type || "payment",
+                notes: p.note || "",
+                date: p.date || "",
+                createdBy: "RECOVERY-V19.80.17",
+                treasuryTxId: p.treasuryTxId,
+                sourceWeekId: w.id,
+              });
+            }
+          }
+        });
+
+        m.otherExps.forEach(({ week: w, expense: ex }) => {
+          d.treasury.unshift({
+            id: ex.treasuryTxId,
+            type: "out",
+            amount: _r2(Number(ex.amount) || 0),
+            desc: "مصروف — " + (ex.category || "") + " W" + w.weekNum + (ex.desc ? " — " + ex.desc : ""),
+            category: ex.category || "مصاريف أخرى",
+            account: ex.account || "SUB CASH",
+            season,
+            date: ex.date || "",
+            day: _dayName(ex.date || ""),
+            sourceType: "hr_other_expense",
+            weekId: w.id,
+            ...(ex.supplierId ? { supplierId: ex.supplierId, supplierName: ex.supplierName || "" } : {}),
+            by: "RECOVERY-V19.80.17",
+            createdAt: now,
+            snapshotId: w.snapshotId || null,
+            recoveredAt: now,
+            recoveredFrom: "missing-close-week-entry",
+          });
+          if (ex.supplierId) {
+            const supPayExists = (d.supplierPayments || []).some(sp => sp.treasuryTxId === ex.treasuryTxId);
+            if (!supPayExists) {
+              d.supplierPayments.push({
+                id: _gidR(),
+                supplierId: ex.supplierId,
+                supplierName: ex.supplierName || "",
+                amount: _r2(Number(ex.amount) || 0),
+                date: ex.date || "",
+                note: ex.desc || "",
+                method: "كاش",
+                account: ex.account || "SUB CASH",
+                by: "RECOVERY-V19.80.17",
+                treasuryTxId: ex.treasuryTxId,
+                createdAt: now,
+                sourceType: "hr_other_expense_supplier",
+                sourceWeekId: w.id,
+              });
+            }
+          }
+        });
+
+        d.auditLog.unshift({
+          id: _gidR(),
+          category: "treasury",
+          action: "v19.80.17_recovery",
+          target: "missing close-week entries",
+          meta: {
+            salaries: m.salaries.length,
+            advances: m.advances.length,
+            wsPayments: m.wsPayments.length,
+            otherExps: m.otherExps.length,
+          },
+          by: "RECOVERY-V19.80.17",
+          ts: now,
+        });
+      });
+      const total = m.salaries.length + m.advances.length + m.wsPayments.length + m.otherExps.length;
+      showToast("✓ تم استرداد " + total + " حركة مفقودة في الخزنة");
+      setRecoveryPreview(null);
+    } catch (e) {
+      console.error("[V19.80.17 recovery] failed:", e);
+      showToast("⛔ فشل الاسترداد — راجع الـconsole");
+    } finally {
+      setRecovering(false);
+    }
+  };
+
   /* Build a unified, normalized payment stream out of three sources. */
   const allPayments = useMemo(() => {
     const out = [];
@@ -500,6 +767,13 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         <Btn small onClick={previewDeadCleanup} disabled={cleaning} style={{background:"#EF444415", color:"#EF4444", border:"1px solid #EF444440", fontWeight:700, whiteSpace:"nowrap"}}>
           {cleaning ? "⏳ جاري التنظيف..." : "🧹 تنظيف الدفعات الميتة"}
         </Btn>
+        {/* V19.80.17: recover treasury entries that were lost to the V19.80.16 bug.
+            Walks every closed week's snapshots (closedRecords/weeklyAdvances/
+            weeklyWsPayments/weeklyOtherExpenses) and recreates any treasury entry
+            referenced there but missing from config.treasury. */}
+        <Btn small onClick={previewMissingCloseWeekEntries} disabled={recovering} style={{background:"#F59E0B15", color:"#F59E0B", border:"1px solid #F59E0B40", fontWeight:700, whiteSpace:"nowrap"}}>
+          {recovering ? "⏳ جاري الاسترداد..." : "🚑 استرداد حركات الخزنة المفقودة"}
+        </Btn>
       </div>
     </div>
 
@@ -692,6 +966,72 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           <Btn small onClick={() => setCleanupPreview(null)}>إلغاء</Btn>
           <Btn small onClick={confirmDeadCleanup} disabled={cleaning} style={{background:"#EF4444", color:"#fff", fontWeight:800}}>
             {cleaning ? "⏳ جاري التنظيف..." : "🧹 نعم، نظّف الكل"}
+          </Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V19.80.17: recovery preview modal — shows the list of missing close-week
+        treasury entries (salaries, advances, ws_payments, other_expenses) found
+        by walking each closed week's snapshot. After confirmation, recreates
+        each entry from the snapshot data, restoring the cash flow timeline. */}
+    {recoveryPreview && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={() => setRecoveryPreview(null)}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:680, width:"100%", maxHeight:"85vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2, fontWeight:800, color:"#F59E0B", marginBottom:8}}>🚑 استرداد حركات الخزنة المفقودة</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+          الحركات دي مسجلة في الـ snapshot بتاع الأسبوع لكن مفقودة من الخزنة. هـ تتـ recreate من بيانات الـ snapshot:
+          <div style={{marginTop:8, padding:"8px 10px", borderRadius:8, background:"#F59E0B08", border:"1px solid #F59E0B30", fontSize:FS-2}}>
+            ℹ️ الـ IDs المفقودة هـ تتعمل من جديد بنفس الـ treasuryTxId الأصلي (لو مخزّن) عشان أي روابط (supplierPayments/wsPayments) تستمر تشتغل صح. السلف بـ تتـ recreate كمان في hrLog لو مفقودة.
+          </div>
+        </div>
+        {recoveryPreview.salaries.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>💰 مرتبات مفقودة ({recoveryPreview.salaries.length}):</div>
+          <div style={{maxHeight:140, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {recoveryPreview.salaries.map((x,i) => (
+              <div key={i} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                W{x.week.weekNum} · <b style={{color:T.text}}>{x.record.empName||"—"}</b> · {fmt(x.record.thursdayPay)} ج.م
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(recoveryPreview.salaries.reduce((s,x)=>s+(Number(x.record.thursdayPay)||0),0))} ج.م</b></div>
+        </div>}
+        {recoveryPreview.advances.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>👤 سلف أسبوعية مفقودة ({recoveryPreview.advances.length}):</div>
+          <div style={{maxHeight:140, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {recoveryPreview.advances.map((x,i) => (
+              <div key={i} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                W{x.week.weekNum} · {x.advance.date} · <b style={{color:T.text}}>{x.advance.empName||"—"}</b> · {fmt(x.advance.amount)} ج.م
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(recoveryPreview.advances.reduce((s,x)=>s+(Number(x.advance.amount)||0),0))} ج.م</b></div>
+        </div>}
+        {recoveryPreview.wsPayments.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>🏭 دفعات/مشتريات ورش مفقودة ({recoveryPreview.wsPayments.length}):</div>
+          <div style={{maxHeight:140, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {recoveryPreview.wsPayments.map((x,i) => (
+              <div key={i} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                W{x.week.weekNum} · {x.payment.date} · <b style={{color:T.text}}>{x.payment.wsName||"—"}</b> · {fmt(x.payment.amount)} ج.م ({x.payment.type==="payment"?"دفعة":"مشتريات"})
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(recoveryPreview.wsPayments.reduce((s,x)=>s+(Number(x.payment.amount)||0),0))} ج.م</b></div>
+        </div>}
+        {recoveryPreview.otherExps.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>📋 مصاريف أخرى مفقودة ({recoveryPreview.otherExps.length}):</div>
+          <div style={{maxHeight:140, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {recoveryPreview.otherExps.map((x,i) => (
+              <div key={i} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                W{x.week.weekNum} · {x.expense.date} · <b style={{color:T.text}}>{x.expense.category||"—"}</b> · {fmt(x.expense.amount)} ج.م {x.expense.supplierName?"· "+x.expense.supplierName:""}
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي: <b>{fmt(recoveryPreview.otherExps.reduce((s,x)=>s+(Number(x.expense.amount)||0),0))} ج.م</b></div>
+        </div>}
+        <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:14}}>
+          <Btn small onClick={() => setRecoveryPreview(null)}>إلغاء</Btn>
+          <Btn small onClick={confirmRecovery} disabled={recovering} style={{background:"#F59E0B", color:"#fff", fontWeight:800}}>
+            {recovering ? "⏳ جاري الاسترداد..." : "🚑 نعم، استرد الحركات"}
           </Btn>
         </div>
       </div>
