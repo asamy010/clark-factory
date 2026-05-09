@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.14",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🔥 الإصلاح الفعلي: شيل setR2L اللي كان بيقلب كل حاجة في PDF الواتساب",
+    changes: [
+      { type: "fix", text: "🚨 [V19.80.13 was incomplete — root cause was lower in the stack] الـ V19.80.13 fix كان على الـ ar() shaper بس، لكن الـ user أكد إن الأرقام لسه معكوسة. الـ PDF أظهر إن **كل** الـ Latin والـ digits معكوسة:\n• \"CLARK Factory Management\" → \"tnemeganaM yrotcaF KRALC\"\n• \"3261122\" → \"2211623\"\n• \"3,750\" → \"057,3\"\n• \"+201008879265\" → \"562978800102+\"\n• \"2026-05-09\" → \"90-50-6202\"\n• \"24 ساعة\" → \"42 ساعة\"\n\nالسبب: `pdf.setR2L(true)` في createPdf() كان بـ يـ reverse كل text قبل ما يـ render. ده كان فوق الـ ar() reversal — فالـ Arabic كان OK (double-reverse = original logical order)، لكن الـ Latin/digits كانوا بـ يـ reversed مرة واحدة." },
+      { type: "fix", text: "🔧 [Fix: removed pdf.setR2L(true) entirely] الـ jsPDF instance دلوقتي يـ stay في default LTR mode. الـ ar() shaper بـ يعمل visual-LTR ordering للـ Arabic، فالـ shaped glyphs (initial/medial/final forms) بـ تتـ render in LTR pixel order ويـ read-ها الـ Arabic reader RTL by form direction — صحيح. الـ Latin/digits بـ تـ render LTR طبيعي بدون أي reversal. الـ alignment ما اتأثرش لأن كل الـ pdf.text() calls بـ تستخدم explicit `align: 'right' | 'center' | 'left'`، والـ autoTable بـ يستخدم halign per-column." },
+      { type: "fix", text: "⚠️ [Cairo TTF investigation — kept Amiri for now] الـ user طلب الخط يكون Cairo زي الـ manual print. حاولنا نـ download Cairo TTF (variable font 600KB)، لكن inspection للـ cmap كشف إن Cairo بـ يفتقر بعض الـ FE-range glyphs (U+FE80 ء isolated، U+FE93 ة isolated، إلخ). الـ pre-shaping approach في ar() بـ يحتاج كل FE-range glyphs (FE70-FEFC). الـ Cairo's static TTFs بـ تـ split الـ Arabic + Latin في separate files (subset model). فضلنا نسيب Amiri (aliased as \"Cairo\") اللي عنده full FE-range coverage. الـ visual difference بين Amiri و Cairo صغيرة في body font size. الـ font swap الكامل محتاج إما:\n• Find Cairo TTF بـ full FE coverage (not available in standard Google Fonts)\n• Or rewrite renderer to use OpenType GSUB for shaping (significant work)" },
+    ]
+  },
+  {
     version: "V19.80.13",
     date: "2026-05-09",
     types: ["fix"],

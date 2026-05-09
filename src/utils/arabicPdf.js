@@ -29,7 +29,18 @@
 
 const JSPDF_URL    = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
 const AUTOTABLE_URL = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
-/* V19.70.26: switched from Tajawal → Amiri. Tajawal's cmap was incomplete for
+/* V19.80.14: investigated swapping to real Cairo TTF (was Amiri aliased as
+   "Cairo" in V19.70.26) but Google's Cairo font lacks several Arabic
+   Presentation Forms-B glyphs we shape into (U+FE80 ء isolated, U+FE93 ة
+   isolated, etc.). Switching would break those chars. Cairo also doesn't
+   ship a single TTF with FULL coverage — its subset model splits Arabic /
+   Latin / Vietnamese into separate files. Sticking with Amiri (which has
+   complete PFB-B coverage) until we can either find a Cairo TTF with full
+   FE-range or rewrite the renderer to use OpenType GSUB instead of pre-
+   shaping. Visual difference between Amiri and Cairo is small at the body
+   font size, and the CRITICAL bug (everything reversed via pdf.setR2L) is
+   fixed in this same release.
+   V19.70.26: switched from Tajawal → Amiri. Tajawal's cmap was incomplete for
    Arabic Presentation Forms-B — the user reported missing letters in PDF
    output (e.g. "التليفون" rendered as "لتليفو", missing ا and ن).
    Amiri is specifically designed as a complete Arabic typeface (calligraphic
@@ -324,10 +335,12 @@ export function arSafe(text) {
   return ar(String(text));
 }
 
-/* Create a new jsPDF instance with Amiri Regular + Bold registered + R2L mode on.
+/* Create a new jsPDF instance with Amiri Regular + Bold registered (aliased "Cairo").
    V19.70.26: family aliased as "Cairo" so all the existing buildXxxPdfBase64 callers
-   still work without modification. The actual TTF is Amiri (full Arabic coverage),
-   but the API contract stays the same — just call setFont("Cairo"). */
+   still work without modification. The actual TTF is Amiri (full Arabic coverage —
+   complete PFB-B range needed by the pre-shaping in ar()), but the API contract
+   stays the same — just call setFont("Cairo"). See V19.80.14 note above for the
+   reason we didn't switch to real Cairo TTF. */
 export function createPdf(orientation, format) {
   if (!_state.loaded) throw new Error("call loadArabicPdfLibs() first");
   const { jsPDF } = window.jspdf;
@@ -338,10 +351,23 @@ export function createPdf(orientation, format) {
   pdf.addFileToVFS("Amiri-Bold.ttf", _state.cairoBoldBase64);
   pdf.addFont("Amiri-Bold.ttf", "Cairo", "bold");
   pdf.setFont("Cairo");
-  /* setR2L flips direction at line layout level. We pass shaped (visual-order) text;
-     the user reported text was directionally correct (with letters missing only) so
-     R2L wasn't double-reversing. Keeping it on for correct alignment behavior. */
-  if (typeof pdf.setR2L === "function") pdf.setR2L(true);
+  /* V19.80.14: setR2L(true) was REVERSING ALL LATIN + DIGITS (model number,
+     totals, dates, phone numbers, factory branding) on top of the manual
+     visual-order reversal we already do in ar(). The previous comment claimed
+     "R2L wasn't double-reversing" but the user's PDF clearly showed:
+       "CLARK Factory Management" → "tnemeganaM yrotcaF KRALC"
+       "3261122"                  → "2211623"
+       "3,750"                    → "057,3"
+       "+201008879265"            → "562978800102+"
+       "2026-05-09"               → "90-50-6202"
+     The fix is to leave jsPDF in default LTR mode. Our ar() already produces
+     visual-order shaped Arabic that renders correctly in LTR direction (the
+     shaped glyphs are connected via their initial/medial/final forms which the
+     Arabic reader interprets RTL by form, regardless of pixel direction).
+     All our pdf.text() calls already specify explicit align (right/center/left)
+     so we don't depend on R2L for alignment. autoTable also computes column
+     positions LTR by default; cell halign is set per-column. */
+  /* if (typeof pdf.setR2L === "function") pdf.setR2L(true);  ← REMOVED */
   return pdf;
 }
 
