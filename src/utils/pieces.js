@@ -392,6 +392,116 @@ export async function markReturned(pieceId, { reason, by, cascadeSeries }) {
   return { ok: true, fromCustomerName: lastCustomer, cascade: contained.length };
 }
 
+/* V19.87.0 — mark a piece as scrapped (damaged, lost, defective). Removes
+   it from the active inventory pool. Cannot be undone via UI; admin would
+   have to manually edit Firestore to recover (intentional friction).
+   Cascades to contained pieces if it's a series, mirroring markReturned. */
+export async function markScrapped(pieceId, { reason, by }) {
+  const piece = await getPiece(pieceId);
+  if (!piece) throw new Error("piece not found: " + pieceId);
+  if (piece.status === "scrapped") return { ok: true, skipped: "already-scrapped" };
+  const now = _NOW();
+  const containedIds = (piece.type === "series" && Array.isArray(piece.containedPieceIds))
+    ? piece.containedPieceIds : [];
+  const histEntry = {
+    action: "scrapped",
+    reason: reason || "غير محدد",
+    fromCustomerId: piece.currentCustomerId,
+    fromCustomerName: piece.currentCustomerName,
+    date: now, by,
+  };
+  if (containedIds.length === 0) {
+    await updateDoc(doc(db, "pieces", pieceId), {
+      status: "scrapped",
+      currentCustomerId: null, currentCustomerName: null, currentDeliveryId: null,
+      history: [...(piece.history || []), histEntry], updatedAt: now,
+    });
+    return { ok: true };
+  }
+  /* Series — cascade scrap to all contained pieces */
+  const contained = await Promise.all(containedIds.map(id => getPiece(id)));
+  const batch = writeBatch(db);
+  batch.update(doc(db, "pieces", pieceId), {
+    status: "scrapped",
+    currentCustomerId: null, currentCustomerName: null, currentDeliveryId: null,
+    history: [...(piece.history || []), { ...histEntry, cascade: "series" }],
+    updatedAt: now,
+  });
+  contained.forEach(p => {
+    if (!p || p.status === "scrapped") return;
+    batch.update(doc(db, "pieces", p.id), {
+      status: "scrapped",
+      currentCustomerId: null, currentCustomerName: null, currentDeliveryId: null,
+      history: [...(p.history || []), { ...histEntry, viaSeries: pieceId }],
+      updatedAt: now,
+    });
+  });
+  await batch.commit();
+  return { ok: true, cascade: contained.length };
+}
+
+/* V19.87.0 — link existing piece QRs to an existing series QR (post-print
+   packing). Used when pieces and series were printed separately and packed
+   together later. Validates:
+     • All pieces must be in_warehouse (not with customer, not scrapped)
+     • Pieces must NOT already be in another series (parentSeriesId null)
+     • Series must be in_warehouse and have type="series"
+   Atomic batch write — either all link or none. */
+export async function linkPiecesToSeries(seriesId, pieceIds, { by }) {
+  if (!seriesId || !Array.isArray(pieceIds) || pieceIds.length === 0) {
+    return { ok: false, error: "missing seriesId or pieceIds" };
+  }
+  const series = await getPiece(seriesId);
+  if (!series) return { ok: false, error: "series-not-found" };
+  if (series.type !== "series") return { ok: false, error: "not-a-series-qr" };
+  if (series.status !== "in_warehouse") return { ok: false, error: "series-not-in-warehouse", status: series.status };
+
+  const pieces = await Promise.all(pieceIds.map(id => getPiece(id)));
+  const conflicts = [];
+  pieces.forEach((p, idx) => {
+    if (!p) { conflicts.push({ id: pieceIds[idx], reason: "missing" }); return; }
+    if (p.type !== "piece") { conflicts.push({ id: p.id, reason: "not-a-piece" }); return; }
+    if (p.status !== "in_warehouse") { conflicts.push({ id: p.id, reason: "not-in-warehouse", status: p.status }); return; }
+    if (p.parentSeriesId && p.parentSeriesId !== seriesId) {
+      conflicts.push({ id: p.id, reason: "already-in-other-series", parent: p.parentSeriesId });
+    }
+  });
+  if (conflicts.length > 0) {
+    return { ok: false, error: "validation-failed", conflicts };
+  }
+
+  const now = _NOW();
+  const batch = writeBatch(db);
+  /* Update series: append new piece IDs to containedPieceIds */
+  const existingContained = Array.isArray(series.containedPieceIds) ? series.containedPieceIds : [];
+  const newContained = [...new Set([...existingContained, ...pieceIds])];
+  batch.update(doc(db, "pieces", seriesId), {
+    containedPieceIds: newContained,
+    expectedPiecesCount: newContained.length,
+    history: [...(series.history || []), {
+      action: "packed",
+      addedPieceIds: pieceIds,
+      newSize: newContained.length,
+      date: now, by: by || "",
+    }],
+    updatedAt: now,
+  });
+  /* Update each piece: set parentSeriesId */
+  pieces.forEach(p => {
+    if (!p || p.parentSeriesId === seriesId) return;
+    batch.update(doc(db, "pieces", p.id), {
+      parentSeriesId: seriesId,
+      history: [...(p.history || []), {
+        action: "packed",
+        seriesId, date: now, by: by || "",
+      }],
+      updatedAt: now,
+    });
+  });
+  await batch.commit();
+  return { ok: true, packed: pieceIds.length, totalInSeries: newContained.length };
+}
+
 /* Release a piece back to in_warehouse without a return entry — used when
    a delivery session is cancelled before commit (the scan was speculative). */
 export async function releasePiece(pieceId, { by }) {

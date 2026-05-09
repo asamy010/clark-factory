@@ -5171,6 +5171,18 @@ export default function App(){
         setWsRcvQty(remaining);
         return;
       }
+      /* V19.87.0: tracked-piece QR (CLARK:P:p_xxx) → route to Pieces lookup tab.
+         Pre-V19.87 the smart scanner silently no-op'd because parts[1]="P"
+         doesn't match any orderId. Now we detect the prefix explicitly and
+         hand off to PiecesPg with the URL pre-filled (window event mirrors
+         the existing __openPkg pattern). */
+      if(url.startsWith("CLARK:P:")){
+        if(!canViewTab("pieces")){showToast("⚠️ مفيش صلاحية لصفحة تتبع القطع");return}
+        setTab("pieces");
+        setTimeout(()=>{window.__piecesLookup=url;window.dispatchEvent(new Event("pieces-lookup"))},400);
+        showToast("🔍 فتح استعلام القطعة...");
+        return;
+      }
       if(url.startsWith("CLARK:")){const parts=url.split(":");const orderId=parts[1];const o=orders.find(x=>x.id===orderId);if(o){goD(o.id);showToast("📋 "+o.modelNo);return}}
       try{const j=JSON.parse(url);
         if(j.app==="clark"&&j.type==="pkg"){const pkg=(config.packages||[]).find(p=>p.id===j.id);if(pkg){setTab("custDeliver");setTimeout(()=>{window.__openPkg=j.id;window.dispatchEvent(new Event("open-pkg"))},500);showToast("📦 "+j.num);return}}

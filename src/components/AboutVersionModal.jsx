@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.87.0",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "🔗 Phase 7: تعبئة + إتلاف + Smart Scanner + إرجاع KASF",
+    changes: [
+      { type: "feature", text: "📷 [Smart Scanner integration] الـ scanner العام في الموقع (الزر في navbar) كان silent skip لما يـ scan tracked QR (`CLARK:P:p_xxx`). دلوقتي بـ يعرف الـ format ويـ navigate لتاب \"تتبع القطع\" بـ pre-filled lookup → استعلام تلقائي. الـ user مش محتاج يـ navigate يدوياً بقى." },
+      { type: "feature", text: "🗑 [Mark as Scrapped] زر جديد في Lookup card بعد ما تـ lookup قطعة. \"إتلاف القطعة\" يسأل عن السبب + confirmation، ثم بـ يـ flag الـ status بـ \"scrapped\" + history entry. للسيري: cascade على كل القطع جواه. مفيد للقطع التالفة، المفقودة، الـ defective." },
+      { type: "feature", text: "↩️ [Return → KASF integration] الـ scan-to-return بقى يكتب credit في KASF + المحاسبة (mirror V19.86.0 sell flow):\n• كل scan-to-return ناجح → entry جديد في `orders[oid].customerReturns` بـ qty + price\n• `autoPost.saleReturn` + `autoPost.saleReturnCogs` بـ يـ fire للـ accounting\n• الـ scanned pieces محفوظين في الـ entry للـ traceability\n• الـ session marker `fromScanner: true` (زي V19.86)\n• Group بالـ (orderId, customerId) فلو scan-ت 5 قطع من 2 عملاء، بـ يطلع 2 customerReturns" },
+      { type: "feature", text: "🔗 [Packing tab — جديد] التاب الـ7 \"🔗 تعبئة\". للقطع اللي اتطبعت في piece-mode (مش linked-series) ومحتاجة تتربط بسيري existing. الـ workflow:\n• امسح QR السيري الأول (الكرتونة)\n• امسح QR كل قطعة هتدخل جواه (validate: in_warehouse + مش في سيري تاني)\n• اضغط تأكيد → batch update: pieces[parentSeriesId] + series[containedPieceIds]\nالنتيجة: نفس الـ shape بتاع linked-series mode، لكن done post-print." },
+      { type: "feature", text: "🛠 [Helpers جديدة في pieces.js]\n• `markScrapped(pieceId, opts)` — single + cascade للسيري\n• `linkPiecesToSeries(seriesId, pieceIds, opts)` — atomic batch مع validation شامل (status، type، existing parent)" },
+      { type: "doc", text: "📅 [النهاية الطبيعية للـ Pieces system] V19.81.0 إلى V19.87.0 = 7 phases. النظام دلوقتي عنده:\n• توليد QR فريد لكل قطعة + سيري\n• Lookup + lifecycle timeline\n• Scan-to-sell + scan-to-return بـ KASF + accounting\n• Bulk return + customer history + analytics dashboard\n• Series-piece linkage (print-time + post-packing)\n• Smart scanner routing\n• Scrap action\n• Manual fallback search\n\nالـ نظام legacy لسه شغال 100% (audit V19.86.0 confirmed) فالـ user يقدر يستخدم النظامين parallel أو يـ migrate تدريجي." },
+    ]
+  },
+  {
     version: "V19.86.0",
     date: "2026-05-09",
     types: ["feature"],

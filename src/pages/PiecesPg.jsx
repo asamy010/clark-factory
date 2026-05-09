@@ -13,10 +13,10 @@
    the tab/popup before confirm leaves all DB state untouched.
    ════════════════════════════════════════════════════════════════════════ */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Btn, Card, Inp, SearchSel } from "../components/ui.jsx";
 import { QrScanner } from "../components/QrScanner.jsx";
-import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, markReturnedBulk, getCurrentPiecesForCustomer, getAggregatedStats } from "../utils/pieces.js";
+import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, markReturnedBulk, markScrapped, linkPiecesToSeries, getCurrentPiecesForCustomer, getAggregatedStats } from "../utils/pieces.js";
 import { fmt } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 /* V19.86.0 — Phase 6 deep integration: scan-to-sell now writes real
@@ -62,6 +62,7 @@ const TABS = [
   { key: "sell",      label: "📦 تسليم",        color: "#10B981" },
   { key: "return",    label: "↩️ إرجاع",         color: "#F59E0B" },
   { key: "customer",  label: "👥 سجل العميل",   color: "#8B5CF6" },
+  { key: "packing",   label: "🔗 تعبئة",        color: "#06B6D4" },
   { key: "analytics", label: "📊 إحصائيات",     color: "#EC4899" },
 ];
 
@@ -90,7 +91,8 @@ export function PiecesPg({ data, isMob, T, FS, user, upConfig, upSales, updOrder
 
     {tab === "lookup"    && <LookupTab    data={data} T={_T} FS={_FS} />}
     {tab === "sell"      && <SellTab      data={data} T={_T} FS={_FS} user={user} upSales={upSales} updOrder={updOrder} />}
-    {tab === "return"    && <ReturnTab    data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "return"    && <ReturnTab    data={data} T={_T} FS={_FS} user={user} updOrder={updOrder} />}
+    {tab === "packing"   && <PackingTab   data={data} T={_T} FS={_FS} user={user} />}
     {tab === "customer"  && <CustomerTab  data={data} T={_T} FS={_FS} />}
     {tab === "analytics" && <AnalyticsTab data={data} T={_T} FS={_FS} />}
   </div>;
@@ -121,6 +123,46 @@ function LookupTab({ data, T, FS }) {
     } catch (e) {
       setErrMsg("خطأ في الاستعلام: " + (e?.message || e));
     } finally { setLoading(false); }
+  }
+
+  /* V19.87.0 — listen for the smart-scanner hand-off. App.jsx sets
+     window.__piecesLookup + dispatches "pieces-lookup" when a CLARK:P:* QR
+     gets scanned globally; we pick that up, pre-fill the input, run the
+     lookup. Also runs on mount in case the event fired before this component
+     listened (race during tab switch). */
+  useEffect(() => {
+    const consume = () => {
+      const url = window.__piecesLookup;
+      if (!url) return;
+      delete window.__piecesLookup;
+      setManualQr(url);
+      doLookup(url);
+    };
+    consume();
+    window.addEventListener("pieces-lookup", consume);
+    return () => window.removeEventListener("pieces-lookup", consume);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
+
+  async function reLookup() {
+    if (manualQr) await doLookup(manualQr);
+  }
+
+  async function handleScrap(pieceId, modelNo) {
+    const reason = window.prompt("سبب الإتلاف (اختياري):", "");
+    if (reason === null) return; /* user cancelled */
+    if (!window.confirm("هل تريد فعلاً إتلاف هذه القطعة؟ الإجراء ده ما ينعكس بسهولة.")) return;
+    try {
+      const r = await markScrapped(pieceId, { reason: reason || "غير محدد", by: "" });
+      if (r.ok) {
+        showToast("🗑 تم إتلاف القطعة" + (r.cascade ? " (شامل " + r.cascade + " قطعة في السيري)" : ""));
+        await reLookup();
+      } else {
+        showToast("⛔ فشل الإتلاف");
+      }
+    } catch (e) {
+      showToast("⛔ خطأ: " + (e?.message || e));
+    }
   }
 
   function handleScan(text) {
@@ -163,7 +205,7 @@ function LookupTab({ data, T, FS }) {
       </div>}
     </Card>
 
-    {result && <ResultCard result={result} T={T} FS={FS} />}
+    {result && <ResultCard result={result} T={T} FS={FS} onScrap={handleScrap} />}
 
     <Card style={{ marginTop: 16 }}>
       <div style={{ marginBottom: 8 }}>
@@ -497,7 +539,7 @@ function SellTab({ data, T, FS, user, upSales, updOrder }) {
    Each scan still validates (must be tracked, must be with_customer,
    no duplicates). Cancel-release: nothing writes to Firestore until
    the confirm button. */
-function ReturnTab({ T, FS, user }) {
+function ReturnTab({ data, T, FS, user, updOrder }) {
   const [scanActive, setScanActive] = useState(false);
   const [scanned, setScanned] = useState([]); /* [{piece, scannedAt, cascadeSeries}] */
   const [reason, setReason] = useState("");
@@ -505,6 +547,8 @@ function ReturnTab({ T, FS, user }) {
   const [errMsg, setErrMsg] = useState("");
   const [lastSummary, setLastSummary] = useState(null);
 
+  const orders = (data && data.orders) || [];
+  const customers = (data && data.customers) || [];
   const scannedIds = new Set(scanned.map(s => s.piece.id));
 
   async function handleScan(text) {
@@ -562,6 +606,10 @@ function ReturnTab({ T, FS, user }) {
     let ok = 0, fail = 0;
     const fromCustomers = new Set();
     const failures = [];
+    /* V19.87.0 — collect successful returns grouped by (orderId, customerId)
+       so we can post a saleReturn JE for each combination after step 1. */
+    const returnedByOrderCust = {}; /* "oid::custId" → { qty, orderId, custId, custName, pieceIds } */
+
     for (const s of scanned) {
       try {
         const r = await markReturned(s.piece.id, {
@@ -572,6 +620,24 @@ function ReturnTab({ T, FS, user }) {
         if (r.ok) {
           ok++;
           if (r.fromCustomerName) fromCustomers.add(r.fromCustomerName);
+          /* Capture for accounting integration. The customer info comes from
+             the piece's pre-return state, which markReturned echoes back via
+             r.fromCustomerName + the piece's previous currentCustomerId. */
+          const oid = s.piece.orderId;
+          const custId = s.piece.currentCustomerId;
+          if (oid && custId) {
+            const k = oid + "::" + custId;
+            const containedQty = (s.piece.type === "series" && Array.isArray(s.piece.containedPieceIds) && s.cascadeSeries)
+              ? s.piece.containedPieceIds.length
+              : 1;
+            if (!returnedByOrderCust[k]) returnedByOrderCust[k] = {
+              qty: 0, orderId: oid, custId,
+              custName: r.fromCustomerName || s.piece.currentCustomerName,
+              pieceIds: [],
+            };
+            returnedByOrderCust[k].qty += containedQty;
+            returnedByOrderCust[k].pieceIds.push(s.piece.id);
+          }
         } else {
           fail++; failures.push({ piece: s.piece, error: r.error });
         }
@@ -579,6 +645,48 @@ function ReturnTab({ T, FS, user }) {
         fail++; failures.push({ piece: s.piece, error: e?.message || String(e) });
       }
     }
+
+    /* V19.87.0 — KASF integration for returns. Mirrors V19.86.0 sell flow.
+       For each (orderId, customerId) group, push a customerReturn entry
+       to the order + fire autoPost.saleReturn so the journal sees the
+       credit. updOrder is optional — without it, returns stay tracked
+       in the pieces collection only. */
+    if (updOrder && Object.keys(returnedByOrderCust).length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      for (const k of Object.keys(returnedByOrderCust)) {
+        const g = returnedByOrderCust[k];
+        const order = orders.find(o => o.id === g.orderId);
+        if (!order) continue;
+        const cust = customers.find(c => c.id === g.custId);
+        const sellPrice = Number(order.sellPrice) || 0;
+        const retEntry = {
+          id: "ret_" + Date.now().toString(36) + "_" + g.orderId.slice(-4),
+          custId: g.custId, custName: g.custName,
+          qty: g.qty,
+          date: today,
+          createdBy: by,
+          createdAt: new Date().toISOString(),
+          fromScanner: true,
+          scannedPieceIds: g.pieceIds,
+          reason: reason || "",
+        };
+        if (sellPrice > 0) retEntry.price = sellPrice;
+        retEntry._key = g.orderId + ":saleReturn:" + g.custId + ":" + today + ":" + Date.now();
+        try {
+          await updOrder(g.orderId, o => {
+            if (!o.customerReturns) o.customerReturns = [];
+            o.customerReturns.push(retEntry);
+          });
+          if (sellPrice > 0 && cust) {
+            autoPost.saleReturn(data, retEntry, cust, order, by).catch(()=>{});
+            autoPost.saleReturnCogs(data, retEntry, order, by).catch(()=>{});
+          }
+        } catch (e) {
+          console.warn("[scan-to-return] updOrder failed:", g.orderId, e?.message);
+        }
+      }
+    }
+
     setConfirming(false);
     setLastSummary({ ok, fail, fromCustomers: [...fromCustomers], failures });
     if (fail === 0) {
@@ -1016,9 +1124,196 @@ function CustomerTab({ data, T, FS }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   TAB 6 — Packing (V19.87.0): link existing piece QRs to a series
+   ═══════════════════════════════════════════════════════════════
+   Scenario this fixes: pieces were printed in piece-mode (not linked-series),
+   then later need to be packed into a box that has its own series QR. The
+   user scans the series QR first, then the piece QRs going into it. Confirm
+   writes parentSeriesId on each piece + extends containedPieceIds on the
+   series — same shape as if they were printed via the linked-series mode.
+
+   Validation: pieces must be in_warehouse and not already in another series;
+   series must be in_warehouse and have type="series". Atomic batch write. */
+function PackingTab({ T, FS, user }) {
+  const [series, setSeries] = useState(null);     /* { piece doc } */
+  const [pieces, setPieces] = useState([]);       /* [{piece, scannedAt}] */
+  const [scanActive, setScanActive] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const [success, setSuccess] = useState(null);
+
+  const scannedIds = new Set(pieces.map(p => p.piece.id));
+
+  async function handleScan(text) {
+    setErrMsg(""); setSuccess(null);
+    const parsed = parseQr(text);
+    if (parsed.kind !== "piece") {
+      const msg = parsed.kind === "legacy" ? "⚠️ ده QR قديم بدون تتبع" : "⚠️ ده مش CLARK QR";
+      setErrMsg(msg); showToast(msg); return;
+    }
+    try {
+      const p = await getPiece(parsed.pieceId);
+      if (!p) { showToast("❌ القطعة مش موجودة"); return; }
+      if (p.status !== "in_warehouse") {
+        showToast("⚠️ القطعة في الحالة: " + (STATUS_LABEL[p.status]?.label || p.status) + " — مش ممكن تعبئتها");
+        return;
+      }
+      /* First scan must be a series */
+      if (!series) {
+        if (p.type !== "series") {
+          showToast("⚠️ امسح أولاً QR السيري (الكرتونة الخارجية)");
+          return;
+        }
+        setSeries(p);
+        showToast("📦 تم اختيار السيري — كمل scan للقطع جواه");
+        return;
+      }
+      /* Subsequent scans must be pieces */
+      if (p.type === "series") {
+        showToast("⚠️ ده QR سيري تاني — مش ممكن تحطه جوا سيري");
+        return;
+      }
+      if (p.parentSeriesId && p.parentSeriesId !== series.id) {
+        showToast("⚠️ القطعة دي ضمن سيري تاني (" + p.parentSeriesId + ") — مش ممكن نقلها");
+        return;
+      }
+      if (scannedIds.has(p.id)) {
+        showToast("⚠️ القطعة دي اتعملها scan قبل كده في الجلسة دي"); return;
+      }
+      /* Already linked? Skip */
+      const alreadyContained = Array.isArray(series.containedPieceIds) && series.containedPieceIds.includes(p.id);
+      if (alreadyContained) {
+        showToast("ℹ️ القطعة مرتبطة بالسيري ده فعلاً — مفيش حاجة للتغيير"); return;
+      }
+      setPieces(prev => [...prev, { piece: p, scannedAt: Date.now() }]);
+    } catch (e) {
+      setErrMsg("خطأ: " + (e?.message || e));
+    }
+  }
+
+  function removeScan(pieceId) {
+    setPieces(prev => prev.filter(p => p.piece.id !== pieceId));
+  }
+
+  async function reset() {
+    setSeries(null); setPieces([]); setErrMsg(""); setSuccess(null); setScanActive(false);
+  }
+
+  async function confirmPacking() {
+    if (!series) { showToast("⚠️ اختر السيري أولاً"); return; }
+    if (pieces.length === 0) { showToast("⚠️ مفيش قطع في السيري"); return; }
+    const ok = await ask(
+      "تأكيد التعبئة",
+      "هتربط " + pieces.length + " قطعة بالسيري " + series.id + ". الإجراء ده يـ update الـ DB."
+    );
+    if (!ok) return;
+    setConfirming(true);
+    try {
+      const r = await linkPiecesToSeries(series.id, pieces.map(p => p.piece.id), { by: user?.email || "" });
+      if (r.ok) {
+        setSuccess({ packed: r.packed, totalInSeries: r.totalInSeries, seriesId: series.id });
+        showToast("✓ تم تعبئة " + r.packed + " قطعة في السيري — إجمالي " + r.totalInSeries);
+        await reset();
+      } else {
+        showToast("⛔ فشلت التعبئة: " + r.error + (r.conflicts ? " (" + r.conflicts.length + " conflicts)" : ""));
+        if (r.conflicts) setErrMsg("Conflicts: " + r.conflicts.slice(0, 3).map(c => c.id + " (" + c.reason + ")").join(" · "));
+      }
+    } catch (e) {
+      showToast("⛔ خطأ: " + (e?.message || e));
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return <div>
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: FS - 1, color: T.textSec, lineHeight: 1.6, marginBottom: 10 }}>
+        💡 اربط قطع منفصلة بسيري موجود (post-print packing). امسح أولاً QR السيري (الكرتونة) ثم QR كل قطعة هتدخل جواه. مفيد لو طبعت السيريهات والقطع منفصلين وعاوز تربطهم وقت التعبئة.
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Btn small onClick={() => setScanActive(s => !s)} style={{
+          background: scanActive ? "#EF4444" : "#06B6D4", color: "#FFF", fontWeight: 700,
+        }}>{scanActive ? "✕ إيقاف الكاميرا" : (series ? "📷 مسح القطع" : "📷 ابدأ بمسح السيري")}</Btn>
+        {(series || pieces.length > 0) && <Btn small onClick={reset} style={{
+          background: "transparent", color: T.textSec, border: "1px solid " + T.brd,
+        }}>🔄 إعادة التعيين</Btn>}
+      </div>
+      {scanActive && <div style={{ marginTop: 10 }}>
+        <QrScanner active={scanActive} onScan={handleScan} onError={msg => setErrMsg(msg)} height={240} />
+      </div>}
+      {errMsg && <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "#FEE2E2", color: "#B91C1C", fontSize: FS - 2 }}>
+        ⚠️ {errMsg}
+      </div>}
+    </Card>
+
+    {success && <Card style={{ marginBottom: 14, background: "#D1FAE5", border: "1px solid #10B981" }}>
+      <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#065F46" }}>
+        ✓ تم التعبئة بنجاح
+      </div>
+      <div style={{ fontSize: FS - 1, color: "#065F46", marginTop: 4 }}>
+        ربطنا <b>{success.packed}</b> قطعة جديدة بالسيري — إجمالي القطع المرتبطة دلوقتي: <b>{success.totalInSeries}</b>
+      </div>
+    </Card>}
+
+    {series && <Card style={{ marginBottom: 14, border: "2px solid #06B6D4" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: FS, fontWeight: 800, color: "#06B6D4" }}>📦 السيري المختار</div>
+          <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.text, marginTop: 4 }}>{series.modelNo}</div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>{series.modelDesc || "—"}</div>
+          <div style={{ fontFamily: "monospace", fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>{series.id}</div>
+        </div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: FS - 3, color: T.textMut }}>قطع مرتبطة دلوقتي</div>
+          <div style={{ fontSize: FS + 4, fontWeight: 900, color: "#06B6D4" }}>
+            {(series.containedPieceIds || []).length} → {(series.containedPieceIds || []).length + pieces.length}
+          </div>
+        </div>
+      </div>
+
+      {pieces.length > 0 && <div style={{ borderTop: "1px solid " + T.brd, paddingTop: 10 }}>
+        <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+          🔗 قطع جديدة هتنضاف للسيري ({pieces.length})
+        </div>
+        <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid " + T.brd, borderRadius: 8 }}>
+          {[...pieces].reverse().map(s => (
+            <div key={s.piece.id} style={{
+              padding: "8px 12px", borderBottom: "1px solid " + T.brd, fontSize: FS - 2,
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: T.text, fontWeight: 700 }}>
+                  {s.piece.modelNo}
+                  {s.piece.size ? " · مقاس " + s.piece.size : ""}
+                </div>
+                <div style={{ fontFamily: "monospace", color: T.textMut, fontSize: FS - 3 }}>{s.piece.id}</div>
+              </div>
+              <span onClick={() => removeScan(s.piece.id)} style={{
+                cursor: "pointer", padding: "3px 8px", borderRadius: 6, background: "#EF444415",
+                color: "#EF4444", fontWeight: 700, fontSize: FS - 2,
+              }}>✕</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <Btn small onClick={confirmPacking} disabled={confirming} style={{
+            background: "#06B6D4", color: "#FFF", fontWeight: 800, fontSize: FS,
+          }}>{confirming ? "⏳ جاري الحفظ..." : "✓ تأكيد التعبئة (" + pieces.length + " قطعة)"}</Btn>
+        </div>
+      </div>}
+    </Card>}
+
+    {!series && pieces.length === 0 && !success && <div style={{
+      padding: 24, textAlign: "center", color: T.textMut, fontSize: FS - 1,
+      background: T.bg, borderRadius: 10, border: "1px dashed " + T.brd,
+    }}>📷 افتح الكاميرا وابدأ بمسح QR السيري (الكرتونة الخارجية)</div>}
+  </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Shared cards
    ═══════════════════════════════════════════════════════════════ */
-function ResultCard({ result, T, FS }) {
+function ResultCard({ result, T, FS, onScrap }) {
   if (result.kind === "unknown") {
     return <Card style={{ padding: 16, background: "#FEF3C7", border: "1px solid #FDE68A" }}>
       <div style={{ fontSize: FS, fontWeight: 800, color: "#92400E", marginBottom: 4 }}>⚠️ QR غير معروف</div>
@@ -1113,6 +1408,14 @@ function ResultCard({ result, T, FS }) {
       <div style={{ marginTop: 12, fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
         ID: {p.id} · Order: {p.orderId || "—"} · أُنتجت: {p.productionDate || "—"}
       </div>
+      {/* V19.87.0 — Scrap action. Hide if already scrapped. */}
+      {onScrap && p.status !== "scrapped" && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed " + T.brd, display: "flex", justifyContent: "flex-end" }}>
+          <Btn small onClick={() => onScrap(p.id, p.modelNo)} style={{
+            background: "#FEE2E2", color: "#991B1B", border: "1px solid #FCA5A5", fontWeight: 700,
+          }}>🗑 إتلاف القطعة</Btn>
+        </div>
+      )}
     </Card>;
   }
   return null;
