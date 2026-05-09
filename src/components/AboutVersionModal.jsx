@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.84.1",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🧹 تبسيط popup طباعة QR — شيل الـ checkbox، التتبع دايماً ON",
+    changes: [
+      { type: "fix", text: "🧹 [User: \"عاوز الافتراضي شيل تشيك بوكس\"] الـ tracking checkbox اللي اتضاف في V19.81.0 اتشال. كل QR يتطبع من دلوقتي بقى متتبع تلقائياً — مفيش opt-out. السبب: الـ user مش محتاج يفكر في كل مرة، والـ legacy format ما يستحقش يكون default option. هين بقت hint سطر واحد بـ \"كل ليبل بقى متسجل تلقائياً\" بدل الـ checkbox المساحة." },
+      { type: "doc", text: "📜 [Legacy QRs لسه شغّالة] الـ QRs اللي اتطبعت قبل V19.81.0 (بـ format CLARK:orderId:qty) لسه يـ scan صح في صفحة استعلام القطع — الـ parseQr() بيعرفها ويعرض الـ order info مع تنبيه \"اطبع QR جديد\". بس مفيش طريقة جديدة تنتج legacy format بقى." },
+    ]
+  },
+  {
     version: "V19.84.0",
     date: "2026-05-09",
     types: ["feature"],
