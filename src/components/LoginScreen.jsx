@@ -49,6 +49,9 @@ export const TABS=[
   /* V19.41: Debit notes (purchase returns) */
   {key:"debitNotes",label:"إشعارات مدينة",icon:"↪️",color:"#3B82F6",bg:"#DBEAFE",svg:<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M15 14l2 2-2 2"/><path d="M17 16h-6a3 3 0 0 1-3-3v-1"/></>},
   {key:"warehouse",label:"المخازن",icon:"📦",color:"#0D9488",bg:"#CCFBF1",svg:<><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35a2 2 0 0 1 1.26-1.86l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z"/><path d="M6 18V10"/><path d="M18 18V10"/><path d="M6 14h12"/></>},
+  /* V19.81.0: Pieces lookup — scan a piece QR to see its full lifecycle (sold/returned/re-sold).
+     Sits next to المخازن because it's a warehouse-floor tool. */
+  {key:"pieces",label:"تتبع القطع (QR)",icon:"🔍",color:"#0EA5E9",bg:"#E0F2FE",svg:<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><rect x="7" y="7" width="2.5" height="2.5"/><rect x="12.5" y="7" width="2.5" height="2.5"/><rect x="7" y="12.5" width="2.5" height="2.5"/></>},
   {key:"treasury",label:"الخزنة",icon:"💵",color:"#0D9488",bg:"#CCFBF1",svg:<><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01 M18 12h.01"/></>},
   {key:"hr",label:"مرتبات + موظفين",icon:"🧑‍💼",color:"#7C3AED",bg:"#EDE9FE",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
   /* V19.19: Bulk messaging campaigns */

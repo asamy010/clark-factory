@@ -128,6 +128,12 @@ const FixedAssetsPg = lazyNamed(() => import("./pages/FixedAssetsPg.jsx"), "Fixe
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
+/* V19.81.0: Pieces lookup — scan a tracked QR → see lifecycle (sold/returned/re-sold) */
+const PiecesPg = lazyNamed(() => import("./pages/PiecesPg.jsx"), "PiecesPg");
+/* V19.81.0: per-piece QR tracking — generates unique pieceIds at print-time
+   and writes Firestore docs that subsequent scans (delivery, return, lookup)
+   can resolve back to a customer. */
+import { genPieceId, buildTrackedQr, createPiecesBulk } from "./utils/pieces.js";
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
    Rendered BEFORE auth check so it works without login. */
@@ -4758,6 +4764,11 @@ export default function App(){
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
                   <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
                 </div>
+                {/* V19.81.0: Pieces lookup quick action */}
+                {canViewTab("pieces")&&<div onClick={()=>goTo("pieces")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E915"} onMouseLeave={e=>e.currentTarget.style.background="#0EA5E908"}>
+                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><rect x="7" y="7" width="2.5" height="2.5"/><rect x="12.5" y="7" width="2.5" height="2.5"/><rect x="7" y="12.5" width="2.5" height="2.5"/></svg>
+                  <span style={{fontSize:FS-1,fontWeight:700,color:"#0EA5E9"}}>🔍 تتبع القطع</span>
+                </div>}
                 {/* V19.68: Automation quick action — gated by canViewTab */}
                 {canViewTab("automation")&&<div onClick={()=>goTo("automation")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E915"} onMouseLeave={e=>e.currentTarget.style.background="#0EA5E908"}>
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
@@ -5028,6 +5039,8 @@ export default function App(){
         {/* V19.48: Debit notes (purchase returns) */}
         {tab==="debitNotes"&&canViewTab("debitNotes")&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
+        {/* V19.81.0: Pieces lookup — scan QR → see lifecycle */}
+        {tab==="pieces"&&canViewTab("pieces")&&<PiecesPg data={data} isMob={isMob} T={T} FS={FS} user={user}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {/* V19.48: Bulk messaging campaigns */}
@@ -5486,6 +5499,13 @@ export default function App(){
          output. The QR data itself doesn't change — the warehouse QR scanner
          keeps working as normal. */
       const secondGrade=!!barcodePopup._secondGrade;
+      /* V19.81.0: per-piece tracking toggle. When ON, each printed label gets
+         a UNIQUE pieceId in its QR (CLARK:P:<id>) and a Firestore doc is
+         created so future scans can resolve the piece's customer + history.
+         Default ON — going forward we want every piece traceable. The legacy
+         CLARK:<orderId>:<qty> format is still emitted when toggle is OFF, so
+         existing warehouse workflows that rely on it keep working. */
+      const trackPieces = barcodePopup._trackPieces !== false;
       const qrMMEffective=secondGrade?Math.round(qrMM*0.8):qrMM;
       /* V19.70.26: QC-2 box larger and more legible. Was ≈18% of QR (too small to read
          on a typical 30-40mm QR), now ≈26% giving more headroom for the bigger text.
@@ -5517,6 +5537,67 @@ export default function App(){
         if(fl.series?.show!==false&&seriesStr)h+="<div style='font-weight:700;font-size:"+((fl.series?.size||12)/2.5)+"mm;line-height:1'>"+seriesStr+"</div>";
         if(fl.price?.show&&selOrder?.sellPrice)h+="<div style='font-size:"+((fl.price?.size||10)/2.5)+"mm;line-height:1'>"+selOrder.sellPrice+" ج.م</div>";
         return h+"</div>"};
+      /* V19.81.0: helper that builds N labels, generates a unique pieceId for
+         each (when tracking is on), writes the piece docs to Firestore in a
+         single batch, then returns the label HTML strings ready for doPrint.
+         Each `spec` entry describes ONE physical label (one row, one piece).
+
+         Spec shape:
+           { count, type, modelNo, modelDesc, size, seriesQty,
+             sizeStr, seriesStr, legacyQrText }
+         Where legacyQrText is the un-tracked QR string used when the toggle
+         is off (preserves backward compat with existing warehouse scanners). */
+      const buildLabelsAndTrack = async (specs) => {
+        const labels = [];
+        const pieceSpecs = [];
+        const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+        for (const sp of specs) {
+          for (let i = 0; i < (sp.count || 0); i++) {
+            let qrText;
+            if (trackPieces) {
+              const pieceId = genPieceId();
+              pieceSpecs.push({
+                pieceId,
+                type: sp.type || "piece",
+                modelNo: sp.modelNo || "",
+                modelDesc: sp.modelDesc || "",
+                size: sp.size || null,
+                seriesQty: sp.seriesQty || null,
+                orderId: selOrder?.id || null,
+                isSecondGrade: !!secondGrade,
+                by: userName,
+              });
+              qrText = buildTrackedQr(pieceId);
+            } else {
+              qrText = sp.legacyQrText;
+            }
+            labels.push(buildLabel(qrText, sp.modelNo, sp.modelDesc || "", sp.sizeStr || "", sp.seriesStr || ""));
+          }
+        }
+        if (trackPieces && pieceSpecs.length > 0) {
+          if (typeof setSavingOverlay === "function") {
+            setSavingOverlay({ message: "جاري تسجيل " + pieceSpecs.length + " قطعة في النظام...", progress: 30 });
+          }
+          try {
+            await createPiecesBulk(pieceSpecs, {
+              onProgress: (done, total) => {
+                if (typeof setSavingOverlay === "function") {
+                  const pct = 30 + Math.round((done / Math.max(1, total)) * 60);
+                  setSavingOverlay({ message: "تسجيل القطع... " + done + "/" + total, progress: pct });
+                }
+              },
+            });
+          } catch (e) {
+            if (typeof setSavingOverlay === "function") setSavingOverlay(null);
+            throw new Error("فشل تسجيل القطع — " + (e?.message || e));
+          }
+          if (typeof setSavingOverlay === "function") {
+            setSavingOverlay({ message: "✅ تم — جاري الطباعة...", progress: 100 });
+            setTimeout(() => setSavingOverlay(null), 600);
+          }
+        }
+        return labels;
+      };
       const doPrint=(labels)=>{if(labels.length===0)return;
         const qrOpts=JSON.stringify({width:400,margin:ps.qrMargin??1,errorCorrectionLevel:ps.qrLevel||"M",color:{dark:ps.qrColor||"#000000",light:"#ffffff"}});
         const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
@@ -5561,6 +5642,34 @@ export default function App(){
               </div>
             </div>
           </label>
+          {/* V19.81.0: per-piece tracking toggle. Default ON — going forward
+              every printed label gets a unique pieceId in its QR + a Firestore
+              doc, so the lookup page (تتبع القطع) can show its lifecycle.
+              Turn OFF only for legacy compatibility (e.g. internal scans that
+              expect the old CLARK:orderId:qty format). */}
+          <label style={{
+            display:"flex",alignItems:"center",gap:10,marginBottom:12,
+            padding:"8px 12px",borderRadius:10,
+            background:trackPieces?"#0EA5E915":T.bg+"60",
+            border:"1px solid "+(trackPieces?"#0EA5E960":T.brd),
+            cursor:"pointer",transition:"all 0.2s",
+          }}>
+            <input
+              type="checkbox"
+              checked={trackPieces}
+              onChange={e=>setBarcodePopup(p=>({...p,_trackPieces:e.target.checked}))}
+              style={{width:20,height:20,cursor:"pointer",accentColor:"#0EA5E9",flexShrink:0}}
+            />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:T.text,lineHeight:1.2}}>
+                🔍 تتبع كل قطعة (موصى به)
+              </div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,lineHeight:1.3}}>
+                كل ليبل بيتطبع بـ <span style={{fontFamily:"monospace",fontWeight:800}}>QR فريد</span> ويتسجل في النظام —
+                تقدر بعدها تـ scan أي قطعة وتعرف لمين راحت ودورة حياتها كاملة.
+              </div>
+            </div>
+          </label>
           <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
             <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>
@@ -5580,13 +5689,19 @@ export default function App(){
                   {sizes.map(sz=><option key={sz} value={sz}>{sz}</option>)}
                 </select>
               </div>}
-              <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}
+              <Btn onClick={async ()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}
                 const qty=barcodePopup._pieceQty||1;
-                const qrText="CLARK:"+selOrder.id+":1";/* ← KEY: always ":1" for single piece */
                 const sz=barcodePopup._pieceSize||"";
-                const labels=[];
-                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sz?"مقاس: "+sz:"","🔹 قطعة"));
-                doPrint(labels);
+                try {
+                  const labels = await buildLabelsAndTrack([{
+                    count: qty, type: "piece",
+                    modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                    size: sz || null, seriesQty: 1,
+                    sizeStr: sz ? "مقاس: " + sz : "", seriesStr: "🔹 قطعة",
+                    legacyQrText: "CLARK:" + selOrder.id + ":1",
+                  }]);
+                  doPrint(labels);
+                } catch (e) { showToast("⛔ " + (e?.message || e)); }
               }} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._pieceQty||1)+" ليبل قطعة"}</Btn>
             </div>
             :<div style={{padding:20,textAlign:"center",color:T.textMut}}>اختر موديل أولاً</div>}
@@ -5600,15 +5715,37 @@ export default function App(){
                     <td style={{...TD,textAlign:"center",padding:2}}><input type="number" value={val||""} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);setBarcodePopup(p=>({...p,_manualSizes:{...(p._manualSizes||{}),[sz]:v}}))}} style={{width:70,textAlign:"center",border:"2px solid "+T.accent,borderRadius:6,padding:"4px",fontSize:FS+1,fontWeight:700,fontFamily:"inherit",background:T.bg,color:T.text}} placeholder="0"/></td></tr>})}
                   <tr style={{background:"#F59E0B10"}}><td style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TD,textAlign:"center",fontWeight:800,color:"#F59E0B"}}>{sizes.reduce((s,sz)=>s+((barcodePopup._manualSizes||{})[sz]||0),0)+" ليبل"}</td></tr>
                 </tbody></table>
-                <Btn onClick={()=>{const ms=barcodePopup._manualSizes||{};const labels=[];
-                  sizes.forEach(sz=>{const count=ms[sz]||0;for(let i=0;i<count;i++){const qrText="CLARK:"+selOrder.id+":"+rs;labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))}});
-                  if(labels.length===0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+sizes.reduce((s,sz)=>s+((barcodePopup._manualSizes||{})[sz]||0),0)+" ليبل"}</Btn>
+                <Btn onClick={async ()=>{const ms=barcodePopup._manualSizes||{};
+                  const total = sizes.reduce((s,sz)=>s+(ms[sz]||0), 0);
+                  if(total===0){showToast("⚠️ ادخل كمية واحدة على الأقل");return}
+                  try {
+                    const specs = sizes.map(sz => ({
+                      count: ms[sz] || 0, type: "piece",
+                      modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                      size: sz, seriesQty: rs,
+                      sizeStr: "مقاس: " + sz, seriesStr: "سيري: " + rs,
+                      legacyQrText: "CLARK:" + selOrder.id + ":" + rs,
+                    }));
+                    const labels = await buildLabelsAndTrack(specs);
+                    doPrint(labels);
+                  } catch (e) { showToast("⛔ " + (e?.message || e)); }
+                }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+sizes.reduce((s,sz)=>s+((barcodePopup._manualSizes||{})[sz]||0),0)+" ليبل"}</Btn>
               </div>
               :<div>
                 <div style={{marginBottom:10}}><label style={{fontSize:FS-2,color:T.textSec}}>{"عدد الليبلات (كل ليبل = "+rs+" قطع)"}</label><Inp type="number" value={barcodePopup._qty||1} onChange={v=>setBarcodePopup(p=>({...p,_qty:Math.max(1,Number(v)||1)}))}/></div>
-                <Btn onClick={()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}const qty=barcodePopup._qty||1;const qrText="CLARK:"+selOrder.id+":"+rs;const labels=[];
-                  for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs));
-                  doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
+                <Btn onClick={async ()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}
+                  const qty=barcodePopup._qty||1;
+                  try {
+                    const labels = await buildLabelsAndTrack([{
+                      count: qty, type: "piece",
+                      modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                      size: null, seriesQty: rs,
+                      sizeStr: "", seriesStr: "سيري: " + rs,
+                      legacyQrText: "CLARK:" + selOrder.id + ":" + rs,
+                    }]);
+                    doPrint(labels);
+                  } catch (e) { showToast("⛔ " + (e?.message || e)); }
+                }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._qty||1)+" ليبل"}</Btn>
               </div>}
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
@@ -5620,10 +5757,20 @@ export default function App(){
                 <div style={{fontSize:FS-1,color:T.textMut,marginTop:4}}>{"كل ليبل = "+(sizes.length>0?sizes.length*rs:rs)+" قطعة"}</div>
               </div>
               <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد السيريهات</label><input type="number" value={barcodePopup._seriesQty!=null?barcodePopup._seriesQty:labelsPerSize||1} onChange={e=>setBarcodePopup(p=>({...p,_seriesQty:Math.max(1,Number(e.target.value)||1)}))} style={{display:"block",margin:"8px auto",width:120,textAlign:"center",fontSize:24,fontWeight:800,border:"3px solid #F59E0B",borderRadius:10,padding:"8px",fontFamily:"Cairo",background:T.bg,color:T.text}}/></div>
-              <Btn onClick={()=>{const qty=barcodePopup._seriesQty!=null?barcodePopup._seriesQty:labelsPerSize||1;const fullQty=sizes.length>0?sizes.length*rs:rs;const qrText="CLARK:"+selOrder.id+":"+fullQty;const labels=[];
+              <Btn onClick={async ()=>{const qty=barcodePopup._seriesQty!=null?barcodePopup._seriesQty:labelsPerSize||1;
+                const fullQty=sizes.length>0?sizes.length*rs:rs;
                 const sizeText=sizes.length>0?"مقاسات: "+sizes.join("-"):"";
-                for(let i=0;i<qty;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"",sizeText,"سيري: "+fullQty));
-                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._seriesQty!=null?barcodePopup._seriesQty:labelsPerSize||1)+" ليبل سيري"}</Btn>
+                try {
+                  const labels = await buildLabelsAndTrack([{
+                    count: qty, type: "series",
+                    modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                    size: null, seriesQty: fullQty,
+                    sizeStr: sizeText, seriesStr: "سيري: " + fullQty,
+                    legacyQrText: "CLARK:" + selOrder.id + ":" + fullQty,
+                  }]);
+                  doPrint(labels);
+                } catch (e) { showToast("⛔ " + (e?.message || e)); }
+              }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+(barcodePopup._seriesQty!=null?barcodePopup._seriesQty:labelsPerSize||1)+" ليبل سيري"}</Btn>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
           {mode==="auto"&&<div>
@@ -5636,10 +5783,30 @@ export default function App(){
                 :<div style={{textAlign:"center",color:T.textMut,padding:10}}>{"سيتم طباعة "+totalLabels+" ليبل (كل ليبل = سيري "+rs+" قطع)"}</div>}
                 <div style={{textAlign:"center",fontSize:FS-2,color:T.textMut,marginTop:6}}>{"كل ليبل = سيري واحد ("+rs+" قطع) — المقاس للفرز فقط"}</div>
               </div>
-              <Btn onClick={()=>{const labels=[];const qrText="CLARK:"+selOrder.id+":"+rs;
-                if(sizes.length>0){sizes.forEach(sz=>{for(let i=0;i<labelsPerSize;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","مقاس: "+sz,"سيري: "+rs))})}
-                else{for(let i=0;i<totalLabels;i++)labels.push(buildLabel(qrText,selOrder.modelNo,selOrder.modelDesc||"","","سيري: "+rs))}
-                doPrint(labels)}} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+totalLabels+" ليبل ("+totalLabels*rs+" قطعة)"}</Btn>
+              <Btn onClick={async ()=>{
+                try {
+                  let specs;
+                  if (sizes.length > 0) {
+                    specs = sizes.map(sz => ({
+                      count: labelsPerSize, type: "piece",
+                      modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                      size: sz, seriesQty: rs,
+                      sizeStr: "مقاس: " + sz, seriesStr: "سيري: " + rs,
+                      legacyQrText: "CLARK:" + selOrder.id + ":" + rs,
+                    }));
+                  } else {
+                    specs = [{
+                      count: totalLabels, type: "piece",
+                      modelNo: selOrder.modelNo, modelDesc: selOrder.modelDesc || "",
+                      size: null, seriesQty: rs,
+                      sizeStr: "", seriesStr: "سيري: " + rs,
+                      legacyQrText: "CLARK:" + selOrder.id + ":" + rs,
+                    }];
+                  }
+                  const labels = await buildLabelsAndTrack(specs);
+                  doPrint(labels);
+                } catch (e) { showToast("⛔ " + (e?.message || e)); }
+              }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+totalLabels+" ليبل ("+totalLabels*rs+" قطعة)"}</Btn>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
         </div>

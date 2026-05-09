@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.81.0",
+    date: "2026-05-09",
+    types: ["feature","architectural"],
+    title: "🔍 تتبع كل قطعة بـ QR فريد (Phase 1: lookup + lifecycle)",
+    changes: [
+      { type: "feature", text: "🆔 [QR per piece — كل ليبل بقى فريد] طباعة QR كانت بـ تـ emit نفس الـ QR text لكل ليبل (`CLARK:orderId:qty`) → مش ممكن يميز قطعة عن التانية. دلوقتي كل ليبل بـ يتولّد له `pieceId` فريد عشوائي ويتسجل له doc في `pieces` collection. الـ QR الجديد بـ format `CLARK:P:p_xxxxxx`. الـ legacy format لسه بـ يشتغل لو حد عايز يـ disable التتبع (toggle في الـ popup)." },
+      { type: "feature", text: "🔍 [صفحة جديدة \"تتبع القطع (QR)\"] زرار في الهوم بجوار طباعة QR. الصفحة فيها:\n• 📷 كاميرا scanner (html5-qrcode) — افتحها وامسح أي QR\n• ✍️ Manual paste/type input للـ QR ID\n• 🛠 Manual fallback: اختر موديل → يطلع آخر 50 قطعة منه (للـ stickers اللي اتمسحت/وقعت)\n• 📜 Timeline كامل لكل قطعة: اتنتجت → اتباعت لـ X → رجعت → اتباعت لـ Y → ...\n• الحالة الحالية مع badge ملوّن (في المخزن / مع عميل اسمه / تالف)" },
+      { type: "architectural", text: "🏗 [Data model — pieces collection]\n```\npieces/{pieceId} {\n  id, qrCode, type:\"piece\"|\"series\",\n  modelNo, modelDesc, size, seriesQty,\n  orderId, productionDate, isSecondGrade,\n  status:\"in_warehouse\"|\"with_customer\"|\"scrapped\",\n  currentCustomerId, currentCustomerName, currentDeliveryId,\n  history:[{action:\"produced\"|\"sold\"|\"returned\"|\"released\", date, by, ...}]\n}\n```\nالـ history append-only، الـ status mutates. الـ writes بتستخدم Firestore writeBatch (500 ops per round-trip) فطباعة 200 قطعة بتكتب في batch واحد ~700ms بدلاً من 200 round-trips." },
+      { type: "feature", text: "🎚 [Toggle \"تتبع كل قطعة\" في popup الطباعة] افتراضياً ON. لما تطبع 100 ليبل بـ tracking، الـ progress overlay بـ يقولك \"جاري تسجيل 50/100\" إلى آخره. لو شيلت الـ toggle، الـ format بـ يرجع legacy والـ DB ما بـ تتلمسش (للـ backward compat مع scanners قديمة)." },
+      { type: "feature", text: "📷 [QrScanner component جديد] wrapper حول `html5-qrcode` بـ:\n• Lazy-import (الـ 100KB library مش بـ يدخل في الـ main bundle)\n• Dedup للـ scans المتكررة في 1.5s (الكاميرا لما تـ hold على QR ما تـ fire-ش 5 مرات)\n• Camera permission errors بـ تتـ surface للـ user بـ toast واضح\n• `facingMode:environment` للـ rear camera على الموبايل" },
+      { type: "doc", text: "📅 [Phase 2 — قادم] Scan-on-deliver (التوزيعة بـ camera) + Scan-on-return (إرجاع مجهول → كشف العميل تلقائي) + Double-scan prevention + Cancel-release. Phase 3 — Analytics (return rate per customer/model)." },
+    ]
+  },
+  {
     version: "V19.80.23",
     date: "2026-05-09",
     types: ["fix"],
