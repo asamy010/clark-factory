@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.90.0",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🧹 شيل أزرار الاسترداد الـ post-incident من سجل الدفعات",
+    changes: [
+      { type: "fix", text: "🗑 [User: \"البيانات صحيحة، الازرار دي مالهاش لازمة\"] الـ 3 أزرار اللي اتعملوا للـ W19 incident اتشالوا من سجل الدفعات بعد ما الـ user أكد إن البيانات صحيحة دلوقتي وكانت بـ تـ produce false positives من stale snapshots:\n• 🚑 استرداد حركات الخزنة المفقودة (V19.80.17)\n• 🛠 إصلاح تواريخ الاسترداد (V19.80.18)\n• 🔄 استرداد التحويلات المفقودة (V19.80.20)\nالكود نفسه (handlers + state + modals) لسه في الفايل كـ dead code — easy to bring back from git history لو حصل incident تاني. الـ buttons UI بس اللي اتشالوا." },
+      { type: "fix", text: "✅ [اللي اتساب — فيها قيمة دائمة]\n• 🔄 مزامنة الدفعات اليتيمة — يربط treasury entries بـ custPayments/supplierPayments\n• 🧹 تنظيف الدفعات الميتة — يشيل cust/supplierPayments بدون matching treasury\n• 📚 ترحيل القيود للمحاسبة — backfill journal entries\nالـ 3 دول مفيدين بشكل متكرر (data hygiene tools)، مش one-time post-incident." },
+    ]
+  },
+  {
     version: "V19.89.0",
     date: "2026-05-09",
     types: ["feature","fix"],

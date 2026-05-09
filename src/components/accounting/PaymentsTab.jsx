@@ -1111,29 +1111,21 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         <Btn small onClick={previewDeadCleanup} disabled={cleaning} style={{background:"#EF444415", color:"#EF4444", border:"1px solid #EF444440", fontWeight:700, whiteSpace:"nowrap"}}>
           {cleaning ? "⏳ جاري التنظيف..." : "🧹 تنظيف الدفعات الميتة"}
         </Btn>
-        {/* V19.80.17: recover treasury entries that were lost to the V19.80.16 bug.
-            Walks every closed week's snapshots (closedRecords/weeklyAdvances/
-            weeklyWsPayments/weeklyOtherExpenses) and recreates any treasury entry
-            referenced there but missing from config.treasury. */}
-        <Btn small onClick={previewMissingCloseWeekEntries} disabled={recovering} style={{background:"#F59E0B15", color:"#F59E0B", border:"1px solid #F59E0B40", fontWeight:700, whiteSpace:"nowrap"}}>
-          {recovering ? "⏳ جاري الاسترداد..." : "🚑 استرداد حركات الخزنة المفقودة"}
-        </Btn>
-        {/* V19.80.18: one-shot fix for entries that V19.80.17 recovered with the
-            wrong date (used createdAt fallback instead of week.closedAt for
-            ws_payments where p.autoDate=true and p.date was empty). */}
-        <Btn small onClick={previewDateRepair} disabled={repairing} style={{background:"#8B5CF615", color:"#8B5CF6", border:"1px solid #8B5CF640", fontWeight:700, whiteSpace:"nowrap"}}>
-          {repairing ? "⏳ جاري التصحيح..." : "🛠 إصلاح تواريخ الاسترداد"}
-        </Btn>
         {/* V19.80.19: standalone backfill — posts every missing journal entry
             (idempotent). Required after V19.80.17 recovery to keep TB/BS/IS
             consistent with treasury. */}
         <Btn small onClick={runBackfill} disabled={posting} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700, whiteSpace:"nowrap"}}>
           {posting ? "⏳ جاري الترحيل..." : "📚 ترحيل القيود للمحاسبة"}
         </Btn>
-        {/* V19.80.20: scan transfers for missing legs / orphan legs and repair */}
-        <Btn small onClick={previewMissingTransferLegs} disabled={transferRecovering} style={{background:"#06B6D415", color:"#06B6D4", border:"1px solid #06B6D440", fontWeight:700, whiteSpace:"nowrap"}}>
-          {transferRecovering ? "⏳ جاري فحص التحويلات..." : "🔄 استرداد التحويلات المفقودة"}
-        </Btn>
+        {/* V19.90.0: removed 3 post-incident recovery buttons — the W19 incident
+            is resolved and these were producing false positives by walking stale
+            snapshot references. Buttons retired:
+            • 🚑 استرداد حركات الخزنة المفقودة (V19.80.17)
+            • 🛠 إصلاح تواريخ الاسترداد (V19.80.18)
+            • 🔄 استرداد التحويلات المفقودة (V19.80.20)
+            The underlying handlers (previewMissingCloseWeekEntries, etc.) are
+            kept in this file as dead code — easy to re-enable from git history
+            if a similar incident ever recurs. */}
       </div>
     </div>
     {/* V19.80.19: backfill result banner */}
