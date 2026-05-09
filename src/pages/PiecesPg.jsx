@@ -19,6 +19,11 @@ import { QrScanner } from "../components/QrScanner.jsx";
 import { parseQr, lookupQr, searchByModel, getPiece, markSold, markReturned, markReturnedBulk, getCurrentPiecesForCustomer, getAggregatedStats } from "../utils/pieces.js";
 import { fmt } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
+/* V19.86.0 — Phase 6 deep integration: scan-to-sell now writes real
+   customerDeliveries + custDeliverySessions and triggers autoPost so the
+   sale shows in the customer KASF, the trial balance, and the seasonal
+   reports. Without this hook the scan workflow was a parallel ledger. */
+import { autoPost } from "../utils/accounting/autoPost.js";
 
 const Pill = ({ color, bg, children, style }) => (
   <span style={{
@@ -60,7 +65,7 @@ const TABS = [
   { key: "analytics", label: "📊 إحصائيات",     color: "#EC4899" },
 ];
 
-export function PiecesPg({ data, isMob, T, FS, user }) {
+export function PiecesPg({ data, isMob, T, FS, user, upConfig, upSales, updOrder }) {
   const _T = T || { text: "#1E293B", textSec: "#64748B", textMut: "#94A3B8", brd: "#E2E8F0", bg: "#F8FAFC", cardSolid: "#FFF", accent: "#0EA5E9", inputBg: "#FFF" };
   const _FS = FS || 14;
   const [tab, setTab] = useState("lookup");
@@ -84,7 +89,7 @@ export function PiecesPg({ data, isMob, T, FS, user }) {
     </div>
 
     {tab === "lookup"    && <LookupTab    data={data} T={_T} FS={_FS} />}
-    {tab === "sell"      && <SellTab      data={data} T={_T} FS={_FS} user={user} />}
+    {tab === "sell"      && <SellTab      data={data} T={_T} FS={_FS} user={user} upSales={upSales} updOrder={updOrder} />}
     {tab === "return"    && <ReturnTab    data={data} T={_T} FS={_FS} user={user} />}
     {tab === "customer"  && <CustomerTab  data={data} T={_T} FS={_FS} />}
     {tab === "analytics" && <AnalyticsTab data={data} T={_T} FS={_FS} />}
@@ -187,8 +192,9 @@ function LookupTab({ data, T, FS }) {
 /* ═══════════════════════════════════════════════════════════════
    TAB 2 — Sell (V19.82.0): scan pieces → assign to customer
    ═══════════════════════════════════════════════════════════════ */
-function SellTab({ data, T, FS, user }) {
+function SellTab({ data, T, FS, user, upSales, updOrder }) {
   const customers = (data && data.customers) || [];
+  const orders = (data && data.orders) || [];
   const [custId, setCustId] = useState("");
   const [scanActive, setScanActive] = useState(false);
   /* Scanned pieces collected in this session — pure local state, NO Firestore
@@ -253,29 +259,128 @@ function SellTab({ data, T, FS, user }) {
   async function confirmSale() {
     if (!custId) { showToast("⚠️ اختر العميل أولاً"); return; }
     if (scanned.length === 0) { showToast("⚠️ مفيش قطع متعملها scan"); return; }
+    /* V19.86.0 — financial preview before confirming. If at least one order
+       has a sellPrice, show the user the impact on KASF before they commit. */
+    const previewByOrder = {};
+    scanned.forEach(s => {
+      const oid = s.piece.orderId; if (!oid) return;
+      const containedQty = (s.piece.type === "series" && Array.isArray(s.piece.containedPieceIds))
+        ? s.piece.containedPieceIds.length : 1;
+      if (!previewByOrder[oid]) previewByOrder[oid] = { qty: 0 };
+      previewByOrder[oid].qty += containedQty;
+    });
+    let totalQty = 0, totalValue = 0;
+    Object.entries(previewByOrder).forEach(([oid, info]) => {
+      const o = orders.find(x => x.id === oid);
+      const p = Number(o?.sellPrice) || 0;
+      totalQty += info.qty;
+      totalValue += info.qty * p;
+    });
+    const integrationOn = !!(upSales && updOrder);
     const proceed = await ask(
       "تأكيد التسليم",
-      "هتسلم " + scanned.length + " قطعة لـ " + custName + ". الإجراء ده هـ يربط القطع بالعميل في النظام."
+      "هتسلم " + totalQty + " قطعة لـ " + custName +
+      (totalValue > 0 ? " بقيمة ~" + fmt(totalValue) + " ج.م" : "") +
+      (integrationOn ? ".\n✅ هـ يتم تسجيل البيع في كشف العميل + المحاسبة." : ".\n⚠️ التسجيل في الـ pieces فقط (مش هـ يأثر على KASF).")
     );
     if (!proceed) return;
     setConfirming(true);
     const deliveryId = "scan_del_" + Date.now().toString(36);
     const sessionId = "scan_sess_" + Date.now().toString(36);
     const by = user?.email || user?.displayName || "";
+
+    /* Step 1: mark each piece sold (cascades for series). */
     let okCount = 0, failCount = 0;
     const failures = [];
+    const succeeded = [];
     for (const s of scanned) {
       try {
         const r = await markSold(s.piece.id, { customerId: custId, customerName: custName, deliveryId, sessionId, by });
-        if (r.ok) okCount++;
+        if (r.ok) { okCount++; succeeded.push(s); }
         else { failCount++; failures.push({ piece: s.piece, error: r.error }); }
       } catch (e) {
         failCount++; failures.push({ piece: s.piece, error: e?.message || String(e) });
       }
     }
+
+    /* Step 2 (V19.86.0) — KASF + accounting integration. Only runs for the
+       pieces that succeeded in step 1. If upSales/updOrder weren't provided
+       (e.g. legacy renderer), this is a no-op and pieces are still tracked. */
+    if (succeeded.length > 0 && upSales && updOrder) {
+      const today = new Date().toISOString().slice(0, 10);
+      /* Group successful pieces by orderId so each order gets a single
+         customerDelivery entry summarizing the qty shipped from that model. */
+      const byOrder = {};
+      succeeded.forEach(s => {
+        const oid = s.piece.orderId; if (!oid) return;
+        const containedQty = (s.piece.type === "series" && Array.isArray(s.piece.containedPieceIds))
+          ? s.piece.containedPieceIds.length : 1;
+        if (!byOrder[oid]) byOrder[oid] = { qty: 0, pieceIds: [] };
+        byOrder[oid].qty += containedQty;
+        byOrder[oid].pieceIds.push(s.piece.id);
+      });
+      const orderIds = Object.keys(byOrder);
+      if (orderIds.length > 0) {
+        try {
+          /* Create the session in the sales doc */
+          const grid = {};
+          orderIds.forEach(oid => { grid[oid + "_" + custId] = byOrder[oid].qty; });
+          upSales(d => {
+            if (!d.custDeliverySessions) d.custDeliverySessions = [];
+            d.custDeliverySessions.push({
+              id: sessionId,
+              date: today,
+              modelIds: orderIds,
+              custIds: [custId],
+              grid,
+              createdBy: by,
+              createdAt: new Date().toISOString(),
+              status: "تم التسليم",
+              saleConfirmed: true,
+              fromScanner: true, /* marker — distinguishable from matrix sessions */
+              scannedPieceIds: succeeded.map(s => s.piece.id),
+            });
+          });
+          /* Push customerDeliveries + autoPost per order */
+          const cust = customers.find(c => c.id === custId);
+          for (const oid of orderIds) {
+            const order = orders.find(o => o.id === oid);
+            if (!order) continue;
+            const sellPrice = Number(order.sellPrice) || 0;
+            const entry = {
+              id: "del_" + Date.now().toString(36) + "_" + oid.slice(-4),
+              custId, custName,
+              qty: byOrder[oid].qty,
+              date: today,
+              sessionId,
+              createdBy: by,
+              createdAt: new Date().toISOString(),
+              fromScanner: true,
+              scannedPieceIds: byOrder[oid].pieceIds,
+            };
+            if (sellPrice > 0) entry.price = sellPrice;
+            entry._key = oid + ":saleDelivery:" + sessionId + ":" + custId + ":" + today + ":" + Date.now();
+            try { await updOrder(oid, o => {
+              if (!o.customerDeliveries) o.customerDeliveries = [];
+              o.customerDeliveries.push(entry);
+            }); } catch (e) { console.warn("[scan-to-sell] updOrder failed:", oid, e?.message); }
+            /* Fire-and-forget autoPost — failures are recorded in
+               accountingPostFailures, not surfaced here. */
+            if (sellPrice > 0 && cust) {
+              autoPost.sale(data, entry, cust, order, by).catch(()=>{});
+              autoPost.saleCogs(data, entry, order, by).catch(()=>{});
+            }
+          }
+        } catch (e) {
+          console.error("[scan-to-sell] integration write failed:", e);
+          showToast("⚠️ القطع اتسجلت لكن فشل تسجيل البيع في KASF: " + (e?.message || e));
+        }
+      }
+    }
+
     setConfirming(false);
     if (failCount === 0) {
-      showToast("✓ تم تسليم " + okCount + " قطعة لـ " + custName);
+      showToast("✓ تم تسليم " + okCount + " قطعة لـ " + custName + (integrationOn ? " (مع KASF)" : ""));
       setScanned([]); setCustId("");
     } else {
       showToast("⚠️ " + okCount + " ناجح، " + failCount + " فشل — راجع القائمة");

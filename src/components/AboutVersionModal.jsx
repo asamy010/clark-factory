@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.86.0",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "🔗 Scan-to-Sell بقى يأثر على KASF + المحاسبة (Phase 6)",
+    changes: [
+      { type: "feature", text: "🎯 [Deep CustDeliver integration] قبل V19.86 الـ scan-to-sell كان parallel ledger — يربط القطع بالعميل في `pieces` collection بس، لكن كشف العميل (KASF) والمحاسبة (Trial Balance / Income Statement) ما كانش يعرفوا حاجة. دلوقتي الـ scan-to-sell يكتب في 3 collections دفعة واحدة:\n• `pieces` — markSold cascade (زي قبل كده)\n• `salesDoc.custDeliverySessions` — session جديد بـ `fromScanner: true` وكل القطع المتـ scanned\n• `orders[oid].customerDeliveries` — entry per orderId مع qty + price + sessionId\nالنتيجة: المبيعات اللي اتعملت بالـ scanner دلوقتي بتظهر في كشف العميل، الـ trial balance، التقارير الموسمية، كل حاجة." },
+      { type: "feature", text: "💰 [Financial preview قبل التأكيد] الـ confirm dialog بـ يطلع حساب فعلي:\n\"هتسلم 10 قطعة لـ احمد سامي بقيمة ~3,750 ج.م.\n✅ هـ يتم تسجيل البيع في كشف العميل + المحاسبة.\"\nالـ value بـ يحسب من orders[].sellPrice لكل moديل. السيريهات بتستخدم containedPieceIds.length × sellPrice. لو الـ price مش مخزّن، الـ pieces تتسجل بدون قيمة (free sale)." },
+      { type: "feature", text: "📜 [autoPost integration] لكل customerDelivery اتعمل، autoPost.sale + autoPost.saleCogs بـ يـ fire (مع cust + order). أي failure يـ record في accountingPostFailures (مكان مش بـ يـ surface للـ user — لو احتاج debug). الـ sale entry في الـ journal بقى متطابق مع المسار الموجود في CustDeliverPg matrix flow." },
+      { type: "feature", text: "🏷 [Marker `fromScanner: true`] كل session + delivery اتعمل بالـ scanner بـ يـ flag بـ `fromScanner: true` + `scannedPieceIds: [...]`. ده يخلي:\n• الـ بيع قابل للتمييز في الـ reports عن الـ matrix sessions\n• ممكن مستقبلاً نضيف filter في CustDeliverPg \"اعرض scanner sessions فقط\"\n• الـ scanned pieces متاحة للـ traceability لو حصل return لاحقاً" },
+      { type: "fix", text: "🛡 [Safety] الـ integration بـ يحصل بعد ما markSold ينجح — لو markSold فشل لقطعة، ما بـ تتـ register في الـ KASF. الـ session بـ يتعمل مرة واحدة بس لو في على الأقل قطعة نجحت وعندها orderId. لو الـ upSales/updOrder مش متاحين (renderer قديم)، الـ flow بـ يـ degrade gracefully للـ pieces-only tracking مع toast warning واضح." },
+    ]
+  },
+  {
     version: "V19.85.0",
     date: "2026-05-09",
     types: ["feature","fix"],

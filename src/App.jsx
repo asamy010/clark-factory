@@ -5041,8 +5041,10 @@ export default function App(){
         {/* V19.48: Debit notes (purchase returns) */}
         {tab==="debitNotes"&&canViewTab("debitNotes")&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={user}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
-        {/* V19.81.0: Pieces lookup — scan QR → see lifecycle */}
-        {tab==="pieces"&&canViewTab("pieces")&&<PiecesPg data={data} isMob={isMob} T={T} FS={FS} user={user}/>}
+        {/* V19.81.0: Pieces lookup — scan QR → see lifecycle.
+            V19.86.0: also receives upSales + updOrder so SellTab can create
+            real customer deliveries that show up in KASF + accounting. */}
+        {tab==="pieces"&&canViewTab("pieces")&&<PiecesPg data={data} isMob={isMob} T={T} FS={FS} user={user} upConfig={upConfig} upSales={upSales} updOrder={updOrder}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {/* V19.48: Bulk messaging campaigns */}
