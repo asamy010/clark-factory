@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.21",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "📊 progress bar للترحيل + paginate سجل الدفعات (25 + عرض المزيد)",
+    changes: [
+      { type: "feature", text: "📊 [Progress overlay لـ ترحيل القيود] الزر القديم \"📚 ترحيل القيود\" كان بـ يعرض \"⏳ جاري الترحيل...\" بس بدون أي feedback عن التقدم. دلوقتي الـ click بـ يفتح modal-style overlay بـ:\n• Progress bar (linear gradient أخضر/سماوي)\n• \"العملية N من M\" (يتحدث كل 25 عملية من backfillAll's onProgress callback)\n• Percentage value كبير (e.g. 45%)\n• Label من الـ backfill (\"ترحيل العمليات...\" / \"اكتمل\")\n• Backdrop blur + fixed-position overlay يـ block أي تفاعل تاني\n• تحذير \"ما تقفلش الصفحة\" تحت" },
+      { type: "feature", text: "📑 [Paginate-on-demand لـ سجل الدفعات] PaymentsTab كان بـ يـ render كل الـ filtered rows دفعة واحدة (مئات/آلاف). دلوقتي:\n• default: 25 سطر بس\n• footer: \"يعرض 25 من إجمالي M حركة\" + زرّان: \"⬇ عرض المزيد (+25)\" و \"عرض الكل (M)\"\n• الـ visibleCount بـ يـ reset لـ 25 لو غيرت أي فلتر (الاتجاه/القناة/الحالة/التاريخ/البحث) — عشان تشوف رؤوس النتائج الجديدة\n• الـ pattern ده هـ يـ apply على كل سجلات قادمة (memory feedback مسجل)" },
+      { type: "doc", text: "💡 [الترحيل الأول كان طبيعي بـ يطول] الـ backfill بـ يعمل round-trip لـ Firestore لكل عملية. لو عندك سنة بيانات كاملة، 500-2000 entry × ~150ms = 75s-5min. مفيش حد ثابت — بـ يعتمد على عدد الـ sales/payments/hr/treasury في data. مع الـ progress bar الجديد، الـ user يقدر يقرر يستنى أو يرفض." },
+    ]
+  },
+  {
     version: "V19.80.20",
     date: "2026-05-09",
     types: ["feature"],

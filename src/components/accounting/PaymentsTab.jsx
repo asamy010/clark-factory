@@ -23,7 +23,7 @@
    that view.
    ════════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel } from "../ui.jsx";
 import { fmt } from "../../utils/format.js";
 import { matchPartyFromDesc } from "../../utils/orders.js";
@@ -586,15 +586,28 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
   /* V19.80.19: STANDALONE backfill button. Runs the same journal-posting pass
      used by Settings → "ترحيل القيود الأثرية", but accessible from PaymentsTab
      so users can fix accounting drift right after a recovery without hunting
-     through settings. Idempotent — safe to run anytime. */
+     through settings. Idempotent — safe to run anytime.
+
+     V19.80.21: progress overlay + interaction blocker. Pre-V19.80.21 the
+     button just showed "⏳ جاري الترحيل..." and the user had no idea if it
+     was 10 ops left or 1000. Now we wire backfillAll's onProgress callback
+     to a modal-style overlay that shows current/total + label, blocks clicks
+     elsewhere via a fixed-position backdrop, and disappears on completion. */
   const [posting, setPosting] = useState(false);
   const [postingResult, setPostingResult] = useState(null);
+  const [postingProgress, setPostingProgress] = useState(null); /* {current, total, label} */
   const runBackfill = async () => {
     if (posting) return;
     setPosting(true);
     setPostingResult(null);
+    setPostingProgress({ current: 0, total: 0, label: "جاري التحضير..." });
     try {
-      const stats = await backfillAll(config, { createdBy: "MANUAL-BACKFILL-V19.80.19" });
+      const stats = await backfillAll(config, {
+        createdBy: "MANUAL-BACKFILL-V19.80.21",
+        onProgress: (current, total, label) => {
+          setPostingProgress({ current, total, label });
+        },
+      });
       setPostingResult(stats);
       if (stats?.aborted) {
         showToast("⛔ " + (stats.reason || "تعذر الترحيل"));
@@ -602,10 +615,11 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         showToast("✓ تم ترحيل " + (stats?.posted || 0) + " قيد، وتخطي " + (stats?.skipped || 0));
       }
     } catch (e) {
-      console.error("[V19.80.19 manual backfill] failed:", e);
+      console.error("[V19.80.21 manual backfill] failed:", e);
       showToast("⛔ فشل الترحيل — راجع الـconsole");
     } finally {
       setPosting(false);
+      setPostingProgress(null);
     }
   };
 
@@ -1026,6 +1040,12 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
     return out;
   }, [config.custPayments, config.supplierPayments, config.checks, config.treasury, config.customers, config.suppliers]);
 
+  /* V19.80.21: paginate-on-demand. Show first 25 rows, then "عرض المزيد"
+     reveals 25 more. Reset to 25 whenever filters change so the user sees
+     fresh head-of-list results. Pattern reused for any future long lists. */
+  const [visibleCount, setVisibleCount] = useState(25);
+  useEffect(() => { setVisibleCount(25); }, [direction, channel, status, from, to, search]);
+
   /* Apply filters */
   const filtered = useMemo(() => {
     const q = (search||"").trim().toLowerCase();
@@ -1218,7 +1238,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           </tr>
         </thead>
         <tbody>
-          {filtered.map((p, i) => {
+          {filtered.slice(0, visibleCount).map((p, i) => {
             const dirColor = p.direction === "in" ? "#10B981" : "#EF4444";
             const dirLabel = p.direction === "in" ? "↘ وارد" : "↗ صادر";
             const isCheque = p.channel === "check";
@@ -1271,6 +1291,51 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           })}
         </tbody>
       </table>
+      {/* V19.80.21: paginate-on-demand footer. Shows "عرض المزيد" when there
+          are more rows beyond visibleCount; resets to 25 when filters change. */}
+      {filtered.length > visibleCount && <div style={{padding:"10px", textAlign:"center", borderTop:"1px solid "+T.brd, background:T.bg+"60"}}>
+        <div style={{fontSize:FS-2, color:T.textMut, marginBottom:8}}>
+          يعرض {visibleCount} من إجمالي {filtered.length} حركة
+        </div>
+        <Btn small onClick={() => setVisibleCount(c => c + 25)} style={{background:T.accent+"15", color:T.accent, border:"1px solid "+T.accent+"40", fontWeight:700}}>
+          ⬇ عرض المزيد ({Math.min(25, filtered.length - visibleCount)} حركة)
+        </Btn>
+        {filtered.length - visibleCount > 25 && <Btn small onClick={() => setVisibleCount(filtered.length)} style={{background:"transparent", color:T.textSec, border:"1px solid "+T.brd, fontWeight:600, marginInlineStart:8}}>
+          عرض الكل ({filtered.length})
+        </Btn>}
+      </div>}
+    </div>}
+
+    {/* V19.80.21: backfill progress overlay — blocks user interaction while
+        the journal-posting pass runs. Shows current/total + label, updated
+        every 25 ops by backfillAll's onProgress callback. */}
+    {posting && postingProgress && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10010, display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(2px)"}}>
+      <div style={{background:T.cardSolid, borderRadius:14, padding:24, maxWidth:480, width:"100%", border:"1px solid "+T.brd, boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+        <div style={{fontSize:FS+3, fontWeight:800, color:"#10B981", marginBottom:8, textAlign:"center"}}>📚 جاري ترحيل القيود</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, textAlign:"center", lineHeight:1.7}}>
+          {postingProgress.label || "جاري التحضير..."}
+          <div style={{marginTop:6, fontSize:FS-2, color:T.textMut}}>
+            {postingProgress.total > 0
+              ? "العملية " + postingProgress.current + " من " + postingProgress.total
+              : "بـ يحسب عدد العمليات..."}
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div style={{height:14, background:T.bg, borderRadius:8, overflow:"hidden", border:"1px solid "+T.brd, marginBottom:12}}>
+          <div style={{
+            height:"100%",
+            width:postingProgress.total > 0 ? Math.min(100, Math.round(postingProgress.current/postingProgress.total*100))+"%" : "0%",
+            background:"linear-gradient(90deg, #10B981, #06B6D4)",
+            transition:"width 200ms ease-out",
+          }}/>
+        </div>
+        <div style={{textAlign:"center", fontSize:FS+2, fontWeight:800, color:"#10B981"}}>
+          {postingProgress.total > 0 ? Math.round(postingProgress.current/postingProgress.total*100) + "%" : "0%"}
+        </div>
+        <div style={{marginTop:14, padding:"8px 10px", borderRadius:8, background:T.bg, fontSize:FS-3, color:T.textMut, textAlign:"center"}}>
+          ⚠️ ما تقفلش الصفحة أو تعمل refresh — العملية شغالة
+        </div>
+      </div>
     </div>}
 
     {/* V19.12: Delete confirmation modal */}
