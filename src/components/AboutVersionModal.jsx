@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.13",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🔢 إصلاح كارثي: أرقام الموديل معكوسة في PDF الواتساب",
+    changes: [
+      { type: "fix", text: "🚨 [User report: \"الارقام معكوسة في بي دي اف اللي بيروح للعميل\"] إذن استلام العميل اللي بـ يتـ attach مع رسالة الواتساب الـ auto كان بـ يعرض رقم الموديل معكوس (3262142 → 2412623). السبب: الـ ar() shaper في arabicPdf.js كان بـ يعمل `out.reverse()` على المصفوفة كلها بعد الـ Arabic shaping — لتحويل logical → visual order للـ RTL. الـ reversal ده صحيح لـ Arabic strings نقية، لكنه كان بـ يقلب الأرقام كمان لو كانت داخل الـ string. لما الـ modelNo (\"3262142\") عدّى من ar()، الـ output كان \"2412623\"." },
+      { type: "fix", text: "🔧 [Fix: BiDi-aware reversal in ar()] الـ shaper دلوقتي بـ يعمل 2 things:\n• لو الـ input مش فيه أي حرف عربي (e.g. \"3262142\"، \"1,234.50\"، \"—\") → يـ return الـ string كما هي بدون reversal.\n• لو فيه عربي (mixed أو نقي) → يـ reverse الـ array كله، ثم يـ re-reverse كل digit-run داخلياً (digits + comma + period) عشان الأرقام تـ keep الترتيب LTR الطبيعي بتاعها وفقاً لـ Unicode bidirectional algorithm.\n\nأمثلة:\n• \"3262142\" → \"3262142\" (مش بـ يـ reverse)\n• \"موديل\" → \"ليدوم\" (Arabic فقط، يـ reverse)\n• \"موديل 100\" → \"100 ليدوم\" (الأرقام keep order)\n• \"ج.م 1,234\" → \"1,234 م.ج\" (الأرقام keep order)" },
+      { type: "fix", text: "📐 [Visual order swap for number+Arabic cells] الـ aggRow + الـ discount block كانوا بـ يـ concat كـ \"X ج.م\" (number + space + Arabic). في PDF بـ Cairo font ده كان بـ يـ render في pixel LTR كـ \"1,234 م.ج\" — اللي بـ يقرأها الـ RTL reader كـ \"ج.م 1,234\" (currency THEN amount — غير طبيعي). الإصلاح: الـ Arabic suffix دلوقتي بـ يجي **قبل** الرقم في الـ JS string فالـ pixel LTR بقى \"م.ج 1,234\"، اللي يـ read كـ \"1,234 ج.م\" (amount THEN currency) — صح طبيعياً." },
+    ]
+  },
+  {
     version: "V19.80.12",
     date: "2026-05-07",
     types: ["fix"],

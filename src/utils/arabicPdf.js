@@ -230,6 +230,7 @@ export function ar(text) {
   if (!text) return "";
   const s = String(text);
   const out = [];
+  let hasArabic = false;
   for (let i = 0; i < s.length; i++) {
     const cp = s.codePointAt(i);
     /* Skip surrogates we already consumed */
@@ -244,6 +245,7 @@ export function ar(text) {
         const prevConnectsForward = _joinsForward(prev);
         const ligGlyph = prevConnectsForward ? _LAM_ALEF_FINAL[next] : _LAM_ALEF[next];
         out.push(String.fromCodePoint(ligGlyph));
+        hasArabic = true;
         i++;/* skip the alef */
         continue;
       }
@@ -253,6 +255,7 @@ export function ar(text) {
       out.push(s[i]);
       continue;
     }
+    hasArabic = true;
 
     const prev = i > 0 ? s.codePointAt(i - 1) : 0;
     const next = i + 1 < s.length ? s.codePointAt(i + 1) : 0;
@@ -276,10 +279,43 @@ export function ar(text) {
 
     out.push(String.fromCodePoint(entry[formIdx]));
   }
-  /* Reverse to convert from logical order to visual order (RTL).
-     jsPDF's R2L mode handles direction at the line level but glyph order
-     within a string still needs to be visual when we pass shaped Arabic. */
-  return out.reverse().join("");
+  /* V19.80.13 — BiDi fix: the previous code unconditionally reversed the
+     entire shaped array (logical → visual order for RTL). That is correct
+     for pure-Arabic strings, but it ALSO reversed digit runs embedded in
+     mixed strings — and worse, it reversed pure-number strings too (the
+     model number "3262142" was rendering as "2412623" in the auto-WhatsApp
+     delivery PDF). Numbers must keep their LTR order even inside an RTL
+     string per the Unicode bidirectional algorithm. Fix:
+       1. If the input has no Arabic letters at all, skip reversal entirely
+          (e.g. "3262142", "1,234.50", "—").
+       2. Otherwise reverse the whole array, then re-reverse each contiguous
+          digit-run (digits, commas, periods) in place so digit groups
+          regain their original order while the surrounding Arabic stays
+          in visual LTR-rendered RTL order.
+     Examples:
+       "3262142"        → "3262142"        (unchanged — pure digits)
+       "1,234.50"       → "1,234.50"       (unchanged — digits + punct)
+       "موديل"          → "ليدوم"          (reversed Arabic, as before)
+       "موديل 100"      → "100 ليدوم"      (digits stay, Arabic reversed)
+       "ج.م 1,234"      → "1,234 م.ج"      (digits stay, Arabic reversed)
+  */
+  if (!hasArabic) return out.join("");
+  out.reverse();
+  let i = 0;
+  while (i < out.length) {
+    if (/[0-9.,]/.test(out[i])) {
+      let j = i + 1;
+      while (j < out.length && /[0-9.,]/.test(out[j])) j++;
+      /* Reverse positions [i, j) in place to restore digit-run order */
+      for (let a = i, b = j - 1; a < b; a++, b--) {
+        const t = out[a]; out[a] = out[b]; out[b] = t;
+      }
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return out.join("");
 }
 
 /* Convenience: shape and return — null/undefined safe. */
@@ -640,10 +676,13 @@ export async function buildDeliveryReceiptPdfBase64(payload) {
     ? [String(it.qty || 0), arNoEmoji(it.modelDesc || "—"), arNoEmoji(String(it.modelNo || ""))]
     : [_fmtNum(it.lineTotal || 0), it.price ? _fmtNum(it.price) : "—", String(it.qty || 0), arNoEmoji(it.modelDesc || "—"), arNoEmoji(String(it.modelNo || ""))]);
 
-  /* Aggregation row (footer of items table) — value column on the left, label on the right */
+  /* V19.80.13: aggregation row — Arabic suffix BEFORE the number in the visual
+     LTR string so that an RTL reader perceives "1,234 ج.م" / "5 قطعة" naturally
+     (rightmost = digits, leftmost = currency/unit). The previous order
+     (number + " " + arabic) made it read as "ج.م 1,234" / "قطعة 5". */
   const aggRow = noP
-    ? [String(payload.totals.qty || 0) + " " + arNoEmoji("قطعة"), "", arNoEmoji("الاجمالي")]
-    : [_fmtNum(payload.totals.money || 0) + " " + arNoEmoji("ج.م"), "", String(payload.totals.qty || 0) + " " + arNoEmoji("قطعة"), "", arNoEmoji("الاجمالي")];
+    ? [arNoEmoji("قطعة") + " " + String(payload.totals.qty || 0), "", arNoEmoji("الاجمالي")]
+    : [arNoEmoji("ج.م") + " " + _fmtNum(payload.totals.money || 0), "", arNoEmoji("قطعة") + " " + String(payload.totals.qty || 0), "", arNoEmoji("الاجمالي")];
 
   pdf.autoTable({
     startY: y,
@@ -679,17 +718,20 @@ export async function buildDeliveryReceiptPdfBase64(payload) {
     pdf.setLineWidth(0.5);
     pdf.rect(boxX, boxYstart, boxWFull, boxHFull);
 
+    /* V19.80.13: discount-block value rows — Arabic ج.م comes BEFORE the number
+       in the visual LTR string so an RTL reader sees "1,234 ج.م" naturally
+       (digits rightmost, currency leftmost in pixel order). */
     /* Row 1: الإجمالي قبل الخصم — value LEFT, label RIGHT (RTL convention) */
     pdf.setFont("Cairo", "bold");
     pdf.setFontSize(9);
     pdf.setTextColor(30, 41, 59);
     pdf.text(arNoEmoji("الإجمالي قبل الخصم"), pageW - margin - 3, boxYstart + 6, { align: "right" });
-    pdf.text(_fmtNum(payload.totals.money) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 6, { align: "left" });
+    pdf.text(arNoEmoji("ج.م") + " " + _fmtNum(payload.totals.money), margin + 3, boxYstart + 6, { align: "left" });
 
     /* Row 2: خصم N% — red */
     pdf.setTextColor(239, 68, 68);
     pdf.text(arNoEmoji("خصم " + payload.totals.discPct + "%"), pageW - margin - 3, boxYstart + 13, { align: "right" });
-    pdf.text("- " + _fmtNum(payload.totals.discAmt) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 13, { align: "left" });
+    pdf.text(arNoEmoji("ج.م") + " " + _fmtNum(payload.totals.discAmt) + " -", margin + 3, boxYstart + 13, { align: "left" });
 
     /* Separator line */
     pdf.setDrawColor(15, 23, 42);
@@ -701,7 +743,7 @@ export async function buildDeliveryReceiptPdfBase64(payload) {
     pdf.setFontSize(11);
     pdf.setTextColor(5, 150, 105);/* emerald-600 */
     pdf.text(arNoEmoji("الصافي المستحق"), pageW - margin - 3, boxYstart + 24, { align: "right" });
-    pdf.text(_fmtNum(payload.totals.netMoney) + " " + arNoEmoji("ج.م"), margin + 3, boxYstart + 24, { align: "left" });
+    pdf.text(arNoEmoji("ج.م") + " " + _fmtNum(payload.totals.netMoney), margin + 3, boxYstart + 24, { align: "left" });
 
     y = boxYstart + boxHFull + 5;
   }
