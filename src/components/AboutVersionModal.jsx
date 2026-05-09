@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.83.0",
+    date: "2026-05-09",
+    types: ["feature","fix"],
+    title: "🔗 ربط السيري بالقطع داخله (Phase 3) + bugfix الـ PiecesPg crash",
+    changes: [
+      { type: "fix", text: "🐛 [Critical bugfix] PiecesPg كانت بـ تـ crash بـ React error #306 عند فتح صفحة \"تتبع القطع\". السبب: الـ component كان `export default function` لكن `lazyNamed()` بـ يبحث عن named export. لما الـ named export ما لاقاش، الـ React.lazy استلم `undefined` كـ default، فحاول يـ render undefined → crash. الإصلاح: غيرت `export default function PiecesPg` إلى `export function PiecesPg` (named). الـ stack trace كان مضلل بـ `vendor-recharts` لأن الـ Suspense fallback كان شريك في الـ render tree." },
+      { type: "feature", text: "🔗 [User question — \"هل السيري مرتبط بالكيو ار اللي على كل قطعة؟\"] قبل V19.83.0 الإجابة كانت لأ. كل QR كان doc منفصل بدون علاقة بين السيري والقطع جواه. لما تـ scan السيري عند البيع، النظام كان عارف إن ده \"package\" بس مش عارف إيه الـ piece IDs اللي جواه. **دلوقتي مرتبطين فعلياً.**" },
+      { type: "feature", text: "📐 [Schema changes — series ↔ pieces linkage]\n```\npieces/{seriesId} {\n  type: \"series\",\n  containedPieceIds: [pieceId1, pieceId2, ...],  // 🆕\n  expectedPiecesCount: 4,                         // 🆕\n}\npieces/{pieceId} {\n  parentSeriesId: \"p_series_xxx\" | null,         // 🆕\n}\n```" },
+      { type: "feature", text: "🖨 [Print mode جديد — \"🔗 سيري مرتبط\"] الـ tab الـ5th في popup طباعة QR. الـ workflow:\n• اختر الموديل (يعرض المقاسات بتاعته)\n• ادخل عدد السيريهات\n• النظام يحسب: لكل سيري = 1 ليبل سيري + N ليبل قطعة (واحد لكل مقاس)\n• مثال: 100 سيري × 4 مقاسات = 100 ليبل سيري + 400 ليبل قطعة = 500 ليبل\n• اضغط طباعة: يولّد كل الـ IDs، يكتبهم في batches للـ Firestore (500 op/batch)، ثم يطبع كل الـ500 ليبل بالـ thermal printer\n• الـ progress overlay بـ يظهر \"تسجيل 230/500\" حتى يخلص" },
+      { type: "feature", text: "📦 [Scan cascade في تاب التسليم] لما تـ scan السيري QR في scan-to-sell:\n• الـ row في القائمة بقى ملوّن بـ light blue + chip \"+4 قطعة جواه\"\n• الـ summary badge بـ يحسب total pieces (السيري + جواه)\n• زر \"تأكيد التسليم\" بـ يعمل markSold للسيري + الـ4 قطع كلهم في batch واحد على Firestore (atomic)\n\nدبل-سكان prevention مع overlap detection:\n• لو scan-ت السيري ثم قطعة جواه → reject \"القطعة دي ضمن السيري اللي اتـ scan قبل كده\"\n• لو scan-ت قطعة ثم السيري بتاعها → reject \"السيري بيشمل القطعة دي تلقائي\"" },
+      { type: "feature", text: "↩️ [Scan-to-return — choice dialog للسيري] لما تـ scan سيري QR في تاب الإرجاع، popup بـ يطلع بـ خيارين:\n• 🔵 السيري كامل — markReturned cascade لكل الـ4 قطع + السيري\n• 🟡 السيري بس (إرجاع جزئي) — السيري status فاضي، الـ4 قطع تفضل مع العميل\nالـ default على \"السيري كامل\" (الحالة الشائعة)." },
+      { type: "feature", text: "🔍 [Lookup tab — sub-list للـ contained pieces] لما تـ lookup سيري له containedPieceIds، الـ result card بـ يطلع sub-list صغير بكل قطعة جواه + status لكل واحدة. للـ pieces اللي لها parentSeriesId، الـ card بـ يطلع badge link-back للسيري." },
+    ]
+  },
+  {
     version: "V19.82.0",
     date: "2026-05-09",
     types: ["feature"],

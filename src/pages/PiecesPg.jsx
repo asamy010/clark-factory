@@ -58,7 +58,7 @@ const TABS = [
   { key: "return", label: "↩️ إرجاع",     color: "#F59E0B" },
 ];
 
-export default function PiecesPg({ data, isMob, T, FS, user }) {
+export function PiecesPg({ data, isMob, T, FS, user }) {
   const _T = T || { text: "#1E293B", textSec: "#64748B", textMut: "#94A3B8", brd: "#E2E8F0", bg: "#F8FAFC", cardSolid: "#FFF", accent: "#0EA5E9", inputBg: "#FFF" };
   const _FS = FS || 14;
   const [tab, setTab] = useState("lookup");
@@ -221,6 +221,21 @@ function SellTab({ data, T, FS, user }) {
       if (piece.status === "scrapped") {
         showToast("❌ القطعة ملغية/تالفة"); return;
       }
+      /* V19.83.0 — if this is a series with linked pieces, prevent
+         double-coverage with already-scanned individual pieces. Same for the
+         reverse case: scanning an individual piece whose parent series was
+         already scanned. */
+      if (piece.type === "series" && Array.isArray(piece.containedPieceIds)) {
+        const overlap = piece.containedPieceIds.find(cid => scannedIds.has(cid));
+        if (overlap) {
+          showToast("⚠️ في قطعة ضمن السيري ده اتعملها scan قبل كده (" + overlap + ") — شيلها الأول لو عايز السيري كامل");
+          return;
+        }
+      }
+      if (piece.parentSeriesId && scannedIds.has(piece.parentSeriesId)) {
+        showToast("⚠️ السيري ده اتعملها scan قبل كده — السيري كامل بيشمل القطعة دي تلقائي");
+        return;
+      }
       setScanned(prev => [...prev, { piece, scannedAt: Date.now() }]);
     } catch (e) {
       setErrMsg("خطأ في القراءة: " + (e?.message || e));
@@ -265,11 +280,21 @@ function SellTab({ data, T, FS, user }) {
     }
   }
 
-  /* Aggregate by modelNo for the summary badges */
+  /* Aggregate by modelNo for the summary badges. V19.83.0 — series with
+     contained pieces count as N items in the summary (not 1). */
   const summary = {};
+  let totalPieces = 0;
   scanned.forEach(s => {
-    const k = s.piece.modelNo + (s.piece.size ? "/" + s.piece.size : "");
-    summary[k] = (summary[k] || 0) + 1;
+    if (s.piece.type === "series" && Array.isArray(s.piece.containedPieceIds)) {
+      const n = s.piece.containedPieceIds.length;
+      totalPieces += n + 1; /* the series itself + its pieces */
+      const k = s.piece.modelNo + " (سيري ×" + n + ")";
+      summary[k] = (summary[k] || 0) + 1;
+    } else {
+      totalPieces += 1;
+      const k = s.piece.modelNo + (s.piece.size ? "/" + s.piece.size : "");
+      summary[k] = (summary[k] || 0) + 1;
+    }
   });
 
   return <div>
@@ -301,7 +326,7 @@ function SellTab({ data, T, FS, user }) {
     {scanned.length > 0 && <Card style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>
-          📦 {scanned.length} قطعة في الجلسة
+          📦 {scanned.length} عنصر · إجمالي {totalPieces} قطعة (مع السيريهات)
         </div>
         <Btn small onClick={confirmSale} disabled={confirming} style={{
           background: "#10B981", color: "#FFF", fontWeight: 800, fontSize: FS,
@@ -315,16 +340,25 @@ function SellTab({ data, T, FS, user }) {
       </div>
       {/* Scanned list (newest first) */}
       <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid " + T.brd, borderRadius: 8 }}>
-        {[...scanned].reverse().map(s => (
-          <div key={s.piece.id} style={{
+        {[...scanned].reverse().map(s => {
+          const isSeries = s.piece.type === "series";
+          const containedCount = Array.isArray(s.piece.containedPieceIds) ? s.piece.containedPieceIds.length : 0;
+          return <div key={s.piece.id} style={{
             padding: "8px 12px", borderBottom: "1px solid " + T.brd, fontSize: FS - 2,
             display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+            background: isSeries && containedCount > 0 ? "#0EA5E908" : "transparent",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: T.text, fontWeight: 700 }}>
+                {isSeries && containedCount > 0 ? "🔗 " : ""}
                 {s.piece.modelNo}
                 {s.piece.size ? " · مقاس " + s.piece.size : ""}
-                {s.piece.type === "series" ? " · سيري" : ""}
+                {isSeries ? " · سيري" : ""}
+                {isSeries && containedCount > 0 && (
+                  <span style={{ marginInlineStart: 6, padding: "2px 8px", borderRadius: 999, background: "#0EA5E920", color: "#0369A1", fontSize: FS - 3 }}>
+                    +{containedCount} قطعة جواه
+                  </span>
+                )}
               </div>
               <div style={{ fontFamily: "monospace", color: T.textMut, fontSize: FS - 3 }}>{s.piece.id}</div>
             </div>
@@ -332,8 +366,8 @@ function SellTab({ data, T, FS, user }) {
               cursor: "pointer", padding: "3px 8px", borderRadius: 6, background: "#EF444415",
               color: "#EF4444", fontWeight: 700, fontSize: FS - 2,
             }}>✕</span>
-          </div>
-        ))}
+          </div>;
+        })}
       </div>
     </Card>}
 
@@ -354,6 +388,10 @@ function ReturnTab({ T, FS, user }) {
   const [confirming, setConfirming] = useState(false);
   const [errMsg, setErrMsg] = useState("");
   const [success, setSuccess] = useState(null); /* {customerName, modelNo, ...} */
+  /* V19.83.0 — when a series is scanned, the user must explicitly choose
+     between cascading the return to all contained pieces or just the series
+     itself (effectively a "partial return" placeholder). Default to cascade. */
+  const [cascadeSeries, setCascadeSeries] = useState(true);
 
   async function handleScan(text) {
     setErrMsg(""); setSuccess(null);
@@ -380,15 +418,20 @@ function ReturnTab({ T, FS, user }) {
     if (!piece) return;
     setConfirming(true);
     try {
-      const r = await markReturned(piece.id, { reason: reason || "بدون سبب محدد", by: user?.email || "" });
+      const r = await markReturned(piece.id, {
+        reason: reason || "بدون سبب محدد",
+        by: user?.email || "",
+        cascadeSeries: piece.type === "series" ? cascadeSeries : false,
+      });
       if (r.ok) {
         setSuccess({
           fromCustomerName: r.fromCustomerName || piece.currentCustomerName,
           modelNo: piece.modelNo,
           size: piece.size,
+          cascade: r.cascade,
         });
-        setPiece(null); setReason(""); setScanActive(true);
-        showToast("✓ تم استلام إرجاع من " + (r.fromCustomerName || piece.currentCustomerName));
+        setPiece(null); setReason(""); setScanActive(true); setCascadeSeries(true);
+        showToast("✓ تم استلام إرجاع من " + (r.fromCustomerName || piece.currentCustomerName) + (r.cascade ? " (شامل " + r.cascade + " قطعة في السيري)" : ""));
       } else {
         showToast("⛔ فشل الإرجاع: " + r.error);
       }
@@ -444,10 +487,50 @@ function ReturnTab({ T, FS, user }) {
         <div style={{ fontSize: FS - 2, color: "#78350F", marginTop: 4 }}>
           موديل: <b>{piece.modelNo}</b>
           {piece.size ? " · مقاس " + piece.size : ""}
-          {piece.type === "series" ? " · سيري" : ""}
+          {piece.type === "series" ? " · 🔗 سيري" : ""}
           {" · "}<span style={{ fontFamily: "monospace", fontSize: FS - 3 }}>{piece.id}</span>
         </div>
+        {piece.type === "series" && Array.isArray(piece.containedPieceIds) && piece.containedPieceIds.length > 0 && (
+          <div style={{ fontSize: FS - 2, color: "#78350F", marginTop: 6, fontWeight: 700 }}>
+            🔗 السيري ده فيه {piece.containedPieceIds.length} قطعة مرتبطة
+          </div>
+        )}
       </div>
+
+      {/* V19.83.0 — series cascade choice */}
+      {piece.type === "series" && Array.isArray(piece.containedPieceIds) && piece.containedPieceIds.length > 0 && (
+        <div style={{ marginBottom: 12, padding: 10, background: "#0EA5E908", border: "1px solid #0EA5E930", borderRadius: 8 }}>
+          <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+            📦 إرجاع السيري كامل أم قطعة واحدة فقط؟
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <label style={{
+              flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+              background: cascadeSeries ? "#0EA5E915" : "transparent",
+              border: "2px solid " + (cascadeSeries ? "#0EA5E9" : T.brd),
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <input type="radio" name="cascade" checked={cascadeSeries} onChange={() => setCascadeSeries(true)} style={{ width: 16, height: 16, accentColor: "#0EA5E9" }} />
+              <div>
+                <div style={{ fontWeight: 700, color: T.text, fontSize: FS - 1 }}>السيري كامل</div>
+                <div style={{ fontSize: FS - 3, color: T.textMut }}>الـ{piece.containedPieceIds.length} قطعة + السيري</div>
+              </div>
+            </label>
+            <label style={{
+              flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+              background: !cascadeSeries ? "#F59E0B15" : "transparent",
+              border: "2px solid " + (!cascadeSeries ? "#F59E0B" : T.brd),
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <input type="radio" name="cascade" checked={!cascadeSeries} onChange={() => setCascadeSeries(false)} style={{ width: 16, height: 16, accentColor: "#F59E0B" }} />
+              <div>
+                <div style={{ fontWeight: 700, color: T.text, fontSize: FS - 1 }}>السيري بس</div>
+                <div style={{ fontSize: FS - 3, color: T.textMut }}>القطع تفضل مع العميل (إرجاع جزئي)</div>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
 
       <label style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, display: "block", marginBottom: 4 }}>
         سبب الإرجاع (اختياري)
@@ -521,7 +604,41 @@ function ResultCard({ result, T, FS }) {
           {p.currentCustomerName ? " — " + p.currentCustomerName : ""}
         </Pill>
       </div>
-      <div style={{ borderTop: "1px solid " + T.brd, paddingTop: 12 }}>
+      {/* V19.83.0 — show contained pieces if this is a linked series */}
+      {p.type === "series" && Array.isArray(p.containedPieceIds) && p.containedPieceIds.length > 0 && (
+        <div style={{ borderTop: "1px solid " + T.brd, paddingTop: 12, marginTop: 8 }}>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 6, fontWeight: 700 }}>
+            🔗 السيري ده فيه {p.containedPieceIds.length} قطعة مرتبطة:
+          </div>
+          {Array.isArray(result.containedPieces) && result.containedPieces.length > 0 ? (
+            <div style={{ border: "1px solid " + T.brd, borderRadius: 8, overflow: "hidden" }}>
+              {result.containedPieces.map(cp => {
+                const cs = STATUS_LABEL[cp.status] || STATUS_LABEL.in_warehouse;
+                return <div key={cp.id} style={{
+                  padding: "6px 10px", borderBottom: "1px solid " + T.brd, fontSize: FS - 2,
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: T.text, fontWeight: 700 }}>
+                      {cp.size ? "مقاس " + cp.size : "قطعة"}
+                      {cp.currentCustomerName ? " · مع " + cp.currentCustomerName : ""}
+                    </div>
+                    <div style={{ fontFamily: "monospace", color: T.textMut, fontSize: FS - 3 }}>{cp.id}</div>
+                  </div>
+                  <Pill color={cs.color} bg={cs.bg}>{cs.icon} {cs.label}</Pill>
+                </div>;
+              })}
+            </div>
+          ) : <div style={{ fontSize: FS - 3, color: T.textMut }}>(جاري قراءة بيانات القطع...)</div>}
+        </div>
+      )}
+      {/* V19.83.0 — if this piece is INSIDE a series, link back to the series */}
+      {p.parentSeriesId && (
+        <div style={{ marginTop: 8, padding: "6px 10px", background: "#0EA5E908", border: "1px solid #0EA5E925", borderRadius: 6, fontSize: FS - 2, color: T.textSec }}>
+          🔗 القطعة دي ضمن سيري — <code style={{ fontFamily: "monospace", fontSize: FS - 3 }}>{p.parentSeriesId}</code>
+        </div>
+      )}
+      <div style={{ borderTop: "1px solid " + T.brd, paddingTop: 12, marginTop: 8 }}>
         <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 8, fontWeight: 700 }}>
           📜 دورة حياة القطعة ({(p.history || []).length} حدث)
         </div>

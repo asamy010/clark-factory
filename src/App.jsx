@@ -132,8 +132,10 @@ const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "Warehous
 const PiecesPg = lazyNamed(() => import("./pages/PiecesPg.jsx"), "PiecesPg");
 /* V19.81.0: per-piece QR tracking — generates unique pieceIds at print-time
    and writes Firestore docs that subsequent scans (delivery, return, lookup)
-   can resolve back to a customer. */
-import { genPieceId, buildTrackedQr, createPiecesBulk } from "./utils/pieces.js";
+   can resolve back to a customer.
+   V19.83.0: createLinkedSeriesBatch links 1 series QR (package outside) to
+   N piece QRs (inside) so scanning the series at sale cascades to all pieces. */
+import { genPieceId, buildTrackedQr, createPiecesBulk, createLinkedSeriesBatch } from "./utils/pieces.js";
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
    Rendered BEFORE auth check so it works without login. */
@@ -5670,11 +5672,14 @@ export default function App(){
               </div>
             </div>
           </label>
-          <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden"}}>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>تلقائية</div>
-            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"piece"}))} style={{flex:1,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="piece"?"#8B5CF6":"transparent",color:mode==="piece"?"#fff":T.textSec}} title="قطعة واحدة — للكسور">قطعة</div>
+          <div style={{display:"flex",gap:4,marginBottom:12,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden",flexWrap:"wrap"}}>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"manual"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="manual"?"#F59E0B":"transparent",color:mode==="manual"?"#fff":T.textSec}}>يدوية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"series"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="series"?"#F59E0B":"transparent",color:mode==="series"?"#fff":T.textSec}}>سيري</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"auto"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="auto"?"#F59E0B":"transparent",color:mode==="auto"?"#fff":T.textSec}}>تلقائية</div>
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"piece"}))} style={{flex:1,minWidth:80,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="piece"?"#8B5CF6":"transparent",color:mode==="piece"?"#fff":T.textSec}} title="قطعة واحدة — للكسور">قطعة</div>
+            {/* V19.83.0: Linked series — print 1 series QR + N piece QRs (one per size) all linked.
+                Scanning the series at sale auto-includes all contained pieces. */}
+            <div onClick={()=>setBarcodePopup(p=>({...p,_mode:"linked"}))} style={{flex:1.4,minWidth:120,textAlign:"center",padding:"8px 0",fontWeight:700,fontSize:FS-1,cursor:"pointer",background:mode==="linked"?"#0EA5E9":"transparent",color:mode==="linked"?"#fff":T.textSec}} title="سيري + قطع داخله مرتبطة">🔗 سيري مرتبط</div>
           </div>
           {/* V14.59: Single piece QR mode — for fractional pieces less than a full rack */}
           {mode==="piece"&&<div>
@@ -5807,6 +5812,95 @@ export default function App(){
                   doPrint(labels);
                 } catch (e) { showToast("⛔ " + (e?.message || e)); }
               }} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+totalLabels+" ليبل ("+totalLabels*rs+" قطعة)"}</Btn>
+            </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
+          </div>}
+          {/* V19.83.0: 🔗 سيري مرتبط — prints 1 series QR (package outside) +
+              K piece QRs (inside, one per size). All linked in DB so scanning
+              the series at sale cascades to its contained pieces. */}
+          {mode==="linked"&&<div>
+            {selOrder?<div>
+              <div style={{padding:12,borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",marginBottom:12,fontSize:FS-1,color:T.text,lineHeight:1.7}}>
+                <b style={{color:"#0EA5E9"}}>🔗 سيري + قطع داخله (مرتبط):</b> لكل سيري بـ نطبع
+                <span style={{margin:"0 4px",fontWeight:800,color:"#0EA5E9"}}>{sizes.length>0?sizes.length:1}</span>
+                ليبل قطعة (واحد لكل مقاس) + 1 ليبل سيري على الكرتونة. الـ QR على السيري بـ يـ link مع الـ QR's على القطع جواه — لما تـ scan-ه عند البيع، النظام يربط كل القطع الـ4 بالعميل تلقائياً.
+              </div>
+              {sizes.length===0&&<div style={{padding:10,background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:8,marginBottom:10,fontSize:FS-2,color:"#78350F"}}>⚠️ الموديل مالوش مقاسات في الـ size set — هاتطبع 1 piece فقط لكل سيري. أضف مقاسات من DB لو محتاج أكتر.</div>}
+              <div style={{marginBottom:12}}><label style={{fontSize:FS,fontWeight:700,color:T.text}}>عدد السيريهات</label>
+                <input type="number" value={barcodePopup._linkedQty!=null?barcodePopup._linkedQty:1} onChange={e=>setBarcodePopup(p=>({...p,_linkedQty:Math.max(1,Number(e.target.value)||1)}))} style={{display:"block",margin:"8px auto",width:120,textAlign:"center",fontSize:24,fontWeight:800,border:"3px solid #0EA5E9",borderRadius:10,padding:"8px",fontFamily:"Cairo",background:T.bg,color:T.text}}/>
+              </div>
+              <div style={{padding:10,background:T.bg+"60",borderRadius:8,marginBottom:12,fontSize:FS-2,color:T.textSec,textAlign:"center"}}>
+                النتيجة:
+                <b style={{color:"#0EA5E9",margin:"0 4px"}}>{(barcodePopup._linkedQty||1)*(sizes.length||1)}</b>
+                ليبل قطعة +
+                <b style={{color:"#0EA5E9",margin:"0 4px"}}>{barcodePopup._linkedQty||1}</b>
+                ليبل سيري =
+                <b style={{color:T.text,margin:"0 4px"}}>{(barcodePopup._linkedQty||1)*(sizes.length||1)+(barcodePopup._linkedQty||1)}</b>
+                ليبل إجمالي
+              </div>
+              <Btn onClick={async ()=>{if(!selOrder){showToast("⚠️ اختر موديل");return}
+                const seriesCount = barcodePopup._linkedQty||1;
+                const pieceSizes = sizes.length>0 ? sizes : [null]; /* fall back to a single piece per series if no sizes */
+                const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+                /* Build series + pieces specs */
+                const seriesSpecs = [];
+                const piecesSpecs = [];
+                for (let i = 0; i < seriesCount; i++) {
+                  const seriesId = genPieceId();
+                  seriesSpecs.push({
+                    pieceId: seriesId,
+                    modelNo: selOrder.modelNo,
+                    modelDesc: selOrder.modelDesc || "",
+                    seriesQty: pieceSizes.length,
+                    orderId: selOrder.id,
+                    isSecondGrade: !!secondGrade,
+                    by: userName,
+                  });
+                  const sub = pieceSizes.map(sz => ({
+                    pieceId: genPieceId(),
+                    modelNo: selOrder.modelNo,
+                    modelDesc: selOrder.modelDesc || "",
+                    size: sz,
+                    orderId: selOrder.id,
+                    isSecondGrade: !!secondGrade,
+                    by: userName,
+                  }));
+                  piecesSpecs.push(sub);
+                }
+                /* Write all linked docs in batches */
+                if (typeof setSavingOverlay === "function") {
+                  setSavingOverlay({ message: "جاري تسجيل "+seriesCount+" سيري + "+(seriesCount*pieceSizes.length)+" قطعة مرتبطة...", progress: 30 });
+                }
+                try {
+                  await createLinkedSeriesBatch(seriesSpecs, piecesSpecs, {
+                    onProgress: (done, total) => {
+                      if (typeof setSavingOverlay === "function") {
+                        const pct = 30 + Math.round((done/Math.max(1,total))*60);
+                        setSavingOverlay({ message: "تسجيل "+done+"/"+total, progress: pct });
+                      }
+                    },
+                  });
+                  if (typeof setSavingOverlay === "function") {
+                    setSavingOverlay({ message: "✅ تم — جاري الطباعة...", progress: 100 });
+                    setTimeout(() => setSavingOverlay(null), 600);
+                  }
+                } catch (e) {
+                  if (typeof setSavingOverlay === "function") setSavingOverlay(null);
+                  showToast("⛔ فشل تسجيل القطع: "+(e?.message||e));
+                  return;
+                }
+                /* Build the labels — interleave: series first then its pieces */
+                const labels = [];
+                const sizeText = pieceSizes.filter(Boolean).length>0 ? "مقاسات: "+pieceSizes.filter(Boolean).join("-") : "";
+                seriesSpecs.forEach((s, idx) => {
+                  /* Series label */
+                  labels.push(buildLabel(buildTrackedQr(s.pieceId), s.modelNo, s.modelDesc, sizeText, "📦 سيري ("+pieceSizes.length+" قطع)"));
+                  /* Piece labels — one per size */
+                  piecesSpecs[idx].forEach(p => {
+                    labels.push(buildLabel(buildTrackedQr(p.pieceId), p.modelNo, p.modelDesc, p.size?"مقاس: "+p.size:"", "🔗 ضمن سيري"));
+                  });
+                });
+                doPrint(labels);
+              }} style={{background:"#0EA5E9",color:"#fff",border:"none",fontWeight:700,width:"100%"}}>{"🖨 طباعة "+((barcodePopup._linkedQty||1)*((sizes.length||1)+1))+" ليبل (سيري + قطع مرتبطة)"}</Btn>
             </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>اختر موديل أولاً</div>}
           </div>}
         </div>
