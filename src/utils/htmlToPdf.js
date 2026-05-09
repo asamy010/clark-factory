@@ -149,14 +149,22 @@ async function ensureCairoLoaded() {
      filename — informational only; the bridge accepts a name separately */
 export async function htmlToPdfBase64(html, options) {
   await loadPdfLibs();
+  const opts = options || {};
+  const widthPx = opts.width || 794;
+  const scale = opts.scale || 2;
+  /* V19.80.22: configurable font family. Default is Cairo (loaded from CDN
+     for cross-device consistency). Pass {fontFamily:"Arial, Tahoma, sans-serif"}
+     to use system fonts instead — no CDN download, faster startup, and Arabic
+     falls back to the system's default Arabic-supporting font (Tahoma on
+     Windows, GeezaPro on macOS). When the requested family doesn't include
+     Cairo, we skip the Cairo preload entirely. */
+  const fontFamily = opts.fontFamily || "Cairo, sans-serif";
+  const wantsCairo = /\bCairo\b/i.test(fontFamily);
   /* V19.70.14: preload Cairo font BEFORE rendering. Without this, html2canvas
      captures with whatever font happens to be loaded — typically only the
      weights/styles already used on the visible page. Headers using weight 800
      would fall back and break Arabic shaping. */
-  await ensureCairoLoaded();
-  const opts = options || {};
-  const widthPx = opts.width || 794;
-  const scale = opts.scale || 2;
+  if (wantsCairo) await ensureCairoLoaded();
 
   /* Build offscreen container */
   const container = document.createElement("div");
@@ -171,13 +179,12 @@ export async function htmlToPdfBase64(html, options) {
   container.style.padding = "20px";
   container.style.boxSizing = "border-box";
   container.style.direction = "rtl";
-  /* V19.70.15: force Cairo as the only family (no fallback chain) inside the
-     offscreen container. Reasoning: if Cairo loaded successfully via FontFace,
-     every glyph SHOULD use it. If we list Arial as fallback and Cairo lookup
-     somehow fails on a specific weight, Arial would silently take over and
-     re-introduce the shaping bug. Better to fail visibly (with serif fallback)
-     so the bug is obvious, than to silently break Arabic. */
-  container.style.fontFamily = "Cairo, sans-serif";
+  /* V19.80.22: use the requested fontFamily option (default Cairo). When set
+     to "Arial, Tahoma, sans-serif", we rely on system fonts — Arial covers
+     Latin/digits, Tahoma covers Arabic on Windows (and similar on other OSes),
+     no CDN download needed. Arabic shaping is handled natively by the browser
+     since the offscreen container has dir=rtl + lang=ar. */
+  container.style.fontFamily = fontFamily;
   container.style.fontSize = "12px";
   container.style.lineHeight = "1.5";
   container.innerHTML = html;

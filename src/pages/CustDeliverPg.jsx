@@ -33,11 +33,19 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
+/* V19.80.22: arabicPdf.js (jsPDF + custom Arabic shaper) was rewritten OUT
+   of this flow. The shaper had multiple unfixable bugs (chars never reached
+   contextual shaping, full-string reversal flipped Arabic letter-by-letter)
+   so the auto-WhatsApp PDF rendered "نظام" as "ماظن", "احمد" as "دمحا", etc.
+   We now generate the PDF from HTML via html2canvas (the same path that
+   already produces the correct print-version PDF), with Arial font for clean
+   readable Latin/digit rendering and system Arabic fallback (Tahoma/GeezaPro). */
 /* V19.70.23: Approach A applied to bulk delivery PDF — jsPDF + Cairo TTF + Arabic shaper.
    Replaces the html2canvas image-capture pipeline that broke Arabic shaping in V19.70.14-22
    despite four font/element fixes. The new path uses jsPDF text APIs directly → vector PDF
    output (high quality, smaller files) with Arabic shaped via our embedded shaper. */
-import { loadArabicPdfLibs, buildDeliveryReceiptPdfBase64 } from "../utils/arabicPdf.js";
+/* V19.80.22: arabicPdf.js no longer imported — see comment above the
+   htmlToPdf import. The file is kept on disk for reference but is dead code. */
 
 /* V18.17: Module-level mutable variable used by inventory-audit scanner closure
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
@@ -1674,72 +1682,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const gMods=groupSessionModels(sess);
       const g=sess.grid||{};const selCount=Object.values(groupPrint.selCusts).filter(Boolean).length;
       const selTotal=gCusts.filter(c=>groupPrint.selCusts[c.id]).reduce((s,c)=>gMods.reduce((ss,m)=>ss+getGroupQtyForPrint(m,c.id,g),0)+s,0);
-      /* V19.70.23: structured payload for the new jsPDF-based engine.
-         Builds the same data the old HTML helper computes (items, totals, QR data URL),
-         but returns a plain object instead of an HTML string. Used by doSendWhatsApp
-         which then calls buildDeliveryReceiptPdfBase64() from arabicPdf.js to produce
-         the actual PDF. Sharing the items/totals math with buildOneCustomerHTML so the
-         PDF and the print receipt stay numerically identical. */
-      const buildOneCustomerPayload = async (c, sigStr, opts) => {
-        const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
-        const origin = window.location.origin;
-        const confirmUrl = sigStr ? origin+"/?dc=1&s="+encodeURIComponent(sess.id)+"&c="+encodeURIComponent(c.id)+"&sig="+encodeURIComponent(sigStr) : "";
-        let qrDataUrl = "";
-        if (confirmUrl) {
-          try {
-            const QRCode = (await import("qrcode")).default;
-            qrDataUrl = await QRCode.toDataURL(confirmUrl, { width: 200, errorCorrectionLevel: 'M', margin: 1 });
-          } catch (_) { /* skip QR */ }
-        }
-        let custMoney = 0, rowTotal = 0;
-        const items = [];
-        gMods.forEach(m => {
-          const q = getGroupQtyForPrint(m, c.id, g);
-          if (q > 0) {
-            rowTotal += q;
-            const oids = m.orderIds || [m.id];
-            let price = 0;
-            for (const oid of oids) {
-              const o = orders.find(x => x.id === oid);
-              if (o) {
-                const dd = (o.customerDeliveries || []).find(d => d.custId === c.id && d.sessionId === sess.id && Number(d.price) > 0);
-                if (dd) { price = Number(dd.price); break; }
-                if (Number(o.sellPrice) > 0) { price = Number(o.sellPrice); break; }
-              }
-            }
-            const lineTotal = q * price;
-            custMoney += lineTotal;
-            items.push({ modelNo: m.modelNo, modelDesc: m.modelDesc || "", qty: q, price, lineTotal });
-          }
-        });
-        const discPct = Number(c.discount) || 0;
-        const discAmt = Math.round(custMoney * discPct / 100);
-        const netAmt = custMoney - discAmt;
-        const factoryName = config.factoryName || "CLARK Factory Management";
-        const factoryLogo = config.logo || "";
-        const factoryAddr = config.address || "";
-        const factoryPhone = config.phone || "";
-        let factorySub = "نظام إدارة مصانع الملابس";
-        if (factoryAddr && factoryPhone) factorySub = factoryAddr + " • " + factoryPhone;
-        else if (factoryAddr) factorySub = factoryAddr;
-        else if (factoryPhone) factorySub = factoryPhone;
-        const today = new Date();
-        return {
-          payload: {
-            factoryName, factoryLogo, factorySub,
-            date: sess.date,
-            time: today.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
-            customer: { name: c.name, phone: c.phone || "", address: c.address || "" },
-            items,
-            totals: { qty: rowTotal, money: custMoney, discPct, discAmt, netMoney: netAmt },
-            qrDataUrl,
-            qrConfirmUrl: confirmUrl,
-            noPrices: noP,
-            receiverName: groupPrint.receiver || "",
-          },
-          totals: { qty: rowTotal, money: custMoney, netMoney: netAmt, discAmt, discPct },
-        };
-      };
+      /* V19.80.22: removed buildOneCustomerPayload (the input adapter for the
+         broken jsPDF + custom-Arabic-shaper engine) — see the import comment
+         at the top of this file for the full background. The active path is
+         now buildOneCustomerHTML + htmlToPdfBase64 (html2canvas → jsPDF image),
+         which mirrors the per-row print receipt's HTML and renders Arabic
+         natively via the browser instead of trying to pre-shape glyphs in JS. */
 
       /* V19.70.12: helper — build the per-customer receipt HTML block.
          V19.70.13: rewritten to mirror the existing per-row print output EXACTLY
@@ -1748,8 +1696,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          offscreen (not via printPage which adds them automatically). QR is embedded
          as a data URL (pre-generated via the qrcode library) so html2canvas captures
          it without async CDN dependency. Returns: { html, totals }.
-         V19.70.23: kept around for the legacy fallback only — the active path is now
-         buildOneCustomerPayload + buildDeliveryReceiptPdfBase64 (jsPDF). */
+         V19.80.22: this is now the ACTIVE path again (jsPDF approach removed). */
       const buildOneCustomerHTML = async (c, sigStr, opts) => {
         const noP = (opts && opts.noPrices) || groupPrint.noPrices === true;
         const origin = window.location.origin;
@@ -1798,10 +1745,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if (factoryAddr) brandSub = factoryAddr;
         if (factoryAddr && factoryPhone) brandSub = factoryAddr + " • " + factoryPhone;
         else if (factoryPhone) brandSub = factoryPhone;
-        /* Inline styles — match the print output theme */
+        /* V19.80.22: Inline styles — Arial-first font stack per user request.
+           Arial covers Latin/digits with familiar shapes; Tahoma is Windows's
+           standard Arabic-supporting fallback (visually similar to Arial for
+           Arabic, which Arial itself doesn't ship glyphs for); 'Segoe UI'
+           covers Windows 10+ Arabic; 'GeezaPro' covers macOS Arabic; sans-serif
+           is the final fallback. The browser auto-selects the first family
+           that has a glyph for each character — Arabic chars hit Tahoma/Segoe
+           while Latin chars stay on Arial. No CDN font download needed.
+
+           The print version (per-row 🖨 button) uses a separate path inside
+           printPage that may still use Cairo — that's intentional, only the
+           auto-WhatsApp PDF was broken and is what's getting fixed here. */
         const styles =
           "*{margin:0;padding:0;box-sizing:border-box}"+
-          "body{font-family:'Cairo',Arial,sans-serif;padding:24px 28px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
+          "body{font-family:Arial,Tahoma,'Segoe UI','GeezaPro',sans-serif;padding:24px 28px;font-size:12px;direction:rtl;color:#1E293B;line-height:1.5}"+
           "h2{font-size:15px;color:#0284C7;margin:14px 0 8px;padding-bottom:4px;border-bottom:2px solid #E2E8F0}"+
           "table{width:100%;border-collapse:collapse;margin:8px 0 14px;border:1px solid #94A3B8}"+
           /* V19.70.19: structural workaround for the persistent Arabic shaping bug.
@@ -1814,7 +1772,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
              cell (which is known to work), visually identical to the old header.
              User's idea: "تجميد العناوين زي الكتابة النصية الثابتة" — exactly this. */
           "td{padding:4px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
-          ".h{background:linear-gradient(180deg,#E2E8F0,#CBD5E1)!important;font-family:'Cairo',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
+          ".h{background:linear-gradient(180deg,#E2E8F0,#CBD5E1)!important;font-family:Arial,Tahoma,'Segoe UI','GeezaPro',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
           "tr:nth-child(even){background:#F8FAFC}"+
           ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"+
           ".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"+
@@ -1908,11 +1866,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Mark all targets as pending */
         setGroupPrint(p => ({ ...p, waSent: withPhone.reduce((a,c)=>{a[c.id]="pending";return a;},{...(p.waSent||{})}), waSending: true }));
 
-        /* V19.70.23: load the jsPDF + Cairo TTF libs (Approach A) instead of html2canvas.
-           Only when includePdf is on (the V19.70.17 toggle). The Arabic shaper is bundled
-           inside arabicPdf.js so no extra CDN load. */
+        /* V19.80.22: load html2canvas + jsPDF (the active PDF stack again,
+           replacing the V19.70.23 jsPDF-text + custom-shaper approach that
+           rendered Arabic backwards). Only when includePdf is on. */
         if (includePdf) {
-          try { await loadArabicPdfLibs(); }
+          try { await loadPdfLibs(); }
           catch (e) {
             showToast("⛔ فشل تحميل مكتبات الـPDF: "+(e.message||e));
             setGroupPrint(p => ({ ...p, waSending: false }));
@@ -1943,15 +1901,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           try {
             /* V19.70.17: build PDF only if the user opted in. The text body is the
                primary content either way — the PDF is decorative supplementary info.
-               V19.70.23: switched to jsPDF text rendering (vector PDF, perfect Arabic).
-               buildOneCustomerPayload returns structured data; buildDeliveryReceiptPdfBase64
-               renders it natively without html2canvas. */
+               V19.80.22: reverted to HTML → html2canvas → PDF. The V19.70.23
+               jsPDF-text approach with the in-house Arabic shaper rendered every
+               Arabic word backwards (e.g. "احمد" → "دمحا") because the shaper
+               reversed without applying contextual forms. The HTML approach
+               leans on the browser's native RTL/shaping engine — which is the
+               same path the per-row print receipt uses, so the auto-PDF and the
+               manual print look identical now. */
             let pdfBase64 = "";
             let totals;
             if (includePdf) {
-              const out = await buildOneCustomerPayload(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
+              const out = await buildOneCustomerHTML(c, signatures[c.id]||"", {noPrices:groupPrint.noPrices,receiver:groupPrint.receiver});
               totals = out.totals;
-              pdfBase64 = await buildDeliveryReceiptPdfBase64(out.payload);
+              pdfBase64 = await htmlToPdfBase64(out.html, {
+                fontFamily: "Arial, Tahoma, 'Segoe UI', 'GeezaPro', sans-serif",
+              });
             } else {
               /* Build totals without HTML — just walk the items once for the text body */
               let qty = 0, money = 0;

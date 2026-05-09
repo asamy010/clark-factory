@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.22",
+    date: "2026-05-09",
+    types: ["fix","architectural"],
+    title: "📄 PDF الواتساب (إذن استلام) أعيد بناؤه — HTML + Arial بدل jsPDF + custom shaper",
+    changes: [
+      { type: "fix", text: "🔥 [User report — \"الصح\" vs \"فيه مشكلة\"] الـ auto-WhatsApp PDF بـ يـ render الـ Arabic مقلوب حرف-حرف بدون contextual shaping. مثال:\n• \"نظام إدارة مصانع الملابس\" → \"سبلاملا عناصم ةرادإ ماظن\"\n• \"احمد سامي\" → \"يماس دمحا\"\n• \"الموديل الوصف الكمية\" → \"ليدوملا فصولا ةيمكلا\"\nالـ Latin والأرقام شغالين صح (3261122، +201008879265، 2026-05-09). السبب: الـ V19.70.23 كان بـ يستخدم jsPDF + custom Arabic shaper (`ar()` في arabicPdf.js) — الـ shaper كان بـ يعكس الـ string بدون ما يحط الـ presentation forms (FE70-FEFC). كل محاولات الإصلاح (V19.80.13/14) كسرت حاجة تانية." },
+      { type: "architectural", text: "🏗 [Rewrite كامل — HTML → html2canvas → PDF بدلاً من jsPDF text rendering] الـ active path دلوقتي:\n1. `buildOneCustomerHTML(c, sig, opts)` بـ يـ build HTML مطابقة لإذن الاستلام في طباعة per-row 🖨 (نفس الـ HTML اللي بـ يولّد \"الصح.pdf\")\n2. `htmlToPdfBase64(html, {fontFamily: \"Arial, Tahoma, ...\"})` بـ يـ render-ها في offscreen container بـ dir=rtl + lang=ar، ثم يـ capture-ها بـ html2canvas، ويـ wrap-ها في jsPDF كـ image\n3. الـ browser يتعامل مع الـ Arabic shaping + RTL ordering طبيعي — مفيش custom shaper، مفيش reverse، مفيش setR2L\n\nالنتيجة: الـ auto-PDF بقى مطابق لـ \"الصح.pdf\" تماماً، لأن الاتنين بـ يستخدموا نفس الـ HTML وبـ يعتمدوا على الـ browser في الـ shaping." },
+      { type: "feature", text: "🔤 [Font: Arial first stack] الـ font-family في الـ HTML بقى `Arial, Tahoma, 'Segoe UI', 'GeezaPro', sans-serif`:\n• Arial → Latin/digits بشكل نظيف ومألوف\n• Tahoma → Arabic على Windows (Arial Latin أصلاً ما عندهوش Arabic glyphs، الـ browser بـ يـ fallback تلقائي للـ family الجاي)\n• Segoe UI → Windows 10+ Arabic (modern fallback)\n• GeezaPro → macOS Arabic\n• sans-serif → final fallback\nالـ browser بـ يختار أوّل family عنده الـ glyph لكل character. مفيش CDN download — كل الـ fonts من system." },
+      { type: "fix", text: "🗑 [arabicPdf.js اتـ stub-out] ملف `src/utils/arabicPdf.js` بقى dead code — الـ exports (`loadArabicPdfLibs`, `buildDeliveryReceiptPdfBase64`) بـ تـ throw error واضح لو حد استدعاهم بالغلط. ممكن يتشال من الفايل system لما نتأكد إن مفيش أي import متبقي. الـ `buildOneCustomerPayload` helper اتشال كمان (كان input adapter للـ broken engine)." },
+      { type: "fix", text: "⚙ [htmlToPdf.js — fontFamily option] `htmlToPdfBase64(html, {fontFamily})` دلوقتي بـ يقبل أي font stack. الـ default لسه \"Cairo, sans-serif\" (للـ توافق الـ legacy)، لكن لو الـ stack ما فيهوش \"Cairo\" الـ helper بـ يـ skip الـ Cairo CDN download (200KB أوفر، startup أسرع). الـ container.style.fontFamily بـ يـ apply من الـ option." },
+    ]
+  },
+  {
     version: "V19.80.21",
     date: "2026-05-09",
     types: ["feature"],
