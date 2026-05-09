@@ -99,7 +99,8 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
   const sizeBlock=(s)=>getDeleteBlocker(data,"sizeSet",s.id);
   const garmentBlock=(g)=>getDeleteBlocker(data,"garmentType",g.id);
   return<div>
-    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["size","المقاسات"],["garment","قطع الموديل"],["ws","الورش"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
+    {/* V19.89.0: "الورش" tab removed — workshops management lives in ExtProdPg now (single source of truth). */}
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>{[["size","المقاسات"],["garment","قطع الموديل"],["status","حالات الأوردر"]].map(([k,l])=><Btn key={k} on={sub===k} onClick={()=>setSub(k)}>{l}</Btn>)}
       {canEdit&&<Btn onClick={()=>setShowRecycleBin(true)} style={{background:T.textMut+"12",color:T.textMut,border:"1px solid "+T.textMut+"25",marginRight:"auto"}}>{"🗑️ المحذوفات"+(data.recycleBin?.length>0?" ("+data.recycleBin.length+")":"")}</Btn>}
     </div>
     {/* ── Recycle Bin Popup ── */}
@@ -227,7 +228,7 @@ export function DBPg({data,upConfig,isMob,isTab,canEdit,statusCards,initialSub,o
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setGShow(false)}>الغاء</Btn><Btn primary onClick={()=>{saveGarment();setGShow(false)}} title="حفظ التعديلات">💾 حفظ</Btn></div>
       </div>
     </div></div>}</>}
-    {sub==="ws"&&<WsManager data={data} workshops={data.workshops||[]} upConfig={upConfig} canEdit={canEdit} isMob={isMob} orders={data.orders} renameInOrders={renameInOrders} wsPayments={data.wsPayments||[]} safeDelete={safeDelete}/>}
+    {/* V19.89.0: ws sub-tab removed — see ExtProdPg → "إدارة الورش" card. */}
     {sub==="status"&&<><Card title="حالات الأوردر" extra={canEdit&&<Btn primary small onClick={()=>{setStName("");setStColor("#0EA5E9");setStEid(null);setStShow(true)}}>+ اضافة</Btn>}>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
         {statusCards.map(s=><div key={s.id} style={{padding:16,borderRadius:14,border:"2px solid "+s.color+"40",background:s.color+"08",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -439,8 +440,8 @@ export function WsManager({data,workshops,upConfig,canEdit,isMob,orders,renameIn
         {/* V18.16: Show archived workshops toggle */}
         {archivedCount>0&&<Btn small onClick={()=>setShowArchivedWs(!showArchivedWs)} style={{background:showArchivedWs?T.err+"15":T.bg,color:showArchivedWs?T.err:T.textSec,border:"1px solid "+(showArchivedWs?T.err+"40":T.brd),whiteSpace:"nowrap"}}>{showArchivedWs?"🔒 يظهر الموقوفين":"الموقوفين ("+archivedCount+")"}</Btn>}
       </div>
-      {/* Workshop Cards */}
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
+      {/* Workshop Cards. V19.89.0: 2 → 3 columns on desktop per user request. */}
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3, 1fr)",gap:14}}>
         {filteredWs.map(ws=>{
           /* Compute workshop stats */
           let totalDel=0,totalRcv=0,orderCount=0;

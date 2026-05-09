@@ -4529,7 +4529,7 @@ export default function App(){
         <input value={gSearch} onChange={e=>setGSearch(e.target.value)} placeholder="بحث شامل: موديل، ورشة، خامة، عميل، مورد، موظف..." className="tb-search" style={{paddingRight:36,paddingLeft:14}}/>
         {gSearchDeb.trim()&&(()=>{const q=gSearchDeb.trim().toLowerCase();const res=[];
           data.orders.forEach(o=>{if([o.modelNo,o.modelDesc,o.poNumber||""].join(" ").toLowerCase().includes(q))res.push({type:"أوردر",label:(o.poNumber?o.poNumber+" — ":"")+o.modelNo+" — "+o.modelDesc,action:()=>{goD(o.id);setGSearch("")}})});
-          (data.workshops||[]).forEach(w=>{if([w.name,w.owner||"",w.phone||""].join(" ").toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{setDbSub("ws");setTab("db");setGSearch("")}})});
+          (data.workshops||[]).forEach(w=>{if([w.name,w.owner||"",w.phone||""].join(" ").toLowerCase().includes(q))res.push({type:"ورشة",label:w.name+(w.owner?" — "+w.owner:""),action:()=>{/* V19.89.0: workshops moved to ExtProdPg → navigate there + auto-open ws mode */setTab("external");setTimeout(()=>{window.__extWsMode=true;window.dispatchEvent(new Event("ext-ws-mode"))},400);setGSearch("")}})});
           (data.fabrics||[]).forEach(f=>{if((f.name||"").toLowerCase().includes(q))res.push({type:"خامة",label:f.name,action:()=>{setDbSub("fab");setTab("db");setGSearch("")}})});
           (data.accessories||[]).forEach(a=>{if((a.name||"").toLowerCase().includes(q))res.push({type:"اكسسوار",label:a.name,action:()=>{setDbSub("acc");setTab("db");setGSearch("")}})});
           /* V15.14: Customer, Supplier, Employee search */

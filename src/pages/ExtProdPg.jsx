@@ -86,6 +86,9 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   /* QR scan receive handler */
   useEffect(()=>{const h=()=>{const qr=window.__qrReceive;if(!qr)return;const ord=data.orders.find(o=>o.id===qr.oid);if(!ord)return;const wd=(ord.workshopDeliveries||[])[qr.wdi];if(!wd)return;setMode("receive");setSelWs(wd.wsName);setRcvSearch(ord.modelNo);delete window.__qrReceive};window.addEventListener("qr-receive",h);return()=>window.removeEventListener("qr-receive",h)},[data.orders]);
   useEffect(()=>{const h=()=>{const qr=window.__qrWsAcc;if(!qr)return;setMode("accounts");setAccWsF(qr.ws);delete window.__qrWsAcc};window.addEventListener("qr-wsacc",h);return()=>window.removeEventListener("qr-wsacc",h)},[]);
+  /* V19.89.0: open workshops mode when search-result from a workshop name
+     is clicked (replaces the old DBPg → ws sub-tab redirect). */
+  useEffect(()=>{const h=()=>{if(window.__extWsMode){setMode("ws");delete window.__extWsMode}};window.addEventListener("ext-ws-mode",h);if(window.__extWsMode){setMode("ws");delete window.__extWsMode}return()=>window.removeEventListener("ext-ws-mode",h)},[]);
   /* V18.91: Listen for notification deep-links — switch to accounts mode + filter on workshop */
   useEffect(()=>{
     const handler=(e)=>{
@@ -701,25 +704,110 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
   if(selWs)data.orders.forEach(ord=>{(ord.workshopDeliveries||[]).forEach((wd,wdIdx)=>{if(wd.wsName===selWs){wsMoves.push({type:"deliver",date:wd.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:wd.qty,garmentType:wd.garmentType||"",price:wd.price||0,notes:wd.notes||"",orderId:ord.id,wdIdx,_ts:new Date(wd.date).getTime()+wdIdx,createdBy:wd.createdBy||""});(wd.receives||[]).forEach((r,rIdx)=>{wsMoves.push({type:r.isSettlement?"settlement":"receive",date:r.date,orderNo:ord.modelNo,orderDesc:ord.modelDesc,qty:r.qty,garmentType:wd.garmentType||"",price:r.price||0,notes:r.notes||"",orderId:ord.id,wdIdx,rIdx,_ts:new Date(r.date).getTime()+wdIdx*100+rIdx,createdBy:r.createdBy||"",isSettlement:!!r.isSettlement})})}})});
   wsMoves.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||b._ts-a._ts);
 
-  if(mode==="ws")return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-      <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"🏭 إدارة الورش"}</h1>
-      <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
-    </div>
-    {/* V19.88.0: render the same WsManager that DBPg uses — single source of truth.
-        renameInOrders comes from App.jsx; safeDelete is local (recycle-bin aware). */}
-    <WsManager
-      data={data}
-      workshops={data.workshops||[]}
-      upConfig={upConfig}
-      canEdit={canEdit}
-      isMob={isMob}
-      orders={data.orders||[]}
-      renameInOrders={renameInOrders}
-      wsPayments={data.wsPayments||[]}
-      safeDelete={safeDelete}
-    />
-  </div>;
+  if(mode==="ws"){
+    /* V19.89.0: aggregate stats over all workshops for the banner above WsManager.
+       Computed once per render (cheap — workshops.length is small). */
+    const _wsList = data.workshops || [];
+    const _activeWs = _wsList.filter(w => !w.archived);
+    const _today = new Date();
+    const _thirtyDaysAgo = new Date(_today.getTime() - 30*24*60*60*1000).toISOString().slice(0,10);
+    let _totalDel = 0, _totalRcv = 0;
+    const _wsRcvThisMonth = {};
+    const _lateItems = [];
+    _activeWs.forEach(ws => {
+      let wsDel = 0, wsRcv = 0;
+      (data.orders || []).forEach(o => {
+        (o.workshopDeliveries || []).filter(wd => wd.wsName === ws.name).forEach(wd => {
+          const dq = Number(wd.qty) || 0;
+          wsDel += dq; _totalDel += dq;
+          const rcvSum = (wd.receives || []).reduce((s,r) => s + (Number(r.qty)||0), 0);
+          wsRcv += rcvSum; _totalRcv += rcvSum;
+          /* This-month receives for the "top workshop" leaderboard */
+          (wd.receives || []).forEach(r => {
+            if ((r.date || "") >= _thirtyDaysAgo) {
+              _wsRcvThisMonth[ws.name] = (_wsRcvThisMonth[ws.name] || 0) + (Number(r.qty)||0);
+            }
+          });
+          /* Late detection — agreed days exceeded for any unresolved balance */
+          const agreed = Number(wd.agreedDays) || 0;
+          const remaining = dq - rcvSum;
+          if (agreed > 0 && remaining > 0 && wd.date) {
+            const due = new Date(new Date(wd.date).getTime() + agreed*86400000);
+            if (due < _today) {
+              _lateItems.push({ ws: ws.name, modelNo: o.modelNo, qty: remaining,
+                days: Math.floor((_today - new Date(wd.date))/86400000), agreed });
+            }
+          }
+        });
+      });
+      void wsDel; void wsRcv;
+    });
+    const _topThisMonth = Object.entries(_wsRcvThisMonth).sort((a,b)=>b[1]-a[1])[0];
+    const _lateWsNames = [...new Set(_lateItems.map(l => l.ws))];
+
+    return <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:10}}>
+        <h1 style={{fontSize:isMob?22:28,fontWeight:800,margin:0}}>{"🏭 إدارة الورش"}</h1>
+        <Btn ghost onClick={()=>setMode(null)}>↩</Btn>
+      </div>
+
+      {/* V19.89.0: quick-stats banner — 4 KPI cards above the workshop grid */}
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:16}}>
+        <div style={{padding:"12px 14px",borderRadius:12,background:"#0EA5E910",border:"1px solid #0EA5E930"}}>
+          <div style={{fontSize:11,color:"#0EA5E9",fontWeight:700,marginBottom:4}}>🏭 ورش نشطة</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#0EA5E9"}}>{_activeWs.length}</div>
+          <div style={{fontSize:9,color:T.textMut,marginTop:2}}>إجمالي: {_wsList.length} (موقوفة: {_wsList.length - _activeWs.length})</div>
+        </div>
+        <div style={{padding:"12px 14px",borderRadius:12,background:(_totalDel - _totalRcv > 0 ? "#F59E0B" : "#10B981")+"10",border:"1px solid "+(_totalDel - _totalRcv > 0 ? "#F59E0B" : "#10B981")+"30"}}>
+          <div style={{fontSize:11,color:_totalDel - _totalRcv > 0 ? "#F59E0B" : "#10B981",fontWeight:700,marginBottom:4}}>📊 الرصيد الكلي عند الورش</div>
+          <div style={{fontSize:22,fontWeight:900,color:_totalDel - _totalRcv > 0 ? "#F59E0B" : "#10B981"}}>{(_totalDel - _totalRcv).toLocaleString("en-US")}</div>
+          <div style={{fontSize:9,color:T.textMut,marginTop:2}}>تسليم: {_totalDel.toLocaleString("en-US")} · استلام: {_totalRcv.toLocaleString("en-US")}</div>
+        </div>
+        <div style={{padding:"12px 14px",borderRadius:12,background:"#10B98110",border:"1px solid #10B98130"}}>
+          <div style={{fontSize:11,color:"#10B981",fontWeight:700,marginBottom:4}}>🏆 أعلى استلام (30 يوم)</div>
+          <div style={{fontSize:_topThisMonth ? 17 : 14,fontWeight:900,color:"#10B981",lineHeight:1.2}}>{_topThisMonth ? _topThisMonth[0] : "—"}</div>
+          {_topThisMonth && <div style={{fontSize:10,color:T.textMut,marginTop:2}}>{_topThisMonth[1].toLocaleString("en-US")} قطعة</div>}
+        </div>
+        <div onClick={()=>{if(_lateItems.length>0)setMode("receive")}} style={{padding:"12px 14px",borderRadius:12,background:_lateItems.length>0?"#EF444410":"#10B98110",border:"1px solid "+(_lateItems.length>0?"#EF444430":"#10B98130"),cursor:_lateItems.length>0?"pointer":"default"}}>
+          <div style={{fontSize:11,color:_lateItems.length>0?"#EF4444":"#10B981",fontWeight:700,marginBottom:4}}>⏰ تسليمات متأخرة</div>
+          <div style={{fontSize:22,fontWeight:900,color:_lateItems.length>0?"#EF4444":"#10B981"}}>{_lateItems.length}</div>
+          <div style={{fontSize:9,color:T.textMut,marginTop:2}}>{_lateWsNames.length} ورشة {_lateItems.length>0?"· اضغط لمراجعة":""}</div>
+        </div>
+      </div>
+
+      {/* Late deliveries banner — surfaces the top 5 most-delayed items */}
+      {_lateItems.length > 0 && <div style={{padding:"12px 14px",borderRadius:12,background:"#FEF2F2",border:"1px solid #FCA5A5",marginBottom:16}}>
+        <div style={{fontSize:14,fontWeight:800,color:"#991B1B",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+          <span>⚠️</span> أعلى التسليمات تأخراً ({_lateItems.length})
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {_lateItems.sort((a,b)=>b.days-a.days).slice(0,5).map((l,i) => (
+            <div key={i} style={{padding:"6px 10px",borderRadius:6,background:"#FFF",fontSize:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <div>
+                <b style={{color:"#991B1B"}}>{l.ws}</b>
+                <span style={{color:T.textMut,marginInlineStart:8}}>· موديل {l.modelNo} · {l.qty} قطعة</span>
+              </div>
+              <span style={{padding:"2px 8px",borderRadius:99,background:"#FEE2E2",color:"#991B1B",fontWeight:700}}>{l.days} يوم{l.agreed?` (متفق ${l.agreed})`:""}</span>
+            </div>
+          ))}
+          {_lateItems.length > 5 && <div style={{textAlign:"center",fontSize:11,color:T.textMut,marginTop:4}}>و {_lateItems.length - 5} أخرى — راجعهم في تاب \"استلام من ورشة\"</div>}
+        </div>
+      </div>}
+
+      {/* V19.88.0: WsManager renders the same workshop cards from DBPg. */}
+      <WsManager
+        data={data}
+        workshops={_wsList}
+        upConfig={upConfig}
+        canEdit={canEdit}
+        isMob={isMob}
+        orders={data.orders||[]}
+        renameInOrders={renameInOrders}
+        wsPayments={data.wsPayments||[]}
+        safeDelete={safeDelete}
+      />
+    </div>;
+  }
 
   if(mode==="deliver")return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>

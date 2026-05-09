@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.89.0",
+    date: "2026-05-09",
+    types: ["feature","fix"],
+    title: "🏭 تحسينات إدارة الورش: 3 أعمدة + KPIs + التأخر + شيل الـ tab من DBPg",
+    changes: [
+      { type: "feature", text: "📊 [Quick-stats banner] فوق الـ workshop grid في صفحة \"إدارة الورش\". 4 KPI cards:\n• 🏭 ورش نشطة (count) + إجمالي الـ workshops + الموقوفة\n• 📊 الرصيد الكلي عند الورش — ملوّن أحمر/أخضر حسب direction، مع breakdown تسليم/استلام\n• 🏆 أعلى استلام آخر 30 يوم (workshop name + قطع)\n• ⏰ تسليمات متأخرة (count) — clickable → ينقل لتاب \"استلام من ورشة\"\n\nكل الـ stats محسوبة client-side من data.orders + data.workshops، مفيش extra fetches." },
+      { type: "feature", text: "⚠️ [Late deliveries banner] لو في تسليمات متأخرة، banner أحمر بـ أعلى 5 ورش تأخراً + الموديل + الكمية + عدد أيام التأخر مقارنة بالمتفق عليه. بـ يساعد على المتابعة الفورية بدون ما تـ navigate لكذا صفحة." },
+      { type: "feature", text: "📐 [3 أعمدة بدل 2] الـ workshop cards grid اتـ extend من `repeat(2,1fr)` إلى `repeat(3,1fr)` على الـ desktop. مساحة أوفر، عدد ورش أكتر visible في الـ viewport. الموبايل لسه عمود واحد." },
+      { type: "fix", text: "🗑 [شيل الـ \"الورش\" tab من DBPg] الـ user أوضح إنه مش محتاجاه بقى — مكان واحد للـ workshops في تشغيل خارجي يكفي. اتشال من DBPg's tabs row + من render switch. الـ search results للـ workshops دلوقتي بـ تـ navigate لـ ExtProdPg + auto-open ws mode عبر window event (mirrors qr-receive pattern). الـ WsManager component نفسه يفضل export من DBPg ويـ reuse في ExtProdPg." },
+    ]
+  },
+  {
     version: "V19.88.0",
     date: "2026-05-09",
     types: ["fix","feature"],
