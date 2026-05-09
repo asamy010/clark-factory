@@ -609,6 +609,151 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
     }
   };
 
+  /* V19.80.20: TRANSFER INTEGRITY SCANNER — companion to the V19.80.17
+     close-week recovery, but for treasuryTransfers.
+
+     What it detects:
+       1. A `treasuryTransfers[]` record marked status="confirmed" but with
+          one or both treasury legs missing (out from fromAccount, in to
+          toAccount, both with `transferId` matching the record).
+       2. Treasury entries with `transferId` set but NO matching transfer
+          record in `treasuryTransfers[]` (orphan leg — pre-V19.80.16 silent
+          rejection or a partial sync incident).
+
+     What it fixes:
+       - Case 1: recreates the missing leg(s) using the transfer record's
+         from/to/amount/date/note as source of truth.
+       - Case 2: only flags — admin must decide whether to delete the orphan
+         legs or recreate the transfer record manually (we lack the original
+         from/to context for case 2).
+
+     Why this is needed even though V19.80.16+19 prevent NEW silent failures:
+     pre-V19.80.16 incidents (e.g. the W19 transfer that vanished on 2026-05-09)
+     left orphan rows that the existing recovery (V19.80.17) didn't touch
+     because it only walked hrWeeks snapshots. */
+  const [transferRecovering, setTransferRecovering] = useState(false);
+  const [transferPreview, setTransferPreview] = useState(null);
+
+  const previewMissingTransferLegs = () => {
+    const transfers = (config.treasuryTransfers || []);
+    const treasury = (config.treasury || []);
+    /* Index treasury legs by transferId (collect ALL, then verify count + direction) */
+    const legsByTransferId = new Map();
+    treasury.forEach(t => {
+      if (!t || !t.transferId) return;
+      if (!legsByTransferId.has(t.transferId)) legsByTransferId.set(t.transferId, []);
+      legsByTransferId.get(t.transferId).push(t);
+    });
+    const missing = []; /* {transfer, missingOut: bool, missingIn: bool} */
+    const orphans = []; /* {leg, hasMatchingTransfer: false} — treasury rows w/ transferId but no record */
+    /* Walk confirmed transfers — check both legs exist */
+    transfers.forEach(tf => {
+      if (!tf || tf.status !== "confirmed") return; /* pending → no legs expected */
+      const legs = legsByTransferId.get(tf.id) || [];
+      const hasOut = legs.some(l => l.type === "out" && l.account === tf.fromAccount);
+      const hasIn  = legs.some(l => l.type === "in"  && l.account === tf.toAccount);
+      if (!hasOut || !hasIn) {
+        missing.push({ transfer: tf, missingOut: !hasOut, missingIn: !hasIn });
+      }
+    });
+    /* Walk treasury legs — check parent transfer record exists */
+    const transferIds = new Set(transfers.map(t => t.id));
+    legsByTransferId.forEach((legs, tfId) => {
+      if (!transferIds.has(tfId)) {
+        legs.forEach(l => orphans.push({ leg: l }));
+      }
+    });
+    if (missing.length === 0 && orphans.length === 0) {
+      showToast("✓ كل التحويلات سليمة — كل transfer له ride الـ legs المطلوبة + كل leg له transfer record");
+      return;
+    }
+    setTransferPreview({ missing, orphans });
+  };
+
+  const confirmTransferRecovery = () => {
+    if (!transferPreview || !upConfig) return;
+    setTransferRecovering(true);
+    try {
+      const { missing } = transferPreview;
+      upConfig(d => {
+        if (!Array.isArray(d.treasury)) d.treasury = [];
+        if (!Array.isArray(d.auditLog)) d.auditLog = [];
+        const now = new Date().toISOString();
+        const days = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+        const _day = (date) => {
+          if (!date) return "";
+          const dt = new Date(date);
+          return isNaN(dt.getTime()) ? "" : (days[dt.getDay()] || "");
+        };
+        const season = d.activeSeason || "";
+
+        missing.forEach(({ transfer: tf, missingOut, missingIn }) => {
+          const amt = Number(tf.amount) || 0;
+          const date = tf.date || (new Date()).toISOString().slice(0,10);
+          const dayN = _day(date);
+          const noteSuffix = tf.note ? " — " + tf.note : "";
+          if (missingOut) {
+            d.treasury.unshift({
+              id: _gidR(),
+              type: "out",
+              amount: amt,
+              desc: "تحويل إلى " + tf.toAccount + noteSuffix,
+              notes: "",
+              category: "تحويل داخلي",
+              account: tf.fromAccount,
+              season,
+              date,
+              day: dayN,
+              transferId: tf.id,
+              by: tf.sentBy || "RECOVERY-V19.80.20",
+              createdAt: now,
+              recoveredAt: now,
+              recoveredFrom: "missing-transfer-leg",
+            });
+          }
+          if (missingIn) {
+            d.treasury.unshift({
+              id: _gidR(),
+              type: "in",
+              amount: amt,
+              desc: "تحويل من " + tf.fromAccount + noteSuffix,
+              notes: "",
+              category: "تحويل داخلي",
+              account: tf.toAccount,
+              season,
+              date,
+              day: dayN,
+              transferId: tf.id,
+              by: tf.sentBy || "RECOVERY-V19.80.20",
+              createdAt: now,
+              recoveredAt: now,
+              recoveredFrom: "missing-transfer-leg",
+            });
+          }
+        });
+        d.auditLog.unshift({
+          id: _gidR(),
+          category: "treasury",
+          action: "v19.80.20_transfer_recovery",
+          target: "missing transfer legs",
+          meta: {
+            count: missing.length,
+            transferIds: missing.slice(0, 10).map(m => m.transfer.id),
+          },
+          by: "RECOVERY-V19.80.20",
+          ts: now,
+        });
+      });
+      showToast("✓ تم استرداد " + missing.length + " تحويل ناقص الـ legs");
+      setTransferPreview(null);
+    } catch (e) {
+      console.error("[V19.80.20 transfer recovery] failed:", e);
+      showToast("⛔ فشل الاسترداد — راجع الـconsole");
+    } finally {
+      setTransferRecovering(false);
+    }
+  };
+
   /* V19.80.18: ONE-SHOT REPAIR — fix dates of already-recovered entries that
      were created before V19.80.18's date-fallback fix. Walks every treasury
      entry tagged `recoveredFrom: "missing-close-week-entry"` and re-derives
@@ -965,6 +1110,10 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         <Btn small onClick={runBackfill} disabled={posting} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700, whiteSpace:"nowrap"}}>
           {posting ? "⏳ جاري الترحيل..." : "📚 ترحيل القيود للمحاسبة"}
         </Btn>
+        {/* V19.80.20: scan transfers for missing legs / orphan legs and repair */}
+        <Btn small onClick={previewMissingTransferLegs} disabled={transferRecovering} style={{background:"#06B6D415", color:"#06B6D4", border:"1px solid #06B6D440", fontWeight:700, whiteSpace:"nowrap"}}>
+          {transferRecovering ? "⏳ جاري فحص التحويلات..." : "🔄 استرداد التحويلات المفقودة"}
+        </Btn>
       </div>
     </div>
     {/* V19.80.19: backfill result banner */}
@@ -1245,6 +1394,58 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           <Btn small onClick={confirmRecovery} disabled={recovering} style={{background:"#F59E0B", color:"#fff", fontWeight:800}}>
             {recovering ? "⏳ جاري الاسترداد..." : "🚑 نعم، استرد الحركات"}
           </Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V19.80.20: transfer recovery preview modal — lists transfers with missing
+        legs (recoverable) and orphan legs (need manual decision). */}
+    {transferPreview && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={() => setTransferPreview(null)}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:680, width:"100%", maxHeight:"85vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2, fontWeight:800, color:"#06B6D4", marginBottom:8}}>🔄 استرداد التحويلات المفقودة</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+          الـ scanner بـ يطابق `treasuryTransfers` (السجل الرئيسي) مع treasury (الـ legs). الناقصات هـ تتـ recreate من بيانات الـ transfer record.
+          <div style={{marginTop:8, padding:"8px 10px", borderRadius:8, background:"#06B6D408", border:"1px solid #06B6D430", fontSize:FS-2}}>
+            ℹ️ لو الـ transfer record نفسه ضايع (أي legs بدون parent record)، الـ scanner بـ يـ flag-ها بس — الـ admin محتاج يقرر يحذفها أو يعمل تحويل جديد يدوياً (السبب: ما يعرفش المصدر/الهدف الأصليين بدون الـ record).
+          </div>
+        </div>
+        {transferPreview.missing.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>🔄 تحويلات بـ legs مفقودة ({transferPreview.missing.length}):</div>
+          <div style={{maxHeight:180, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {transferPreview.missing.map((x,i) => (
+              <div key={i} style={{padding:"6px 8px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
+                  <span style={{padding:"2px 6px", borderRadius:4, background:T.cardSolid, fontSize:FS-3, fontWeight:700}}>{x.transfer.date || "—"}</span>
+                  <b style={{color:T.text, flex:1, minWidth:120}}>{x.transfer.fromAccount} → {x.transfer.toAccount}</b>
+                  <span style={{color:T.textMut, fontSize:FS-3}}>{fmt(x.transfer.amount)} ج.م</span>
+                </div>
+                <div style={{marginTop:3, fontSize:FS-3}}>
+                  ناقص: {x.missingOut && <span style={{color:"#EF4444", fontWeight:700}}>صادر من {x.transfer.fromAccount}</span>}
+                  {x.missingOut && x.missingIn && <span style={{color:T.textMut}}> + </span>}
+                  {x.missingIn && <span style={{color:"#EF4444", fontWeight:700}}>وارد إلى {x.transfer.toAccount}</span>}
+                  {x.transfer.note && <span style={{color:T.textMut}}> · {x.transfer.note}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-2, color:T.textMut, marginTop:4, textAlign:"end"}}>إجمالي قابل للاسترداد: <b>{fmt(transferPreview.missing.reduce((s,x)=>s+(Number(x.transfer.amount)||0),0))} ج.م</b></div>
+        </div>}
+        {transferPreview.orphans.length > 0 && <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:"#F59E0B", marginBottom:6}}>⚠ legs يتيمة بدون transfer record ({transferPreview.orphans.length}):</div>
+          <div style={{maxHeight:140, overflowY:"auto", border:"1px solid #F59E0B30", borderRadius:8, padding:6, background:"#F59E0B08"}}>
+            {transferPreview.orphans.map((x,i) => (
+              <div key={i} style={{padding:"4px 6px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                {x.leg.date || "—"} · <b style={{color:T.text}}>{x.leg.desc || x.leg.account || "—"}</b> · {fmt(x.leg.amount)} ج.م ({x.leg.type==="out"?"صادر":"وارد"})
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:FS-3, color:"#F59E0B", marginTop:4, textAlign:"end"}}>هذه الـ legs مش هـ تتغير — احذفها يدوياً من سجل الخزنة لو مش محتاجها</div>
+        </div>}
+        <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:14}}>
+          <Btn small onClick={() => setTransferPreview(null)}>إلغاء</Btn>
+          {transferPreview.missing.length > 0 && <Btn small onClick={confirmTransferRecovery} disabled={transferRecovering} style={{background:"#06B6D4", color:"#fff", fontWeight:800}}>
+            {transferRecovering ? "⏳ جاري الاسترداد..." : "🔄 نعم، استرد الـ legs الناقصة"}
+          </Btn>}
         </div>
       </div>
     </div>}

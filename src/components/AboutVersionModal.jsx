@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.20",
+    date: "2026-05-09",
+    types: ["feature"],
+    title: "🔄 استرداد التحويلات بين الخزن المفقودة + اضمن إنها تظهر تاني",
+    changes: [
+      { type: "feature", text: "🔄 [زر جديد — \"🔄 استرداد التحويلات المفقودة\"] فحص شامل لكل التحويلات بين الخزن (treasuryTransfers + treasury legs). الـ scanner بـ يـ cross-reference الـ source-of-truth (treasuryTransfers record) مع الـ treasury legs:\n• كل transfer بـ status='confirmed' لازم يكون له leg out (من fromAccount) + leg in (إلى toAccount) مع matching transferId.\n• الناقصات بـ تتـ list في modal بـ التاريخ + المصدر + الهدف + المبلغ + ناقص إيه.\n• الضغط على \"استرد الـ legs الناقصة\" بـ يـ recreate-ها من بيانات الـ transfer record (نفس logic الـ approveTransfer)." },
+      { type: "feature", text: "⚠ [Orphan legs detection] لو في treasury entry بـ transferId لكن مفيش matching record في treasuryTransfers، الـ scanner بـ يـ flag-ها كـ orphan في قسم منفصل (أصفر/تحذير). الـ admin محتاج يقرر يمسحها يدوياً أو يعمل تحويل جديد. الـ scanner ما يـ touch-ش-هم لأن مش عنده الـ source/target الأصليين." },
+      { type: "fix", text: "🛡 [Defense-in-depth — التحويلات الجديدة محمية تلقائياً] الـ V19.80.16 + V19.80.19 الموجودين فعلاً يحموا التحويلات الجديدة:\n• Silent date rejection بقى loud — لو date غير صحيح، notice فوراً\n• Pending writes ما بـ تـ delete-ش بدون server confirmation — لو leg فشل في الكتابة، الـ user يشوف notice\n• Stable subset compare — server enrichment ما بـ يـ trap pending\n• FIFO cap — ما يـ overflow\nيعني تحويل بعد V19.80.16 ما يقدرش يختفي صامتاً. الزر الجديد في V19.80.20 للـ legacy data من قبل الـ fixes دي." },
+      { type: "doc", text: "📦 [ZIP-after-release added to protocol] من دلوقتي كل release جديد بـ يطلع ZIP بـ نفس الإصم على Desktop بعد ما الـ build يعدّي. الـ ZIP السابق بـ يـ delete تلقائي. ده backup يدوي لكل version مشحون فاللحظة." },
+    ]
+  },
+  {
     version: "V19.80.19",
     date: "2026-05-09",
     types: ["fix","feature"],
