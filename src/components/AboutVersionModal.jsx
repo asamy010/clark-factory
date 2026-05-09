@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.18",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🛠 إصلاح تواريخ الـ V19.80.17 recovery + زر تصحيح للحركات اللي اتعملت غلط",
+    changes: [
+      { type: "fix", text: "🐛 [Recovery date bug] الـ V19.80.17 كان بـ يستخدم `p.date || \"\"` للـ ws_payments. لو الـ p.date فاضي (لأن الـ user اعتمد على autoDate في الـ close-week الأصلي)، الـ entry بـ يتعمل بـ date=\"\" → splitCollections.js كان بـ يـ fallback لـ createdAt = اليوم (السبت) بدلاً من تاريخ الخميس بتاع قفل الأسبوع. النتيجة: الـ recovered ws_payments نزلت في day doc السبت بدلاً من الخميس." },
+      { type: "fix", text: "🔧 [Recovery now mirrors HRPg close-week date logic exactly]\n• `weeklyAdvances` → `a.date || w.closedAt` (HRPg:1662)\n• `weeklyWsPayments` → `p.autoDate ? w.closedAt : (p.date || w.closedAt)` (HRPg:1695 — الـ autoDate flag بـ يـ snap للـ close date)\n• `weeklyOtherExpenses` → `ex.date || w.closedAt` (HRPg:1744)\n• Salaries → `w.closedAt` (HRPg:1642 useDate equivalent)\n• الـ supplierPayments/wsPayments/hrLog المرتبطة بـ تـ store-the-same-date — مفيش divergence." },
+      { type: "feature", text: "🛠 [زر جديد — \"إصلاح تواريخ الاسترداد\"] للـ users اللي ضغطوا V19.80.17 قبل الـ V19.80.18 fix. الزر يـ scan كل treasury entries بـ `recoveredFrom: \"missing-close-week-entry\"` ويـ re-derive الـ correct date من الـ snapshot الأصلي. لو الـ current date ≠ correct → يـ update + يصلح الـ supplierPayments/wsPayments/hrLog المربوطة. الـ syncSplitCollection's V16.80 FIX #2 date-change detection بـ يـ move الـ entry من الـ day doc الغلط للـ صح تلقائياً.\n\nالموقع: المحاسبة → سجل الدفعات → بجوار الزر البرتقالي. modal preview بـ يعرض كل حركة (المبلغ، الـ desc، الـ تاريخ القديم، الـ تاريخ الجديد) قبل التنفيذ." },
+      { type: "fix", text: "🐞 [Bug تاني صغير اتـ fix] في الـ V19.80.17 الـ `day` field كان بـ يستخدم `_dayName(ex.date || \"\")` بدلاً من الـ effective date — فالـ day name كان \"\" لو ex.date فاضي. دلوقتي بـ يستخدم effExpDate." },
+    ]
+  },
+  {
     version: "V19.80.17",
     date: "2026-05-09",
     types: ["feature","fix"],

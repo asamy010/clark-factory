@@ -391,6 +391,12 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         });
 
         m.advances.forEach(({ week: w, advance: a }) => {
+          /* V19.80.18: mirror HRPg:1662 close-week date logic — `a.date||useDate`.
+             useDate at close time = w.closedAt. Without this fallback, missing
+             a.date caused the date to fall through to createdAt (today=Saturday)
+             when the user expected the week's close date (Thursday). */
+          const closingDate = w.closedAt || w.actualClosedAt || w.weekEnd || "";
+          const effDate = a.date || closingDate;
           d.treasury.unshift({
             id: a.treasuryTxId,
             type: "out",
@@ -399,8 +405,8 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
             category: "مرتبات",
             account: "SUB CASH",
             season,
-            date: a.date || "",
-            day: _dayName(a.date || ""),
+            date: effDate,
+            day: _dayName(effDate),
             sourceType: "hr_weekly_advance",
             weekId: w.id,
             empId: a.empId,
@@ -424,7 +430,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
               weekId: w.id,
               weekStart: w.weekStart,
               weekEnd: w.weekEnd,
-              date: a.date || "",
+              date: effDate,
               by: "RECOVERY-V19.80.17",
               createdAt: now,
               weeklyAdvanceId: a.id,
@@ -436,6 +442,12 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
 
         m.wsPayments.forEach(({ week: w, payment: p }) => {
           const _wsLabel = (p.wsName || "").replace(/^\s*ورشة\s+/, "");
+          /* V19.80.18: mirror HRPg:1695 close-week date logic exactly:
+             `effDate = p.autoDate ? useDate : (p.date||useDate)`. useDate = w.closedAt.
+             Auto-assigned dates (where the user didn't pick one) snap to the close
+             date so the treasury entry matches when cash physically left. */
+          const closingDate = w.closedAt || w.actualClosedAt || w.weekEnd || "";
+          const effDate = p.autoDate ? closingDate : (p.date || closingDate);
           d.treasury.unshift({
             id: p.treasuryTxId,
             type: "out",
@@ -444,8 +456,8 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
             category: p.type === "payment" ? "تشغيل خارجي" : "مشتريات",
             account: "SUB CASH",
             season,
-            date: p.date || "",
-            day: _dayName(p.date || ""),
+            date: effDate,
+            day: _dayName(effDate),
             sourceType: "hr_weekly_ws_payment",
             weekId: w.id,
             wsName: p.wsName || "",
@@ -466,7 +478,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
                 amount: Number(p.amount) || 0,
                 type: p.type || "payment",
                 notes: p.note || "",
-                date: p.date || "",
+                date: effDate,
                 createdBy: "RECOVERY-V19.80.17",
                 treasuryTxId: p.treasuryTxId,
                 sourceWeekId: w.id,
@@ -476,6 +488,9 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         });
 
         m.otherExps.forEach(({ week: w, expense: ex }) => {
+          /* V19.80.18: mirror HRPg:1744 close-week date logic — `ex.date||useDate`. */
+          const closingDate = w.closedAt || w.actualClosedAt || w.weekEnd || "";
+          const effExpDate = ex.date || closingDate;
           d.treasury.unshift({
             id: ex.treasuryTxId,
             type: "out",
@@ -484,8 +499,8 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
             category: ex.category || "مصاريف أخرى",
             account: ex.account || "SUB CASH",
             season,
-            date: ex.date || "",
-            day: _dayName(ex.date || ""),
+            date: effExpDate,
+            day: _dayName(effExpDate),
             sourceType: "hr_other_expense",
             weekId: w.id,
             ...(ex.supplierId ? { supplierId: ex.supplierId, supplierName: ex.supplierName || "" } : {}),
@@ -503,7 +518,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
                 supplierId: ex.supplierId,
                 supplierName: ex.supplierName || "",
                 amount: _r2(Number(ex.amount) || 0),
-                date: ex.date || "",
+                date: effExpDate,
                 note: ex.desc || "",
                 method: "كاش",
                 account: ex.account || "SUB CASH",
@@ -540,6 +555,119 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
       showToast("⛔ فشل الاسترداد — راجع الـconsole");
     } finally {
       setRecovering(false);
+    }
+  };
+
+  /* V19.80.18: ONE-SHOT REPAIR — fix dates of already-recovered entries that
+     were created before V19.80.18's date-fallback fix. Walks every treasury
+     entry tagged `recoveredFrom: "missing-close-week-entry"` and re-derives
+     the correct date from the source snapshot using the same logic as the
+     close-week (HRPg) and the new recovery (above). If the current date
+     differs, updates it in place — syncSplitCollection's V16.80 FIX #2
+     date-change detection will move the entry to the right day doc.
+     Specifically helps ws_payments where p.autoDate=true and p.date was
+     missing → date fell through to createdAt (today) instead of close date. */
+  const [repairing, setRepairing] = useState(false);
+  const [repairPreview, setRepairPreview] = useState(null);
+
+  const previewDateRepair = () => {
+    if (!Array.isArray(config.treasury)) return;
+    const repairs = [];
+    /* Index hrWeeks by id for fast lookup */
+    const weeksById = new Map();
+    (config.hrWeeks || []).forEach(w => { if (w?.id) weeksById.set(w.id, w); });
+
+    (config.treasury || []).forEach(t => {
+      if (t?.recoveredFrom !== "missing-close-week-entry") return;
+      if (!t.weekId) return;
+      const w = weeksById.get(t.weekId);
+      if (!w) return;
+      const closingDate = w.closedAt || w.actualClosedAt || w.weekEnd || "";
+      if (!closingDate) return;
+      let correctDate = null;
+
+      if (t.sourceType === "hr_salary") {
+        correctDate = closingDate;
+      } else if (t.sourceType === "hr_weekly_advance" && t.weeklyAdvanceId) {
+        const a = (w.weeklyAdvances || []).find(x => x.id === t.weeklyAdvanceId);
+        if (a) correctDate = a.date || closingDate;
+      } else if (t.sourceType === "hr_weekly_ws_payment" && t.wsPaymentId) {
+        const p = (w.weeklyWsPayments || []).find(x => x.wsPaymentId === t.wsPaymentId)
+                || (w.weeklyWsPayments || []).find(x => x.treasuryTxId === t.id);
+        if (p) correctDate = p.autoDate ? closingDate : (p.date || closingDate);
+      } else if (t.sourceType === "hr_other_expense") {
+        const ex = (w.weeklyOtherExpenses || []).find(x => x.treasuryTxId === t.id);
+        if (ex) correctDate = ex.date || closingDate;
+      }
+
+      if (correctDate && correctDate !== t.date) {
+        repairs.push({ tx: t, week: w, oldDate: t.date, newDate: correctDate });
+      }
+    });
+
+    if (repairs.length === 0) {
+      showToast("✓ كل تواريخ الحركات المُستردة سليمة — مفيش حاجة محتاجة إصلاح");
+      return;
+    }
+    setRepairPreview(repairs);
+  };
+
+  const confirmDateRepair = () => {
+    if (!repairPreview || !upConfig) return;
+    setRepairing(true);
+    try {
+      const repairs = repairPreview;
+      upConfig(d => {
+        if (!Array.isArray(d.treasury)) return;
+        const repairById = new Map(repairs.map(r => [r.tx.id, r.newDate]));
+        d.treasury.forEach(t => {
+          const newDate = repairById.get(t.id);
+          if (!newDate) return;
+          t.date = newDate;
+          /* Re-derive day name */
+          const days = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+          const dt = new Date(newDate);
+          if (!isNaN(dt.getTime())) t.day = days[dt.getDay()] || "";
+          t.dateFixedAt = new Date().toISOString();
+        });
+        /* Mirror date fix into linked records (so customer/supplier statements
+           show the corrected date too). */
+        if (Array.isArray(d.supplierPayments)) {
+          d.supplierPayments.forEach(sp => {
+            const newDate = repairById.get(sp.treasuryTxId);
+            if (newDate) sp.date = newDate;
+          });
+        }
+        if (Array.isArray(d.wsPayments)) {
+          d.wsPayments.forEach(wp => {
+            const newDate = repairById.get(wp.treasuryTxId);
+            if (newDate) wp.date = newDate;
+          });
+        }
+        if (Array.isArray(d.hrLog)) {
+          d.hrLog.forEach(h => {
+            const newDate = repairById.get(h.treasuryTxId);
+            if (newDate) h.date = newDate;
+          });
+        }
+        if (!Array.isArray(d.auditLog)) d.auditLog = [];
+        d.auditLog.unshift({
+          id: _gidR(),
+          category: "treasury",
+          action: "v19.80.18_date_repair",
+          target: "recovered entries with wrong dates",
+          meta: { count: repairs.length, sample: repairs.slice(0,5).map(r=>({id:r.tx.id, sourceType:r.tx.sourceType, oldDate:r.oldDate, newDate:r.newDate})) },
+          by: "RECOVERY-V19.80.18",
+          ts: new Date().toISOString(),
+        });
+      });
+      showToast("✓ تم تصحيح تواريخ " + repairs.length + " حركة");
+      setRepairPreview(null);
+    } catch (e) {
+      console.error("[V19.80.18 date-repair] failed:", e);
+      showToast("⛔ فشل التصحيح — راجع الـconsole");
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -773,6 +901,12 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
             referenced there but missing from config.treasury. */}
         <Btn small onClick={previewMissingCloseWeekEntries} disabled={recovering} style={{background:"#F59E0B15", color:"#F59E0B", border:"1px solid #F59E0B40", fontWeight:700, whiteSpace:"nowrap"}}>
           {recovering ? "⏳ جاري الاسترداد..." : "🚑 استرداد حركات الخزنة المفقودة"}
+        </Btn>
+        {/* V19.80.18: one-shot fix for entries that V19.80.17 recovered with the
+            wrong date (used createdAt fallback instead of week.closedAt for
+            ws_payments where p.autoDate=true and p.date was empty). */}
+        <Btn small onClick={previewDateRepair} disabled={repairing} style={{background:"#8B5CF615", color:"#8B5CF6", border:"1px solid #8B5CF640", fontWeight:700, whiteSpace:"nowrap"}}>
+          {repairing ? "⏳ جاري التصحيح..." : "🛠 إصلاح تواريخ الاسترداد"}
         </Btn>
       </div>
     </div>
@@ -1032,6 +1166,42 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           <Btn small onClick={() => setRecoveryPreview(null)}>إلغاء</Btn>
           <Btn small onClick={confirmRecovery} disabled={recovering} style={{background:"#F59E0B", color:"#fff", fontWeight:800}}>
             {recovering ? "⏳ جاري الاسترداد..." : "🚑 نعم، استرد الحركات"}
+          </Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* V19.80.18: date-repair preview modal */}
+    {repairPreview && <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={() => setRepairPreview(null)}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:680, width:"100%", maxHeight:"85vh", overflowY:"auto", border:"1px solid "+T.brd, boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2, fontWeight:800, color:"#8B5CF6", marginBottom:8}}>🛠 إصلاح تواريخ الاسترداد</div>
+        <div style={{fontSize:FS-1, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+          الحركات دي اتعملت بـ V19.80.17 لكن تاريخها مش صح (طلع تاريخ اليوم بدلاً من تاريخ قفل الأسبوع). هـ يتم تصحيحها لتطابق تاريخ الـ snapshot الأصلي:
+          <div style={{marginTop:8, padding:"8px 10px", borderRadius:8, background:"#8B5CF608", border:"1px solid #8B5CF630", fontSize:FS-2}}>
+            ℹ️ التصحيح هـ يـ update الـ date في الخزنة + الـ supplierPayments/wsPayments/hrLog المربوطة. الحركات هـ تنتقل للـ day doc الصحيح في Firestore تلقائياً.
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:FS-1, fontWeight:800, color:T.text, marginBottom:6}}>📋 حركات هـ تتصلح ({repairPreview.length}):</div>
+          <div style={{maxHeight:300, overflowY:"auto", border:"1px solid "+T.brd, borderRadius:8, padding:6, background:T.bg}}>
+            {repairPreview.map((r,i) => (
+              <div key={i} style={{padding:"6px 8px", fontSize:FS-2, color:T.textSec, borderBottom:"1px dashed "+T.brd}}>
+                <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
+                  <span style={{padding:"2px 6px", borderRadius:4, background:T.cardSolid, fontSize:FS-3, fontWeight:700}}>W{r.week.weekNum}</span>
+                  <b style={{color:T.text, flex:1, minWidth:120}}>{r.tx.desc || "—"}</b>
+                  <span style={{color:T.textMut, fontSize:FS-3}}>{fmt(r.tx.amount)} ج.م</span>
+                </div>
+                <div style={{marginTop:3, fontSize:FS-3, color:T.textMut}}>
+                  من: <span style={{color:"#EF4444"}}>{r.oldDate || "(فارغ)"}</span> ← إلى: <span style={{color:"#10B981", fontWeight:700}}>{r.newDate}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:14}}>
+          <Btn small onClick={() => setRepairPreview(null)}>إلغاء</Btn>
+          <Btn small onClick={confirmDateRepair} disabled={repairing} style={{background:"#8B5CF6", color:"#fff", fontWeight:800}}>
+            {repairing ? "⏳ جاري التصحيح..." : "🛠 نعم، صحح التواريخ"}
           </Btn>
         </div>
       </div>
