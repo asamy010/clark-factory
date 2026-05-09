@@ -2471,41 +2471,47 @@ export default function App(){
       }
     }
   },[]);
-  /* Cleanup stale pending writes (older than 30 seconds — server should have echoed them by then) */
+  /* V19.80.16 ROOT-CAUSE FIX — DATA LOSS PREVENTION:
+     Pre-V19.80.16 this loop blindly deleted any pending write older than 30s,
+     under the assumption that "the server should have echoed it by then." This
+     assumption is unsafe: when an entry FAILS to persist (e.g., silent date-
+     rejection in splitCollections.js, partial sync failure, or any silent error),
+     the optimistic UI shows it via the pending map until cleanup deletes it →
+     entry vanishes from the UI permanently even though the user thought it saved.
+     Real-world incident (W19, 2026-05-09): close-week + orphan-sync caused all
+     Thursday treasury entries + a treasury transfer to disappear after 30s.
+
+     New behavior:
+     - flatten() at line ~2580 already deletes pending entries when the server
+       confirms them (matches deep-equal). That's the only correct deletion path.
+     - This loop NO LONGER deletes. It SURFACES stuck pending writes (>60s) as a
+       user-visible warning notice so the user knows something didn't save and
+       can refresh / retry, without silent data loss.
+     - We mark each stuck entry as `_stuckReported` so the warning fires once. */
   useEffect(()=>{
     const interval=setInterval(()=>{
       const now=Date.now();
-      const STALE_MS=30000;
-      /* V19.49: iterate over all split fields dynamically */
-      for(const f of SPLIT_FIELDS){
-        const map=pendingSplitWritesRef.current[f];
-        if(!map)continue;
+      const STUCK_MS=60000;
+      const stuck=[];
+      const _scan=(map,group,field)=>{
+        if(!map)return;
         for(const[id,info]of map){
-          if(now-info.timestamp>STALE_MS)map.delete(id);
+          if(now-info.timestamp<=STUCK_MS)continue;
+          if(info._stuckReported)continue;
+          info._stuckReported=true;
+          stuck.push(group+"."+field+":"+id);
         }
-      }
-      /* V19.51: same cleanup for sales-doc + tasks-doc split pending writes */
-      for(const f of SALES_SPLIT_FIELDS){
-        const map=pendingSalesSplitWritesRef.current[f];
-        if(!map)continue;
-        for(const[id,info]of map){
-          if(now-info.timestamp>STALE_MS)map.delete(id);
-        }
-      }
-      for(const f of TASKS_SPLIT_FIELDS){
-        const map=pendingTasksSplitWritesRef.current[f];
-        if(!map)continue;
-        for(const[id,info]of map){
-          if(now-info.timestamp>STALE_MS)map.delete(id);
-        }
-      }
-      /* V19.57: iterate ALL partitioned fields dynamically (was hardcoded ["hrWeeks"]). */
-      for(const f of PARTITIONED_FIELDS){
-        const map=pendingPartitionedWritesRef.current[f];
-        if(!map)continue;
-        for(const[id,info]of map){
-          if(now-info.timestamp>STALE_MS)map.delete(id);
-        }
+      };
+      for(const f of SPLIT_FIELDS)_scan(pendingSplitWritesRef.current[f],"split",f);
+      for(const f of SALES_SPLIT_FIELDS)_scan(pendingSalesSplitWritesRef.current[f],"sales",f);
+      for(const f of TASKS_SPLIT_FIELDS)_scan(pendingTasksSplitWritesRef.current[f],"tasks",f);
+      for(const f of PARTITIONED_FIELDS)_scan(pendingPartitionedWritesRef.current[f],"part",f);
+      if(stuck.length>0){
+        console.error("[V19.80.16] "+stuck.length+" pending write(s) stuck >60s — likely failed to persist:",stuck.slice(0,20));
+        noticeWarn(
+          "تحذير: حركات لم تُحفظ على السيرفر",
+          stuck.length+" حركة في حالة معلقة (لسه شايفها على الشاشة بس مش متسجلة في Firestore). اعمل refresh للصفحة وحاول تاني، أو راجع الـconsole. تفاصيل: "+stuck.slice(0,5).join(" | ")
+        );
       }
     },10000);
     return()=>clearInterval(interval);

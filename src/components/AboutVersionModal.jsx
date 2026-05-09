@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.16",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🚨 إصلاح كارثي: حركات الخزنة كانت تختفي بعد ترحيل الأسبوع + المزامنة",
+    changes: [
+      { type: "fix", text: "🔥 [User report — W19, 2026-05-09] بعد ترحيل أسبوع 19 + ضغط زر \"مزامنة الدفعات اليتيمة\"، كل حركات يوم الخميس + تحويل من الخزنة الرئيسية للفرعية اختفت من الـ UI. السبب الجذري: الـ optimistic-state cleanup interval في App.jsx كان بـ يحذف الـ pending writes بعد 30 ثانية بـ شكل أعمى — بدون التحقق إن السيرفر فعلاً echo-ها. لو entry فشل في الكتابة لـ Firestore (لأي سبب — silent date-rejection في splitCollections.js، partial sync failure، إلخ)، الـ UI كان بـ يفضل يـ show-ها لمدة 30s ثم تختفي نهائياً. الـ data ما كانتش اتـ delete من Firestore — كانت **never persisted to begin with**." },
+      { type: "fix", text: "🛡 [App.jsx:2474-2512 — pending cleanup overhaul] بدل الـ blind delete بعد 30s، الـ loop دلوقتي:\n• ما يـ delete-ش أي entry من الـ pending map. الـ flatten() at App.jsx:~2580 already deletes entries when the server confirms via deep-equal match — that's the only correct deletion path.\n• بعد 60s، أي entry لسه pending بـ يـ surface كـ noticeWarn بـ تفاصيل الـ field/id (\"تحذير: حركات لم تُحفظ على السيرفر\"). الـ user يقدر يقرر يعمل refresh + يحاول تاني بدلاً من الفقد الصامت.\n• كل entry stuck بـ يتـ flagged بـ `_stuckReported` فالـ warning يفير مرة واحدة — لا spam." },
+      { type: "fix", text: "📢 [splitCollections.js:301 — make silent date-rejection LOUD] الـ syncSplitCollection كان بـ يـ reject أي entry بـ date شكلها مش `^\\d{4}-\\d{2}-\\d{2}` ويـ log لـ console.error بس. النتيجة: الـ user ما عندوش أي way يعرف إن في حركات ما اتحفظتش. دلوقتي الـ rejection بـ يـ surface لـ noticeWarn بـ list من الـ IDs المرفوضة. الـ entries لسه بـ تـ keep في الـ local state (partial-success behavior preserved) لكن الـ user بقى عارف إنه محتاج يـ refresh + retry قبل ما يعمل أي تعديل تاني." },
+      { type: "fix", text: "🎯 [Why this is the right fix, not just a patch] الـ V19.13 dead-cleanup + V19.80.12 stale-link recovery + V18.60 mass-wipe blocker + V19.62 partitioned-snapshot fix كانوا كلهم patches لـ symptoms. الـ root cause الفعلي كان: الـ pending-write system بـ يـ expire pending entries بـ assumption إن الـ server echoed them، لكن مفيش verification. الـ fix بـ يـ reverse الـ default — الـ pending entries بـ تفضل لحد ما server يـ confirm، والـ stuck ones بـ تـ surface للـ user بدلاً من الفقد الصامت." },
+      { type: "doc", text: "📋 [Recovery for affected weeks] لو أسبوع لسه ضايعة منه حركات بسبب الـ bug ده: استخدم زر \"استرجاع الأسبوع للحالة قبل الإقفال\" في صفحة HR (يفتح الأسبوع تاني)، ثم اعمل قفل تاني. الـ V19.80.12 stale-link recovery هـ يـ recreate الـ treasury entries المفقودة من الـ snapshot في `weeklyAdvances`/`weeklyWsPayments`/`weeklyOtherExpenses`. للـ تحويل الضائع بين الخزن: لو الـ `treasuryTransfers` record لسه موجود بـ status `confirmed`، يـ admin يقدر يـ regenerate الـ legs يدوياً." },
+    ]
+  },
+  {
     version: "V19.80.15",
     date: "2026-05-09",
     types: ["feature"],

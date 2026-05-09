@@ -32,6 +32,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase.js";
+import { noticeWarn } from "./storageNotices.js";
 
 /* V19.49 + V19.50 + V19.52: Field groups by migration version — used for
    selective stripping so newly-added fields are NOT stripped from config
@@ -300,9 +301,17 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   }
   if (rejectedNoDate.length > 0) {
     console.error(`[splitCollections] ${collectionName}: REJECTED ${rejectedNoDate.length} entries without valid date — ids:`, rejectedNoDate);
-    /* The entries are kept in the local state but not written to day docs.
-       The user's UI will show a stale version. This is by design — we'd rather
-       have visible inconsistency than silent corruption (entries written to wrong day). */
+    /* V19.80.16: surface to user — pre-V19.80.16 this was silent (console only).
+       The result was data loss: optimistic UI showed entries as saved, but they
+       never reached Firestore, then the 30s pending-cleanup wiped them from the
+       UI too. User reported W19 Thursday entries vanishing on 2026-05-09.
+       Now we tell the user explicitly so they can refresh + retry. */
+    try {
+      noticeWarn(
+        "تحذير حرج: حركات لم تُحفظ بسبب تاريخ غير صالح",
+        `${collectionName}: ${rejectedNoDate.length} حركة اترفضت لأن خانة "date" مش بصيغة YYYY-MM-DD. الحركات شكلها متحفوظة لكنها ليست مسجلة على السيرفر. اعمل refresh للصفحة قبل أي تعديل تاني. IDs: ${rejectedNoDate.slice(0,10).join(", ")}`
+      );
+    } catch (e) { /* notice system unavailable — at least the console.error fired */ }
   }
   
   /* Group removes by day */
