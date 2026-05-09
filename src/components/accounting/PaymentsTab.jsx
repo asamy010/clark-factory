@@ -27,6 +27,11 @@ import { useState, useMemo } from "react";
 import { Btn, Card, Inp, Sel } from "../ui.jsx";
 import { fmt } from "../../utils/format.js";
 import { matchPartyFromDesc } from "../../utils/orders.js";
+/* V19.80.19: post journal entries for recovered treasury rows. Without this
+   the V19.80.17 recovery left the journal silently out of sync with treasury —
+   trial balance, balance sheet, party ledger all silently understated cash. */
+import { autoPost } from "../../utils/accounting/autoPost.js";
+import { backfillAll } from "../../utils/accounting/backfill.js";
 
 const DIRECTIONS = [
   {key:"all", label:"الكل",       icon:"📊"},
@@ -352,7 +357,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
     setRecoveryPreview(missing);
   };
 
-  const confirmRecovery = () => {
+  const confirmRecovery = async () => {
     if (!recoveryPreview || !upConfig) return;
     setRecovering(true);
     try {
@@ -555,6 +560,52 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
       showToast("⛔ فشل الاسترداد — راجع الـconsole");
     } finally {
       setRecovering(false);
+    }
+    /* V19.80.19: post journal entries for the just-recovered treasury rows.
+       Pre-V19.80.19 the recovery wrote treasury+hrLog+supplierPayments only —
+       the journal (accountingDays) stayed out of sync. Trial Balance / Balance
+       Sheet / Income Statement / Party Ledger silently understated cash for
+       any account-period that received recovered entries. backfillAll is
+       idempotent (postEntry checks (sourceType, sourceId) — re-runs UPDATE,
+       not duplicate), so safe to fire after every recovery. Auto-fire keeps
+       the books consistent without requiring the user to find another button. */
+    try {
+      const stats = await backfillAll(config, { createdBy: "RECOVERY-V19.80.19-autopost" });
+      const total = (stats?.posted || 0) + (stats?.skipped || 0);
+      if (stats?.posted > 0) {
+        showToast("✓ تم ترحيل " + stats.posted + " قيد للمحاسبة بعد الاسترداد");
+      }
+      console.log("[V19.80.19 post-recovery backfill]", stats);
+      void total;
+    } catch (e) {
+      console.error("[V19.80.19 post-recovery backfill] failed:", e);
+      showToast("⚠️ تم الاسترداد لكن فشل ترحيل القيود — اضغط 📚 ترحيل القيود يدوياً");
+    }
+  };
+
+  /* V19.80.19: STANDALONE backfill button. Runs the same journal-posting pass
+     used by Settings → "ترحيل القيود الأثرية", but accessible from PaymentsTab
+     so users can fix accounting drift right after a recovery without hunting
+     through settings. Idempotent — safe to run anytime. */
+  const [posting, setPosting] = useState(false);
+  const [postingResult, setPostingResult] = useState(null);
+  const runBackfill = async () => {
+    if (posting) return;
+    setPosting(true);
+    setPostingResult(null);
+    try {
+      const stats = await backfillAll(config, { createdBy: "MANUAL-BACKFILL-V19.80.19" });
+      setPostingResult(stats);
+      if (stats?.aborted) {
+        showToast("⛔ " + (stats.reason || "تعذر الترحيل"));
+      } else {
+        showToast("✓ تم ترحيل " + (stats?.posted || 0) + " قيد، وتخطي " + (stats?.skipped || 0));
+      }
+    } catch (e) {
+      console.error("[V19.80.19 manual backfill] failed:", e);
+      showToast("⛔ فشل الترحيل — راجع الـconsole");
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -908,8 +959,35 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         <Btn small onClick={previewDateRepair} disabled={repairing} style={{background:"#8B5CF615", color:"#8B5CF6", border:"1px solid #8B5CF640", fontWeight:700, whiteSpace:"nowrap"}}>
           {repairing ? "⏳ جاري التصحيح..." : "🛠 إصلاح تواريخ الاسترداد"}
         </Btn>
+        {/* V19.80.19: standalone backfill — posts every missing journal entry
+            (idempotent). Required after V19.80.17 recovery to keep TB/BS/IS
+            consistent with treasury. */}
+        <Btn small onClick={runBackfill} disabled={posting} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700, whiteSpace:"nowrap"}}>
+          {posting ? "⏳ جاري الترحيل..." : "📚 ترحيل القيود للمحاسبة"}
+        </Btn>
       </div>
     </div>
+    {/* V19.80.19: backfill result banner */}
+    {postingResult && <div style={{marginBottom:14, padding:"10px 12px", borderRadius:10, background:postingResult.aborted?"#EF444415":"#10B98115", border:"1px solid "+(postingResult.aborted?"#EF444440":"#10B98140")}}>
+      <div style={{fontSize:FS-1, fontWeight:800, color:postingResult.aborted?"#EF4444":"#10B981", marginBottom:4}}>
+        {postingResult.aborted ? "⛔ تعذر الترحيل" : "📚 نتيجة ترحيل القيود"}
+      </div>
+      {postingResult.aborted ? <div style={{fontSize:FS-2, color:T.textSec}}>{postingResult.reason}</div>
+        : <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.7}}>
+          ✅ مرحّل: <b style={{color:"#10B981"}}>{postingResult.posted||0}</b>
+          &nbsp;·&nbsp; ⏭ مُتخطّى: <b>{postingResult.skipped||0}</b>
+          &nbsp;·&nbsp; ❌ فشل: <b style={{color:postingResult.failed>0?"#EF4444":T.textMut}}>{postingResult.failed||0}</b>
+          {postingResult.byType && Object.keys(postingResult.byType).length>0 && <div style={{marginTop:6, fontSize:FS-3, color:T.textMut}}>
+            تفاصيل: {Object.entries(postingResult.byType).map(([k,v])=>k+"="+v).join("، ")}
+          </div>}
+          {postingResult.errors && postingResult.errors.length>0 && <div style={{marginTop:6, fontSize:FS-3, color:"#EF4444"}}>
+            ⚠ أخطاء: {postingResult.errors.slice(0,3).map(e=>e.message).join(" | ")}
+          </div>}
+        </div>}
+      <div style={{marginTop:6, textAlign:"end"}}>
+        <Btn small onClick={() => setPostingResult(null)} style={{fontSize:FS-3, padding:"3px 10px"}}>إخفاء</Btn>
+      </div>
+    </div>}
 
     {/* Filter row */}
     <div style={{display:"grid", gridTemplateColumns: isMob ? "1fr 1fr" : "auto auto auto 1fr 1fr 2fr", gap:8, marginBottom:14, alignItems:"end"}}>

@@ -1401,6 +1401,39 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         });
       }
     });
+    /* V19.80.19 ACCOUNTING-CONSISTENCY FIX: reverse the journal entries for
+       this treasury row + any linked records we just cascaded. Pre-V19.80.19
+       delete left orphan journal entries: the treasury row vanished from the
+       UI but its JE stayed in `accountingDays`, so Trial Balance, Balance
+       Sheet, and Party Ledger overstated cash and AR/AP relative to actual
+       data. Edit path (line 1180) does this correctly already; delete was
+       missing it.
+
+       Strategy: fire all plausible reversals. autoPost.reverse no-ops if
+       no matching JE is found, so over-firing is safe; under-firing leaves
+       stale entries. Each call resolves on its own — don't await (UI already
+       returned the success toast). */
+    if(txCheck && txCheck.date){
+      /* Treasury sourceType — for manual entries that journaled via buildTreasuryEntry */
+      autoPost.reverse(data,"treasury",txCheck.sourceId||txCheck.id,txCheck.date,"حذف حركة خزنة",userName).catch(()=>{});
+      /* HR-linked: salary/advance/weekly_advance journaled via buildHrEntry (sourceType="hr") */
+      if(txCheck.hrLogId){
+        autoPost.reverse(data,"hr",txCheck.hrLogId,txCheck.date,"حذف حركة خزنة (HR)",userName).catch(()=>{});
+      }
+      /* Customer payment journaled via buildCustomerPaymentEntry (sourceType="customerPay") */
+      const _custPayLink=(data.custPayments||[]).find(p=>p.treasuryTxId===txCheck.id);
+      if(_custPayLink||txCheck.custPaymentId){
+        autoPost.reverse(data,"customerPay",txCheck.custPaymentId||_custPayLink?.id,txCheck.date,"حذف حركة خزنة (دفعة عميل)",userName).catch(()=>{});
+      }
+      /* Workshop payment journaled via buildWorkshopPaymentEntry (sourceType="workshopPay") */
+      const _wsPayLink=(data.wsPayments||[]).find(p=>p.treasuryTxId===txCheck.id);
+      if(_wsPayLink||txCheck.wsPaymentId){
+        autoPost.reverse(data,"workshopPay",txCheck.wsPaymentId||_wsPayLink?.id,txCheck.date,"حذف حركة خزنة (دفعة ورشة)",userName).catch(()=>{});
+      }
+      /* Transfer legs — autoPost path for transfers writes via treasury sourceType
+         (each leg is a treasury entry posted by buildTreasuryEntry); the reversal
+         above already covers it. */
+    }
     showToast(txCheck&&txCheck.transferId?"✓ تم حذف التحويل بالكامل":"✓ تم الحذف")};
   /* Bulk delete multiple transactions — respects day lock + audit log */
   const bulkDeleteTxs=(ids)=>{
@@ -1519,6 +1552,26 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       }
       if(skippedCount>0)showToast("⚠️ "+deletedCount+" حذف • "+skippedCount+" متخطي (أيام مقفولة)");
       else showToast("✓ تم حذف "+deletedCount+" حركة");
+    });
+    /* V19.80.19: same accounting-consistency reversals as single-delete (line 1389+).
+       Iterate the txs we know we're deleting (snapshot via `data` since upConfig is
+       async; the txs may already be removed from local state by the time this runs).
+       autoPost.reverse no-ops if no matching journal entry exists. */
+    const _toReverse=(data.treasury||[]).filter(t=>ids.includes(t.id));
+    _toReverse.forEach(tx=>{
+      if(!tx||!tx.date)return;
+      autoPost.reverse(data,"treasury",tx.sourceId||tx.id,tx.date,"حذف مجمع من اليومية",userName).catch(()=>{});
+      if(tx.hrLogId){
+        autoPost.reverse(data,"hr",tx.hrLogId,tx.date,"حذف مجمع (HR)",userName).catch(()=>{});
+      }
+      const _cp=(data.custPayments||[]).find(p=>p.treasuryTxId===tx.id);
+      if(_cp||tx.custPaymentId){
+        autoPost.reverse(data,"customerPay",tx.custPaymentId||_cp?.id,tx.date,"حذف مجمع (دفعة عميل)",userName).catch(()=>{});
+      }
+      const _wp=(data.wsPayments||[]).find(p=>p.treasuryTxId===tx.id);
+      if(_wp||tx.wsPaymentId){
+        autoPost.reverse(data,"workshopPay",tx.wsPaymentId||_wp?.id,tx.date,"حذف مجمع (دفعة ورشة)",userName).catch(()=>{});
+      }
     });
     setSelectedTxIds(new Set());
   };

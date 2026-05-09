@@ -1469,8 +1469,16 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[preApprovalBlocker,setPreApprovalBlocker]=useState(null);/* {week, notSigned:[], customCloseDate} */
   const[overrideConfirmText,setOverrideConfirmText]=useState("");
   /* V14.66: Wrapper — checks all employees signed before approval. If not, shows blocker popup. */
+  /* V19.80.19: in-flight guard for approveWeek. The close-week chain has
+     setTimeout() delays totaling ~1100ms (saving overlay → snapshot save →
+     upConfig). React closures only see the pre-call openWeek.status, so a
+     double-click before state propagates can fire two parallel approve
+     pipelines → duplicate salary/advance/ws/expense entries with fresh ids
+     each time. The guard flips on entry, clears on completion or error. */
+  const approvingRef=useRef(false);
   const tryApproveWeek=(customCloseDate)=>{
     if(!openWeek||openWeek.status==="closed")return;
+    if(approvingRef.current){showToast("⏳ الإقفال شغّال — استنى لحد ما يخلص");return}
     const weekSelected=getSelectedEmps(openWeek.id);
     const wkEmps=activeEmps.filter(e=>weekSelected.includes(e.id));
     /* V15.25: Use merged receipts so pending scans count as signed */
@@ -1486,6 +1494,12 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     setPreApprovalBlocker({week:openWeek,notSigned,customCloseDate:customCloseDate||""});
   };
   const approveWeek=(customCloseDate,overrideReason)=>{if(!openWeek||openWeek.status==="closed")return;
+    /* V19.80.19: re-entry guard — only blocks if the upConfig pipeline has
+       already started (the setTimeout chain below). The duplicate-detection
+       and override-blocker paths can still re-fire approveWeek freely. The
+       flag is set just before setSavingOverlay+setTimeout, after all the
+       early-return decisions are made. */
+    if(approvingRef.current){showToast("⏳ الإقفال شغّال — استنى لحد ما يخلص");return}
     /* V15.27: Check for potential duplicate ws payments — same workshop + date range
        already has a DIRECT payment in treasury + a PLANNED payment in this week.
        Block approval until user confirms (safer default). */
@@ -1569,6 +1583,8 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       }).catch(e=>{
       console.error("⚠️ Snapshot save failed (approval will continue):",e);
     });
+    /* V19.80.19: set guard NOW — past all early-return points, about to commit */
+    approvingRef.current=true;
     /* Show overlay */
     if(setSavingOverlay)setSavingOverlay({message:"جاري حفظ نسخة احتياطية...",progress:5});
     setTimeout(()=>{
@@ -1905,8 +1921,10 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       console.error("[V15.87] approveWeek upConfig threw:",approveErr);
       showToast("⛔ خطأ في إقفال الأسبوع: "+((approveErr.message||String(approveErr)).substring(0,120)));
       if(setSavingOverlay)setSavingOverlay(null);
+      approvingRef.current=false;/* V19.80.19: clear in-flight on error */
       return;
     }
+    approvingRef.current=false;/* V19.80.19: clear in-flight on success */
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};
@@ -6441,10 +6459,32 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           if(wi<0)return;
           /* 1. Capture prevBalance restoration data from snapshot if available */
           const snapshot=(d.hrWeeks||[])[wi];
-          /* 2. Delete treasury entries linked to this week (salaries + advances) */
-          d.treasury=(d.treasury||[]).filter(t=>!(t.weekId===w.id&&(t.sourceType==="hr_salary"||t.sourceType==="hr_weekly_advance"||t.sourceType==="hr_advance")));
-          /* 3. Delete hrLog entries linked to this week */
-          d.hrLog=(d.hrLog||[]).filter(l=>!(l.weekId===w.id&&(l.type==="salary"||l.type==="advance"||l.type==="weekly_advance")));
+          /* 2. Delete treasury entries linked to this week (V19.80.19: extended
+                 from [hr_salary, hr_weekly_advance, hr_advance] to also include
+                 hr_weekly_ws_payment + hr_other_expense — both added in V15.27/
+                 V15.34 but missed by clean-delete, leaving orphan treasury rows
+                 pointing to a deleted week). Also collect the deleted treasury
+                 ids so we can cascade-clean linked records (wsPayments,
+                 supplierPayments) below. */
+          const _delTreasuryIds=new Set();
+          (d.treasury||[]).forEach(t=>{
+            if(t.weekId===w.id&&(t.sourceType==="hr_salary"||t.sourceType==="hr_weekly_advance"||t.sourceType==="hr_advance"||t.sourceType==="hr_weekly_ws_payment"||t.sourceType==="hr_other_expense")){
+              if(t.id)_delTreasuryIds.add(t.id);
+            }
+          });
+          d.treasury=(d.treasury||[]).filter(t=>!_delTreasuryIds.has(t.id));
+          /* 2b. V19.80.19: cascade — wsPayments linked by sourceWeekId OR by
+                 the treasuryTxId we just removed. */
+          if(Array.isArray(d.wsPayments)){
+            d.wsPayments=d.wsPayments.filter(p=>p.sourceWeekId!==w.id&&!_delTreasuryIds.has(p.treasuryTxId));
+          }
+          /* 2c. V19.80.19: cascade — supplierPayments pushed by V19.80.12 close-week
+                 for "دفعة مورد" weekly expenses. */
+          if(Array.isArray(d.supplierPayments)){
+            d.supplierPayments=d.supplierPayments.filter(p=>p.sourceWeekId!==w.id&&!_delTreasuryIds.has(p.treasuryTxId));
+          }
+          /* 3. Delete hrLog entries linked to this week (V19.80.19: also weekly_ws_payment) */
+          d.hrLog=(d.hrLog||[]).filter(l=>!(l.weekId===w.id&&(l.type==="salary"||l.type==="advance"||l.type==="weekly_advance"||l.type==="weekly_ws_payment")));
           /* 4. Clear debt partial payments for this week */
           (d.empDebts||[]).forEach(debt=>{
             if(debt.partialPayments&&debt.partialPayments[w.id]){

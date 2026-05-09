@@ -2383,6 +2383,23 @@ export default function App(){
     Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,new Map()]))
   );
   /* Helper: register pending writes after an optimistic update */
+  /* V19.80.19: hard cap to prevent unbounded growth of the pending Map.
+     With V19.80.16's removal of the blind 30s sweep + V19.80.19's stricter
+     stable-field cleanup, pending entries that genuinely never confirm could
+     accumulate. We cap at 5000 per field and FIFO-evict the oldest. The user
+     is already warned via noticeWarn at >60s, so eviction is purely a memory
+     safety valve, not data-loss insurance. */
+  const PENDING_CAP=5000;
+  const _capAndEvict=(map)=>{
+    if(!map||map.size<=PENDING_CAP)return;
+    /* FIFO eviction by timestamp ascending. Keep the cap exactly. */
+    const sorted=[...map.entries()].sort((a,b)=>(a[1]?.timestamp||0)-(b[1]?.timestamp||0));
+    const dropCount=map.size-PENDING_CAP;
+    for(let i=0;i<dropCount;i++){
+      map.delete(sorted[i][0]);
+    }
+    console.warn("[V19.80.19] pending map evicted "+dropCount+" oldest entries (cap "+PENDING_CAP+")");
+  };
   const registerPendingSplitWrites=useCallback((before,after)=>{
     /* V19.49: iterate ALL split fields dynamically */
     for(const f of SPLIT_FIELDS){
@@ -2404,6 +2421,7 @@ export default function App(){
           pendingSplitWritesRef.current[f].set(id,{deleted:true,timestamp:Date.now()});
         }
       }
+      _capAndEvict(pendingSplitWritesRef.current[f]);
     }
   },[]);
   /* V19.51: same helper but for sales-doc split fields. Records adds/mods/deletes
@@ -2582,15 +2600,53 @@ export default function App(){
             all.unshift(info.entry);
           }
         }
-        /* Cleanup: server has confirmed pending writes (entries match) */
+        /* Cleanup: server has confirmed pending writes.
+           V19.80.19 ROBUSTNESS FIX: pre-V19.80.19 we required a strict deepEqual
+           match between server state and pending entry. If ANY code path enriched
+           the server-side entry with extra fields (e.g., editedBy/editedAt on
+           a transfer edit, _v193DupCleanup migration tags, _v199Recovered marks,
+           server-side cloud-function transformations, even just whitespace
+           differences in normalized fields), the deepEqual returned false and
+           the pending entry NEVER got cleared — accumulating the pending Map
+           indefinitely after V19.80.16 removed the blind 30s sweep. The Map
+           growth + repeated stuck warnings made the V19.80.16 fix fragile.
+
+           New strategy: compare only the STABLE business fields that uniquely
+           identify the entry's economic content. If those match, server has
+           the entry — pending can clear. Server-only enrichment fields are
+           ignored. If any of these stable fields diverge, the pending stays
+           visible (correct — there IS a real divergence the user should see). */
+        const _stableMatch=(server,pending)=>{
+          if(!server||!pending)return false;
+          if(String(server.id||"")!==String(pending.id||""))return false;
+          /* Compare key fields. Number-coerce amounts to ignore "5" vs 5 etc. */
+          const eq=(a,b)=>{
+            if(a===b)return true;
+            if(a==null&&b==null)return true;
+            return String(a||"")===String(b||"");
+          };
+          const numEq=(a,b)=>Math.abs((Number(a)||0)-(Number(b)||0))<0.005;
+          if(!numEq(server.amount,pending.amount))return false;
+          if(!eq(server.date,pending.date))return false;
+          if(!eq(server.type,pending.type))return false;
+          if(!eq(server.category,pending.category))return false;
+          if(!eq(server.account,pending.account))return false;
+          if(!eq(server.desc,pending.desc))return false;
+          /* Specific cross-checks (cheap and accurate) */
+          if(!eq(server.transferId,pending.transferId))return false;
+          if(!eq(server.weekId,pending.weekId))return false;
+          if(!eq(server.empId,pending.empId))return false;
+          if(!eq(server.custId,pending.custId))return false;
+          if(!eq(server.supplierId,pending.supplierId))return false;
+          return true;
+        };
         for(const[id,info]of pendingMap){
           if(info.deleted){
             /* Confirmed deleted: not in server anymore */
             if(!serverIds.has(id))pendingMap.delete(id);
           }else if(info.entry){
-            /* Confirmed write: server has identical version */
             const serverEntry=Array.from(map.values()).flat().find(e=>String(e?.id||"")===id);
-            if(serverEntry&&_deepEqual(serverEntry,info.entry)){/* V19.65: order-independent */
+            if(serverEntry&&_stableMatch(serverEntry,info.entry)){
               pendingMap.delete(id);
             }
           }

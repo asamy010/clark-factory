@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.19",
+    date: "2026-05-09",
+    types: ["fix","feature"],
+    title: "🛡 تقوية الخزنة + المحاسبة بعد audit شامل (3 CRITICAL + 4 HIGH)",
+    changes: [
+      { type: "fix", text: "🚨 [CRITICAL — Accounting drift after V19.80.17 recovery] الـ V19.80.17 كان بـ يـ recreate treasury+hrLog+supplierPayments بس — ما كانش بـ يـ post journal entries. النتيجة: الـ Trial Balance + Balance Sheet + Income Statement + Party Ledger كانوا بـ يقروا من accountingDays فالـ cash account كان مكتوب فيه أقل من اللي في الخزنة، والـ AR/AP كانوا overstated. **PaymentsTab.jsx confirmRecovery دلوقتي بـ يـ trigger backfillAll تلقائياً بعد كل recovery** — postEntry idempotent بـ check (sourceType, sourceId)، فإعادة التشغيل بـ تـ UPDATE بدل ما تـ duplicate." },
+      { type: "feature", text: "📚 [زر جديد — \"📚 ترحيل القيود للمحاسبة\"] standalone backfill button في PaymentsTab بجوار الـ recovery + repair buttons. للـ users اللي ركضوا V19.80.17 قبل الـ V19.80.19 fix. الزر بـ يـ run backfillAll(data) — بـ يمشي على كل sales/returns/customer-payments/checks/workshop-pays/hr-logs/treasury، ويـ post journal entry لأي حاجة مفقودة. بـ يعرض banner بنتيجة كاملة (مرحّل / متخطّى / فشل) + breakdown by type. **Idempotent — أمان تشغيله أكتر من مرة.**" },
+      { type: "fix", text: "🚨 [CRITICAL — Treasury delete left orphan journal entries] TreasuryPg.delTx + bulkDeleteTxs كانوا بـ يحذفوا الـ treasury row + cascaded payments بس، من غير ما يعكسوا الـ JE المرتبطة. النتيجة: درر JE في accountingDays بدون treasury مقابل → cash overstated في TB. **دلوقتي كل delete بـ يـ fire autoPost.reverse للـ treasury + المربوطات (hrLog، custPayment، wsPayment)** — autoPost.reverse no-op لو مفيش JE، فآمن للـ over-firing. الـ edit path كان بـ يعمل ده فعلاً، الـ delete كان مش بـ يعمل." },
+      { type: "fix", text: "🚨 [CRITICAL — Pending Map could grow unbounded] V19.80.16 شال الـ blind 30s sweep لكن ساب الـ flatten() compare على full deepEqual. لو السيرفر enrich الـ entry بأي field إضافي (editedBy، _v193DupCleanup migration tags، إلخ) → deepEqual رجع false → الـ pending ما اتنظفش → الـ Map بقى يكبر بدون حد + warning spam. **دلوقتي الـ compare على stable subset بس** (id + amount + date + type + category + account + desc + party-link IDs). الـ enrichment fields مش بـ تـ trip the match. **+ FIFO eviction cap عند 5000 entry per field** كـ safety valve." },
+      { type: "fix", text: "🛡 [HIGH — Double-click race على close-week] HRPg.tryApproveWeek/approveWeek كانوا بـ يـ check `openWeek.status` من الـ React closure — closure value stale لمدة ~1100ms (الـ setTimeout chain للـ saving overlay). double-click في الـ window ده كان بـ يخلي الـ pipeline يـ fire مرتين → duplicate salary/advance/ws/expense entries بـ fresh gid()s. **دلوقتي in-flight ref guard (`approvingRef.current`)** بـ يقفل عند بداية الـ pipeline، يـ release عند success/error. الـ guard متحطّ بعد كل الـ early-return paths (duplicate-detection، override-confirm) فمش بـ يكسر الـ workflows دي." },
+      { type: "fix", text: "🧹 [HIGH — clean-delete-week filter كان ناقص] HRPg.executeCleanDelete كان بـ يحذف treasury entries بـ sourceType ∈ [hr_salary, hr_weekly_advance, hr_advance] بس. V15.27 ضافت hr_weekly_ws_payment + V15.34 ضافت hr_other_expense — الاتنين فاتوا → orphan treasury rows + supplier statements ما اتـ cascade-cleaned. **دلوقتي الـ filter متمدد لكل الـ 5 sourceTypes + cascade على wsPayments + supplierPayments بـ sourceWeekId/treasuryTxId + hrLog weekly_ws_payment**." },
+      { type: "doc", text: "📋 [Findings deferred لـ versions جاية]\n• PurchasePg.jsx — supplier cash payments مش بـ يـ autopost (asymmetric مع CustDeliverPg). الـ existing data بـ تتـ rescue بـ backfillAll.\n• matchPartyFromDesc minNameLength:3 — قابل لمطابقات خاطئة لأسماء قصيرة (\"علي\"). الـ recovery الحالي ما يستخدمش الـ path ده.\n• Restore-week stale fields — ما بـ تتمسحش عند reopen، بـ تتـ overwrite صامتاً عند re-close. منفصل عن أي data-loss.\n• matchPartyFromDesc minNameLength bump إلى 5، CoA delete loading guard، CoA rename propagation — كلها cosmetic/edge cases." },
+    ]
+  },
+  {
     version: "V19.80.18",
     date: "2026-05-09",
     types: ["fix"],
