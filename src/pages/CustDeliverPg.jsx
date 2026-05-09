@@ -1772,7 +1772,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
              cell (which is known to work), visually identical to the old header.
              User's idea: "تجميد العناوين زي الكتابة النصية الثابتة" — exactly this. */
           "td{padding:4px 8px;text-align:right;border:1px solid #CBD5E1;font-size:11px}"+
-          ".h{background:linear-gradient(180deg,#E2E8F0,#CBD5E1)!important;font-family:Arial,Tahoma,'Segoe UI','GeezaPro',sans-serif;font-weight:700;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8;letter-spacing:0.3px}"+
+          /* V19.80.23: removed letter-spacing:0.3px from .h — it broke Arabic
+             ligatures in html2canvas (chars couldn't join, headers rendered
+             as overlapping isolated glyphs like "لعمميل" instead of "العميل").
+             Tahoma moved BEFORE Arial because Arial Latin has no Arabic glyphs;
+             when html2canvas falls back, the timing race can leave headers in
+             a partial-glyph state. Tahoma has Arabic natively on every Windows
+             since XP, so the browser commits to it immediately. font-weight
+             reduced from 700 to 600 to avoid synthetic-bold thickening that
+             also broke joining at small font-sizes. */
+          ".h{background:linear-gradient(180deg,#E2E8F0,#CBD5E1)!important;font-family:Tahoma,Arial,'Segoe UI','GeezaPro',sans-serif;font-weight:600;font-size:10px;color:#1E293B;padding:5px 8px;text-align:right;border:1px solid #94A3B8}"+
           "tr:nth-child(even){background:#F8FAFC}"+
           ".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"+
           ".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"+

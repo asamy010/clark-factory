@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.80.23",
+    date: "2026-05-09",
+    types: ["fix"],
+    title: "🔤 إصلاح عناوين الحقول المتداخلة في الـ PDF (letter-spacing كان بيكسر ligatures)",
+    changes: [
+      { type: "fix", text: "🐛 [User report — \"عناوين الحقول ظاهرة بشكل غلط ومتداخل\"] بعد V19.80.22 الـ body cells (الأرقام، الأسماء، الوصف) بـ render-ت تمام. لكن خلايا العناوين (.h class) — \"العميل\"، \"التليفون\"، \"التاريخ\"، \"العنوان\"، \"الموديل\"، \"الوصف\"، \"الكمية\"، \"السعر\"، \"الإجمالي\" — طلعت بحروف منفصلة ومتداخلة (شكلها زي \"لعمميل\" بدل \"العميل\")." },
+      { type: "fix", text: "🔍 [Root cause] الـ `.h` class كان فيه `letter-spacing:0.3px`. الحروف العربية لازم تـ join مع بعض (ligatures) عشان تطلع صح، والـ letter-spacing بـ يفرض مسافة بين كل glyph وتاليه — اللي بـ يمنع الـ joining engine من الـ shape. الـ body td ما كانش عنده letter-spacing فطلع تمام؛ الـ .h كان عنده فطلع متكسر. المشكلة دي بـ تظهر في html2canvas تحديداً لأنه بـ يـ snapshot الـ glyphs بعد الـ font shaping، فلو الـ shaping اتكسر، الـ snapshot مكسور permanent." },
+      { type: "fix", text: "🔧 [Fix — 3 تغييرات على .h]:\n• شيلت `letter-spacing:0.3px` (السبب الجذري)\n• قدّمت Tahoma على Arial في الـ font-family stack: `Tahoma, Arial, 'Segoe UI', 'GeezaPro', sans-serif`. ليه؟ Arial Latin ما عندوش Arabic glyphs، فالـ browser بـ يعمل fallback. الـ fallback timing داخل html2canvas's offscreen iframe بـ يكون race-prone — أحياناً الـ Cairo/Tahoma mы commit قبل ما الـ snapshot يحصل، أحياناً لا. لما Tahoma يكون أول family في الـ stack، الـ Arabic chars بـ تـ resolve مباشرة على Tahoma بدون fallback dance. الـ Latin chars بـ تـ fall back من Tahoma إلى Arial (يدعمها fallback) — والـ Latin shaping بسيط فمش بـ يتأثر.\n• قللت font-weight من 700 إلى 600 لأن synthetic bolding (لما الـ font ما عندوش bold variant حقيقي للـ Arabic) بـ يخن الـ glyphs ويـ break الـ joining عند small font-sizes." },
+      { type: "doc", text: "💡 [الـ body cells لسه بـ يستخدموا الـ default body font-family] الـ td (بدون .h) ما بـ يحتاج تغيير — الـ Arial-first stack شغّال للـ body لأن مفيش letter-spacing ولا synthetic-bold. الـ tweak محصور على الـ headers." },
+    ]
+  },
+  {
     version: "V19.80.22",
     date: "2026-05-09",
     types: ["fix","architectural"],
