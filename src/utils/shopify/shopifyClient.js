@@ -183,3 +183,9 @@ export function shopifySyncAbandonedCarts(opts, user){
 export function shopifyUpdateCartRecovery(opts, user){
   return call("POST", "/api/shopify/update-cart-recovery", opts, user);
 }
+
+/* V21.2 Phase 10c: Discount codes manager.
+   { action: "list" | "sync" | "create" | "delete", ... } */
+export function shopifyDiscountCodes(opts, user){
+  return call("POST", "/api/shopify/discount-codes", opts, user);
+}

@@ -39,6 +39,7 @@ import {
   shopifyBulkUpdateProducts, shopifySyncProductsWithFilters, shopifyCreateClarkItem,
   shopifySyncCustomers, shopifyUpdateCustomer,
   shopifySyncAbandonedCarts, shopifyUpdateCartRecovery,
+  shopifyDiscountCodes,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -53,6 +54,7 @@ const SUB_TABS = [
   { key: "products",       label: "📦 المنتجات",        color: "#F59E0B" },
   { key: "orders",         label: "🛒 الطلبات",         color: "#8B5CF6" },
   { key: "abandoned",      label: "🛍️ السلال المهجورة", color: "#DB2777" },
+  { key: "discounts",      label: "🎟 الكوبونات",        color: "#F97316" },
   { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
   { key: "shipping",       label: "🚚 الشحن (Bosta)",   color: "#0D9488" },
   { key: "invoices",       label: "🧾 الفواتير",        color: "#06B6D4" },
@@ -180,6 +182,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "customers"      && <CustomersTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "abandoned"      && <AbandonedCartsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "discounts"      && <DiscountCodesTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
@@ -4530,6 +4533,198 @@ ${cart.abandoned_checkout_url}
               </div>
             ))}
             {filtered.length > 50 && <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>+ {filtered.length - 50} سلة أخرى</div>}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.2 Phase 10c — DiscountCodesTab
+   ═══════════════════════════════════════════════════════════════════════ */
+function DiscountCodesTab({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const codes = useMemo(() => Array.isArray(data?.shopifyDiscountCodes) ? data.shopifyDiscountCodes : [], [data]);
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const [newType, setNewType] = useState("percentage");
+  const [newValue, setNewValue] = useState("10");
+  const [newUsageLimit, setNewUsageLimit] = useState("");
+  const [newEndsAt, setNewEndsAt] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if(!q) return codes;
+    return codes.filter(c =>
+      String(c.code || "").toLowerCase().includes(q) ||
+      String(c.title || "").toLowerCase().includes(q)
+    );
+  }, [codes, search]);
+
+  const handleSync = async () => {
+    if(!canEdit) return;
+    setBusy(true);
+    try {
+      const r = await shopifyDiscountCodes({ action: "sync" }, user);
+      if(r?.ok){ showToast(`✅ ${r.count} كوبون`); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleCreate = async () => {
+    if(!canEdit) return;
+    if(!newCode.trim()){ showToast("⚠️ ادخل code"); return; }
+    const value = Number(newValue);
+    if(!Number.isFinite(value) || value <= 0){ showToast("⚠️ القيمة لازم > 0"); return; }
+    if(newType === "percentage" && value > 100){ showToast("⚠️ النسبة لازم ≤ 100"); return; }
+    setBusy(true);
+    try {
+      const r = await shopifyDiscountCodes({
+        action: "create",
+        code: newCode.trim().toUpperCase(),
+        type: newType,
+        value,
+        usage_limit: newUsageLimit.trim() ? Number(newUsageLimit) : null,
+        ends_at: newEndsAt ? new Date(newEndsAt).toISOString() : null,
+      }, user);
+      if(r?.ok){
+        showToast("✅ تم إنشاء " + r.code);
+        setShowCreate(false);
+        setNewCode(""); setNewValue("10"); setNewUsageLimit(""); setNewEndsAt("");
+        await shopifyDiscountCodes({ action: "sync" }, user);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleDelete = async (c) => {
+    if(!canEdit) return;
+    const yes = await ask("🗑 حذف الكوبون", `هتحذف "${c.code}" نهائياً من Shopify (مش هـ يقدر حد يستخدمه). تأكيد؟`);
+    if(!yes) return;
+    setBusy(true);
+    try {
+      const r = await shopifyDiscountCodes({ action: "delete", priceRuleId: c.price_rule_id }, user);
+      if(r?.ok){ showToast("🗑 اتحذف"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleCopy = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast("📋 تم النسخ: " + code);
+    } catch(_){ showToast("⚠️ فشل النسخ"); }
+  };
+
+  if(!cfg.connected){
+    return <Card title="⚠️ مش متصل"><div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div></Card>;
+  }
+
+  const labelStyle = { display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <MetricCard label="الكوبونات" value={String(codes.length)} icon="🎟" color="#F97316" />
+        <MetricCard label="استخدامات" value={String(codes.reduce((s,c)=>s+(c.usage_count||0),0))} icon="📊" color="#0EA5E9" />
+        <MetricCard label="نسبة %" value={String(codes.filter(c=>c.value_type==="percentage").length)} icon="%" color="#8B5CF6" />
+        <MetricCard label="مبلغ ثابت" value={String(codes.filter(c=>c.value_type==="fixed_amount").length)} icon="💰" color="#10B981" />
+      </div>
+
+      <Card title="🎟 إدارة الكوبونات" extra={
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Btn small primary onClick={()=>setShowCreate(s=>!s)} disabled={!canEdit}>{showCreate ? "✕ إلغاء" : "➕ كوبون جديد"}</Btn>
+          <LoadingBtn loading={busy} loadingText="..." onClick={handleSync} disabled={!canEdit} small>🔄 تحديث</LoadingBtn>
+        </div>
+      }>
+        {showCreate && (
+          <div style={{ padding: 14, background: T.bg, borderRadius: 10, marginBottom: 12, border: "1px solid " + T.brd }}>
+            <div style={{ fontWeight: 800, fontSize: FS, marginBottom: 10, color: T.text }}>🎟 إنشاء كوبون جديد</div>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={labelStyle}>الـ Code</label>
+                <Inp value={newCode} onChange={v=>setNewCode(v.toUpperCase())} placeholder="VIP25" />
+              </div>
+              <div>
+                <label style={labelStyle}>النوع</label>
+                <Sel value={newType} onChange={setNewType}>
+                  <option value="percentage">% خصم</option>
+                  <option value="fixed_amount">مبلغ ثابت ج</option>
+                </Sel>
+              </div>
+              <div>
+                <label style={labelStyle}>القيمة</label>
+                <Inp value={newValue} onChange={setNewValue} type="number" placeholder={newType==="percentage"?"10":"50"} />
+              </div>
+              <div>
+                <label style={labelStyle}>حد الاستخدام</label>
+                <Inp value={newUsageLimit} onChange={setNewUsageLimit} type="number" placeholder="بدون حد" />
+              </div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={labelStyle}>تاريخ انتهاء (اختياري)</label>
+              <input type="date" value={newEndsAt} onChange={e=>setNewEndsAt(e.target.value)}
+                style={{ padding: 8, borderRadius: 6, border: "1px solid " + T.brd, background: T.cardSolid, color: T.text, fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <LoadingBtn primary loading={busy} loadingText="..." onClick={handleCreate} disabled={!canEdit} small>
+                ✅ إنشاء في Shopify
+              </LoadingBtn>
+              <Btn small onClick={()=>setShowCreate(false)}>إلغاء</Btn>
+            </div>
+          </div>
+        )}
+
+        <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالـ code..." />
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut, marginTop: 14 }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>🎟</div>
+            <div>{codes.length === 0 ? "اضغط 'تحديث' للـ sync أو 'كوبون جديد' للإنشاء" : "مفيش كوبون يطابق البحث"}</div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.map(c => {
+              const expired = c.ends_at && new Date(c.ends_at).getTime() < Date.now();
+              const exhausted = c.usage_limit && c.usage_count >= c.usage_limit;
+              return (
+                <div key={c.discount_code_id} style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  background: expired || exhausted ? T.bg : T.cardSolid,
+                  border: "1px solid " + (expired || exhausted ? T.warn + "40" : T.brd),
+                  borderInlineStart: "3px solid " + (expired || exhausted ? T.warn : "#F97316"),
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap",
+                }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <code style={{ fontFamily: "monospace", fontWeight: 800, fontSize: FS + 2, color: "#F97316", padding: "2px 10px", background: "#F9731615", borderRadius: 6, letterSpacing: 1 }}>{c.code}</code>
+                      <span style={{ fontWeight: 700, color: T.text }}>
+                        {c.value_type === "percentage" ? c.value + "%" : fmt(c.value) + " ج"}
+                      </span>
+                      {expired && <span style={{ fontSize: FS - 3, padding: "1px 8px", borderRadius: 6, background: T.warn + "20", color: T.warn, fontWeight: 700 }}>⏰ منتهي</span>}
+                      {exhausted && <span style={{ fontSize: FS - 3, padding: "1px 8px", borderRadius: 6, background: T.warn + "20", color: T.warn, fontWeight: 700 }}>📊 متشغّل</span>}
+                    </div>
+                    <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <span>📊 استخدام: {c.usage_count || 0}{c.usage_limit ? " / " + c.usage_limit : ""}</span>
+                      {c.ends_at && <span>⏰ ينتهي: {new Date(c.ends_at).toLocaleDateString("ar-EG")}</span>}
+                      {c.once_per_customer && <span>👤 مرة واحدة لكل عميل</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <Btn small onClick={()=>handleCopy(c.code)}>📋</Btn>
+                    <Btn small danger onClick={()=>handleDelete(c)} disabled={!canEdit}>🗑</Btn>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>

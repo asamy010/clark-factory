@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.2.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🎟 Phase 10c — Discount Codes Management",
+    changes: [
+      { type: "feature", text: "🎟 [إدارة كوبونات Shopify كاملة] الـ user دلوقتي يقدر:\n• ينشئ كوبون جديد (% خصم أو مبلغ ثابت)\n• يحدد الـ usage limit (مثلاً أول 100 استخدام بس)\n• يحدد تاريخ انتهاء (ends_at)\n• يعرض كل الكوبونات الموجودة في الستور (sync من Shopify)\n• ينسخ الكود بضغطة (للصق في رسالة WhatsApp)\n• يحذف كوبون نهائياً" },
+      { type: "feature", text: "📡 [Single endpoint multi-action] /api/shopify/discount-codes بـ 4 actions:\n• list — يرجّع كل الـ price_rules بـ codes الـ associated\n• sync — list + يحفظ في factory/config.shopifyDiscountCodes\n• create — يولّد price_rule + discount_code (1:1) في Shopify\n• delete — يحذف price_rule (auto-deletes الـ codes المرتبطة)" },
+      { type: "feature", text: "🎟 [New sub-tab '🎟 الكوبونات'] بين Abandoned Carts والـ Customers:\n• 4 stats: عدد الكوبونات / إجمالي الاستخدامات / كوبونات % / كوبونات مبلغ\n• Inline create form: code + type + value + usage_limit + ends_at\n• قائمة بكل كوبون: badge شفاف + قيمته + استخدامات + تاريخ انتهاء + once_per_customer\n• Status badges: ⏰ منتهي / 📊 متشغّل (وصل لحد الاستخدام)\n• 2 actions per code: 📋 نسخ / 🗑 حذف" },
+      { type: "feature", text: "💡 [Workflow integrations]\n• الـ Abandoned Carts message بـ يقترح كوبون BACK10 — تقدر تنشئه من هنا\n• الـ Customers Bulk WhatsApp يقدر يحط template مع {code} منسوخ من هنا\n• مفيد لحملات seasonal: VIP25 / RAMADAN30 / SUMMER15 / etc." },
+    ]
+  },
+  {
     version: "V21.1.0",
     date: "2026-05-10",
     types: ["feature"],
