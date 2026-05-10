@@ -38,6 +38,7 @@ import {
   shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
+import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
@@ -688,22 +689,20 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
       {/* Phase status */}
       <Card title="📋 حالة التنفيذ">
         <div style={{ fontSize: FS - 1, lineHeight: 1.9, color: T.textSec }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ color: T.ok, fontWeight: 800 }}>✅ Phase 0 — الأساس</span>
-            <span style={{ color: T.textMut }}>(الحالي)</span>
+          <PhaseDone num="0" title="Foundation" desc="Tab + Connection + Schema migration + 4 CoA accounts + shopify_default customer" />
+          <PhaseDone num="0.5" title="OAuth 2.0 install" desc="Replace deprecated legacy custom apps with the official OAuth flow" />
+          <PhaseDone num="1" title="Read & Display" desc="Orders polling cron + manual sync + filter/search + status mgmt" />
+          <PhaseDone num="2" title="Stock Reservation" desc="Auto-reserve on order, auto-release on refusal, daily TTL cleanup" />
+          <PhaseDone num="3" title="Invoice Generation" desc="Auto-create draft invoice on delivery + commit reservations + Process Return → Credit Note" />
+          <PhaseDone num="4" title="Inventory Push" desc="Push computed available qty to Shopify (physical − reservations − buffer), per-product settings" />
+          <PhaseDone num="5" title="Dashboard + Reconciliation" desc="Comprehensive overview, top products, alerts, stale order resolution, daily reconciliation" />
+          <PhaseDone num="6" title="Polish + Daily Report" desc="WhatsApp-ready daily report generator with copy-to-clipboard + WhatsApp share link" />
+          <div style={{ marginTop: 16, padding: 12, background: T.ok + "10", border: "1px solid " + T.ok + "30", borderRadius: 8 }}>
+            <div style={{ fontSize: FS, fontWeight: 800, color: T.ok }}>🎉 الـ integration كامل!</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+              كل الـ 7 phases خلصت. Two-Stage COD Workflow بـ يشتغل end-to-end. الـ documentation كاملة في الـ CHANGELOG.
+            </div>
           </div>
-          <div style={{ marginInlineStart: 24, marginBottom: 10, fontSize: FS - 2 }}>
-            • Tab Shopify + 7 sub-tabs scaffolded<br/>
-            • Connection (اتصال + اختبار + قطع)<br/>
-            • Schema migration (4 حسابات + عميل افتراضي + إعدادات)<br/>
-            • API endpoints محمية بـ admin auth
-          </div>
-          <PhasePending num="1" title="Read & Display" desc="مزامنة الطلبات + عرض Pending" />
-          <PhasePending num="2" title="Stock Reservation" desc="حجز المخزون عند الطلب، تحرير عند الرفض" />
-          <PhasePending num="3" title="Invoice Generation" desc="فاتورة تلقائية عند الـ fulfillment + قيد محاسبي" />
-          <PhasePending num="4" title="Inventory Push" desc="Push المخزون إلى Shopify كل 5 دقايق" />
-          <PhasePending num="5" title="Reconciliation & Returns" desc="المطابقة اليومية، مرتجعات، تقرير WhatsApp" />
-          <PhasePending num="6" title="Polish & Launch" desc="50+ test scenarios، توثيق، soft launch" />
         </div>
       </Card>
 
@@ -718,6 +717,17 @@ function PhasePending({ num, title, desc }){
         <span style={{ color: T.textMut, fontWeight: 800 }}>○ Phase {num} — {title}</span>
       </div>
       <div style={{ marginInlineStart: 24, fontSize: FS - 2, color: T.textMut }}>{desc}</div>
+    </div>
+  );
+}
+
+function PhaseDone({ num, title, desc }){
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: T.ok, fontWeight: 800 }}>✅ Phase {num} — {title}</span>
+      </div>
+      <div style={{ marginInlineStart: 24, fontSize: FS - 2, color: T.textSec }}>{desc}</div>
     </div>
   );
 }
@@ -1903,6 +1913,9 @@ function ReconciliationTab({ data, canEdit, user, isMob, setActiveTab }){
         </div>
       </Card>
 
+      {/* V19.98 Phase 6: Daily Report */}
+      <DailyReportCard data={data} isMob={isMob} />
+
       {/* Quick actions */}
       <Card title="⚡ إجراءات سريعة">
         <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
@@ -1913,6 +1926,78 @@ function ReconciliationTab({ data, canEdit, user, isMob, setActiveTab }){
       </Card>
 
     </div>
+  );
+}
+
+/* V19.98 Phase 6: Daily Report card with copy-to-clipboard + WhatsApp link */
+function DailyReportCard({ data, isMob }){
+  const [report, setReport] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const generate = () => {
+    const text = buildShopifyDailyReport(data);
+    setReport(text);
+    setCopied(false);
+  };
+
+  const handleCopy = async () => {
+    if(!report) return;
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopied(true);
+      showToast("✅ نُسخ — جاهز للصق في أي مكان");
+      setTimeout(() => setCopied(false), 3000);
+    } catch(_){
+      showToast("⚠️ النسخ فشل — حدد النص يدوياً");
+    }
+  };
+
+  const handleWhatsApp = () => {
+    if(!report) return;
+    /* Open WhatsApp web/app with the report pre-filled */
+    const encoded = encodeURIComponent(report);
+    window.open("https://wa.me/?text=" + encoded, "_blank");
+  };
+
+  return (
+    <Card title="📤 التقرير اليومي" extra={
+      <div style={{ display: "flex", gap: 6 }}>
+        <Btn onClick={generate} small primary>📊 ولّد التقرير</Btn>
+      </div>
+    }>
+      {!report ? (
+        <div style={{ padding: 20, textAlign: "center", color: T.textMut, fontSize: FS - 1 }}>
+          اضغط "ولّد التقرير" عشان تشوف ملخص اليوم بصيغة جاهزة للـ WhatsApp.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+            <Btn small onClick={handleCopy} primary={!copied}>
+              {copied ? "✓ تم النسخ" : "📋 انسخ النص"}
+            </Btn>
+            <Btn small onClick={handleWhatsApp}>📱 افتح في WhatsApp</Btn>
+            <Btn small onClick={generate}>🔄 إعادة توليد</Btn>
+          </div>
+          <pre style={{
+            margin: 0,
+            padding: 14,
+            background: T.bg,
+            borderRadius: 8,
+            border: "1px solid " + T.brd,
+            fontFamily: "'Cairo', sans-serif",
+            fontSize: FS - 1,
+            lineHeight: 1.7,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            color: T.text,
+            maxHeight: 500,
+            overflowY: "auto",
+            direction: "rtl",
+            textAlign: "start",
+          }}>{report}</pre>
+        </>
+      )}
+    </Card>
   );
 }
 

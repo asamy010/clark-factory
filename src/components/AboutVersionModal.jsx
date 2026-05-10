@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.98.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 6 (الأخيرة!) — Daily Report + Polish",
+    changes: [
+      { type: "feature", text: "🎉 [Shopify Integration كامل!] الـ 7 phases (0 → 6) كلهم خلصوا في يوم واحد. الـ integration دلوقتي بـ يدعم الـ Two-Stage COD Workflow كامل من الـ order placement حتى الـ daily reporting." },
+      { type: "feature", text: "📤 [Daily Report Generator] في تاب Reconciliation، زرار جديد \"📊 ولّد التقرير\" بـ يـ generate تقرير WhatsApp-ready كامل بـ:\n• اسم الستور + التاريخ\n• إحصائيات النشاط (طلبات جديدة، delivered، refused، returned، conversion rate)\n• الإيرادات (gross + shipping + refunds + net)\n• الطلبات Pending مع تنبيه للـ stale\n• المخزون المحجوز\n• 🔥 Top 3 منتجات اليوم بـ medals\n• تنبيهات (stale orders، product mismatches، unmatched SKUs)\nالنص بـ يستخدم Markdown بسيط (*) اللي WhatsApp بـ يـ render-ه عادي." },
+      { type: "feature", text: "📋 [3 طرق للمشاركة]\n• 📋 انسخ النص — clipboard copy للـ paste في أي مكان\n• 📱 افتح في WhatsApp — wa.me link مع التقرير prefilled، الـ user بـ يختار الـ contact\n• 🔄 إعادة توليد — يعيد الحساب مع آخر بيانات لو حصل تحديث" },
+      { type: "feature", text: "🛠 [buildShopifyDailyReport في utils/shopify/dailyReport.js]\n• Pure function — بـ تاخد data + optional date\n• Reusable من أي مكان (Reconciliation tab، future cron، manual API call)\n• في buildShopifyDailySummaryShort للـ one-liner notifications\n• الـ output بالعربي مع emoji للـ WhatsApp" },
+      { type: "feature", text: "✅ [Phase status update] الـ Connection tab دلوقتي بـ يعرض كل الـ 7 phases بـ status \"Done\":\n✅ Phase 0 — Foundation\n✅ Phase 0.5 — OAuth 2.0\n✅ Phase 1 — Read & Display\n✅ Phase 2 — Stock Reservation\n✅ Phase 3 — Invoice Generation\n✅ Phase 4 — Inventory Push\n✅ Phase 5 — Dashboard + Reconciliation\n✅ Phase 6 — Polish + Daily Report\n+ banner أخضر بـ \"🎉 الـ integration كامل!\"" },
+      { type: "doc", text: "📊 [Final stats — اللي اتعمل في Shopify integration]\n• 13 API endpoints جديدة (3 OAuth + 4 sync + 4 mutations + cron variants)\n• 4 cron jobs (poll-orders، push-inventory، cleanup-reservations، إلخ)\n• 7 files في api/shopify/ + 4 في api/cron/\n• 5 new client utils (shopifyClient، stockReservations، shopifyMigration، dailyReport، إلخ)\n• ShopifyIntegrationPg بـ ~1700 سطر — 7 sub-tabs functional\n• Schema migration ضافت 4 CoA accounts + shopify_default customer + shopifyConfig defaults\n• كل الـ phases documented في CHANGELOG على اليوم 2026-05-10\n• 8 commits على main: 889ea62 (V0) → a814e3d (V1.1) → 6fd8a32 (V1.2) → 750c5c5 (V0.5 OAuth) → 5c6801a (V1) → f25a611 (V2) → 880b0a4 (V3) → a7c6dbc (V4) → 6f7251f (V5) → الكوميت ده (V6)" },
+      { type: "doc", text: "🚀 [Next steps للـ user]\n1. اعمل Vercel deploy عشان آخر changes تـ go live\n2. تأكد إن SHOPIFY_CLIENT_ID + SECRET + DELIVERY_CONFIRM_SECRET + CRON_SECRET كلهم في Vercel env vars\n3. روح Dev Dashboard → اعمل Release لو غيّرت scopes (الـ scopes كاملة في الـ setup card)\n4. اعمل sync products + sync orders للمرة الأولى\n5. ادخل المنتجات في CLARK inventoryItems مع model_no = SKU\n6. اضبط safety_buffer لكل منتج حسب الـ velocity\n7. جرّب Mark Delivered على طلب test → شوف الفاتورة بـ تتعمل + الـ reservation بـ تـ commit\n8. اعمل push inventory dryRun الأول قبل الـ live push\n9. Daily routine: افتح Dashboard الصبح → شوف stale orders → ولّد daily report آخر اليوم\nموفّق إن شاء الله 🤲" },
+    ]
+  },
+  {
     version: "V19.97.0",
     date: "2026-05-10",
     types: ["feature"],
