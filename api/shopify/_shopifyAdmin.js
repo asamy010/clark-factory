@@ -477,11 +477,35 @@ export function mapShopifyProductToCLARK(product){
   const primarySku = variants[0]?.sku || "";
   /* V19.99: Extract primary image + min/max price for better UX */
   const images = Array.isArray(product.images) ? product.images : [];
-  const primaryImage = product.image?.src || images[0]?.src || "";
+  const primaryImageObj = product.image || images[0] || null;
+  const primaryImage = primaryImageObj?.src || "";
+  /* V20.0: extract image dimensions (Shopify returns width/height for nice
+     aspect-ratio rendering — usually 3:4 portrait for fashion stores). */
+  const imageWidth = primaryImageObj?.width || 0;
+  const imageHeight = primaryImageObj?.height || 0;
+  /* V20.0: Capture all images (gallery) for the expanded view */
+  const allImages = images.map(img => ({
+    id: img.id ? String(img.id) : "",
+    src: img.src || "",
+    alt: img.alt || "",
+    width: img.width || 0,
+    height: img.height || 0,
+    position: img.position || 0,
+  }));
   const prices = variants.map(v => v.price).filter(p => p > 0);
   const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
   const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
   const totalInventory = variants.reduce((s, v) => s + (Number(v.inventory_quantity) || 0), 0);
+  /* V20.0: Capture the product's options (Size, Color, Material, etc.)
+     so the UI can render variants as proper labeled selectors instead
+     of raw "Default" titles. Shopify shape:
+       options: [{ name: "Size", values: ["S","M","L"] },
+                 { name: "Color", values: ["Black","White"] }] */
+  const productOptions = Array.isArray(product.options) ? product.options.map(o => ({
+    name: o.name || "",
+    position: o.position || 0,
+    values: Array.isArray(o.values) ? o.values : [],
+  })) : [];
   return {
     shopify_id: String(product.id),
     title: product.title || "",
@@ -490,9 +514,13 @@ export function mapShopifyProductToCLARK(product){
     product_type: product.product_type || "",
     vendor: product.vendor || "",
     status: product.status || "active",
-    /* V19.99: image + price fields */
+    /* V19.99/V20.0: image + price + options fields */
     image_url: primaryImage,
+    image_width: imageWidth,
+    image_height: imageHeight,
     image_count: images.length,
+    images: allImages,
+    options: productOptions,
     min_price: minPrice,
     max_price: maxPrice,
     total_inventory: totalInventory,

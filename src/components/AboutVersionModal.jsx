@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V20.0.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 8 — Images, Variants, Create-in-CLARK",
+    changes: [
+      { type: "feature", text: "🖼 [الصور بشكل احترافي 3:4 portrait] الـ user أبلغ إن الصور مش ظاهرة. الحل:\n• الـ thumbnail بقى 60x80 (mobile) أو 75x100 (desktop) — ratio 3:4 (نفس Shopify default للـ fashion)\n• Object-position: center top عشان الـ crop يكون من فوق (مش من النص)\n• Fallback صحيح لو الصورة فشلت تـ load (📦 placeholder + retry بدون crossOrigin)\n• في الـ expanded view: gallery كامل بـ كل الصور (lazy-loaded)، اضغط أي صورة تفتح في tab جديد بـ full size\n• حفظ width/height من Shopify response عشان الـ aspect ratio يكون صح حتى لو الـ image dims مختلفة" },
+      { type: "feature", text: "🎨 [Variants بأسماء الـ options مظبوطة] قبل V20 الـ variants كانت بتظهر كلها \"Default\" حتى لو فيها sizes/colors:\n• الـ Shopify response عنده options[]=[{name:'Size',values:[...]},{name:'Color',values:[...]}]\n• القديم كان بـ يرمي options ويعرض variant.title بس\n• دلوقتي:\n  - mapShopifyProductToCLARK بـ يحفظ الـ options array\n  - الـ UI بـ يعرض كل option بـ اسمها: \"Size: S, M, L · Color: أحمر, أزرق\"\n  - كل variant row بـ يعرض labels: \"Size: M · Color: Black\"\n  - inline summary على الـ main row\n• لو الـ product معندوش options حقيقية في Shopify (كلهم Default Title) → تنبيه واضح بـ التعليمات" },
+      { type: "feature", text: "🆕 [\"إنشاء في CLARK\" — حل مشكلة الـ \"المنتج فين بقى؟\"] الـ user أبلغ إنه مش لاقي المنتجات بعد الـ sync. السبب: shopifyProducts هي قائمة منفصلة عن inventoryItems الفعلية في CLARK.\nالحل:\n• POST /api/shopify/create-clark-item — يولّد inventoryItem من Shopify product\n  - name = product title\n  - model_no = SKU (المفتاح للـ matching)\n  - sku, type, price (من first variant), unit, stock\n  - source = \"shopify_import\" (audit marker)\n  - notes = traceability info\n• Idempotent: لو فيه CLARK item بـ نفس model_no، بـ يـ link مش يعمل duplicate\n• الـ shopify product الـ mapping_status بـ يبقى \"matched\" + clark_inventory_id بـ يتعمل link\n• Bulk variant: bulkProductIds للـ batch creation" },
+      { type: "feature", text: "✨ [3 طرق لإنشاء CLARK items من Shopify]\n1. Per-product: زرار ➕ في الـ main row + زرار \"إنشاء في CLARK Inventory\" في الـ expanded view (بـ stock prompt)\n2. Bulk: اختار منتجات + اضغط \"➕ إنشاء في CLARK\" في الـ bulk action toolbar\n3. One-click \"أنشئ X في CLARK\" في الـ top toolbar — بـ يـ batch لكل المنتجات اللي mapping_status = missing_in_clark\nبعد الإنشاء:\n• الـ items بـ تظهر في CLARK → الـ Inventory tab زي أي item عادي\n• الـ Push Inventory الجاي بـ يقدر يحسب available لها (لأن الـ matching اشتغل)\n• الـ user يقدر يـ edit الـ stock من تاب Inventory" },
+      { type: "feature", text: "📊 [Stats banner الجديد] 6 cards بدل 4 → بقى يفصل بين الحالات بدقة:\n• إجمالي / matched / missing in CLARK / mismatch / retail synced / 🏭 wholesale-only" },
+      { type: "improvement", text: "📷 [Image error recovery] لو الصورة فشلت تـ load (Shopify CDN أحياناً بـ يـ reject crossOrigin):\n1. أولاً يحاول بـ crossOrigin\n2. لو فشل، retry بدون crossOrigin مع cache-bust query\n3. لو فشل تاني، يـ hide ويظهر الـ 📦 placeholder\n→ مفيش broken images في الـ UI" },
+      { type: "doc", text: "✅ [الـ user workflow بعد V20]\n1. روح Shopify tab → Connection — تأكد متصل\n2. Products tab → \"🔄 سحب الكل\" — هـ يجيب كل المنتجات بصور 3:4\n3. لو فيه missing in CLARK count → اضغط \"➕ أنشئ X في CLARK\" — هـ يولّد inventoryItems تلقائياً\n4. روح CLARK Inventory tab → هـ تلاقي كل الـ items الجديدة (بـ stock=0 ابتدائياً)\n5. عدّل الـ stock يدوياً حسب الـ warehouse الفعلي\n6. ارجع Shopify → Push المخزون\nده بـ يحل تماماً مشكلة الـ \"المنتج نزل لكن مش لاقيه\"." },
+    ]
+  },
+  {
     version: "V19.99.0",
     date: "2026-05-10",
     types: ["feature"],

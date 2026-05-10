@@ -141,3 +141,11 @@ export function shopifyBulkUpdateProducts({ productIds, action, payload }, user)
 export function shopifySyncProductsWithFilters(opts, user){
   return call("POST", "/api/shopify/sync-products-now", opts || {}, user);
 }
+
+/* V20.0 Phase 8: Create CLARK inventoryItems from Shopify products.
+   Single product: { shopifyProductId, stock?, unit?, categoryId? }
+   Bulk: { bulkProductIds: [...], stock?, unit?, categoryId? }
+   → { ok, created, linked, skipped, items: [...] } */
+export function shopifyCreateClarkItem(opts, user){
+  return call("POST", "/api/shopify/create-clark-item", opts, user);
+}

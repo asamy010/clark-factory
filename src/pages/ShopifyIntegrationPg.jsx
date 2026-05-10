@@ -36,7 +36,7 @@ import {
   shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
   shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
-  shopifyBulkUpdateProducts, shopifySyncProductsWithFilters,
+  shopifyBulkUpdateProducts, shopifySyncProductsWithFilters, shopifyCreateClarkItem,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -2222,6 +2222,68 @@ function ProductsTab({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V20.0: Create a CLARK inventoryItem from a Shopify product. */
+  const handleCreateInClark = async (product) => {
+    if(!canEdit) return;
+    if(!product.sku){
+      await tell("⚠️ مفيش SKU", "المنتج مالوش SKU في Shopify. روح Shopify Admin، عيّن SKU للمنتج، ثم اعمل sync تاني.");
+      return;
+    }
+    const stock = await askInput("📦 المخزون الابتدائي للمنتج", {
+      defaultValue: "0",
+      label: "كم قطعة موجود في الـ warehouse الآن؟ (اسيبه 0 لو مش متأكد، ممكن تحدّثه بعدين)",
+      type: "number",
+      placeholder: "0",
+      confirmText: "إنشاء في CLARK",
+    });
+    if(stock === null) return;
+    try {
+      const r = await shopifyCreateClarkItem({
+        shopifyProductId: product.shopify_id,
+        stock: Number(stock) || 0,
+      }, user);
+      if(r?.ok){
+        const it = (r.items || [])[0];
+        if(it){
+          if(it.was_existing){
+            showToast(`🔗 اتربط بـ CLARK item موجود: ${it.name}`);
+          } else {
+            showToast(`✅ تم إنشاء item في CLARK: ${it.name}`);
+          }
+        } else {
+          showToast("✅ تم");
+        }
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  /* V20.0: Bulk create CLARK items for all selected products. */
+  const handleBulkCreateInClark = async () => {
+    if(selected.size === 0){ showToast("⚠️ اختار منتجات الأول"); return; }
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const yes = await ask("📦 إنشاء في CLARK",
+      `هـ يتعمل CLARK inventoryItem لكل واحد من الـ ${selected.size} منتج محدد:\n\n• المنتجات اللي عندها item في CLARK بـ نفس الـ SKU → هـ تـ link بدل ما تـ duplicate\n• المنتجات الجديدة → هـ تتعمل بـ stock = 0 (تقدر تعدّل بعدين)\n• الـ items هـ تظهر في CLARK Inventory tab\n• الـ mapping_status هـ يبقى \"matched\" لكل واحد\n\nتأكيد؟`);
+    if(!yes) return;
+    try {
+      const r = await shopifyCreateClarkItem({
+        bulkProductIds: Array.from(selected),
+        stock: 0,
+      }, user);
+      if(r?.ok){
+        await tell("✅ تم",
+          `تم إنشاء ${r.created} item جديد في CLARK\n` +
+          `تم ربط ${r.linked} item موجود بالفعل\n` +
+          (r.errors?.length > 0 ? `⚠️ ${r.errors.length} منتج فشل (مش عنده SKU)` : "") +
+          `\n\nالـ items هـ تلاقيها في CLARK → الـ Inventory tab.`);
+        clearSelection();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
   /* Bulk actions */
   const bulkAction = async (action, payload) => {
     if(selected.size === 0){ showToast("⚠️ اختار منتجات الأول"); return; }
@@ -2321,6 +2383,24 @@ function ProductsTab({ data, canEdit, user, isMob }){
           <Btn small onClick={() => setShowSyncFilters(s => !s)} disabled={!canEdit}>
             🎯 سحب بـ filters
           </Btn>
+          {stats.missing_in_clark > 0 && (
+            <Btn small primary onClick={async () => {
+              const yes = await ask("➕ إنشاء CLARK items لكل المفقودين",
+                `هتعمل ${stats.missing_in_clark} item جديد في CLARK Inventory للمنتجات اللي SKU بتاعها مش موجود في الـ inventory.\n\n• كل item هـ يبقى بـ stock = 0 (تقدر تعدّل بعدين من تاب الـ Inventory)\n• model_no = SKU عشان الـ matching يشتغل\n• الـ name = title من Shopify\n• الـ price = first variant price\n\nتأكيد؟`);
+              if(!yes) return;
+              const missingIds = products.filter(p => p.mapping_status === "missing_in_clark" && p.sku).map(p => String(p.shopify_id));
+              try {
+                const r = await shopifyCreateClarkItem({ bulkProductIds: missingIds, stock: 0 }, user);
+                if(r?.ok){
+                  await tell("✅ تم", `تم إنشاء ${r.created} item جديد · تم ربط ${r.linked} موجود.\n\nالـ items هـ تلاقيها في CLARK → الـ Inventory tab.`);
+                } else {
+                  showToast("⛔ " + (r?.error || "فشل"));
+                }
+              } catch(e){ showToast("⛔ " + e.message); }
+            }} disabled={!canEdit}>
+              ➕ أنشئ {stats.missing_in_clark} في CLARK
+            </Btn>
+          )}
           <LoadingBtn loading={pushing} loadingText="..." onClick={() => handlePush(true)} disabled={!canEdit} small>
             🔍 Dry Run
           </LoadingBtn>
@@ -2400,6 +2480,7 @@ function ProductsTab({ data, canEdit, user, isMob }){
             alignItems: "center",
           }}>
             <span style={{ fontWeight: 800, color: T.accent, fontSize: FS }}>{selected.size} منتج محدد</span>
+            <Btn small primary onClick={handleBulkCreateInClark}>➕ إنشاء في CLARK</Btn>
             <Btn small onClick={() => bulkAction("set_synced", { value: true })}>🔄 Sync ON</Btn>
             <Btn small onClick={() => bulkAction("set_synced", { value: false })}>⏸ Sync OFF</Btn>
             <Btn small onClick={() => bulkAction("set_wholesale_only", { value: true })}>🏭 جعل Wholesale</Btn>
@@ -2479,6 +2560,7 @@ function ProductsTab({ data, canEdit, user, isMob }){
                 onToggleWholesale={() => handleToggleWholesale(p)}
                 onSetBuffer={() => handleSetBuffer(p)}
                 onDelete={() => handleDeleteOne(p)}
+                onCreateInClark={() => handleCreateInClark(p)}
                 storeUrl={cfg.store_url}
               />
             ))}
@@ -2555,11 +2637,12 @@ function ProductsTab({ data, canEdit, user, isMob }){
   );
 }
 
-function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded, onToggleSelect, onToggleExpand, onToggleSync, onToggleWholesale, onSetBuffer, onDelete, storeUrl }){
+function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded, onToggleSelect, onToggleExpand, onToggleSync, onToggleWholesale, onSetBuffer, onDelete, onCreateInClark, storeUrl }){
   const synced = product.shopify_synced !== false;
   const wholesale = product.wholesale_only === true;
   const matched = product.mapping_status === "matched";
   const variants = Array.isArray(product.variants) ? product.variants : [];
+  const options = Array.isArray(product.options) ? product.options : [];
   const v0 = variants[0] || {};
   const inv = (Array.isArray(data?.inventoryItems) ? data.inventoryItems : [])
     .find(it => (it.model_no && it.model_no === product.sku) || (it.sku && it.sku === product.sku));
@@ -2611,39 +2694,58 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
           style={{ cursor: "pointer", width: 18, height: 18, marginTop: 4, flexShrink: 0 }}
         />
 
-        {/* Image thumbnail */}
+        {/* V20.0: Image thumbnail with 3:4 portrait aspect ratio (matches Shopify default).
+            Width is fixed; height = width × 4/3. Click to expand. */}
         {product.image_url ? (
           <img
             src={product.image_url}
-            alt=""
+            alt={product.title || ""}
             onClick={onToggleExpand}
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
             style={{
-              width: isMob ? 50 : 64,
-              height: isMob ? 50 : 64,
+              width: isMob ? 60 : 75,
+              height: isMob ? 80 : 100, /* 3:4 portrait */
               objectFit: "cover",
+              objectPosition: "center top",
               borderRadius: 8,
               border: "1px solid " + T.brd,
+              background: T.bg,
               flexShrink: 0,
               cursor: "pointer",
             }}
             loading="lazy"
-            onError={e => { e.target.style.display = "none"; }}
+            onError={e => {
+              /* Try without crossOrigin (Shopify CDN occasionally rejects it). */
+              if(!e.target.dataset.retried){
+                e.target.dataset.retried = "1";
+                e.target.removeAttribute("crossOrigin");
+                e.target.src = product.image_url + "?_retry=1";
+                return;
+              }
+              e.target.style.display = "none";
+              const fallback = e.target.nextSibling;
+              if(fallback) fallback.style.display = "flex";
+            }}
           />
-        ) : (
-          <div onClick={onToggleExpand} style={{
-            width: isMob ? 50 : 64,
-            height: isMob ? 50 : 64,
+        ) : null}
+        {/* Fallback placeholder (always rendered, hidden if image loads) */}
+        <div
+          onClick={onToggleExpand}
+          style={{
+            display: product.image_url ? "none" : "flex",
+            width: isMob ? 60 : 75,
+            height: isMob ? 80 : 100, /* 3:4 portrait */
             borderRadius: 8,
             background: T.bg,
             border: "1px solid " + T.brd,
-            display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 24,
+            fontSize: 28,
             flexShrink: 0,
             cursor: "pointer",
-          }}>📦</div>
-        )}
+          }}
+        >📦</div>
 
         {/* Body */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2663,6 +2765,16 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
             {product.vendor && <span>· {product.vendor}</span>}
             <span>· {shopifyStatus}</span>
           </div>
+          {/* V20.0: inline options summary on the main row */}
+          {options.length > 0 && (
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {options.map((o, i) => (
+                <span key={i} style={{ padding: "1px 6px", borderRadius: 4, background: T.bg }}>
+                  <b>{o.name}:</b> {o.values.slice(0, 4).join(", ")}{o.values.length > 4 ? "…" : ""}
+                </span>
+              ))}
+            </div>
+          )}
           {matched && !isMob && (
             <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 6, lineHeight: 1.6 }}>
               <span>📦 CLARK: <b>{physicalStock}</b></span>
@@ -2678,6 +2790,11 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
 
         {/* Actions menu (always visible) */}
         <div style={{ display: "flex", flexDirection: isMob ? "row" : "column", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
+          {!matched && product.sku && (
+            <Btn small primary onClick={onCreateInClark} disabled={!canEdit} title="إنشاء item في CLARK Inventory">
+              ➕
+            </Btn>
+          )}
           {matched && (
             <Btn small ghost onClick={onToggleSync} disabled={!canEdit} title="Sync ON/OFF">
               {synced ? "🔄" : "⏸"}
@@ -2702,6 +2819,46 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
           border: "1px solid " + T.brd,
           fontSize: FS - 1,
         }}>
+          {/* V20.0: Image gallery (3:4 portrait) — show all product images, click to enlarge */}
+          {Array.isArray(product.images) && product.images.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🖼 الصور ({product.images.length})</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {product.images.slice(0, 8).map((img, i) => (
+                  <a
+                    key={img.id || i}
+                    href={img.src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="افتح في tab جديد"
+                    style={{ display: "block" }}
+                  >
+                    <img
+                      src={img.src}
+                      alt={img.alt || ""}
+                      referrerPolicy="no-referrer"
+                      style={{
+                        width: isMob ? 90 : 120,
+                        height: isMob ? 120 : 160, /* 3:4 portrait */
+                        objectFit: "cover",
+                        objectPosition: "center top",
+                        borderRadius: 8,
+                        border: "1px solid " + T.brd,
+                        background: T.cardSolid,
+                        cursor: "zoom-in",
+                      }}
+                      loading="lazy"
+                      onError={e => { e.target.style.display = "none"; }}
+                    />
+                  </a>
+                ))}
+                {product.images.length > 8 && (
+                  <div style={{ fontSize: FS - 3, color: T.textMut, alignSelf: "center" }}>+ {product.images.length - 8} صورة</div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div>
               <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📝 معلومات Shopify</div>
@@ -2734,29 +2891,72 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
             </div>
           </div>
 
-          {/* Variants list */}
+          {/* V20.0: Variants list with proper option labels */}
           {variants.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🎨 الـ Variants ({variants.length})</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {variants.slice(0, 10).map(v => (
-                  <div key={v.variant_id} style={{ padding: "6px 10px", background: T.cardSolid, borderRadius: 6, fontSize: FS - 2, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-                    <span>{[v.option1, v.option2, v.option3].filter(Boolean).join(" / ") || "Default"}</span>
-                    <span style={{ color: T.textSec }}>
-                      {v.sku && <span style={{ fontFamily: "monospace" }}>{v.sku} · </span>}
-                      {fmt(v.price)} ج · qty: {v.inventory_quantity || 0}
-                    </span>
-                  </div>
-                ))}
-                {variants.length > 10 && (
-                  <div style={{ fontSize: FS - 3, color: T.textMut, textAlign: "center" }}>+ {variants.length - 10} variant آخر</div>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                🎨 الـ Variants ({variants.length})
+                {options.length > 0 && (
+                  <span style={{ fontSize: FS - 2, color: T.textMut, fontWeight: 400 }}>
+                    · {options.map(o => o.name).join(" / ")}
+                  </span>
                 )}
               </div>
+
+              {/* Show options summary (e.g. "Size: S, M, L · Color: Black, White") */}
+              {options.length > 0 && (
+                <div style={{ marginBottom: 8, padding: 8, background: T.cardSolid, borderRadius: 6, fontSize: FS - 2 }}>
+                  {options.map((o, i) => (
+                    <div key={i} style={{ marginBottom: i < options.length - 1 ? 6 : 0 }}>
+                      <b style={{ color: T.text }}>{o.name}:</b>{" "}
+                      <span style={{ color: T.textSec }}>{o.values.join(", ")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Variant table — only show if there ARE proper variants (not all default) */}
+              {variants.some(v => (v.option1 && v.option1 !== "Default Title") || v.option2 || v.option3) ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {variants.slice(0, 12).map((v, i) => {
+                    /* Build a display label using the option NAMES from product.options */
+                    const labels = [];
+                    if(v.option1 && options[0]?.name) labels.push(options[0].name + ": " + v.option1);
+                    else if(v.option1) labels.push(v.option1);
+                    if(v.option2 && options[1]?.name) labels.push(options[1].name + ": " + v.option2);
+                    else if(v.option2) labels.push(v.option2);
+                    if(v.option3 && options[2]?.name) labels.push(options[2].name + ": " + v.option3);
+                    else if(v.option3) labels.push(v.option3);
+                    const label = labels.length > 0 ? labels.join(" · ") : "Default";
+                    return (
+                      <div key={v.variant_id || i} style={{ padding: "6px 10px", background: T.cardSolid, borderRadius: 6, fontSize: FS - 2, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                        <span style={{ fontWeight: 600 }}>{label}</span>
+                        <span style={{ color: T.textSec }}>
+                          {v.sku && <span style={{ fontFamily: "monospace" }}>{v.sku} · </span>}
+                          {fmt(v.price)} ج · qty: <b style={{ color: v.inventory_quantity > 0 ? T.ok : T.textMut }}>{v.inventory_quantity || 0}</b>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {variants.length > 12 && (
+                    <div style={{ fontSize: FS - 3, color: T.textMut, textAlign: "center", padding: 4 }}>+ {variants.length - 12} variant آخر</div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: 10, background: T.cardSolid, borderRadius: 6, fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>
+                  ℹ️ المنتج ده عنده {variants.length} variant بس كلهم بـ <code>Default Title</code> — يعني مفيش options محددة (Size/Color) في Shopify. لو محتاج ده، روح Shopify Admin → المنتج → Variants → ضيف options.
+                </div>
+              )}
             </div>
           )}
 
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {!matched && product.sku && (
+              <Btn small primary onClick={onCreateInClark} disabled={!canEdit}>
+                ➕ إنشاء في CLARK Inventory
+              </Btn>
+            )}
             {matched && (
               <Btn small onClick={onToggleSync} disabled={!canEdit}>
                 {synced ? "⏸ Pause sync" : "🔄 Resume sync"}
@@ -2770,7 +2970,7 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
                 🛡 Buffer ({buffer})
               </Btn>
             )}
-            {storeUrl && product.handle && (
+            {storeUrl && (
               <Btn small onClick={() => window.open(`https://${storeUrl}/admin/products/${product.shopify_id}`, "_blank")}>
                 ↗ افتح في Shopify
               </Btn>
