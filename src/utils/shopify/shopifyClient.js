@@ -257,3 +257,17 @@ export function returnRequestsList(opts, user){
 export function returnRequestUpdate(opts, user){
   return call("POST", "/api/shopify/return-request-update", opts, user);
 }
+
+/* V21.9.8 Phase 11n: WhatsApp Campaigns CRUD + run preparation. */
+export function campaignCreate(opts, user){
+  return call("POST", "/api/shopify/campaign-create", opts, user);
+}
+export function campaignsList(opts, user){
+  return call("POST", "/api/shopify/campaigns-list", opts || {}, user);
+}
+export function campaignUpdate(opts, user){
+  return call("POST", "/api/shopify/campaign-update", opts, user);
+}
+export function campaignPrepareRun(opts, user){
+  return call("POST", "/api/shopify/campaign-prepare-run", opts, user);
+}

@@ -48,9 +48,13 @@ import {
   splitShopifyCollections,
   /* V21.9.7 Phase 11m: return requests */
   returnRequestCreate, returnRequestsList, returnRequestUpdate,
+  /* V21.9.8 Phase 11n: WhatsApp campaigns */
+  campaignCreate, campaignsList, campaignUpdate, campaignPrepareRun,
 } from "../utils/shopify/shopifyClient.js";
 /* V21.9.4: full-screen progress wrapper for any sync/pull operation */
 import { runWithProgress } from "../utils/syncProgress.js";
+/* V21.9.8: professional WhatsApp message composer */
+import { WhatsAppComposer, renderMessageWithVariables } from "../components/WhatsAppComposer.jsx";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
 import { bostaConfigure, bostaTrack, bostaCreateShipment, bostaPrintAwb } from "../utils/bosta/bostaClient.js";
@@ -69,6 +73,7 @@ const SUB_TABS = [
   { key: "abandoned",      label: "🛍️ السلال المهجورة", color: "#DB2777" },
   { key: "discounts",      label: "🎟 الكوبونات",        color: "#F97316" },
   { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
+  { key: "campaigns",      label: "📬 الحملات",          color: "#25D366" }, /* V21.9.8 */
   { key: "shipping",       label: "🚚 الشحن (Bosta)",   color: "#0D9488" },
   { key: "invoices",       label: "🧾 الفواتير",        color: "#06B6D4" },
   { key: "reconciliation", label: "🔄 المطابقة",         color: "#EC4899" },
@@ -236,6 +241,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "returns"        && <ReturnsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "campaigns"      && <CampaignsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "customers"      && <CustomersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "abandoned"      && <AbandonedCartsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "discounts"      && <DiscountCodesTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
@@ -1348,6 +1354,391 @@ function CreateReturnRequestModal({ data, user, isMob, onClose, onCreated }){
           </LoadingBtn>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.9.8 — CampaignsTab — حملات WhatsApp مجدولة + audience segmentation
+   ───────────────────────────────────────────────────────────────────────
+   Build campaigns targeting customer segments:
+   • اشترو (purchased)
+   • ماشتروش (refused/cancelled)
+   • مترددين (abandoned cart)
+   • Shopify فقط (registered no orders)
+   • VIP / At-risk
+
+   Schedule: now / once / recurring (cron-like).
+   Send: prepare-run endpoint generates wa.me URLs, client opens tabs.
+   ═══════════════════════════════════════════════════════════════════════ */
+const CAMPAIGN_AUDIENCE_TYPES = [
+  { key: "purchased",       label: "✅ اللي اشتروا (delivered ≥ 1)", color: "#10B981" },
+  { key: "not_purchased",   label: "❌ اللي طلبوا وما اشتروش",        color: "#DC2626" },
+  { key: "abandoned_cart",  label: "🛍️ السلال المهجورة (مترددين)",  color: "#DB2777" },
+  { key: "shopify_only",    label: "🛍️ مسجلين بدون شراء",          color: "#06B6D4" },
+  { key: "vip",             label: "👑 VIP فقط",                     color: "#8B5CF6" },
+  { key: "at_risk",         label: "⚠️ بحاجة لمتابعة",              color: "#F59E0B" },
+];
+
+const CAMPAIGN_STATUS_META = {
+  draft:      { label: "مسودّة",   emoji: "📝", color: "#94A3B8" },
+  scheduled:  { label: "مجدولة",   emoji: "⏰", color: "#0EA5E9" },
+  running:    { label: "جارية",    emoji: "🔄", color: "#10B981" },
+  paused:     { label: "متوقفة",   emoji: "⏸",  color: "#F59E0B" },
+  completed:  { label: "مكتملة",   emoji: "✅", color: "#059669" },
+  cancelled:  { label: "ملغية",    emoji: "⚪", color: "#94A3B8" },
+};
+
+function CampaignsTab({ data, canEdit, user, isMob }){
+  const allCampaigns = useMemo(() =>
+    Array.isArray(data?.whatsappCampaigns) ? data.whatsappCampaigns : [],
+    [data?.whatsappCampaigns]
+  );
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showCreate, setShowCreate] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [composerState, setComposerState] = useState(null); /* { recipients, message } | null */
+
+  /* Stats */
+  const stats = useMemo(() => {
+    const s = { total: allCampaigns.length };
+    for(const k of Object.keys(CAMPAIGN_STATUS_META)) s[k] = 0;
+    for(const c of allCampaigns){ if(s[c.status] !== undefined) s[c.status]++; }
+    return s;
+  }, [allCampaigns]);
+
+  const filtered = useMemo(() => {
+    if(statusFilter === "all") return allCampaigns;
+    return allCampaigns.filter(c => c.status === statusFilter);
+  }, [allCampaigns, statusFilter]);
+
+  const handleRun = async (campaign) => {
+    if(!canEdit) return;
+    setBusyId(campaign.id);
+    try {
+      const r = await campaignPrepareRun({ id: campaign.id }, user);
+      if(!r?.ok){ showToast("⛔ " + (r?.error || "فشل")); return; }
+      const summary = r.summary || {};
+      if(summary.prepared === 0){
+        showToast(`ℹ️ مفيش عملاء جدد للإرسال (${summary.skipped} اتـ skip)`);
+        return;
+      }
+      const yes = await ask(
+        "📤 تشغيل الحملة",
+        `الحملة "${campaign.name}":\n\n` +
+        `• إجمالي الـ audience: ${summary.total}\n` +
+        `• جاهز للإرسال: ${summary.prepared}\n` +
+        `• تم التخطي: ${summary.skipped} (متواصل قبل كده / تليفون مش صح)\n\n` +
+        `هـ يفتح ${summary.prepared} tab في WhatsApp Web. تأكيد؟`
+      );
+      if(!yes) return;
+      /* Open WhatsApp tabs in batches */
+      const list = r.audience || [];
+      let opened = 0;
+      for(let i = 0; i < list.length; i++){
+        window.open(list[i].wa_url, "_blank");
+        opened++;
+        if(i < list.length - 1) await new Promise(rs => setTimeout(rs, 400));
+      }
+      showToast(`📤 اتفتح ${opened} tab — كمّل الإرسال يدوياً من WhatsApp Web`);
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const handleAction = async (campaign, action, label) => {
+    if(!canEdit) return;
+    setBusyId(campaign.id);
+    try {
+      const r = await campaignUpdate({ id: campaign.id, action }, user);
+      if(r?.ok) showToast("✅ " + (label || "تم"));
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(7, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="📬" color="#25D366" />
+        <MetricCard label="مسودّة" value={String(stats.draft)} icon="📝" color="#94A3B8" />
+        <MetricCard label="مجدولة" value={String(stats.scheduled)} icon="⏰" color="#0EA5E9" />
+        <MetricCard label="جارية" value={String(stats.running)} icon="🔄" color="#10B981" />
+        <MetricCard label="مكتملة" value={String(stats.completed)} icon="✅" color="#059669" />
+        <MetricCard label="متوقفة" value={String(stats.paused)} icon="⏸" color="#F59E0B" />
+        <MetricCard label="ملغية" value={String(stats.cancelled)} icon="⚪" color="#94A3B8" />
+      </div>
+
+      <Card title="📬 حملات WhatsApp" extra={
+        <Btn small primary onClick={() => setShowCreate(true)} disabled={!canEdit} style={{ background: "#25D366", color: "#fff", border: "none" }}>
+          ➕ حملة جديدة
+        </Btn>
+      }>
+        <div style={{ padding: "10px 12px", background: "#25D36610", border: "1px solid #25D36625", borderRadius: 8, fontSize: FS - 2, lineHeight: 1.7, marginBottom: 12, color: T.text }}>
+          ℹ️ <b>الحملات الأوتوماتيك</b> — استهدف audience معيّن (اشترو / ماشتروش / مترددين / VIP) برسالة واحدة. الـ system بـ يـ build الـ audience تلقائياً + يـ skip اللي اتبعت لهم رسالة قريباً (dedup). الإرسال الفعلي يفتح tabs في WhatsApp Web (لازم Login).
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Sel value={statusFilter} onChange={setStatusFilter}>
+            <option value="all">كل الحالات ({stats.total})</option>
+            {Object.entries(CAMPAIGN_STATUS_META).map(([k, m]) => (
+              <option key={k} value={k}>{m.emoji} {m.label} ({stats[k] || 0})</option>
+            ))}
+          </Sel>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 36, textAlign: "center", color: T.textMut, border: "2px dashed " + T.brd, borderRadius: 10 }}>
+            <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.4 }}>📬</div>
+            <div style={{ fontWeight: 600 }}>{allCampaigns.length === 0 ? "ابدأ أول حملة WhatsApp" : "مفيش حملات تطابق الفلتر"}</div>
+            {allCampaigns.length === 0 && (
+              <div style={{ fontSize: FS - 2, marginTop: 6 }}>اضغط <b>➕ حملة جديدة</b></div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.map(c => {
+              const meta = CAMPAIGN_STATUS_META[c.status] || { label: c.status, color: T.textMut, emoji: "?" };
+              const audienceMeta = CAMPAIGN_AUDIENCE_TYPES.find(a => a.key === c.audience?.type);
+              const isBusy = busyId === c.id;
+              return (
+                <div key={c.id} style={{
+                  padding: 12, borderRadius: 10,
+                  background: T.cardSolid,
+                  border: "1px solid " + T.brd,
+                  borderInlineStart: "3px solid " + meta.color,
+                }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>{c.name}</span>
+                        <span style={{ fontSize: FS - 3, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: meta.color + "20", color: meta.color }}>
+                          {meta.emoji} {meta.label}
+                        </span>
+                        {audienceMeta && (
+                          <span style={{ fontSize: FS - 4, padding: "1px 8px", borderRadius: 6, background: audienceMeta.color + "15", color: audienceMeta.color, fontWeight: 700 }}>
+                            🎯 {audienceMeta.label}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 6, lineHeight: 1.6, fontStyle: "italic", maxWidth: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        "{c.message?.slice(0, 120)}{c.message?.length > 120 ? "..." : ""}"
+                      </div>
+                      <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <span>🎯 audience: <b>{c.stats?.total_targets || 0}</b></span>
+                        {c.stats?.prepared_count != null && <span>📤 مرسلة: <b>{c.stats.prepared_count}</b></span>}
+                        {c.stats?.skipped_count > 0 && <span>⏭ تم التخطي: {c.stats.skipped_count}</span>}
+                        {c.skip_already_contacted && <span>🔄 dedup: {c.dedup_window_days || 0} يوم</span>}
+                        {c.schedule?.type && <span>⏰ {c.schedule.type === "now" ? "فوري" : c.schedule.type === "once" ? "مرة واحدة" : "متكرر"}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {(c.status === "draft" || c.status === "scheduled" || c.status === "running" || c.status === "paused") && (
+                        <LoadingBtn small primary loading={isBusy} loadingText="..." onClick={() => handleRun(c)} disabled={!canEdit} style={{ background: "#25D366", color: "#fff", border: "none" }}>
+                          📤 تشغيل
+                        </LoadingBtn>
+                      )}
+                      {c.status === "running" && (
+                        <Btn small onClick={() => handleAction(c, "pause", "تم الإيقاف")} disabled={!canEdit || isBusy}>⏸ إيقاف</Btn>
+                      )}
+                      {c.status === "paused" && (
+                        <Btn small onClick={() => handleAction(c, "resume", "تم الاستئناف")} disabled={!canEdit || isBusy}>▶ استئناف</Btn>
+                      )}
+                      {!["completed", "cancelled"].includes(c.status) && (
+                        <Btn small ghost danger onClick={() => handleAction(c, "cancel", "تم الإلغاء")} disabled={!canEdit || isBusy}>إلغاء</Btn>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {showCreate && (
+        <CreateCampaignModal data={data} user={user} isMob={isMob} onClose={() => setShowCreate(false)} />
+      )}
+    </div>
+  );
+}
+
+/* CreateCampaignModal — audience picker + message composer + schedule */
+function CreateCampaignModal({ data, user, isMob, onClose }){
+  const [step, setStep] = useState(1); /* 1: audience, 2: message, 3: schedule */
+  const [name, setName] = useState("");
+  const [audienceType, setAudienceType] = useState("purchased");
+  const [maxAgeDays, setMaxAgeDays] = useState(0);
+  const [minDelivered, setMinDelivered] = useState(0);
+  const [message, setMessage] = useState("أهلاً {name} 👋\n\nمعاك CLARK Store ✨\n");
+  const [imageUrl, setImageUrl] = useState("");
+  const [scheduleType, setScheduleType] = useState("now");
+  const [runAt, setRunAt] = useState("");
+  const [skipContacted, setSkipContacted] = useState(true);
+  const [dedupDays, setDedupDays] = useState(7);
+  const [busy, setBusy] = useState(false);
+  const [audiencePreview, setAudiencePreview] = useState(null);
+  const [showComposer, setShowComposer] = useState(false);
+
+  const audienceMeta = CAMPAIGN_AUDIENCE_TYPES.find(a => a.key === audienceType);
+
+  /* Estimate audience size locally based on data prop */
+  const estimatedSize = useMemo(() => {
+    const customers = Array.isArray(data?.shopifyCustomers) ? data.shopifyCustomers : [];
+    const carts = Array.isArray(data?.shopifyAbandonedCarts) ? data.shopifyAbandonedCarts : [];
+    let res;
+    switch(audienceType){
+      case "purchased": res = customers.filter(c => Number(c.delivered_count) > 0); break;
+      case "not_purchased": res = customers.filter(c => Number(c.orders_count) > 0 && Number(c.delivered_count) === 0); break;
+      case "abandoned_cart": res = carts.filter(c => c.phone && !c.recovered_at); break;
+      case "shopify_only": res = customers.filter(c => c.tier === "shopify_only" || c.source === "shopify_only"); break;
+      case "vip": res = customers.filter(c => c.tier === "vip"); break;
+      case "at_risk": res = customers.filter(c => c.tier === "at_risk"); break;
+      default: res = [];
+    }
+    return res.filter(c => !!c.phone && !c.do_not_contact && c.accepts_marketing !== false).length;
+  }, [data, audienceType]);
+
+  const handleSubmit = async () => {
+    if(!name.trim()){ showToast("⚠️ اسم الحملة مطلوب"); return; }
+    if(!message.trim()){ showToast("⚠️ نص الرسالة مطلوب"); return; }
+    setBusy(true);
+    try {
+      const r = await campaignCreate({
+        name,
+        audience: {
+          type: audienceType,
+          max_age_days: maxAgeDays || undefined,
+          min_delivered: minDelivered || undefined,
+        },
+        message,
+        image_url: imageUrl,
+        schedule: {
+          type: scheduleType,
+          run_at: scheduleType === "once" ? runAt : null,
+        },
+        skip_already_contacted: skipContacted,
+        dedup_window_days: dedupDays,
+      }, user);
+      if(r?.ok){
+        showToast(`✅ تم إنشاء الحملة · ${r.audience_size} عميل`);
+        onClose();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="pop-overlay" style={{ position: "fixed", inset: 0, zIndex: 99998, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, direction: "rtl" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 720, maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#25D366" }}>📬 حملة WhatsApp جديدة</div>
+            <div style={{ fontSize: FS - 2, color: T.textMut, marginTop: 2 }}>الخطوة {step}/3</div>
+          </div>
+          <Btn small onClick={onClose}>✕</Btn>
+        </div>
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>اسم الحملة</label>
+            <Inp value={name} onChange={setName} placeholder="مثال: عرض الجمعة - عملاء VIP" />
+          </div>
+
+          {/* Step 1: Audience */}
+          <div>
+            <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🎯 الـ Audience</label>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+              {CAMPAIGN_AUDIENCE_TYPES.map(a => (
+                <div key={a.key}
+                  onClick={() => setAudienceType(a.key)}
+                  style={{
+                    padding: 10, borderRadius: 8, cursor: "pointer",
+                    background: audienceType === a.key ? a.color + "15" : T.bg,
+                    border: "1.5px solid " + (audienceType === a.key ? a.color : T.brd),
+                    fontSize: FS - 1, fontWeight: 700, color: audienceType === a.key ? a.color : T.text,
+                  }}
+                >
+                  {a.label}
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 8, padding: 10, background: T.bg, borderRadius: 8, fontSize: FS - 2 }}>
+              تقدير: <b style={{ color: audienceMeta?.color || T.accent }}>{estimatedSize}</b> عميل بـ تليفون مفعّل
+            </div>
+            {/* Optional filters per audience */}
+            {audienceType === "purchased" && (
+              <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: FS - 2, color: T.textMut }}>الحد الأدنى لعدد المرات اللي اشتراها (delivered)</label>
+                  <Inp type="number" value={String(minDelivered)} onChange={v => setMinDelivered(Number(v) || 0)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: FS - 2, color: T.textMut }}>اشترى خلال آخر (يوم) — اختياري</label>
+                  <Inp type="number" value={String(maxAgeDays)} onChange={v => setMaxAgeDays(Number(v) || 0)} placeholder="0 = الكل" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Step 2: Message */}
+          <div>
+            <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>💬 الرسالة</label>
+            <Btn small onClick={() => setShowComposer(true)} style={{ marginBottom: 8 }}>
+              ✏️ افتح الـ Composer (تعديل احترافي + emoji + صورة)
+            </Btn>
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={6}
+              style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid " + T.brd, background: T.bg, color: T.text, fontSize: FS - 1, fontFamily: "'Cairo', sans-serif", boxSizing: "border-box" }}
+              placeholder="أهلاً {name} 👋..."
+            />
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+              💡 الـ variables: <code>{"{name}"}</code> <code>{"{phone}"}</code> <code>{"{order}"}</code> <code>{"{discount}"}</code>
+            </div>
+            {imageUrl && (
+              <div style={{ marginTop: 8, padding: 8, background: T.ok + "10", borderRadius: 6, fontSize: FS - 2 }}>
+                📸 صورة: <code style={{ fontSize: FS - 3 }}>{imageUrl.slice(0, 60)}...</code>
+              </div>
+            )}
+          </div>
+
+          {/* Step 3: Schedule + dedup */}
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>⏰ الجدولة</label>
+              <Sel value={scheduleType} onChange={setScheduleType}>
+                <option value="now">إنشاء + تشغيل فوري</option>
+                <option value="once">مرة واحدة (وقت محدد)</option>
+                <option value="recurring">متكرر (قريباً)</option>
+              </Sel>
+              {scheduleType === "once" && (
+                <Inp type="datetime-local" value={runAt} onChange={setRunAt} sx={{ marginTop: 6 }} />
+              )}
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🔄 dedup window (يوم)</label>
+              <Inp type="number" value={String(dedupDays)} onChange={v => setDedupDays(Math.max(0, Number(v) || 0))} />
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                لا تبعت لعميل اتبعت له خلال {dedupDays} يوم
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ position: "sticky", bottom: 0, padding: 12, background: T.cardSolid, borderTop: "1px solid " + T.brd, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn small onClick={onClose}>إلغاء</Btn>
+          <LoadingBtn primary small loading={busy} loadingText="جاري الإنشاء..." onClick={handleSubmit} disabled={!name.trim() || !message.trim()} style={{ background: "#25D366", color: "#fff", border: "none" }}>
+            📬 إنشاء الحملة
+          </LoadingBtn>
+        </div>
+      </div>
+
+      {/* Composer for editing message */}
+      <WhatsAppComposer
+        open={showComposer}
+        recipients={[]}
+        initialMessage={message}
+        onClose={() => setShowComposer(false)}
+        onSend={(msg, img) => { setMessage(msg); if(img) setImageUrl(img); setShowComposer(false); }}
+      />
     </div>
   );
 }
@@ -5333,15 +5724,19 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     } catch(_){}
   };
 
-  /* Bulk WhatsApp message — V21.9.6: skip already-contacted by default */
+  /* V21.9.8: Bulk WhatsApp opens the new professional composer modal.
+     The composer handles message + emoji + image + variables. */
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerTargets, setComposerTargets] = useState([]);
+  const [composerBusy, setComposerBusy] = useState(false);
+
   const handleBulkWhatsApp = async () => {
     if(selectedCustomers.length === 0){
       showToast("⚠️ اختار عملاء لهم تليفون أولاً");
       return;
     }
 
-    /* V21.9.6: split into "fresh" vs "already-contacted" so the user can
-       decide whether to spam the same people again. Default = skip them. */
+    /* V21.9.6: split into "fresh" vs "already-contacted" — skip-by-default */
     const fresh = selectedCustomers.filter(c => !Number(c.contact_count));
     const repeat = selectedCustomers.filter(c => Number(c.contact_count) > 0);
 
@@ -5361,40 +5756,45 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       }
     }
 
-    const message = await askInput("📱 رسالة WhatsApp", {
-      label: `هتـ open ${targets.length} tab في WhatsApp Web (واحد لكل عميل). الرسالة هـ تكون pre-filled.\n\n✨ تقدر تستخدم {name} عشان يتم استبداله باسم العميل.`,
-      placeholder: "أهلاً {name} 👋 معاك CLARK Store...",
-      confirmText: "افتح الـ tabs",
-    });
-    if(message === null) return;
-    if(!message.trim()){ showToast("⚠️ ادخل رسالة"); return; }
+    /* Open the composer */
+    setComposerTargets(targets);
+    setComposerOpen(true);
+  };
 
-    const yes = await ask("⚠️ تأكيد", `هـ يتفتح ${targets.length} tab في المتصفح. ده ممكن يكون بطئ على الـ device. تأكيد؟`);
-    if(!yes) return;
-
-    /* Open in batches with small delays so the browser doesn't block */
-    let opened = 0;
-    for(let i = 0; i < targets.length; i++){
-      const c = targets[i];
-      const text = message.replace(/\{name\}/g, c.name || "");
-      const url = buildWhatsAppLink(c.phone, text);
-      window.open(url, "_blank");
-      opened++;
-      if(i < targets.length - 1){
-        await new Promise(r => setTimeout(r, 400)); /* avoid popup-block */
-      }
+  /* Called by the composer when "Send" is clicked */
+  const handleComposerSend = async (message, imageUrl) => {
+    const targets = composerTargets;
+    if(!targets || targets.length === 0){
+      setComposerOpen(false);
+      return;
     }
-    const skipped = selectedCustomers.length - targets.length;
-    showToast(`📱 اتفتح ${opened} tab` + (skipped > 0 ? ` · تم تخطي ${skipped} متواصل معاهم قبل كده` : ""));
-
-    /* Bulk bump contact count */
+    setComposerBusy(true);
     try {
-      await shopifyUpdateCustomer({
-        bulkCustomerIds: targets.map(c => c.id),
-        bumpContact: true,
-      }, user);
-    } catch(_){}
-    clearSelection();
+      let opened = 0;
+      for(let i = 0; i < targets.length; i++){
+        const c = targets[i];
+        /* Use shared variable substitution helper for consistency with campaigns */
+        const text = renderMessageWithVariables(message, c);
+        const url = buildWhatsAppLink(c.phone, text);
+        window.open(url, "_blank");
+        opened++;
+        if(i < targets.length - 1){
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
+      showToast(`📱 اتفتح ${opened} tab`);
+
+      try {
+        await shopifyUpdateCustomer({
+          bulkCustomerIds: targets.map(c => c.id),
+          bumpContact: true,
+        }, user);
+      } catch(_){}
+      clearSelection();
+    } finally {
+      setComposerBusy(false);
+      setComposerOpen(false);
+    }
   };
 
   const handleCopyPhones = async () => {
@@ -5684,6 +6084,16 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
           </div>
         )}
       </Card>
+
+      {/* V21.9.8: Professional WhatsApp composer modal */}
+      <WhatsAppComposer
+        open={composerOpen}
+        recipients={composerTargets}
+        initialMessage="أهلاً {name} 👋&#10;&#10;معاك CLARK Store ✨&#10;"
+        onClose={() => !composerBusy && setComposerOpen(false)}
+        onSend={handleComposerSend}
+        busy={composerBusy}
+      />
     </div>
   );
 }

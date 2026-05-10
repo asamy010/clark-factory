@@ -48,6 +48,8 @@ export const SPLIT_FIELDS_V2195 = ["salesCreditNotes", "purchaseDebitNotes"];
 /* V21.9.7 — Shopify return requests (طلبات الارتجاع) — daily split.
    Fresh feature, register split from day 1 to avoid future migration. */
 export const SPLIT_FIELDS_V2197 = ["shopifyReturnRequests"];
+/* V21.9.8 — WhatsApp campaigns (الحملات + الـ run logs) — daily split. */
+export const SPLIT_FIELDS_V2198 = ["whatsappCampaigns", "whatsappCampaignRuns"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -56,6 +58,7 @@ export const SPLIT_FLAG_V1952 = "_splitDaysV1952Done";
 export const SPLIT_FLAG_V1953 = "_splitDaysV1953Done";
 export const SPLIT_FLAG_V2195 = "_splitDaysV2195Done";
 export const SPLIT_FLAG_V2197 = "_splitDaysV2197Done";
+export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -84,6 +87,9 @@ export const SPLIT_COLLECTIONS = {
   purchaseDebitNotes: "purchaseDebitNotesDays",
   /* V21.9.7 — Shopify return requests */
   shopifyReturnRequests: "shopifyReturnRequestsDays",
+  /* V21.9.8 — WhatsApp campaigns (templates) + run logs (per-customer dispatch) */
+  whatsappCampaigns:    "whatsappCampaignsDays",
+  whatsappCampaignRuns: "whatsappCampaignRunsDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -437,6 +443,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V2197]) {
     for (const field of SPLIT_FIELDS_V2197) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V2198]) {
+    for (const field of SPLIT_FIELDS_V2198) delete stripped[field];
   }
   return stripped;
 }

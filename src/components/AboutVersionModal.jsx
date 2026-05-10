@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.8",
+    date: "2026-05-10",
+    types: ["feature", "architectural"],
+    title: "📬 Phase 11n — WhatsApp Composer + Automated Campaigns",
+    changes: [
+      { type: "feature", text: "💬 [WhatsApp Composer احترافي] modal كبير 880px بـ:\n• Textarea 10 صفوف بـ smooth resize\n• 5 quick-templates (ترحيب، متابعة طلب، ترك سلة، VIP، تقييم)\n• 5 variable buttons قابلة للـ insert: {name}, {phone}, {order}, {total}, {discount}\n• 24 emoji سريعة (👋 🎉 🛍️ 💰 ✨ ...)\n• ➕ Image upload لـ Firebase Storage — الـ URL تـ insert تلقائياً + WhatsApp بـ يعرضها كـ link preview\n• 👁 Live preview بـ شكل WhatsApp chat bubble (مع variables substituted)\n• Char counter (4096 max)" },
+      { type: "feature", text: "📬 [تاب جديد '📬 الحملات'] في Shopify integration. بـ يـ enable الـ marketing الأوتوماتيك:\n• Audience targeting بـ 6 segments:\n  ✅ اللي اشتروا (delivered ≥ N + اختياري max age)\n  ❌ اللي طلبوا وما اشتروش (refused/cancelled)\n  🛍️ السلال المهجورة (مترددين سجلوا checkout)\n  🛍️ مسجلين بدون شراء (Shopify only)\n  👑 VIP فقط\n  ⚠️ بحاجة لمتابعة (at-risk)" },
+      { type: "feature", text: "🎯 [Audience builder] الـ buildAudience helper بـ يـ:\n• يقرأ كل العملاء + السلال\n• يـ filter حسب الـ type\n• يـ filter بـ phone + accepts_marketing + !do_not_contact\n• يـ apply max_age_days (آخر نشاط)\n• يـ dedup بـ dedup_window_days (skip اللي اتبعت لهم رسالة قريباً)" },
+      { type: "feature", text: "📤 [Campaign run flow]\n1. Admin يضغط '📤 تشغيل' على الحملة\n2. Server بـ يـ build الـ audience + dedup\n3. لكل عميل: يـ render الـ message مع variables الخاصة + يبني wa.me URL\n4. Saves run logs في whatsappCampaignRunsDays\n5. Returns الـ list للـ client\n6. Client بـ يفتح الـ tabs بـ batches (400ms delay)\n7. Admin يضغط Send في كل tab يدوياً (WhatsApp Web)" },
+      { type: "feature", text: "📡 [4 endpoints جديدة]:\n• POST /api/shopify/campaign-create — مع audience preview size\n• POST /api/shopify/campaigns-list — مع stats per status\n• POST /api/shopify/campaign-update — pause/resume/cancel/edit\n• POST /api/shopify/campaign-prepare-run — يـ generate الـ wa.me URLs + يحفظ logs" },
+      { type: "feature", text: "⏰ [Schedule types] حالياً مدعوم:\n• now — تشغيل فوري بعد الإنشاء\n• once — وقت محدد (datetime-local)\n• recurring — placeholder (قريباً مع cron)" },
+      { type: "architectural", text: "📅 [Daily split V21.9.8] schemas جديدة من اليوم الأول:\n• whatsappCampaigns → whatsappCampaignsDays/{YYYY-MM-DD}\n• whatsappCampaignRuns → whatsappCampaignRunsDays/{YYYY-MM-DD}\nالـ migration auto-runs بعد V21.9.7 (no-op لـ fresh fields)." },
+      { type: "improvement", text: "🛠 [Bulk WhatsApp في تاب العملاء بقى يـ open الـ Composer] بدل الـ askInput الصغير. كل المميزات (emoji + image + variables + preview) متاحة في الـ bulk send." },
+      { type: "improvement", text: "🔄 [renderMessageWithVariables shared helper] في WhatsAppComposer.jsx. الـ Composer + الـ campaigns + الـ bulk send كلهم بـ يستخدموا نفس الدالة عشان consistent variable substitution." },
+    ]
+  },
+  {
     version: "V21.9.7",
     date: "2026-05-10",
     types: ["feature", "architectural"],
