@@ -46,6 +46,7 @@ import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
 import { bostaConfigure, bostaTrack, bostaCreateShipment } from "../utils/bosta/bostaClient.js";
 import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
 import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/customerTiers.js";
+import { judgemeSyncReviews, getProductRating } from "../utils/judgeme/judgemeClient.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
@@ -909,6 +910,9 @@ function SettingsTab({ data, upConfig, canEdit, user, isMob }){
 
       {/* V20.1 Phase 9: Bosta integration settings */}
       <BostaSettingsCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
+
+      {/* V21.5 Phase 10f: Judge.me Reviews integration */}
+      <JudgemeSettingsCard data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />
 
       <Card title="🚨 التنبيهات (WhatsApp)">
         <div style={{ marginBottom: 10 }}>
@@ -2738,6 +2742,9 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
     ? (product.min_price === product.max_price ? `${fmt(product.min_price)} ج` : `${fmt(product.min_price)} - ${fmt(product.max_price)} ج`)
     : (v0.price ? `${fmt(v0.price)} ج` : "");
 
+  /* V21.5 Phase 10f: Judge.me rating */
+  const rating = getProductRating(data, product.shopify_id);
+
   /* Shopify status */
   const shopifyStatus = product.status === "active" ? "🟢 active" : product.status === "draft" ? "📝 draft" : "📦 archived";
 
@@ -2829,6 +2836,12 @@ function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded
             {priceLabel && <span>· {priceLabel}</span>}
             {product.vendor && <span>· {product.vendor}</span>}
             <span>· {shopifyStatus}</span>
+            {/* V21.5 Phase 10f: Judge.me rating */}
+            {rating && rating.count > 0 && (
+              <span style={{ padding: "1px 6px", borderRadius: 6, background: "#FEF9C3", color: "#A16207", fontWeight: 700 }}>
+                ⭐ {rating.avg_rating.toFixed(1)} ({rating.count})
+              </span>
+            )}
           </div>
           {/* V20.0: inline options summary on the main row */}
           {options.length > 0 && (
@@ -4876,5 +4889,88 @@ function DiscountCodesTab({ data, canEdit, user, isMob }){
         )}
       </Card>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.5 Phase 10f — JudgemeSettingsCard
+   ═══════════════════════════════════════════════════════════════════════ */
+function JudgemeSettingsCard({ data, upConfig, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const reviews = Array.isArray(data?.judgemeReviews) ? data.judgemeReviews : [];
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const tokenSet = !!cfg.judgeme_api_token;
+
+  const handleSaveToken = () => {
+    if(!canEdit) return;
+    if(!token.trim()){ showToast("⚠️ ادخل token"); return; }
+    upConfig(d => {
+      if(!d.shopifyConfig) d.shopifyConfig = {};
+      d.shopifyConfig.judgeme_api_token = token.trim();
+    });
+    setToken("");
+    showToast("✅ تم الحفظ");
+  };
+
+  const handleSync = async () => {
+    if(!canEdit) return;
+    if(!tokenSet){ showToast("⚠️ احفظ الـ API token الأول"); return; }
+    setBusy(true);
+    try {
+      const r = await judgemeSyncReviews(user);
+      if(r?.ok){
+        showToast(`⭐ ${r.total_reviews} review · ${r.products_with_reviews} منتج · متوسط ${r.avg_rating}/5`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const totalReviews = reviews.reduce((s, r) => s + (r.count || 0), 0);
+  const overallAvg = totalReviews > 0
+    ? (reviews.reduce((s, r) => s + (r.avg_rating * r.count), 0) / totalReviews).toFixed(1)
+    : "—";
+
+  const labelStyle = { display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 };
+
+  return (
+    <Card title="⭐ Judge.me Reviews" extra={
+      <span style={{ fontSize: FS - 2, padding: "2px 8px", borderRadius: 8, background: tokenSet ? T.ok + "15" : T.textMut + "15", color: tokenSet ? T.ok : T.textMut, fontWeight: 700 }}>
+        {tokenSet ? "● مفعّل" : "○ غير معدّ"}
+      </span>
+    }>
+      <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.7, marginBottom: 12 }}>
+        ℹ️ لو عندك Judge.me Reviews installed على Shopify، هـ نقدر نـ pull الـ ratings من API بتاعهم. الـ rating بـ يظهر بجانب كل منتج في تاب المنتجات.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <MetricCard label="إجمالي reviews" value={String(totalReviews)} icon="⭐" color="#F59E0B" />
+        <MetricCard label="منتجات بـ reviews" value={String(reviews.length)} icon="📦" color="#0EA5E9" />
+        <MetricCard label="متوسط rating" value={overallAvg + "/5"} icon="🌟" color="#10B981" />
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Judge.me API Token</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <Inp value={token} onChange={setToken} placeholder={tokenSet ? "محفوظ — اكتب جديد للتحديث" : "ادخل من Judge.me Dashboard → API"} type="password" />
+          <Btn small primary onClick={handleSaveToken} disabled={!canEdit || !token.trim()}>💾 حفظ</Btn>
+        </div>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+          من Judge.me dashboard → Profile → API. مش هـ يـ post أي حاجة، فقط بـ يـ read.
+        </div>
+      </div>
+
+      <LoadingBtn primary loading={busy} loadingText="جاري السحب..." onClick={handleSync} disabled={!canEdit || !tokenSet} small>
+        🔄 سحب الـ Reviews من Judge.me
+      </LoadingBtn>
+
+      {cfg.last_judgeme_sync_at && (
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 8 }}>
+          آخر sync: {new Date(cfg.last_judgeme_sync_at).toLocaleString("ar-EG")} ({cfg.last_judgeme_sync_count || 0} review)
+        </div>
+      )}
+    </Card>
   );
 }

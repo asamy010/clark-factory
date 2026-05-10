@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.5.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "⭐ Phase 10f — Judge.me Reviews integration",
+    changes: [
+      { type: "feature", text: "⭐ [Judge.me Reviews integration] الـ user عنده Judge.me Reviews في Shopify Subscriptions. دلوقتي CLARK يقدر يـ pull الـ ratings + reviews من Judge.me API ويعرضها بجنب كل منتج في تاب المنتجات." },
+      { type: "feature", text: "📡 [POST /api/judgeme/sync-reviews]\n• Pulls من https://judge.me/api/v1/reviews?api_token=...&shop_domain=...\n• Paginated 100/page، cap 5000 review\n• Aggregates per product_external_id (= Shopify product_id)\n• Saves: count, avg_rating, ratings histogram (1-5 stars), top 5 recent reviews\n• الـ shopify_domain بـ يجي تلقائياً من الـ shopifyConfig (مفيش ضرورة لإدخاله)" },
+      { type: "feature", text: "⚙️ [Judge.me Settings card] في Settings tab تحت Bosta:\n• 3 stat cards: total reviews / products with reviews / overall avg rating\n• خانة لـ API token (مخفي بـ password type)\n• زرار '🔄 سحب الـ Reviews'\n• Status badge ● مفعّل / ○ غير معدّ" },
+      { type: "feature", text: "✨ [Rating chips على Products tab] كل ProductRow بقى يعرض rating chip ⭐ x.x (count) لو فيه reviews. الـ rating بـ ينضم للـ existing display بدون disruption." },
+      { type: "doc", text: "📋 [User setup]\n1. Judge.me Dashboard → Profile → API → Copy token\n2. CLARK → Shopify → Settings → Judge.me Reviews card\n3. الصق الـ token + 💾 حفظ\n4. اضغط '🔄 سحب الـ Reviews'\n5. هـ تشوف الـ ratings ظاهرة على Products tab" },
+    ]
+  },
+  {
     version: "V21.4.0",
     date: "2026-05-10",
     types: ["feature"],
