@@ -149,3 +149,17 @@ export function shopifySyncProductsWithFilters(opts, user){
 export function shopifyCreateClarkItem(opts, user){
   return call("POST", "/api/shopify/create-clark-item", opts, user);
 }
+
+/* V20.2 Phase 11: Aggregate customers from existing orders.
+   {} → { ok, total, with_delivered, vip, regular, new, at_risk, ... } */
+export function shopifySyncCustomers(user){
+  return call("POST", "/api/shopify/sync-customers", {}, user);
+}
+
+/* V20.2 Phase 11: Update a single or many customers.
+   Single: { customerId, tags?, notes?, accepts_marketing?, do_not_contact?, bumpContact? }
+   Bulk: { bulkCustomerIds: [...], tags?, ... }
+   → { ok, updated, customer? } */
+export function shopifyUpdateCustomer(opts, user){
+  return call("POST", "/api/shopify/update-customer", opts, user);
+}

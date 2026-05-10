@@ -37,22 +37,25 @@ import {
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
   shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
   shopifyBulkUpdateProducts, shopifySyncProductsWithFilters, shopifyCreateClarkItem,
+  shopifySyncCustomers, shopifyUpdateCustomer,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
 import { bostaConfigure, bostaTrack } from "../utils/bosta/bostaClient.js";
 import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
+import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/customerTiers.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
-  { key: "dashboard",      label: "📊 لوحة التحكم",   color: "#0EA5E9" },
-  { key: "connection",     label: "🔌 الاتصال",       color: "#10B981" },
-  { key: "products",       label: "📦 المنتجات",      color: "#F59E0B" },
-  { key: "orders",         label: "🛒 الطلبات",       color: "#8B5CF6" },
-  { key: "shipping",       label: "🚚 الشحن (Bosta)", color: "#0D9488" },
-  { key: "invoices",       label: "🧾 الفواتير",      color: "#06B6D4" },
-  { key: "reconciliation", label: "🔄 المطابقة",       color: "#EC4899" },
-  { key: "settings",       label: "⚙️ الإعدادات",     color: "#64748B" },
+  { key: "dashboard",      label: "📊 لوحة التحكم",     color: "#0EA5E9" },
+  { key: "connection",     label: "🔌 الاتصال",         color: "#10B981" },
+  { key: "products",       label: "📦 المنتجات",        color: "#F59E0B" },
+  { key: "orders",         label: "🛒 الطلبات",         color: "#8B5CF6" },
+  { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
+  { key: "shipping",       label: "🚚 الشحن (Bosta)",   color: "#0D9488" },
+  { key: "invoices",       label: "🧾 الفواتير",        color: "#06B6D4" },
+  { key: "reconciliation", label: "🔄 المطابقة",         color: "#EC4899" },
+  { key: "settings",       label: "⚙️ الإعدادات",       color: "#64748B" },
 ];
 
 const SHOPIFY_GREEN = "#96BF48";
@@ -173,6 +176,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "dashboard"      && <DashboardTab data={data} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "customers"      && <CustomersTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
@@ -3720,6 +3724,555 @@ function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, 
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V20.2 Phase 11 — CustomersTab (Shopify retail customers)
+   ───────────────────────────────────────────────────────────────────────
+   Aggregates customers from shopifyPendingOrders (server-side) into a
+   customer-centric list with tier (VIP/Regular/New/At-risk/Inactive),
+   stats (orders, spent, AOV), and engagement fields (tags, notes,
+   accepts_marketing, do_not_contact).
+
+   Designed for WhatsApp marketing campaigns:
+   - Filter by tier, delivered-only, accepts-marketing, etc.
+   - Bulk select → copy phones / open WhatsApp / set tags
+   - Per-customer 📱 WhatsApp button with pre-filled message
+   - DO NOT mix with wholesale customers (data.customers) — different array.
+   ═══════════════════════════════════════════════════════════════════════ */
+function CustomersTab({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const customers = useMemo(() => Array.isArray(data?.shopifyCustomers) ? data.shopifyCustomers : [], [data]);
+
+  /* Filter state */
+  const [tierFilter, setTierFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [showDeliveredOnly, setShowDeliveredOnly] = useState(true);
+  const [showMarketingOnly, setShowMarketingOnly] = useState(false);
+  const [showHasPhone, setShowHasPhone] = useState(true);
+
+  /* Selection state */
+  const [selected, setSelected] = useState(() => new Set());
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if(next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+  const [busy, setBusy] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+
+  /* Stats */
+  const stats = useMemo(() => {
+    const s = { total: 0, with_delivered: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, total_revenue: 0 };
+    customers.forEach(c => {
+      s.total++;
+      if(c.delivered_count > 0) s.with_delivered++;
+      if(c.tier === "vip") s.vip++;
+      else if(c.tier === "regular") s.regular++;
+      else if(c.tier === "new") s.new_++;
+      else if(c.tier === "at_risk") s.at_risk++;
+      else if(c.tier === "inactive") s.inactive++;
+      s.total_revenue += Number(c.total_revenue) || 0;
+    });
+    return s;
+  }, [customers]);
+
+  /* Filtered list */
+  const filtered = useMemo(() => {
+    let res = customers;
+    if(tierFilter !== "all") res = res.filter(c => c.tier === tierFilter);
+    if(showDeliveredOnly) res = res.filter(c => c.delivered_count > 0);
+    if(showMarketingOnly) res = res.filter(c => c.accepts_marketing !== false && !c.do_not_contact);
+    if(showHasPhone) res = res.filter(c => !!c.phone);
+    const q = search.trim().toLowerCase();
+    if(q){
+      res = res.filter(c =>
+        String(c.name || "").toLowerCase().includes(q) ||
+        String(c.phone || "").toLowerCase().includes(q) ||
+        String(c.phone_raw || "").toLowerCase().includes(q) ||
+        String(c.email || "").toLowerCase().includes(q) ||
+        (Array.isArray(c.tags) && c.tags.some(t => String(t).toLowerCase().includes(q)))
+      );
+    }
+    return res;
+  }, [customers, tierFilter, search, showDeliveredOnly, showMarketingOnly, showHasPhone]);
+
+  const visibleIds = useMemo(() => filtered.slice(0, 100).map(c => c.id), [filtered]);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+  const selectedCustomers = useMemo(() =>
+    customers.filter(c => selected.has(c.id) && !!c.phone && !c.do_not_contact),
+    [customers, selected]
+  );
+
+  const connected = !!cfg.connected;
+
+  /* Handlers */
+  const handleSync = async () => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    setBusy(true);
+    try {
+      const r = await shopifySyncCustomers(user);
+      if(r?.ok){
+        showToast(`✅ ${r.total} عميل · ${r.with_delivered} اشتروا · 👑 ${r.vip} · 🌟 ${r.regular} · 🆕 ${r.new}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleSetTags = async (customer) => {
+    if(!canEdit) return;
+    const current = (customer.tags || []).join(", ");
+    const v = await askInput("🏷 Tags للعميل", {
+      defaultValue: current,
+      label: "اكتب الـ tags بفواصل (مثلاً: VIP, متابعة)",
+      placeholder: "tag1, tag2",
+      confirmText: "حفظ",
+    });
+    if(v === null) return;
+    const tags = String(v || "").split(",").map(t => t.trim()).filter(Boolean);
+    try {
+      const r = await shopifyUpdateCustomer({ customerId: customer.id, tags }, user);
+      if(r?.ok) showToast("✅ تم");
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleSetNotes = async (customer) => {
+    if(!canEdit) return;
+    const v = await askInput("📝 ملاحظات على العميل", {
+      defaultValue: customer.notes || "",
+      placeholder: "ملاحظات (private)",
+      confirmText: "حفظ",
+    });
+    if(v === null) return;
+    try {
+      const r = await shopifyUpdateCustomer({ customerId: customer.id, notes: v.trim() }, user);
+      if(r?.ok) showToast("✅ تم");
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleToggleDoNotContact = async (customer) => {
+    if(!canEdit) return;
+    try {
+      const r = await shopifyUpdateCustomer({ customerId: customer.id, do_not_contact: !customer.do_not_contact }, user);
+      if(r?.ok) showToast(customer.do_not_contact ? "✅ بقى يستقبل" : "🚫 عدم الاتصال");
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleWhatsAppSingle = async (customer, customMessage) => {
+    if(!customer.phone){ showToast("⚠️ مفيش رقم تليفون"); return; }
+    if(customer.do_not_contact){
+      const proceed = await ask("⚠️ تأكيد", `العميل ${customer.name} مفعّل عليه "عدم الاتصال". هتكمّل برضه؟`);
+      if(!proceed) return;
+    }
+    const text = customMessage || `أهلاً ${customer.name || ""} 👋`;
+    const url = buildWhatsAppLink(customer.phone, text);
+    window.open(url, "_blank");
+    /* Bump contact count */
+    try {
+      await shopifyUpdateCustomer({ customerId: customer.id, bumpContact: true }, user);
+    } catch(_){}
+  };
+
+  /* Bulk WhatsApp message */
+  const handleBulkWhatsApp = async () => {
+    if(selectedCustomers.length === 0){
+      showToast("⚠️ اختار عملاء لهم تليفون أولاً");
+      return;
+    }
+    const message = await askInput("📱 رسالة WhatsApp", {
+      label: `هتـ open ${selectedCustomers.length} tab في WhatsApp Web (واحد لكل عميل). الرسالة هـ تكون pre-filled.\n\n✨ تقدر تستخدم {name} عشان يتم استبداله باسم العميل.`,
+      placeholder: "أهلاً {name} 👋 معاك CLARK Store...",
+      confirmText: "افتح الـ tabs",
+    });
+    if(message === null) return;
+    if(!message.trim()){ showToast("⚠️ ادخل رسالة"); return; }
+
+    const yes = await ask("⚠️ تأكيد", `هـ يتفتح ${selectedCustomers.length} tab في المتصفح. ده ممكن يكون بطئ على الـ device. تأكيد؟`);
+    if(!yes) return;
+
+    /* Open in batches with small delays so the browser doesn't block */
+    let opened = 0;
+    for(let i = 0; i < selectedCustomers.length; i++){
+      const c = selectedCustomers[i];
+      const text = message.replace(/\{name\}/g, c.name || "");
+      const url = buildWhatsAppLink(c.phone, text);
+      window.open(url, "_blank");
+      opened++;
+      if(i < selectedCustomers.length - 1){
+        await new Promise(r => setTimeout(r, 400)); /* avoid popup-block */
+      }
+    }
+    showToast("📱 اتفتح " + opened + " tab");
+
+    /* Bulk bump contact count */
+    try {
+      await shopifyUpdateCustomer({
+        bulkCustomerIds: selectedCustomers.map(c => c.id),
+        bumpContact: true,
+      }, user);
+    } catch(_){}
+    clearSelection();
+  };
+
+  const handleCopyPhones = async () => {
+    const phones = selectedCustomers.map(c => c.phone).filter(Boolean);
+    if(phones.length === 0){ showToast("⚠️ مفيش أرقام"); return; }
+    const text = phones.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`📋 تم نسخ ${phones.length} رقم`);
+    } catch(_){
+      await tell("📋 الأرقام", text);
+    }
+  };
+
+  const handleBulkTag = async () => {
+    if(selected.size === 0){ showToast("⚠️ اختار عملاء"); return; }
+    const v = await askInput(`🏷 Tags لـ ${selected.size} عميل`, {
+      label: "هتـ replace الـ tags الموجودة. اكتبهم بفواصل.",
+      placeholder: "VIP, مستهدف رمضان",
+      confirmText: "تطبيق",
+    });
+    if(v === null) return;
+    const tags = String(v || "").split(",").map(t => t.trim()).filter(Boolean);
+    try {
+      const r = await shopifyUpdateCustomer({
+        bulkCustomerIds: Array.from(selected),
+        tags,
+      }, user);
+      if(r?.ok){ showToast("✅ تم تطبيق الـ tags على " + r.updated + " عميل"); clearSelection(); }
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  if(!connected){
+    return (
+      <Card title="⚠️ مش متصل">
+        <div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Stats banner */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="👥" color="#0EA5E9" />
+        <MetricCard label="اشتروا" value={String(stats.with_delivered)} icon="✅" color="#10B981" sub={fmt(stats.total_revenue) + " ج"} />
+        <MetricCard label="👑 VIP" value={String(stats.vip)} color="#8B5CF6" />
+        <MetricCard label="🌟 Regular" value={String(stats.regular)} color="#10B981" />
+        <MetricCard label="🆕 جدد" value={String(stats.new_)} color="#0EA5E9" />
+        <MetricCard label="⚠️ بحاجة لمتابعة" value={String(stats.at_risk)} color="#F59E0B" />
+      </div>
+
+      {/* Toolbar */}
+      <Card title="👥 عملاء Shopify" extra={
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSync} disabled={!canEdit} small>
+            🔄 تحديث القائمة
+          </LoadingBtn>
+        </div>
+      }>
+        {cfg.last_customers_sync_at && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 8 }}>
+            آخر تحديث: {new Date(cfg.last_customers_sync_at).toLocaleString("ar-EG")} ({cfg.last_customers_sync_count || 0} عميل)
+          </div>
+        )}
+
+        <div style={{ padding: "10px 12px", background: "#7C3AED10", border: "1px solid #7C3AED25", borderRadius: 8, fontSize: FS - 2, color: T.text, lineHeight: 1.7, marginBottom: 12 }}>
+          ℹ️ <b>قسم منفصل عن عملاء الجملة</b> — العملاء هنا بـ يجوا من الطلبات الموجودة في تاب الطلبات. كل عميل بـ يبقى entry واحد بالـ unique phone (مع normalize).
+          <br/>📱 الـ WhatsApp بـ يفتح مباشرة من المتصفح — مفيش حاجة backend bridge.
+        </div>
+
+        {/* Bulk action bar */}
+        {selected.size > 0 && (
+          <div style={{
+            padding: "10px 14px",
+            background: "#7C3AED15",
+            border: "1px solid #7C3AED40",
+            borderRadius: 10,
+            marginBottom: 12,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}>
+            <span style={{ fontWeight: 800, color: "#7C3AED", fontSize: FS }}>
+              {selected.size} محدد · {selectedCustomers.length} لهم تليفون
+            </span>
+            <Btn small primary onClick={handleBulkWhatsApp} disabled={selectedCustomers.length === 0}>
+              📱 WhatsApp Bulk
+            </Btn>
+            <Btn small onClick={handleCopyPhones}>
+              📋 نسخ الأرقام
+            </Btn>
+            <Btn small onClick={handleBulkTag}>
+              🏷 Tags
+            </Btn>
+            <Btn small ghost onClick={clearSelection}>
+              ✕ Clear
+            </Btn>
+          </div>
+        )}
+
+        {/* Filters */}
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 8 }}>
+          <Sel value={tierFilter} onChange={setTierFilter}>
+            <option value="all">كل الـ tiers ({stats.total})</option>
+            <option value="vip">👑 VIP ({stats.vip})</option>
+            <option value="regular">🌟 Regular ({stats.regular})</option>
+            <option value="new">🆕 جدد ({stats.new_})</option>
+            <option value="at_risk">⚠️ بحاجة لمتابعة ({stats.at_risk})</option>
+            <option value="inactive">😴 غير نشط ({stats.inactive})</option>
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالاسم، التليفون، إيميل، أو tag..." />
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
+          <CheckLine label="اللي اشتروا فقط (delivered ≥ 1)" checked={showDeliveredOnly} onChange={setShowDeliveredOnly} />
+          <CheckLine label="يستقبلوا marketing فقط" checked={showMarketingOnly} onChange={setShowMarketingOnly} />
+          <CheckLine label="عندهم تليفون" checked={showHasPhone} onChange={setShowHasPhone} />
+        </div>
+
+        {/* Select-all + count */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, padding: "0 4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={() => {
+                if(allVisibleSelected){
+                  setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.delete(id)); return n; });
+                } else {
+                  setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.add(id)); return n; });
+                }
+              }}
+              style={{ cursor: "pointer", width: 18, height: 18 }}
+            />
+            <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>
+              تحديد الكل المعروض ({visibleIds.length})
+            </span>
+          </div>
+          <span style={{ fontSize: FS - 2, color: T.textSec }}>
+            عرض <b>{Math.min(filtered.length, 100)}</b> من <b>{filtered.length}</b>
+          </span>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>👥</div>
+            <div>{customers.length === 0 ? "اضغط \"تحديث القائمة\" لأول مرة" : "مفيش عملاء يطابقوا الـ filters"}</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.slice(0, 100).map(c => (
+              <CustomerRow
+                key={c.id}
+                customer={c}
+                isMob={isMob}
+                canEdit={canEdit}
+                isSelected={selected.has(c.id)}
+                isExpanded={expandedId === c.id}
+                onToggleSelect={() => toggleSelect(c.id)}
+                onToggleExpand={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                onWhatsApp={() => handleWhatsAppSingle(c)}
+                onSetTags={() => handleSetTags(c)}
+                onSetNotes={() => handleSetNotes(c)}
+                onToggleDoNotContact={() => handleToggleDoNotContact(c)}
+              />
+            ))}
+            {filtered.length > 100 && (
+              <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>
+                + {filtered.length - 100} عميل آخر — استخدم البحث/الـ filters
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggleSelect, onToggleExpand, onWhatsApp, onSetTags, onSetNotes, onToggleDoNotContact }){
+  const tier = getTierMeta(customer.tier);
+  const dnc = !!customer.do_not_contact;
+  const hasPhone = !!customer.phone;
+
+  /* Days since last delivery for at-risk indicators */
+  const daysSinceLastDelivered = customer.last_delivered_at
+    ? Math.floor((Date.now() - new Date(customer.last_delivered_at).getTime()) / 86400000)
+    : null;
+
+  return (
+    <div style={{
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: isSelected ? tier.color + "12" : T.cardSolid,
+      border: "1px solid " + (isSelected ? tier.color + "50" : T.brd),
+      borderInlineStart: "3px solid " + tier.color,
+      opacity: dnc ? 0.7 : 1,
+    }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          style={{ cursor: "pointer", width: 18, height: 18, marginTop: 4, flexShrink: 0 }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+              {customer.name || "(غير معروف)"}
+            </span>
+            <span style={{
+              fontSize: FS - 3, fontWeight: 700, padding: "2px 8px",
+              borderRadius: 8, background: tier.color + "20", color: tier.color,
+            }}>{tier.emoji} {tier.label}</span>
+            {dnc && (
+              <span style={{ fontSize: FS - 3, padding: "2px 8px", borderRadius: 8, background: "#94A3B815", color: "#64748B", fontWeight: 700 }}>
+                🚫 لا تتصل
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {hasPhone && (
+              <span>
+                📞 <a href={"tel:+" + customer.phone} style={{ color: T.accent, textDecoration: "none" }}>+{customer.phone}</a>
+              </span>
+            )}
+            {customer.email && <span>📧 {customer.email}</span>}
+            {customer.address?.governorate && <span>📍 {customer.address.governorate}</span>}
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <span>🛒 <b>{customer.orders_count}</b> طلب</span>
+            <span>✅ <b>{customer.delivered_count}</b> تسلّم</span>
+            {customer.refused_count > 0 && <span>❌ <b>{customer.refused_count}</b> رفض</span>}
+            <span>💰 <b>{fmt(customer.total_revenue)}</b> ج</span>
+            {customer.avg_order_value > 0 && <span style={{ color: T.textMut }}>· AOV {fmt(customer.avg_order_value)}</span>}
+          </div>
+          {customer.tags && customer.tags.length > 0 && (
+            <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {customer.tags.map((t, i) => (
+                <span key={i} style={{ fontSize: FS - 3, padding: "1px 8px", borderRadius: 10, background: "#EDE9FE", color: "#7C3AED", fontWeight: 600 }}>
+                  🏷 {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {daysSinceLastDelivered != null && daysSinceLastDelivered > 60 && customer.delivered_count > 0 && (
+            <div style={{ fontSize: FS - 3, color: T.warn, marginTop: 4 }}>
+              ⏰ آخر تسليم منذ {daysSinceLastDelivered} يوم
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: isMob ? "row" : "column", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
+          {hasPhone && (
+            <Btn small primary onClick={onWhatsApp} title="WhatsApp">
+              📱
+            </Btn>
+          )}
+          <Btn small ghost onClick={onToggleExpand} title="تفاصيل">
+            {isExpanded ? "▲" : "▼"}
+          </Btn>
+        </div>
+      </div>
+
+      {/* Expanded */}
+      {isExpanded && (
+        <div style={{
+          marginTop: 10,
+          padding: 12,
+          background: T.bg,
+          borderRadius: 8,
+          border: "1px solid " + T.brd,
+          fontSize: FS - 1,
+        }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📊 الإحصائيات</div>
+              <div style={{ color: T.textSec, lineHeight: 1.8, fontSize: FS - 2 }}>
+                <div>إجمالي الطلبات: <b>{customer.orders_count}</b></div>
+                <div>تم التسليم: <b style={{ color: T.ok }}>{customer.delivered_count}</b></div>
+                {customer.refused_count > 0 && <div>تم الرفض: <b style={{ color: T.err }}>{customer.refused_count}</b></div>}
+                {customer.cancelled_count > 0 && <div>ملغي: {customer.cancelled_count}</div>}
+                {customer.returned_count > 0 && <div>مرتجع: {customer.returned_count}</div>}
+                {customer.pending_count > 0 && <div>بانتظار: {customer.pending_count}</div>}
+                <div style={{ marginTop: 4 }}>إجمالي الإنفاق: <b>{fmt(customer.total_spent)} ج</b></div>
+                <div>إيرادات محققة: <b style={{ color: T.accent }}>{fmt(customer.total_revenue)} ج</b></div>
+                <div>متوسط قيمة الطلب: <b>{fmt(customer.avg_order_value)} ج</b></div>
+                {customer.first_order_at && <div style={{ marginTop: 4 }}>أول طلب: {new Date(customer.first_order_at).toLocaleDateString("ar-EG")}</div>}
+                {customer.last_delivered_at && <div>آخر تسليم: {new Date(customer.last_delivered_at).toLocaleDateString("ar-EG")}</div>}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📍 العنوان</div>
+              <div style={{ color: T.textSec, lineHeight: 1.8, fontSize: FS - 2 }}>
+                {customer.address?.line1 && <div>{customer.address.line1}</div>}
+                {customer.address?.line2 && <div>{customer.address.line2}</div>}
+                {customer.address?.city && <div>{customer.address.city}</div>}
+                {customer.address?.governorate && <div>{customer.address.governorate}</div>}
+                {!customer.address?.line1 && !customer.address?.city && <div style={{ color: T.textMut }}>(لا يوجد عنوان)</div>}
+              </div>
+
+              {customer.favorite_skus && customer.favorite_skus.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🔥 أكتر منتج اشتراه</div>
+                  {customer.favorite_skus.map((s, i) => (
+                    <div key={i} style={{ fontSize: FS - 2, color: T.textSec, fontFamily: "monospace" }}>
+                      {i + 1}. {s.sku} ({s.qty}×)
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {customer.contact_count > 0 && (
+                <div style={{ marginTop: 8, fontSize: FS - 2, color: T.textSec }}>
+                  📱 تم التواصل معاه <b>{customer.contact_count}</b> مرة{customer.last_contacted_at && " · آخرها " + new Date(customer.last_contacted_at).toLocaleDateString("ar-EG")}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {customer.notes && (
+            <div style={{ marginTop: 12, padding: 10, background: "#FEF9C3", borderRadius: 6, border: "1px solid #EAB30830", fontSize: FS - 1, color: "#1C1917" }}>
+              📝 <b>ملاحظات:</b> {customer.notes}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+            {hasPhone && (
+              <Btn small primary onClick={onWhatsApp}>
+                📱 WhatsApp
+              </Btn>
+            )}
+            <Btn small onClick={onSetTags}>
+              🏷 Tags ({(customer.tags || []).length})
+            </Btn>
+            <Btn small onClick={onSetNotes}>
+              📝 ملاحظات
+            </Btn>
+            <Btn small onClick={onToggleDoNotContact}>
+              {dnc ? "🔓 السماح بالتواصل" : "🚫 عدم التواصل"}
+            </Btn>
+            {hasPhone && (
+              <Btn small ghost onClick={() => window.open("tel:+" + customer.phone)}>
+                📞 اتصال
+              </Btn>
+            )}
           </div>
         </div>
       )}

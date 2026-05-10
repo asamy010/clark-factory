@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V20.2.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "👥 Phase 11 — عملاء Shopify (للحملات + WhatsApp)",
+    changes: [
+      { type: "feature", text: "👥 [قسم منفصل عن عملاء الجملة] الـ user عاوز يتواصل مع عملاء Shopify اللي اشتروا فعلاً، بدون ما يخلطهم مع عملاء الجملة. الحل: array منفصل اسمه shopifyCustomers في factory/config، بـ يتـ aggregate من الطلبات الموجودة بـ phone-based dedup." },
+      { type: "feature", text: "🎯 [Tier system تلقائي] كل عميل بـ يتحسب له tier:\n• 👑 VIP — 5+ تسليم أو إنفاق ≥ 5000ج\n• 🌟 Regular — 2-4 تسليم خلال 90 يوم\n• 🆕 جديد — 1 تسليم حديث\n• ⚠️ بحاجة لمتابعة — آخر تسليم > 90 يوم (at_risk)\n• 😴 غير نشط — مفيش تسليم ناجح\nالـ tier بـ يـ recompute كل sync — بـ يساعد في الـ campaigns targeting." },
+      { type: "feature", text: "📡 [API endpoints]\n• POST /api/shopify/sync-customers — aggregate customers من shopifyPendingOrders. Idempotent — preserve user-set fields (tags, notes, accepts_marketing, do_not_contact, contact_count). كل عميل بـ ID فريد على أساس normalized phone (مثلاً scust_p_201234567890).\n• POST /api/shopify/update-customer — تعديل tags/notes/marketing flags. يدعم single + bulk. Action خاص bumpContact++ بـ يـ track عدد المرات اللي اتـ contact-ت العميل." },
+      { type: "feature", text: "👥 [Customers sub-tab جديد بين Orders والـ Shipping]\n• 6 stat cards: total / اشتروا / VIP / Regular / Newبحاجة لمتابعة\n• Filters: tier, search (name/phone/email/tag), delivered-only, marketing-only, has-phone\n• Bulk select + action bar: 📱 WhatsApp Bulk / 📋 Copy Phones / 🏷 Set Tags\n• Per-customer card: name + tier badge + phone (clickable tel:) + email + governorate + stats (orders/delivered/revenue/AOV) + tags + at-risk warning\n• Expanded view: detailed stats، address، favorite SKUs (top 3)، contact history، notes" },
+      { type: "feature", text: "📱 [WhatsApp Marketing — 3 طرق]\n1. Single: زرار 📱 على كل عميل → wa.me link مع رسالة \"أهلاً {name} 👋\"\n2. Bulk: حدد عملاء → 📱 WhatsApp Bulk → write template → بـ يفتح tab لكل عميل (delay 400ms عشان browser ما يـ block)، الـ {name} بـ يتم replace بالاسم\n3. Copy Phones: حدد عملاء → 📋 → ينسخ الأرقام clipboard للصق في أي tool خارجي\n• كل WhatsApp send بـ يـ bump contact_count ويـ stamp last_contacted_at للـ tracking" },
+      { type: "feature", text: "🛡 [Engagement controls per customer]\n• tags[] — categorization (\"VIP\", \"رمضان 2026\", \"متابعة\")\n• notes — ملاحظات يدوية private\n• accepts_marketing — flag (default true)\n• do_not_contact — هـ يحذّر قبل الإرسال + بـ يـ exclude من الـ marketing-only filter\n• contact_count + last_contacted_at — auto-tracked" },
+      { type: "feature", text: "🔍 [Phone-based dedup ذكي]\nنفس العميل بـ orderين مختلفين (01234567890 vs +201234567890) بـ يبقى entry واحد. الـ canonical form هو 12-digit بـ leading 2 (Egyptian format). الـ ID = scust_p_<phone> فالـ Firestore key مستقر." },
+      { type: "doc", text: "✅ [الـ user workflow]\n1. Shopify tab → 👥 العملاء\n2. اضغط \"🔄 تحديث القائمة\" — هـ تشوف كل العملاء aggregated\n3. Filter: \"اللي اشتروا فقط\" (delivered ≥ 1) + tier المطلوب\n4. حدد عملاء → 📱 WhatsApp Bulk → اكتب رسالة بـ {name}\n5. اضغط \"افتح الـ tabs\" — كل عميل tab منفصل في WhatsApp Web\n6. ابعت الرسالة من كل tab\n\nالـ contact_count بـ يتـ bump تلقائياً عشان تعرف كم مرة كلّمت كل عميل." },
+    ]
+  },
+  {
     version: "V20.1.0",
     date: "2026-05-10",
     types: ["feature"],
