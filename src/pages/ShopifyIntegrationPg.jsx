@@ -43,7 +43,7 @@ import {
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
-import { bostaConfigure, bostaTrack, bostaCreateShipment } from "../utils/bosta/bostaClient.js";
+import { bostaConfigure, bostaTrack, bostaCreateShipment, bostaPrintAwb } from "../utils/bosta/bostaClient.js";
 import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
 import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/customerTiers.js";
 import { judgemeSyncReviews, getProductRating } from "../utils/judgeme/judgemeClient.js";
@@ -3572,6 +3572,53 @@ function ShippingTab({ data, canEdit, user, isMob }){
     finally { setBusyId(null); }
   };
 
+  /* V21.7 Phase 10h: Print AWB */
+  const handlePrintAwb = async (order) => {
+    if(!canEdit) return;
+    if(!order.bosta?.delivery_id){
+      await tell("⚠️ مفيش delivery_id", "الـ AWB بـ يحتاج الطلب يكون اتعمل عبر CLARK Auto-Create (Phase 10d). الطلبات اللي اتـ link manually مش هـ يكون لها AWB من هنا.");
+      return;
+    }
+    setBusyId(order.shopify_order_id);
+    try {
+      const r = await bostaPrintAwb({ orderId: order.shopify_order_id }, user);
+      if(r?.ok && r.awb_url){
+        window.open(r.awb_url, "_blank");
+        showToast("🖨️ افتح الـ PDF في tab جديد");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  /* Bulk print AWBs for selected orders (only those with delivery_id) */
+  const [selectedShip, setSelectedShip] = useState(() => new Set());
+  const toggleSelectShip = (id) => setSelectedShip(prev => {
+    const n = new Set(prev);
+    if(n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const handleBulkPrintAwb = async () => {
+    const selectedOrders = orders.filter(o => selectedShip.has(o.shopify_order_id) && o.bosta?.delivery_id);
+    if(selectedOrders.length === 0){
+      showToast("⚠️ اختار طلبات لها delivery_id");
+      return;
+    }
+    const yes = await ask("🖨️ Bulk Print AWB", `هتـ generate AWB واحد PDF لـ ${selectedOrders.length} طلب?`);
+    if(!yes) return;
+    try {
+      const r = await bostaPrintAwb({ bulkOrderIds: selectedOrders.map(o => o.shopify_order_id) }, user);
+      if(r?.ok && r.awb_url){
+        window.open(r.awb_url, "_blank");
+        showToast(`🖨️ ${r.delivery_count} AWB`);
+        setSelectedShip(new Set());
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
   if(!enabled){
     return (
       <Card title="🚚 Bosta — التكامل مش مفعّل">
@@ -3645,6 +3692,18 @@ function ShippingTab({ data, canEdit, user, isMob }){
             checked={showOnlyTracked} onChange={setShowOnlyTracked} />
         </div>
 
+        {/* V21.7 Phase 10h: Bulk AWB print action bar */}
+        {selectedShip.size > 0 && (
+          <div style={{
+            padding: "10px 14px", background: "#0D948815", border: "1px solid #0D948840",
+            borderRadius: 10, marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+          }}>
+            <span style={{ fontWeight: 800, color: "#0D9488" }}>{selectedShip.size} محدد للطباعة</span>
+            <Btn small primary onClick={handleBulkPrintAwb}>🖨️ Print AWBs (PDF واحد)</Btn>
+            <Btn small ghost onClick={() => setSelectedShip(new Set())}>✕ Clear</Btn>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
             <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>📦</div>
@@ -3663,6 +3722,9 @@ function ShippingTab({ data, canEdit, user, isMob }){
                 onToggleExpand={() => setExpandedId(expandedId === String(o.shopify_order_id) ? null : String(o.shopify_order_id))}
                 onLink={() => handleLinkTracking(o)}
                 onRefresh={() => handleRefresh(o)}
+                onPrintAwb={() => handlePrintAwb(o)}
+                isSelected={selectedShip.has(o.shopify_order_id)}
+                onToggleSelect={() => toggleSelectShip(o.shopify_order_id)}
                 apiKeySet={apiKeySet}
               />
             ))}
@@ -3708,7 +3770,7 @@ function ShippingTab({ data, canEdit, user, isMob }){
   );
 }
 
-function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, onLink, onRefresh, apiKeySet }){
+function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, onLink, onRefresh, onPrintAwb, isSelected, onToggleSelect, apiKeySet }){
   const bosta = order.bosta || {};
   const hasTracking = !!bosta.tracking_number;
   const meta = hasTracking ? getBucketMeta(bosta.state_bucket) : { color: "#94A3B8", emoji: "⚪", label: "بدون tracking" };
@@ -3752,7 +3814,11 @@ function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, 
             {ageLabel && <span style={{ marginInlineStart: 8, color: T.textMut }}>· {ageLabel}</span>}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+          {/* V21.7 Phase 10h: select checkbox for bulk AWB print */}
+          {bosta.delivery_id && (
+            <input type="checkbox" checked={!!isSelected} onChange={onToggleSelect} title="حدد للطباعة الجماعية" style={{ width: 16, height: 16, cursor: "pointer" }} />
+          )}
           {!hasTracking && (
             <Btn small primary onClick={onLink} disabled={!canEdit || busy}>🔗 ربط tracking</Btn>
           )}
@@ -3761,6 +3827,12 @@ function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, 
               <Btn small onClick={onRefresh} disabled={!canEdit || !apiKeySet || busy} title={!apiKeySet ? "API key مش معدّ" : ""}>
                 🔄 refresh
               </Btn>
+              {/* V21.7: Print AWB — only available if delivery_id is stored (created via CLARK) */}
+              {bosta.delivery_id && (
+                <Btn small onClick={onPrintAwb} disabled={!canEdit || busy}>
+                  🖨️ AWB
+                </Btn>
+              )}
               <Btn small onClick={onLink} disabled={!canEdit || busy}>✏️ تعديل</Btn>
             </>
           )}

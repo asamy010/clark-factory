@@ -59,3 +59,9 @@ export function bostaTrack(opts, user){
 export function bostaCreateShipment(opts, user){
   return call("POST", "/api/bosta/create-shipment", opts, user);
 }
+
+/* V21.7 Phase 10h: Get AWB PDF URL for one or many orders.
+   { orderId | bulkOrderIds } → { ok, awb_url, delivery_count, failed } */
+export function bostaPrintAwb(opts, user){
+  return call("POST", "/api/bosta/print-awb", opts, user);
+}

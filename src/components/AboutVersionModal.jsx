@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.7.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🖨️ Phase 10h — Print Bosta AWB from CLARK",
+    changes: [
+      { type: "feature", text: "🖨️ [طباعة AWB من Bosta] الـ user يقدر يطبع Air Waybill PDF لأي طلب اتعمل عبر CLARK Auto-Create (Phase 10d). single + bulk modes." },
+      { type: "feature", text: "📡 [POST /api/bosta/print-awb]\n• POST /api/v0/awb مع delivery_ids array\n• Bosta بـ يرجّع PDF URL\n• Bulk: PDF واحد يحتوي كل الـ AWBs المختارة\n• Skip للطلبات بدون delivery_id" },
+      { type: "feature", text: "🎨 [UI في Shipping tab]\n• Single: زرار 🖨️ AWB في كل order row (إذا عنده delivery_id)\n• Bulk: checkbox على كل row + 'Print AWBs (PDF واحد)' في bulk action bar\n• الـ PDF بـ يفتح في tab جديد للطباعة المباشرة" },
+      { type: "doc", text: "⚠️ [محدودية] الـ AWB API بـ يحتاج delivery_id (Bosta internal ID)، اللي بنـ store-ه بس لما الـ shipment يتعمل عبر Phase 10d Auto-Create. الطلبات اللي اتـ link manually بـ tracking number فقط مش هـ يكون لها delivery_id → الـ AWB غير متاح. حل: استخدم الـ Auto-Create للـ shipments الجديدة." },
+    ]
+  },
+  {
     version: "V21.6.0",
     date: "2026-05-10",
     types: ["feature"],
