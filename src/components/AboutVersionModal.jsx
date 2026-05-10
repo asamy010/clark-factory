@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.95.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 3 — Invoice Generation + Returns",
+    changes: [
+      { type: "feature", text: "📄 [Auto-invoice on delivery] لما الـ user يضغط \"تم الاستلام\" على Shopify order، الـ system دلوقتي بـ يـ:\n• Generate فاتورة draft (INV-YYYY-NNNN) بـ نفس الـ counter بتاع CLARK العادي\n• يـ commit الـ stock reservations (active → committed)\n• يربط الـ order بـ invoice_id + invoice_no\n• يحفظ معلومات العميل الفعلية على الفاتورة (shopify_customer_name/_phone/_email/_address) عشان كشف العميل (KASF) للـ \"Shopify Customer\" يفضل نظيف من الديتيلز" },
+      { type: "feature", text: "🛍️ [Shopify-specific invoice schema] الفاتورة بـ تـ store:\n• source: \"shopify\"\n• source_ref: shopify_order_id\n• shopify_order_number\n• shopify_customer_name + _phone + _email + _address\n• shopify_payment_method (cod / online)\n• shopify_shipping_fee (separate from items, للـ split future)\nالـ Sales Invoices الموجودة بـ تعرض الفاتورة دي عادي زي أي فاتورة مبيعات تانية، لكن الـ source field بـ يخلي الـ reports تقدر تـ filter \"only Shopify revenue\"." },
+      { type: "feature", text: "↩️ [Process Return endpoint] /api/shopify/process-return للطلبات اللي اتسلمت بس العميل رجّعها (rare ~2%):\n• Generate Credit Note draft (CN-YYYY-NNNN)\n• يربطه بالفاتورة الأصلية\n• يـ flip order status لـ \"returned\"\n• يحفظ return_credit_note_id + return_credit_note_no + return_reason\nالـ Stock مش بـ يرجع للـ inventory تلقائياً (Phase 5 هـ يـ automate ده)." },
+      { type: "feature", text: "🧾 [Tab الفواتير شغّال] الـ placeholder اتـ replaced بـ ShopifyInvoicesTab:\n• 4 stat cards: drafts / posted / إجمالي إيرادات / مرتجعات\n• قائمة الفواتير الـ filtered (source === \"shopify\") بـ status badges\n• قائمة الـ Credit Notes للمرتجعات\n• كل entry بـ يعرض customer name + phone + Shopify order # + total\n• الـ user يفتح الفاتورة في تاب \"فواتير المبيعات\" العادي عشان يعمل Post (الـ journal entry بـ يـ fire من autoPost flow الموجود)" },
+      { type: "feature", text: "🎨 [Order card updates]\n• زرار \"↩️ معالجة إرجاع\" بـ يظهر للـ orders اللي status=delivered\n• الـ order بـ يعرض رقم الـ invoice (مع تنبيه إنها draft + رابط لتاب الفواتير)\n• الـ Credit Note number بـ يظهر للـ returned orders" },
+      { type: "improvement", text: "🛠 [Idempotency في mark-delivered] لو الـ user ضغط \"تم الاستلام\" مرتين على نفس الـ order:\n• الـ invoice الموجودة بـ يـ reuse-ها (مفيش double-creation)\n• الـ reservations بـ تظل committed (مفيش double-commit)\n• الـ response field invoiceWasNew بـ يقول false في المرة التانية\nنفس الـ pattern لـ process-return — لو بـ يـ trigger مرتين، الـ existing CN بـ يرجع." },
+      { type: "doc", text: "🚧 [Phase 3.5 next — auto-post]\nحالياً الفاتورة بـ تتعمل draft. الـ user محتاج يفتح تاب \"فواتير المبيعات\" ويضغط Post عشان الـ journal entry يـ fire (Dr. AR / Cr. Sales Revenue + Shipping Income). كمان محتاج يـ record cash receipt يدوياً في الـ Treasury.\n\nPhase 3.5 (planned) هـ:\n• Auto-trigger autoPost.salesInvoicePosted من mark-delivered (server-side replicate of the journal logic)\n• Auto-create custPayment entry للـ COD case\n• Treasury entry: Dr. MAIN_CASH / Cr. AR" },
+    ]
+  },
+  {
     version: "V19.94.0",
     date: "2026-05-10",
     types: ["feature"],

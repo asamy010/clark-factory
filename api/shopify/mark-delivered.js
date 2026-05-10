@@ -23,6 +23,8 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { commitReservationsForOrder } from "./_reservations.js";
+import { buildShopifyInvoiceFromOrder, findInvoiceByShopifyOrderId } from "./_invoices.js";
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -50,6 +52,8 @@ export default async function handler(req, res){
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
     let updatedOrder = null;
+    let createdInvoice = null;
+    let invoiceWasNew = false;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
@@ -59,24 +63,62 @@ export default async function handler(req, res){
         throw new Error("الطلب مش موجود في CLARK — اعمل sync الأول");
       }
       const prev = orders[idx];
-      if(prev.status === "delivered"){
-        /* Idempotent — just refresh the timestamp */
-      }
       if(prev.status === "refused" || prev.status === "cancelled"){
         throw new Error("الطلب اتـ mark كـ " + prev.status + " — مش هينفع تـ deliver-ه");
       }
+
+      /* V19.95 Phase 3: build the invoice (idempotent — reuse existing). */
+      let salesInvoices = Array.isArray(cfg.salesInvoices) ? cfg.salesInvoices.slice() : [];
+      let updatedCounters = cfg.invoiceCounters || {};
+      let invoice = findInvoiceByShopifyOrderId(cfg, orderId);
+      if(!invoice){
+        const built = buildShopifyInvoiceFromOrder(
+          { ...cfg, salesInvoices },
+          { ...prev, delivered_at: deliveredAt },
+          auth.email || auth.uid
+        );
+        invoice = built.invoice;
+        updatedCounters = built.updatedCounters;
+        salesInvoices = [invoice, ...salesInvoices];
+        invoiceWasNew = true;
+      }
+
+      /* V19.95 Phase 3: commit reservations for this order. */
+      const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
+      const committedReservations = commitReservationsForOrder(reservations, orderId, invoice.id);
+
+      /* Update the order */
       const next = {
         ...prev,
         status: "delivered",
         delivered_at: deliveredAt,
         delivered_by: auth.email || auth.uid,
+        invoice_id: invoice.id,
+        invoice_no: invoice.invoiceNo,
+        stock_reserved: false, /* moved to committed */
+        stock_committed: true,
       };
       const updated = orders.slice();
       updated[idx] = next;
-      tx.set(cfgRef, { shopifyPendingOrders: updated }, { merge: true });
+
+      tx.set(cfgRef, {
+        shopifyPendingOrders: updated,
+        salesInvoices,
+        invoiceCounters: updatedCounters,
+        stockReservations: committedReservations,
+      }, { merge: true });
       updatedOrder = next;
+      createdInvoice = invoice;
     });
-    res.status(200).json({ ok: true, order: updatedOrder });
+    res.status(200).json({
+      ok: true,
+      order: updatedOrder,
+      invoice: createdInvoice ? { id: createdInvoice.id, invoiceNo: createdInvoice.invoiceNo, total: createdInvoice.total } : null,
+      invoiceWasNew,
+      hint: invoiceWasNew
+        ? "فاتورة draft اتعملت. روح تاب \"فواتير المبيعات\" → اضغط Post عشان تـ generate الـ journal entry."
+        : "الفاتورة موجودة قبل كده. مفيش حاجة جديدة اتعملت.",
+    });
   } catch(e){
     res.status(400).json({ ok:false, error: e.message || "فشل التعديل" });
   }

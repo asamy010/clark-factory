@@ -35,6 +35,7 @@ import { ask, tell, askInput, showToast } from "../utils/popups.js";
 import {
   shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
+  shopifyProcessReturn,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { fmt } from "../utils/format.js";
@@ -167,7 +168,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "dashboard"      && <PlaceholderTab title="لوحة التحكم" phase="Phase 5" desc="إحصائيات اليوم/الشهر، إيرادات محققة، مخزون محجوز، تنبيهات SKU mismatch، أكثر المنتجات مبيعاً." shopifyConfig={shopifyConfig} />}
         {activeTab === "products"       && <PlaceholderTab title="المنتجات والمخزون" phase="Phase 4" desc="مزامنة المنتجات مع Shopify، إعدادات الـ safety buffer لكل منتج، معالجة SKU mismatches، Push المخزون." shopifyConfig={shopifyConfig} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
-        {activeTab === "invoices"       && <PlaceholderTab title="فواتير Shopify" phase="Phase 3" desc="فواتير المبيعات الـ posted من طلبات Shopify (الـ delivered فقط). تقارير، طباعة، export Excel." shopifyConfig={shopifyConfig} />}
+        {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <PlaceholderTab title="المطابقة اليومية" phase="Phase 5" desc="Stale pending orders >7 أيام، Daily reconciliation report، Cash matching مع MAIN_CASH، WhatsApp daily summary." shopifyConfig={shopifyConfig} />}
         {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob} />}
       </div>
@@ -1060,6 +1061,30 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
     }
   };
 
+  const handleProcessReturn = async (order) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const yes = await ask("↩️ معالجة إرجاع",
+      `هل تأكد إن العميل ${order.customer_info?.name || "—"} عاوز يرجّع الطلب؟\n\nالقيمة: ${fmt(order.total)} ج.م\nالفاتورة الأصلية: ${order.invoice_no || "—"}\n\nده هـ:\n• يـ generate Credit Note draft (CN-YYYY-NNNN)\n• يربطه بالفاتورة الأصلية\n• يـ flip الـ status لـ \"returned\"\n\n⚠️ Stock مش هيرجع تلقائياً للـ inventory — هتـ handle ده يدوياً (Phase 5 هـ يـ automate).`);
+    if(!yes) return;
+    const reason = await askInput("سبب الإرجاع", { placeholder: "اختياري", confirmText: "تأكيد الإرجاع" });
+    if(reason === null) return;
+    setBusyOrderId(order.shopify_order_id);
+    try {
+      const r = await shopifyProcessReturn({ orderId: order.shopify_order_id, reason }, user);
+      if(r && r.ok){
+        await tell("✅ تم معالجة الإرجاع",
+          (r.creditNote ? `Credit Note: ${r.creditNote.creditNoteNo}\nالقيمة: ${fmt(r.creditNote.total)} ج\n\n` : "") +
+          (r.hint || ""));
+      } else {
+        showToast("⛔ " + (r?.error || "فشل المعالجة"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل المعالجة"));
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
   const handleMarkRefused = async (order) => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     const reason = await askInput("❌ سبب الرفض", {
@@ -1213,6 +1238,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
               busy={busyOrderId === order.shopify_order_id}
               onMarkDelivered={() => handleMarkDelivered(order)}
               onMarkRefused={() => handleMarkRefused(order)}
+              onProcessReturn={() => handleProcessReturn(order)}
               onOpenInShopify={() => openInShopify(order)}
             />
           ))}
@@ -1223,7 +1249,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
   );
 }
 
-function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onOpenInShopify }){
+function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onProcessReturn, onOpenInShopify }){
   const meta = STATUS_META[order.status] || STATUS_META.pending_delivery;
   const customer = order.customer_info || {};
   const addr = customer.address || {};
@@ -1363,8 +1389,11 @@ function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered,
         {order.status === "delivered" && delivered && (
           <div>✅ تم الاستلام: {delivered.toLocaleString("ar-EG")} {order.delivered_by && <span style={{ color: T.textMut }}>· بواسطة {order.delivered_by}</span>}</div>
         )}
-        {order.status === "delivered" && order.invoice_id && (
-          <div>📄 الفاتورة: <b>{order.invoice_id}</b></div>
+        {order.status === "delivered" && (order.invoice_no || order.invoice_id) && (
+          <div>📄 الفاتورة: <b>{order.invoice_no || order.invoice_id}</b> <span style={{ color: T.textMut }}>(draft — اعمل Post من تاب فواتير المبيعات)</span></div>
+        )}
+        {order.status === "returned" && (order.return_credit_note_no || order.return_credit_note_id) && (
+          <div>↩️ Credit Note: <b>{order.return_credit_note_no || order.return_credit_note_id}</b> {order.return_reason && <span style={{ color: T.textMut }}>— "{order.return_reason}"</span>}</div>
         )}
         {order.status === "refused" && refused && (
           <div>🔴 تم الرفض: {refused.toLocaleString("ar-EG")} {order.refusal_reason && <span style={{ color: T.textMut }}>— "{order.refusal_reason}"</span>}</div>
@@ -1390,8 +1419,152 @@ function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered,
             </LoadingBtn>
           </>
         )}
+        {order.status === "delivered" && (
+          <LoadingBtn loading={busy} loadingText="..." onClick={onProcessReturn} disabled={!canEdit} small>
+            ↩️ معالجة إرجاع
+          </LoadingBtn>
+        )}
         <Btn small onClick={onOpenInShopify}>↗ افتح في Shopify</Btn>
       </div>
+    </div>
+  );
+}
+
+/* V19.95 Phase 3: ShopifyInvoicesTab — read-only view of all sales
+   invoices + credit notes sourced from Shopify (source === "shopify").
+   Posts/voids happen in the regular Sales Invoices and Credit Notes
+   tabs — this is just a Shopify-filtered convenience view. */
+function ShopifyInvoicesTab({ data, isMob }){
+  const allInvoices = useMemo(() =>
+    (Array.isArray(data?.salesInvoices) ? data.salesInvoices : [])
+      .filter(inv => inv.source === "shopify"),
+    [data?.salesInvoices]
+  );
+  const allCreditNotes = useMemo(() =>
+    (Array.isArray(data?.salesCreditNotes) ? data.salesCreditNotes : [])
+      .filter(cn => cn.source === "shopify"),
+    [data?.salesCreditNotes]
+  );
+
+  const stats = useMemo(() => {
+    let draftAmt = 0, postedAmt = 0, voidAmt = 0;
+    let draftCount = 0, postedCount = 0, voidCount = 0;
+    allInvoices.forEach(inv => {
+      const amt = Number(inv.total) || 0;
+      if(inv.status === "draft"){ draftCount++; draftAmt += amt; }
+      else if(inv.status === "posted"){ postedCount++; postedAmt += amt; }
+      else if(inv.status === "void"){ voidCount++; voidAmt += amt; }
+    });
+    let cnTotal = 0;
+    allCreditNotes.forEach(cn => { cnTotal += Number(cn.total) || 0; });
+    return { draftCount, postedCount, voidCount, draftAmt, postedAmt, voidAmt, cnTotal, cnCount: allCreditNotes.length };
+  }, [allInvoices, allCreditNotes]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <MetricCard label="فواتير draft" value={String(stats.draftCount)} icon="📝" color="#F59E0B" sub={fmt(stats.draftAmt) + " ج"} />
+        <MetricCard label="فواتير posted" value={String(stats.postedCount)} icon="✅" color="#10B981" sub={fmt(stats.postedAmt) + " ج"} />
+        <MetricCard label="إجمالي إيرادات" value={fmt(stats.postedAmt) + " ج"} icon="💰" color="#0EA5E9" />
+        <MetricCard label="مرتجعات" value={String(stats.cnCount)} icon="↩️" color="#EF4444" sub={fmt(stats.cnTotal) + " ج"} />
+      </div>
+
+      <Card title="🧾 فواتير Shopify">
+        <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 10 }}>
+          الفواتير الـ draft دي اتعملت من Phase 3 — اضغط على أي واحدة عشان تشوفها في تاب "فواتير المبيعات" وتعمل Post.
+        </div>
+        {allInvoices.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>📭</div>
+            <div style={{ fontSize: FS - 1 }}>مفيش فواتير من Shopify لسه</div>
+            <div style={{ fontSize: FS - 2, marginTop: 4 }}>اعمل Mark Delivered لطلب من تاب الطلبات عشان فاتورة تتعمل</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allInvoices.slice(0, 50).map(inv => {
+              const statusMeta = inv.status === "posted" ? { c: "#10B981", l: "Posted" }
+                              : inv.status === "void" ? { c: "#94A3B8", l: "Void" }
+                              : { c: "#F59E0B", l: "Draft" };
+              return (
+                <div key={inv.id} style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  background: T.cardSolid,
+                  border: "1px solid " + T.brd,
+                  borderInlineStart: "3px solid " + statusMeta.c,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>📄 {inv.invoiceNo}</span>
+                      <span style={{
+                        fontSize: FS - 3,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        background: statusMeta.c + "20",
+                        color: statusMeta.c,
+                      }}>{statusMeta.l}</span>
+                      <span style={{ fontSize: FS - 2, color: T.textMut }}>{inv.date}</span>
+                    </div>
+                    <div style={{ fontSize: FS - 1, color: T.textSec, marginTop: 4 }}>
+                      {inv.shopify_customer_name || inv.customerName || "—"}
+                      {inv.shopify_customer_phone && (
+                        <span style={{ marginInlineStart: 8 }}>📞 {inv.shopify_customer_phone}</span>
+                      )}
+                      {inv.shopify_order_number && (
+                        <span style={{ marginInlineStart: 8 }}>🛒 #{inv.shopify_order_number}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.accent }}>
+                    {fmt(inv.total)} ج
+                  </div>
+                </div>
+              );
+            })}
+            {allInvoices.length > 50 && (
+              <div style={{ textAlign: "center", padding: 8, color: T.textMut, fontSize: FS - 2 }}>
+                + {allInvoices.length - 50} فاتورة أخرى — افتح تاب "فواتير المبيعات" لعرضها كلها
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {allCreditNotes.length > 0 && (
+        <Card title="↩️ مرتجعات Shopify (Credit Notes)">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allCreditNotes.slice(0, 30).map(cn => (
+              <div key={cn.id} style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: "#FEE2E210",
+                border: "1px solid #EF444430",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: FS, color: T.text }}>↩️ {cn.creditNoteNo}</div>
+                  <div style={{ fontSize: FS - 2, color: T.textSec }}>
+                    {cn.shopify_customer_name || cn.customerName} · #{cn.shopify_order_number || "—"} · {cn.date}
+                  </div>
+                </div>
+                <div style={{ fontSize: FS, fontWeight: 700, color: "#EF4444" }}>
+                  −{fmt(cn.total)} ج
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

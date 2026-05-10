@@ -110,3 +110,10 @@ export function shopifyMarkRefused({ orderId, reason }, user){
 export function shopifySyncProductsNow(user){
   return call("POST", "/api/shopify/sync-products-now", {}, user);
 }
+
+/* V19.95 Phase 3: Process a return for a delivered Shopify order.
+   Generates a draft credit note + flips order status to "returned".
+   { orderId, reason? } → { ok, order, creditNote, hint } */
+export function shopifyProcessReturn({ orderId, reason }, user){
+  return call("POST", "/api/shopify/process-return", { orderId, reason }, user);
+}
