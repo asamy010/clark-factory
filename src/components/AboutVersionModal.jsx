@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V20.2.1",
+    date: "2026-05-10",
+    types: ["fix"],
+    title: "🐞 Hotfix: Settings tab crash (\"user is not defined\")",
+    changes: [
+      { type: "fix", text: "💥 [User report] Settings tab بـ يـ crash بـ ErrorBoundary screen \"user is not defined\". السبب: لما ضفت BostaSettingsCard في V20.1، استخدمت user prop للـ bostaConfigure call، لكن SettingsTab نفسه ما كانش بـ يستلم user prop من الـ parent (ShopifyIntegrationPg). 2 إصلاحات:\n1. Pass user للـ SettingsTab في الـ render line\n2. أضف prop user للـ SettingsTab signature\n3. Defense-in-depth: الـ useEffect في BostaSettingsCard دلوقتي بـ يـ guard ضد user=undefined في أول render — لو الـ user مش جاهز، يـ skip الـ fetch ويستنى. ده يمنع الـ crash لو حصل race condition تاني." },
+    ]
+  },
+  {
     version: "V20.2.0",
     date: "2026-05-10",
     types: ["feature"],

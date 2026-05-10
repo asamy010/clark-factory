@@ -180,7 +180,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
-        {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob} />}
+        {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
       </div>
     </div>
   );
@@ -774,7 +774,7 @@ function PlaceholderTab({ title, phase, desc, shopifyConfig }){
    buffer, notification phone) but the heavy stuff (account mappings, COA
    selectors) ships with Phase 3+ where they actually wire into posting.
    ═══════════════════════════════════════════════════════════════════════ */
-function SettingsTab({ data, upConfig, canEdit, isMob }){
+function SettingsTab({ data, upConfig, canEdit, user, isMob }){
   const cfg = data?.shopifyConfig || {};
   const setField = (key, value) => upConfig(d => {
     if(!d.shopifyConfig) d.shopifyConfig = {};
@@ -3183,8 +3183,12 @@ function BostaSettingsCard({ data, canEdit, user, isMob }){
   const enabled = !!cfg.bosta_enabled;
   const apiKeySet = !!cfg.bosta_api_key;
 
-  /* Initial fetch to know if env secret is set + the webhook URL base */
+  /* Initial fetch to know if env secret is set + the webhook URL base.
+     V20.2.1: guard against `user` being undefined (happens during the
+     initial render before auth is fully wired) — bostaConfigure would
+     throw "user is not defined" and crash the whole Settings tab. */
   useEffect(() => {
+    if(!user || typeof user.getIdToken !== "function") return;
     let cancelled = false;
     (async () => {
       try {
@@ -3198,7 +3202,7 @@ function BostaSettingsCard({ data, canEdit, user, isMob }){
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
   const save = async (overrides) => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
