@@ -4458,6 +4458,8 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
   const [showDeliveredOnly, setShowDeliveredOnly] = useState(true);
   const [showMarketingOnly, setShowMarketingOnly] = useState(false);
   const [showHasPhone, setShowHasPhone] = useState(true);
+  /* V21.9.6: filter to show only customers we haven't messaged before */
+  const [hideAlreadyContacted, setHideAlreadyContacted] = useState(false);
 
   /* V21.4 Phase 10e: Customer Segments (saved filter combos) */
   const segments = useMemo(() => Array.isArray(data?.shopifyCustomerSegments) ? data.shopifyCustomerSegments : [], [data]);
@@ -4537,7 +4539,10 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
 
   /* Stats */
   const stats = useMemo(() => {
-    const s = { total: 0, with_delivered: 0, with_phone: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, shopify_only: 0, total_revenue: 0 };
+    const s = { total: 0, with_delivered: 0, with_phone: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, shopify_only: 0, total_revenue: 0,
+      /* V21.9.6: WhatsApp tracking stats */
+      contacted: 0, messages_sent: 0, untouched: 0,
+    };
     customers.forEach(c => {
       s.total++;
       if(c.delivered_count > 0) s.with_delivered++;
@@ -4549,6 +4554,11 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       else if(c.tier === "inactive") s.inactive++;
       else if(c.tier === "shopify_only") s.shopify_only++;
       s.total_revenue += Number(c.total_revenue) || 0;
+      /* V21.9.6: contact tracking */
+      const cc = Number(c.contact_count) || 0;
+      if(cc > 0) s.contacted++;
+      else if(c.phone) s.untouched++;
+      s.messages_sent += cc;
     });
     return s;
   }, [customers]);
@@ -4560,6 +4570,8 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     if(showDeliveredOnly) res = res.filter(c => c.delivered_count > 0);
     if(showMarketingOnly) res = res.filter(c => c.accepts_marketing !== false && !c.do_not_contact);
     if(showHasPhone) res = res.filter(c => !!c.phone);
+    /* V21.9.6: hide already-contacted customers to focus on fresh prospects */
+    if(hideAlreadyContacted) res = res.filter(c => !Number(c.contact_count));
     const q = search.trim().toLowerCase();
     if(q){
       res = res.filter(c =>
@@ -4571,7 +4583,7 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       );
     }
     return res;
-  }, [customers, tierFilter, search, showDeliveredOnly, showMarketingOnly, showHasPhone]);
+  }, [customers, tierFilter, search, showDeliveredOnly, showMarketingOnly, showHasPhone, hideAlreadyContacted]);
 
   const visibleIds = useMemo(() => filtered.slice(0, 100).map(c => c.id), [filtered]);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
@@ -4697,18 +4709,38 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     const phoneDigits = String(customer.phone).replace(/[^0-9]/g, "");
     if(phoneDigits.length < 10){ showToast("⚠️ رقم التليفون غير صحيح"); return; }
 
-    /* Step 1: Pre-open blank tab to preserve user gesture */
-    const win = window.open("about:blank", "_blank");
-    /* If popup blocked, win is null — we'll fall back to direct navigation */
-
-    /* Step 2: Confirm do_not_contact */
+    /* V21.9.6: Pre-flight checks (BEFORE opening the tab so we can cancel cleanly).
+       If the customer has been contacted before, ask for explicit confirmation
+       — prevents spamming the same person twice. */
+    const contactCount = Number(customer.contact_count) || 0;
+    const lastContactedAt = customer.last_contacted_at;
+    if(contactCount > 0){
+      const ago = lastContactedAt
+        ? (() => {
+            const days = Math.floor((Date.now() - new Date(lastContactedAt).getTime()) / 86400000);
+            if(days === 0) return "اليوم";
+            if(days === 1) return "امبارح";
+            if(days < 7) return `من ${days} يوم`;
+            if(days < 30) return `من ${Math.floor(days/7)} أسبوع`;
+            return `من ${Math.floor(days/30)} شهر`;
+          })()
+        : "تاريخ غير معروف";
+      const proceed = await ask("⚠️ متواصل معاه قبل كده",
+        `العميل ${customer.name || customer.phone} اتبعتله ${contactCount} رسالة قبل كده.\n\n` +
+        `آخر مرة: ${ago}\n\n` +
+        `تأكيد إنك عاوز تبعتله تاني؟`);
+      if(!proceed) return;
+    }
     if(customer.do_not_contact){
       const proceed = await ask("⚠️ تأكيد", `العميل ${customer.name} مفعّل عليه "عدم الاتصال". هتكمّل برضه؟`);
-      if(!proceed){
-        if(win) win.close();
-        return;
-      }
+      if(!proceed) return;
     }
+
+    /* Step 1: Pre-open blank tab to preserve user gesture (after confirms,
+       since browsers reset gesture context on await — we re-acquire here
+       via the click of the confirmation button itself, which still counts
+       as a user gesture in modern browsers). */
+    const win = window.open("about:blank", "_blank");
 
     /* Step 3: Build & navigate to WhatsApp link */
     const text = customMessage || `أهلاً ${customer.name || ""} 👋`;
@@ -4717,17 +4749,13 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     if(win && !win.closed){
       try { win.location.href = url; }
       catch(_){
-        /* Some browsers (esp. mobile) throw on cross-origin location set
-           to a blank tab. Fall back to opener.location. */
         try { win.location.replace(url); }
         catch(__){
           win.close();
-          window.location.href = url; /* last resort: navigate current tab */
+          window.location.href = url;
         }
       }
     } else {
-      /* Popup blocked → navigate the current tab so the user at least
-         lands on WhatsApp. They can press Back to return. */
       window.location.href = url;
     }
 
@@ -4737,41 +4765,64 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     } catch(_){}
   };
 
-  /* Bulk WhatsApp message */
+  /* Bulk WhatsApp message — V21.9.6: skip already-contacted by default */
   const handleBulkWhatsApp = async () => {
     if(selectedCustomers.length === 0){
       showToast("⚠️ اختار عملاء لهم تليفون أولاً");
       return;
     }
+
+    /* V21.9.6: split into "fresh" vs "already-contacted" so the user can
+       decide whether to spam the same people again. Default = skip them. */
+    const fresh = selectedCustomers.filter(c => !Number(c.contact_count));
+    const repeat = selectedCustomers.filter(c => Number(c.contact_count) > 0);
+
+    let targets = selectedCustomers;
+    if(repeat.length > 0){
+      const yesRepeat = await ask(
+        "⚠️ في عملاء اتبعت لهم رسايل قبل كده",
+        `${repeat.length} عميل من المختارين اتبعت لهم رسالة WhatsApp قبل كده.\n\n` +
+        `${fresh.length} عميل لسه ما اتبعتلهمش حاجة (طازة).\n\n` +
+        `هتبعت للكل (${selectedCustomers.length}) ولا للجدد فقط (${fresh.length})؟`,
+        { confirmText: "للكل", cancelText: "للجدد فقط" }
+      );
+      targets = yesRepeat ? selectedCustomers : fresh;
+      if(targets.length === 0){
+        showToast("ℹ️ مفيش عملاء جدد للإرسال");
+        return;
+      }
+    }
+
     const message = await askInput("📱 رسالة WhatsApp", {
-      label: `هتـ open ${selectedCustomers.length} tab في WhatsApp Web (واحد لكل عميل). الرسالة هـ تكون pre-filled.\n\n✨ تقدر تستخدم {name} عشان يتم استبداله باسم العميل.`,
+      label: `هتـ open ${targets.length} tab في WhatsApp Web (واحد لكل عميل). الرسالة هـ تكون pre-filled.\n\n✨ تقدر تستخدم {name} عشان يتم استبداله باسم العميل.`,
       placeholder: "أهلاً {name} 👋 معاك CLARK Store...",
       confirmText: "افتح الـ tabs",
     });
     if(message === null) return;
     if(!message.trim()){ showToast("⚠️ ادخل رسالة"); return; }
 
-    const yes = await ask("⚠️ تأكيد", `هـ يتفتح ${selectedCustomers.length} tab في المتصفح. ده ممكن يكون بطئ على الـ device. تأكيد؟`);
+    const yes = await ask("⚠️ تأكيد", `هـ يتفتح ${targets.length} tab في المتصفح. ده ممكن يكون بطئ على الـ device. تأكيد؟`);
     if(!yes) return;
 
     /* Open in batches with small delays so the browser doesn't block */
     let opened = 0;
-    for(let i = 0; i < selectedCustomers.length; i++){
-      const c = selectedCustomers[i];
+    for(let i = 0; i < targets.length; i++){
+      const c = targets[i];
       const text = message.replace(/\{name\}/g, c.name || "");
       const url = buildWhatsAppLink(c.phone, text);
       window.open(url, "_blank");
       opened++;
-      if(i < selectedCustomers.length - 1){
+      if(i < targets.length - 1){
         await new Promise(r => setTimeout(r, 400)); /* avoid popup-block */
       }
     }
-    showToast("📱 اتفتح " + opened + " tab");
+    const skipped = selectedCustomers.length - targets.length;
+    showToast(`📱 اتفتح ${opened} tab` + (skipped > 0 ? ` · تم تخطي ${skipped} متواصل معاهم قبل كده` : ""));
 
     /* Bulk bump contact count */
     try {
       await shopifyUpdateCustomer({
-        bulkCustomerIds: selectedCustomers.map(c => c.id),
+        bulkCustomerIds: targets.map(c => c.id),
         bumpContact: true,
       }, user);
     } catch(_){}
@@ -4862,6 +4913,30 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
         <MetricCard label="🆕 جدد" value={String(stats.new_)} color="#0EA5E9" />
         <MetricCard label="⚠️ متابعة" value={String(stats.at_risk)} color="#F59E0B" />
         <MetricCard label="🛍️ Shopify فقط" value={String(stats.shopify_only)} color="#06B6D4" sub="مسجلين بدون شراء" />
+      </div>
+      {/* V21.9.6: WhatsApp tracking stats */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 10, marginTop: 10 }}>
+        <MetricCard
+          label="📱 اتبعت لهم رسالة"
+          value={String(stats.contacted)}
+          icon="📤"
+          color="#128C7E"
+          sub={stats.messages_sent + " رسالة بإجمالي"}
+        />
+        <MetricCard
+          label="📵 لم يتم التواصل"
+          value={String(stats.untouched)}
+          icon="🆕"
+          color="#0EA5E9"
+          sub="عملاء طازة (بـ تليفون)"
+        />
+        <MetricCard
+          label="✉️ متوسط الرسائل"
+          value={stats.contacted > 0 ? (stats.messages_sent / stats.contacted).toFixed(1) : "0"}
+          icon="📊"
+          color="#8B5CF6"
+          sub="لكل عميل اتـ contact"
+        />
       </div>
 
       {/* Toolbar */}
@@ -4977,6 +5052,12 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
           <CheckLine label="اللي اشتروا فقط (delivered ≥ 1)" checked={showDeliveredOnly} onChange={setShowDeliveredOnly} />
           <CheckLine label="يستقبلوا marketing فقط" checked={showMarketingOnly} onChange={setShowMarketingOnly} />
           <CheckLine label="عندهم تليفون" checked={showHasPhone} onChange={setShowHasPhone} />
+          {/* V21.9.6: filter to skip already-messaged customers — useful for fresh campaigns */}
+          <CheckLine
+            label="📱 إخفاء اللي اتبعت لهم رسالة قبل كده"
+            checked={hideAlreadyContacted}
+            onChange={setHideAlreadyContacted}
+          />
         </div>
 
         {/* Select-all + count */}
@@ -5102,6 +5183,27 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
                 ⏳ بانتظار
               </span>
             )}
+            {/* V21.9.6: WhatsApp contact tracking — show count of messages sent
+                so the user knows not to spam this customer again. Tooltip shows
+                last contact date. Color goes red if >3 to warn against spam. */}
+            {Number(customer.contact_count) > 0 && (
+              <span
+                style={{
+                  fontSize: FS - 4, fontWeight: 800, padding: "1px 7px", borderRadius: 8,
+                  background: customer.contact_count >= 3 ? T.err + "15" : "#25D36615",
+                  color: customer.contact_count >= 3 ? T.err : "#128C7E",
+                  border: "1px solid " + (customer.contact_count >= 3 ? T.err + "30" : "#25D36630"),
+                }}
+                title={
+                  "تم إرسال " + customer.contact_count + " رسالة WhatsApp" +
+                  (customer.last_contacted_at
+                    ? "\nآخر مرة: " + new Date(customer.last_contacted_at).toLocaleString("ar-EG")
+                    : "")
+                }
+              >
+                📱 تم إرسال {customer.contact_count}{customer.contact_count >= 3 ? " — توقّف!" : ""}
+              </span>
+            )}
             {/* V20.3: source badge */}
             {customer.source === "merged" && (
               <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: T.ok + "15", color: T.ok, fontWeight: 600 }} title="Shopify + Orders">
@@ -5166,9 +5268,47 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
         </div>
         <div style={{ display: "flex", flexDirection: isMob ? "row" : "column", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
           {hasPhone && (
-            <Btn small primary onClick={onWhatsApp} title="WhatsApp">
-              📱
-            </Btn>
+            /* V21.9.6: WhatsApp button shows colored counter overlay if previously contacted.
+               Green badge = 1-2 sent. Red = 3+ (spam warning).
+               Click still works — but the handler shows confirmation popup. */
+            <div style={{ position: "relative" }}>
+              <Btn
+                small
+                primary
+                onClick={onWhatsApp}
+                title={
+                  customer.contact_count > 0
+                    ? "اتبعت ${customer.contact_count} رسالة قبل كده — اضغط بحذر".replace("${customer.contact_count}", customer.contact_count)
+                    : "WhatsApp"
+                }
+                style={customer.contact_count >= 3 ? { background: T.err, color: "#fff", borderColor: T.err } : (customer.contact_count > 0 ? { background: "#25D36620", color: "#128C7E", borderColor: "#25D36640" } : undefined)}
+              >
+                📱
+              </Btn>
+              {customer.contact_count > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -6,
+                  insetInlineEnd: -6,
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 4px",
+                  borderRadius: 999,
+                  background: customer.contact_count >= 3 ? T.err : "#128C7E",
+                  color: "#fff",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1.5px solid " + T.cardSolid,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+                  pointerEvents: "none",
+                }}>
+                  {customer.contact_count}
+                </span>
+              )}
+            </div>
           )}
           <Btn small ghost onClick={onToggleExpand} title="تفاصيل">
             {isExpanded ? "▲" : "▼"}

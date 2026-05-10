@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.6",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "📱 Phase 11l — WhatsApp Contact Tracking",
+    changes: [
+      { type: "feature", text: "📱 [Badge على كل عميل بـ عدد الرسايل] العميل اللي اتبعت له WhatsApp قبل كده بـ يظهر عليه badge أخضر '📱 تم إرسال N' بجنب الـ tier badge. لو ≥ 3 الـ badge بقى أحمر '📱 تم إرسال N — توقّف!' كـ تحذير من spam." },
+      { type: "feature", text: "🔢 [Counter overlay على زرار WhatsApp] الزرار 📱 بقى عليه counter صغير دائري مرئي بـ:\n• خضر (1-2 رسالة)\n• أحمر (3+ رسائل) + الزرار نفسه بقى أحمر تحذيري\nلو مفيش رسايل قبل كده، الزرار يبقى عادي بدون أي علامات." },
+      { type: "feature", text: "⚠️ [Confirmation popup قبل الإرسال للمتواصل قبل كده]\nلما تضغط 📱 على عميل بـ contact_count > 0:\n• يفتح popup بـ 'متواصل معاه قبل كده'\n• يعرض عدد الرسايل + آخر مرة (اليوم/امبارح/N يوم/N أسبوع/N شهر)\n• المستخدم يقدر يـ confirm أو يلغي\nده بـ يـ prevent الـ spam الغير مقصود." },
+      { type: "feature", text: "🎯 [Smart skip في الـ bulk WhatsApp] لما تختار عملاء وتضغط Bulk WhatsApp، لو في عملاء اتبعت لهم رسالة قبل كده، يظهر سؤال:\n• 'للكل' (يبعت للجميع)\n• 'للجدد فقط' (skip الـ already-contacted)\n• الـ toast بعد الإرسال بـ يقول 'اتفتح N tab · تم تخطي M متواصل معاهم قبل كده'" },
+      { type: "feature", text: "🔍 [Filter جديد] في تاب العملاء: '📱 إخفاء اللي اتبعت لهم رسالة قبل كده' — checkbox جديد. مفيد لما تعمل campaign للعملاء الجدد فقط." },
+      { type: "feature", text: "📊 [Stats cards جديدة] صف ثاني من الـ metrics في تاب العملاء:\n• 📤 اتبعت لهم رسالة (مع total messages count)\n• 📵 لم يتم التواصل (عملاء طازة بـ تليفون)\n• ✉️ متوسط الرسائل لكل عميل اتـ contact" },
+      { type: "improvement", text: "💾 [الـ data كان موجود بالفعل] الـ contact_count + last_contacted_at كانوا في الـ schema من V20.2 — كل ما تضغط 📱 الـ shopifyUpdateCustomer({bumpContact: true}) كان بيعمل increment. النقص كان بس في الـ UI — الـ count مكنش ظاهر للمستخدم. الإصلاح اللي يضيف الـ visibility + الـ confirmations." },
+    ]
+  },
+  {
     version: "V21.9.5",
     date: "2026-05-10",
     types: ["fix", "feature", "architectural"],
