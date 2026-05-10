@@ -565,6 +565,89 @@ export async function fetchAllProducts(creds, opts = {}){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V20.3 — Phase 11+: Direct customer fetch from Shopify
+   ───────────────────────────────────────────────────────────────────────
+   For when the user has customers in Shopify who haven't (yet) shown up
+   in our orders sync, OR when we want richer Shopify-side data
+   (accepts_marketing, tags, total_spent across all orders).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Map a Shopify customer JSON → CLARK-side shape. */
+export function mapShopifyCustomerToCLARK(c){
+  if(!c) return null;
+  const phone = c.phone || c.default_address?.phone || "";
+  const name = [c.first_name, c.last_name].filter(Boolean).join(" ").trim()
+    || c.default_address?.name || "";
+  const tagsList = c.tags
+    ? String(c.tags).split(",").map(t => t.trim()).filter(Boolean)
+    : [];
+  return {
+    shopify_customer_id: String(c.id),
+    name,
+    email: (c.email || "").trim().toLowerCase(),
+    phone,
+    accepts_marketing: c.accepts_marketing !== false,
+    accepts_marketing_updated_at: c.accepts_marketing_updated_at || null,
+    /* Shopify-side stats (across ALL orders, even ones not in CLARK) */
+    shopify_orders_count: Number(c.orders_count) || 0,
+    shopify_total_spent: Number(c.total_spent) || 0,
+    /* Shopify metadata */
+    shopify_tags: tagsList,
+    shopify_note: c.note || "",
+    shopify_state: c.state || "", /* enabled / disabled / invited */
+    shopify_verified_email: c.verified_email !== false,
+    shopify_currency: c.currency || "",
+    /* Address */
+    default_address: c.default_address ? {
+      line1: c.default_address.address1 || "",
+      line2: c.default_address.address2 || "",
+      city: c.default_address.city || "",
+      governorate: c.default_address.province || "",
+      country: c.default_address.country || "",
+      postal_code: c.default_address.zip || "",
+      phone: c.default_address.phone || "",
+    } : null,
+    /* Timestamps */
+    shopify_created_at: c.created_at || null,
+    shopify_updated_at: c.updated_at || null,
+  };
+}
+
+/* Fetch all customers from Shopify, paginated by since_id.
+   Returns mapped customer objects (newest first by default).
+   Cap = 25,000 customers to avoid runaway. */
+export async function fetchAllShopifyCustomers(creds, opts = {}){
+  const limit = Math.min(Math.max(Number(opts.limit) || 250, 1), 250);
+  const all = [];
+  let sinceId = 0;
+  let page = 0;
+  const maxPages = 100; /* 25,000 customers — plenty for fashion B2C */
+  while(page < maxPages){
+    const params = ["limit=" + limit];
+    if(sinceId) params.push("since_id=" + sinceId);
+    if(opts.created_at_min) params.push("created_at_min=" + encodeURIComponent(opts.created_at_min));
+    if(opts.updated_at_min) params.push("updated_at_min=" + encodeURIComponent(opts.updated_at_min));
+    const url = "/customers.json?" + params.join("&");
+    const r = await shopifyFetch(creds, url);
+    const customers = (r.data && Array.isArray(r.data.customers)) ? r.data.customers : [];
+    if(customers.length === 0) break;
+    customers.forEach(c => all.push(c));
+    if(customers.length < limit) break;
+    sinceId = customers[customers.length - 1].id;
+    page++;
+  }
+  return all.map(mapShopifyCustomerToCLARK).filter(Boolean);
+}
+
+/* Convenience: get the count from Shopify (cheaper than fetching all). */
+export async function fetchShopifyCustomerCount(creds){
+  try {
+    const r = await shopifyFetch(creds, "/customers/count.json");
+    return r.data && typeof r.data.count === "number" ? r.data.count : 0;
+  } catch(_){ return 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.96 — Phase 4: Inventory push helpers
    ═══════════════════════════════════════════════════════════════════════ */
 

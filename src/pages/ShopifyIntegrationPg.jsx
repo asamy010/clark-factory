@@ -3775,15 +3775,17 @@ function CustomersTab({ data, canEdit, user, isMob }){
 
   /* Stats */
   const stats = useMemo(() => {
-    const s = { total: 0, with_delivered: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, total_revenue: 0 };
+    const s = { total: 0, with_delivered: 0, with_phone: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, shopify_only: 0, total_revenue: 0 };
     customers.forEach(c => {
       s.total++;
       if(c.delivered_count > 0) s.with_delivered++;
+      if(c.phone) s.with_phone++;
       if(c.tier === "vip") s.vip++;
       else if(c.tier === "regular") s.regular++;
       else if(c.tier === "new") s.new_++;
       else if(c.tier === "at_risk") s.at_risk++;
       else if(c.tier === "inactive") s.inactive++;
+      else if(c.tier === "shopify_only") s.shopify_only++;
       s.total_revenue += Number(c.total_revenue) || 0;
     });
     return s;
@@ -3973,13 +3975,14 @@ function CustomersTab({ data, canEdit, user, isMob }){
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Stats banner */}
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: 10 }}>
-        <MetricCard label="إجمالي" value={String(stats.total)} icon="👥" color="#0EA5E9" />
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(7, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="👥" color="#0EA5E9" sub={stats.with_phone + " بـ تليفون"} />
         <MetricCard label="اشتروا" value={String(stats.with_delivered)} icon="✅" color="#10B981" sub={fmt(stats.total_revenue) + " ج"} />
         <MetricCard label="👑 VIP" value={String(stats.vip)} color="#8B5CF6" />
         <MetricCard label="🌟 Regular" value={String(stats.regular)} color="#10B981" />
         <MetricCard label="🆕 جدد" value={String(stats.new_)} color="#0EA5E9" />
-        <MetricCard label="⚠️ بحاجة لمتابعة" value={String(stats.at_risk)} color="#F59E0B" />
+        <MetricCard label="⚠️ متابعة" value={String(stats.at_risk)} color="#F59E0B" />
+        <MetricCard label="🛍️ Shopify فقط" value={String(stats.shopify_only)} color="#06B6D4" sub="مسجلين بدون شراء" />
       </div>
 
       {/* Toolbar */}
@@ -3997,8 +4000,10 @@ function CustomersTab({ data, canEdit, user, isMob }){
         )}
 
         <div style={{ padding: "10px 12px", background: "#7C3AED10", border: "1px solid #7C3AED25", borderRadius: 8, fontSize: FS - 2, color: T.text, lineHeight: 1.7, marginBottom: 12 }}>
-          ℹ️ <b>قسم منفصل عن عملاء الجملة</b> — العملاء هنا بـ يجوا من الطلبات الموجودة في تاب الطلبات. كل عميل بـ يبقى entry واحد بالـ unique phone (مع normalize).
-          <br/>📱 الـ WhatsApp بـ يفتح مباشرة من المتصفح — مفيش حاجة backend bridge.
+          ℹ️ <b>قسم منفصل عن عملاء الجملة</b> — العملاء بـ يجوا من مصدرين:<br/>
+          1. <b>Shopify Customer DB</b> (كل العملاء المسجلين، حتى لو ما اشتروا) — بـ يـ provide tags + accepts_marketing + total_spent<br/>
+          2. <b>الطلبات في CLARK</b> — بـ يـ provide delivered_count و revenue verified و tier دقيق<br/>
+          📱 WhatsApp بـ يفتح مباشرة من المتصفح. كل عميل entry واحد بالـ phone (مع normalize).
         </div>
 
         {/* Bulk action bar */}
@@ -4041,6 +4046,7 @@ function CustomersTab({ data, canEdit, user, isMob }){
             <option value="new">🆕 جدد ({stats.new_})</option>
             <option value="at_risk">⚠️ بحاجة لمتابعة ({stats.at_risk})</option>
             <option value="inactive">😴 غير نشط ({stats.inactive})</option>
+            <option value="shopify_only">🛍️ Shopify فقط ({stats.shopify_only})</option>
           </Sel>
           <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالاسم، التليفون، إيميل، أو tag..." />
         </div>
@@ -4145,6 +4151,22 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
               fontSize: FS - 3, fontWeight: 700, padding: "2px 8px",
               borderRadius: 8, background: tier.color + "20", color: tier.color,
             }}>{tier.emoji} {tier.label}</span>
+            {/* V20.3: source badge */}
+            {customer.source === "merged" && (
+              <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: T.ok + "15", color: T.ok, fontWeight: 600 }} title="Shopify + Orders">
+                ✓ verified
+              </span>
+            )}
+            {customer.source === "shopify_only" && (
+              <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: "#06B6D415", color: "#06B6D4", fontWeight: 600 }} title="من Shopify بس">
+                🛍️ Shopify
+              </span>
+            )}
+            {customer.accepts_marketing === false && (
+              <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: "#94A3B815", color: "#64748B", fontWeight: 600 }} title="مرفوض marketing">
+                🔕
+              </span>
+            )}
             {dnc && (
               <span style={{ fontSize: FS - 3, padding: "2px 8px", borderRadius: 8, background: "#94A3B815", color: "#64748B", fontWeight: 700 }}>
                 🚫 لا تتصل
@@ -4161,11 +4183,20 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
             {customer.address?.governorate && <span>📍 {customer.address.governorate}</span>}
           </div>
           <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <span>🛒 <b>{customer.orders_count}</b> طلب</span>
-            <span>✅ <b>{customer.delivered_count}</b> تسلّم</span>
-            {customer.refused_count > 0 && <span>❌ <b>{customer.refused_count}</b> رفض</span>}
-            <span>💰 <b>{fmt(customer.total_revenue)}</b> ج</span>
-            {customer.avg_order_value > 0 && <span style={{ color: T.textMut }}>· AOV {fmt(customer.avg_order_value)}</span>}
+            {customer.source === "shopify_only" ? (
+              <>
+                <span>🛍️ <b>{customer.shopify_orders_count}</b> طلب على Shopify (لسه ما اتـ sync-ت)</span>
+                {customer.shopify_total_spent > 0 && <span>💰 <b>{fmt(customer.shopify_total_spent)}</b> ج Shopify total</span>}
+              </>
+            ) : (
+              <>
+                <span>🛒 <b>{customer.orders_count}</b> طلب</span>
+                <span>✅ <b>{customer.delivered_count}</b> تسلّم</span>
+                {customer.refused_count > 0 && <span>❌ <b>{customer.refused_count}</b> رفض</span>}
+                <span>💰 <b>{fmt(customer.total_revenue)}</b> ج</span>
+                {customer.avg_order_value > 0 && <span style={{ color: T.textMut }}>· AOV {fmt(customer.avg_order_value)}</span>}
+              </>
+            )}
           </div>
           {customer.tags && customer.tags.length > 0 && (
             <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>

@@ -226,6 +226,132 @@ export function aggregateCustomersFromOrders(orders, existingCustomers){
   return result;
 }
 
+/* V20.3 Phase 11+: Merge Shopify-direct customers with order-aggregated customers.
+   The strategy:
+   - Order-aggregated customers have rich CLARK-side data (delivered_count,
+     last_delivered_at, refused, tier, etc.)
+   - Shopify-direct customers have richer engagement data (accepts_marketing,
+     tags from Shopify, total_spent across ALL orders, shopify_id)
+   - When same person exists in both → merge, with order data taking precedence
+     for stats and Shopify data filling in gaps.
+   - When only in Shopify (never bought via CLARK) → still include them with
+     "shopify_only" source flag so the user can target them in campaigns.
+
+   Returns the merged array. */
+export function mergeShopifyCustomers(orderAggregated, shopifyDirect, existing){
+  /* Index order-aggregated by id (= scust_p_<phone>) */
+  const byId = new Map();
+  (orderAggregated || []).forEach(c => byId.set(c.id, { ...c, source: "orders" }));
+
+  /* For each Shopify direct customer, build the same id and merge */
+  for(const sc of (shopifyDirect || [])){
+    const id = buildCustomerId(sc.phone, sc.email, sc.shopify_customer_id);
+    const existingEntry = byId.get(id);
+    if(existingEntry){
+      /* Merge: orders data wins for stats, Shopify fills gaps */
+      byId.set(id, {
+        ...existingEntry,
+        shopify_customer_id: sc.shopify_customer_id || existingEntry.shopify_customer_id,
+        /* Shopify-side stats — different from CLARK stats! */
+        shopify_orders_count: sc.shopify_orders_count,
+        shopify_total_spent: sc.shopify_total_spent,
+        /* Engagement from Shopify (only if not user-overridden) */
+        accepts_marketing: existingEntry.accepts_marketing !== false ? sc.accepts_marketing : existingEntry.accepts_marketing,
+        accepts_marketing_updated_at: sc.accepts_marketing_updated_at,
+        shopify_tags: sc.shopify_tags || [],
+        shopify_note: sc.shopify_note || "",
+        shopify_state: sc.shopify_state || "",
+        shopify_verified_email: sc.shopify_verified_email,
+        shopify_created_at: sc.shopify_created_at,
+        shopify_updated_at: sc.shopify_updated_at,
+        /* Fill in name/email/address gaps */
+        name: existingEntry.name || sc.name,
+        email: existingEntry.email || sc.email,
+        address: (existingEntry.address && existingEntry.address.line1)
+          ? existingEntry.address
+          : (sc.default_address || existingEntry.address),
+        source: "merged", /* both sources */
+      });
+    } else {
+      /* Shopify-only customer (no orders in CLARK yet) */
+      const existingShopifyOnly = (existing || []).find(c => c.id === id);
+      const userTags = Array.isArray(existingShopifyOnly?.tags) ? existingShopifyOnly.tags : [];
+      const userNotes = typeof existingShopifyOnly?.notes === "string" ? existingShopifyOnly.notes : "";
+
+      /* Compute "synthetic tier" from Shopify data only, since we have no
+         CLARK orders for this customer. */
+      let syntheticTier = "shopify_only";
+      if(sc.shopify_orders_count >= 5 || sc.shopify_total_spent >= 5000){
+        syntheticTier = "vip";
+      } else if(sc.shopify_orders_count >= 2){
+        syntheticTier = "regular";
+      } else if(sc.shopify_orders_count === 1){
+        syntheticTier = "new";
+      }
+
+      byId.set(id, {
+        id,
+        shopify_customer_id: sc.shopify_customer_id,
+        /* Identity */
+        name: sc.name || "(غير معروف)",
+        phone: normalizePhoneCanonical(sc.phone) || sc.phone || "",
+        phone_raw: sc.phone || "",
+        email: sc.email || "",
+        address: sc.default_address || {},
+        /* Stats — zero from CLARK side, Shopify side from API */
+        orders_count: 0,
+        delivered_count: 0,
+        refused_count: 0,
+        cancelled_count: 0,
+        returned_count: 0,
+        pending_count: 0,
+        total_spent: 0,
+        total_revenue: 0,
+        avg_order_value: 0,
+        first_order_at: null,
+        last_order_at: null,
+        last_delivered_at: null,
+        last_refused_at: null,
+        favorite_skus: [],
+        /* Shopify-side stats */
+        shopify_orders_count: sc.shopify_orders_count,
+        shopify_total_spent: sc.shopify_total_spent,
+        shopify_tags: sc.shopify_tags || [],
+        shopify_note: sc.shopify_note || "",
+        shopify_state: sc.shopify_state || "",
+        shopify_verified_email: sc.shopify_verified_email,
+        shopify_created_at: sc.shopify_created_at,
+        shopify_updated_at: sc.shopify_updated_at,
+        accepts_marketing_updated_at: sc.accepts_marketing_updated_at,
+        /* Tier */
+        tier: syntheticTier,
+        /* Engagement */
+        accepts_marketing: existingShopifyOnly?.accepts_marketing !== false
+          ? sc.accepts_marketing
+          : existingShopifyOnly.accepts_marketing,
+        tags: userTags,
+        notes: userNotes,
+        do_not_contact: existingShopifyOnly?.do_not_contact === true,
+        last_contacted_at: existingShopifyOnly?.last_contacted_at || null,
+        contact_count: Number(existingShopifyOnly?.contact_count) || 0,
+        /* Source */
+        source: "shopify_only",
+        created_at: existingShopifyOnly?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  /* Sort: most-recent delivery first, fall back to last order, fall back to Shopify created_at */
+  const result = Array.from(byId.values());
+  result.sort((a, b) => {
+    const ta = new Date(a.last_delivered_at || a.last_order_at || a.shopify_created_at || 0).getTime();
+    const tb = new Date(b.last_delivered_at || b.last_order_at || b.shopify_created_at || 0).getTime();
+    return tb - ta;
+  });
+  return result;
+}
+
 /* Tier metadata for the UI (label + color + emoji + condition desc). */
 export const TIER_META = {
   vip:      { label: "VIP",         color: "#8B5CF6", emoji: "👑", desc: "5+ تسليم أو إنفاق ≥ 5000ج" },

@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V20.3.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "👥 Phase 11+ — سحب عملاء Shopify مباشرة من Customer API",
+    changes: [
+      { type: "feature", text: "🐞 [User report] sync customers مش بـ يجيب أحد لأن الـ aggregation كان من orders الموجودة فقط. لو الـ user عنده عملاء مسجلين في Shopify ما اشتروا لسه (أو طلباتهم ما اتـ sync-ت)، مش هـ يظهروا. الحل: pull مباشرة من Shopify Customer API + merge مع الـ aggregated من orders." },
+      { type: "feature", text: "📡 [Shopify Customer API integration]\n• fetchAllShopifyCustomers — paginated (250/page) بـ since_id، cap 25,000 customer\n• fetchShopifyCustomerCount — quick count بدون fetch الكل\n• mapShopifyCustomerToCLARK — يحوّل الـ JSON من Shopify لشكلنا (extracts: name, email, phone, accepts_marketing, tags array, total_spent, addresses, state)" },
+      { type: "feature", text: "🔀 [Smart merge] الـ sync الجديد بـ يـ combine مصدرين:\n1. Orders aggregation — رصيد CLARK دقيق (delivered_count, last_delivered_at, refused, returned, real revenue)\n2. Shopify Customer API — رصيد Shopify (shopify_orders_count عبر كل الطلبات في Shopify، shopify_total_spent، tags الموضوعة في Shopify، accepts_marketing flag، عناوين كل العميل)\n\nالـ matching بـ phone canonical → نفس الشخص = entry واحد. لو موجود في الـ orders، الـ orders تـ wins للـ stats، الـ Shopify يـ enrich بالـ engagement data. لو موجود في Shopify بس → entry جديد بـ source=\"shopify_only\" + tier محسوب من Shopify counters." },
+      { type: "feature", text: "🏷 [3 source types في الـ UI]\n• \"merged\" → ✓ verified badge أخضر — موجود في الـ مصدرين (الأكثر دقة)\n• \"orders\" → بدون badge — موجود فقط من orders aggregation\n• \"shopify_only\" → 🛍️ Shopify badge أزرق — مسجل في Shopify بس مش في CLARK orders\nبالإضافة: 🔕 badge للـ accepts_marketing=false عشان تعرف اللي رفضوا الـ marketing." },
+      { type: "feature", text: "🆕 [Tier جديد: shopify_only] للعملاء اللي في Shopify بس مش في CLARK orders. الـ tier بـ يتحسب من Shopify counters:\n• shopify_orders_count ≥ 5 أو shopify_total_spent ≥ 5000 → VIP\n• shopify_orders_count 2-4 → Regular\n• shopify_orders_count = 1 → New\n• 0 → shopify_only (مسجل بدون شراء)" },
+      { type: "feature", text: "📊 [Stats banner أوسع] 7 cards بدل 6:\n• إجمالي / اشتروا / VIP / Regular / Newبحاجة لمتابعة / 🛍️ Shopify فقط\n• الـ \"إجمالي\" بقى يعرض sub: \"X بـ تليفون\" عشان تعرف بسرعة كم منهم قابل للـ WhatsApp" },
+      { type: "feature", text: "🛡 [Idempotent + graceful degradation]\n• الـ Shopify API call بـ يحصل OUTSIDE الـ Firestore transaction (slow operation)\n• لو فشل (offline/quota), الـ sync يـ fall back لـ orders aggregation فقط\n• الـ sync_error يتـ store في shopifyConfig للـ debugging\n• User-set fields (tags, notes, do_not_contact, contact_count) preserved عبر كل الـ sync-s" },
+      { type: "feature", text: "📥 [Body option: skipShopifyDirect]\nلو الـ user عاوز sync سريع بـ orders فقط (مفيد لو الـ Shopify فيه آلاف الـ customers)، يبعت في الـ body { skipShopifyDirect: true }. الـ default = false (يـ pull من الإتنين)." },
+    ]
+  },
+  {
     version: "V20.2.1",
     date: "2026-05-10",
     types: ["fix"],

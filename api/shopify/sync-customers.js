@@ -22,9 +22,10 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
-import { aggregateCustomersFromOrders } from "./_customers.js";
+import { aggregateCustomersFromOrders, mergeShopifyCustomers } from "./_customers.js";
+import { getShopifyCreds, fetchAllShopifyCustomers } from "./_shopifyAdmin.js";
 
-const CUSTOMERS_CAP = 5000; /* well above realistic catalog for fashion B2C */
+const CUSTOMERS_CAP = 25000; /* enough for fashion B2C even with mailing-list opt-ins */
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -38,10 +39,39 @@ export default async function handler(req, res){
     return res.status(auth.status).json({ ok:false, error: auth.error });
   }
 
+  /* V20.3: optional body.skipShopifyDirect = true to skip the API call
+     (e.g. if user is offline or wants only order-aggregated). */
+  const body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {});
+  const skipShopifyDirect = body.skipShopifyDirect === true;
+
   try {
+    /* Step 1: Try to pull from Shopify Customer API (best-effort, outside the tx) */
+    let shopifyCustomers = [];
+    let shopifyFetchError = null;
+    if(!skipShopifyDirect){
+      try {
+        const creds = await getShopifyCreds();
+        if(creds){
+          shopifyCustomers = await fetchAllShopifyCustomers(creds);
+        } else {
+          shopifyFetchError = "Shopify creds مش معدّة";
+        }
+      } catch(e){
+        shopifyFetchError = e.message;
+        console.warn("[sync-customers] Shopify direct fetch failed:", e.message);
+      }
+    }
+
+    /* Step 2: Aggregate from orders + merge Shopify-direct (inside tx) */
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    let stats = { total: 0, with_delivered: 0, vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, created: 0, updated: 0 };
+    let stats = {
+      total: 0, with_delivered: 0,
+      vip: 0, regular: 0, new_: 0, at_risk: 0, inactive: 0, shopify_only: 0,
+      created: 0, updated: 0,
+      from_shopify: shopifyCustomers.length,
+      from_orders: 0,
+    };
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
@@ -49,8 +79,14 @@ export default async function handler(req, res){
       const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
       const existing = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers : [];
 
-      const aggregated = aggregateCustomersFromOrders(orders, existing);
-      const capped = aggregated.slice(0, CUSTOMERS_CAP);
+      /* Order-aggregated (rich CLARK stats) */
+      const fromOrders = aggregateCustomersFromOrders(orders, existing);
+      stats.from_orders = fromOrders.length;
+
+      /* Merge with Shopify direct */
+      const merged = mergeShopifyCustomers(fromOrders, shopifyCustomers, existing);
+      const capped = merged.slice(0, CUSTOMERS_CAP);
+
       const existingIds = new Set(existing.map(c => c.id));
       capped.forEach(c => {
         stats.total++;
@@ -60,6 +96,7 @@ export default async function handler(req, res){
         else if(c.tier === "new") stats.new_++;
         else if(c.tier === "at_risk") stats.at_risk++;
         else if(c.tier === "inactive") stats.inactive++;
+        else if(c.tier === "shopify_only") stats.shopify_only++;
         if(existingIds.has(c.id)) stats.updated++;
         else stats.created++;
       });
@@ -70,6 +107,8 @@ export default async function handler(req, res){
           ...(cfg.shopifyConfig || {}),
           last_customers_sync_at: new Date().toISOString(),
           last_customers_sync_count: capped.length,
+          last_customers_sync_shopify_count: shopifyCustomers.length,
+          last_customers_sync_shopify_error: shopifyFetchError || null,
         },
       }, { merge: true });
     });
@@ -83,8 +122,12 @@ export default async function handler(req, res){
       new: stats.new_,
       at_risk: stats.at_risk,
       inactive: stats.inactive,
+      shopify_only: stats.shopify_only,
       created: stats.created,
       updated: stats.updated,
+      from_shopify: stats.from_shopify,
+      from_orders: stats.from_orders,
+      shopify_fetch_error: shopifyFetchError,
     });
   } catch(e){
     return res.status(500).json({ ok:false, error: e.message });
