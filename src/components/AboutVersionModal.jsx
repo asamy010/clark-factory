@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.94.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 2 — Stock Reservation",
+    changes: [
+      { type: "feature", text: "📦 [Stock Reservation system] لما طلب جديد يجي من Shopify، النظام بـ يحجز المخزون تلقائياً (NOT يخصم) لحد ما يتم الاستلام أو الرفض. ده الـ pattern الصح للـ COD orders اللي 95% منهم بـ يوصلوا بس 5-15% بـ يترفضوا — الـ stock يفضل available للـ jumla orders لحد التأكد." },
+      { type: "feature", text: "🗂 [stockReservations array في factory/config] كل reservation فيه:\n• id, product_sku (= CLARK model_no), product_id, qty\n• source: \"shopify_pending\" | \"manual_hold\"\n• source_ref: shopify_order_id\n• reserved_at, expires_at (default = pending_order_timeout_days = 7)\n• status: active | committed | released | expired\n• customer_name + order_number (للـ UI)\n• unmatched flag لو الـ SKU مش موجود في CLARK inventoryItems" },
+      { type: "feature", text: "🔄 [Auto-reserve عند sync الطلبات] الـ sync-orders-now + cron poll-orders بقوا يـ create reservations لكل order جديد بـ status=pending_delivery. Idempotent — re-sync ما بـ يـ duplicate. التحديثات على orders existing ما بـ تأثر على الـ reservations الموجودة." },
+      { type: "feature", text: "❌ [Auto-release عند الرفض] mark-refused دلوقتي بـ release كل الـ active reservations للـ order تلقائياً. Idempotent — already-released stays released. الـ order's stock_reserved flag بـ يبقى false." },
+      { type: "feature", text: "🧹 [Daily cleanup cron] /api/cron/shopify-cleanup-reservations بـ يشتغل كل يوم 3 صباحاً (من vercel.json). بـ يلاقي الـ reservations اللي expires_at < now وبـ يـ flip-هم لـ status=expired + بـ يـ flag الـ order اللي ليهم stock_reserved=false. ده بـ يحرر الـ stock للـ orders اللي اتـ silently failed (مفيش fulfillment ولا refusal)." },
+      { type: "feature", text: "🎨 [UI updates في OrdersTab]\n• Banner أصفر فوق بـ totals الـ active reservations + warnings للـ unmatched SKUs\n• كل order card بقى يعرض ReservationSummary: \"Stock محجوز: X قطعة في Y reservations\" أو \"Stock تم خصمه (committed)\" أو \"Stock تم تحريره (released)\"\n• تنبيه warning لو فيه SKUs في الـ order مش موجودين في CLARK inventoryItems" },
+      { type: "feature", text: "🛠 [Server + client helpers مفصولين]\n• Server-side _reservations.js (في api/shopify/): pure functions للـ create/release/commit/expire — كلها idempotent وبـ تشتغل داخل Firestore transactions\n• Client-side stockReservations.js (في src/utils/shopify/): read-only helpers للـ UI (getActiveReservations, getReservedQtyForSku, getReservationsForOrder, getReservationsSummary)\n• الـ commitReservationsForOrder helper جاهز — هـ يستخدم في Phase 3 لما mark-delivered يـ generate invoice" },
+      { type: "doc", text: "🚧 [Phase 3 next] Phase 2 بـ track الـ reservations فقط؛ ما بـ تخصم من الـ inventory الفعلي. الـ خصم الفعلي بـ يحصل في Phase 3 لما mark-delivered يـ generate invoice + يـ commit الـ reservation. Phase 4 بعد كده هـ يستخدم getReservedQtyForSku عشان يحسب \"available for Shopify\" = physical - active reservations." },
+    ]
+  },
+  {
     version: "V19.93.0",
     date: "2026-05-10",
     types: ["feature"],

@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/shopify-poll-orders",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/shopify-cleanup-reservations",
+      "schedule": "0 3 * * *"
     }
   ]
 }

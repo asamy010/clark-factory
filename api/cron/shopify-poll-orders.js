@@ -20,6 +20,7 @@
 
 import { getDb, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchOrdersSince } from "../shopify/_shopifyAdmin.js";
+import { createReservationsForOrder } from "../shopify/_reservations.js";
 
 const ORDERS_CAP = 200;
 const DEFAULT_LOOKBACK_HOURS = 168;
@@ -100,10 +101,17 @@ export default async function handler(req, res){
       const cfg = snap.exists ? (snap.data() || {}) : {};
       const existing = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
       const map = new Map(existing.map(o => [String(o.shopify_order_id), o]));
+      let reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations.slice() : [];
+      const ttlDays = Number(cfg.shopifyConfig?.pending_order_timeout_days) || 7;
+      const autoReserve = cfg.shopifyConfig?.auto_reserve_stock !== false;
       for(const o of fetched){
         const id = String(o.shopify_order_id);
         if(o.currency && o.currency !== "EGP"){ counts.skipped++; continue; }
         const prev = map.get(id);
+        const willReserve = autoReserve && !prev && o.status === "pending_delivery";
+        if(willReserve){
+          reservations = createReservationsForOrder(cfg, reservations, o, ttlDays);
+        }
         if(prev){
           map.set(id, {
             ...prev,
@@ -127,7 +135,13 @@ export default async function handler(req, res){
           });
           counts.updated++;
         } else {
-          map.set(id, o);
+          map.set(id, {
+            ...o,
+            stock_reserved: willReserve,
+            stock_reservations: willReserve
+              ? reservations.filter(r => r.source_ref === id && r.status === "active").map(r => r.id)
+              : [],
+          });
           counts.new++;
         }
       }
@@ -141,6 +155,7 @@ export default async function handler(req, res){
       const now = new Date().toISOString();
       tx.set(cfgRef, {
         shopifyPendingOrders: merged,
+        stockReservations: reservations,
         shopifyConfig: {
           ...(cfg.shopifyConfig || {}),
           last_orders_sync_at: now,

@@ -37,6 +37,7 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchOrdersSince } from "./_shopifyAdmin.js";
+import { createReservationsForOrder } from "./_reservations.js";
 
 const ORDERS_CAP = 200;
 const DEFAULT_LOOKBACK_HOURS = 168; /* 7 days */
@@ -113,6 +114,12 @@ export default async function handler(req, res){
         ? cfg.shopifyPendingOrders : [];
       const existingMap = new Map(existing.map(o => [String(o.shopify_order_id), o]));
       counts.count = fetchedOrders.length;
+      /* V19.94 Phase 2: Auto-create stock reservations for new orders.
+         We mutate `reservations` array per-order then write the final
+         array at the end of the transaction. */
+      let reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations.slice() : [];
+      const ttlDays = Number(cfg.shopifyConfig?.pending_order_timeout_days) || 7;
+      const autoReserve = cfg.shopifyConfig?.auto_reserve_stock !== false;
       for(const o of fetchedOrders){
         const id = String(o.shopify_order_id);
         /* Skip non-EGP orders for the MVP (spec edge case #8). User can
@@ -122,6 +129,15 @@ export default async function handler(req, res){
           continue;
         }
         const prev = existingMap.get(id);
+        /* Phase 2: reserve stock for NEW orders that are still pending.
+           Skip if the order is already cancelled / refused / delivered to
+           avoid useless work (and avoid a reservation that immediately
+           gets released by the auto-promote logic below). */
+        const willReserve = autoReserve && !prev &&
+          o.status === "pending_delivery";
+        if(willReserve){
+          reservations = createReservationsForOrder(cfg, reservations, o, ttlDays);
+        }
         if(prev){
           /* Update — preserve local CLARK state (status mutation by user,
              invoice_id, delivered_at, etc). Only refresh Shopify-side
@@ -155,8 +171,14 @@ export default async function handler(req, res){
           existingMap.set(id, merged);
           counts.updated++;
         } else {
-          /* New */
-          existingMap.set(id, o);
+          /* New — flag stock_reserved if auto_reserve is on */
+          existingMap.set(id, {
+            ...o,
+            stock_reserved: willReserve,
+            stock_reservations: willReserve
+              ? reservations.filter(r => r.source_ref === id && r.status === "active").map(r => r.id)
+              : [],
+          });
           counts.new++;
         }
       }
@@ -171,6 +193,7 @@ export default async function handler(req, res){
       const now = new Date().toISOString();
       tx.set(cfgRef, {
         shopifyPendingOrders: merged,
+        stockReservations: reservations,
         shopifyConfig: {
           ...(cfg.shopifyConfig || {}),
           last_orders_sync_at: now,

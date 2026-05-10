@@ -36,6 +36,7 @@ import {
   shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
 } from "../utils/shopify/shopifyClient.js";
+import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
@@ -1019,6 +1020,9 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
     return { byStatus, totalRevenue, pendingValue };
   }, [allOrders]);
 
+  /* V19.94 Phase 2: stock reservations stats */
+  const reservationsSummary = useMemo(() => getReservationsSummary(data), [data]);
+
   const handleSync = async () => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     if(!connected){ showToast("⚠️ مش متصل بـ Shopify — روح تاب Connection"); return; }
@@ -1108,6 +1112,43 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
         <MetricCard label="ملغي/مرتجع" value={String((stats.byStatus.cancelled || 0) + (stats.byStatus.returned || 0))} icon="⚪" color="#94A3B8" />
       </div>
 
+      {/* V19.94 Phase 2: stock reservations banner */}
+      {reservationsSummary.active > 0 && (
+        <div style={{
+          padding: "10px 14px",
+          borderRadius: 10,
+          background: "#FEF3C710",
+          border: "1px solid #F59E0B30",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 18 }}>📦</span>
+          <span style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>
+            Stock محجوز: <b>{reservationsSummary.activeQty} قطعة</b> في {reservationsSummary.active} reservation
+          </span>
+          {reservationsSummary.unmatchedActive > 0 && (
+            <span style={{
+              fontSize: FS - 2,
+              fontWeight: 600,
+              color: T.warn,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: T.warn + "12",
+              border: "1px solid " + T.warn + "30",
+            }}>
+              ⚠️ {reservationsSummary.unmatchedActive} منهم SKU مش متوفر في CLARK
+            </span>
+          )}
+          {reservationsSummary.committed > 0 && (
+            <span style={{ fontSize: FS - 2, color: T.textMut }}>
+              · {reservationsSummary.committed} committed
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Toolbar */}
       <Card title="🛒 الطلبات" extra={
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1166,6 +1207,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
             <OrderCard
               key={order.shopify_order_id}
               order={order}
+              reservations={getReservationsForOrder(data, order.shopify_order_id)}
               isMob={isMob}
               canEdit={canEdit}
               busy={busyOrderId === order.shopify_order_id}
@@ -1181,7 +1223,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
   );
 }
 
-function OrderCard({ order, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onOpenInShopify }){
+function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onOpenInShopify }){
   const meta = STATUS_META[order.status] || STATUS_META.pending_delivery;
   const customer = order.customer_info || {};
   const addr = customer.address || {};
@@ -1327,6 +1369,10 @@ function OrderCard({ order, isMob, canEdit, busy, onMarkDelivered, onMarkRefused
         {order.status === "refused" && refused && (
           <div>🔴 تم الرفض: {refused.toLocaleString("ar-EG")} {order.refusal_reason && <span style={{ color: T.textMut }}>— "{order.refusal_reason}"</span>}</div>
         )}
+        {/* V19.94 Phase 2: stock reservations summary */}
+        {reservations && reservations.length > 0 && (
+          <ReservationSummary reservations={reservations} />
+        )}
         <div style={{ marginTop: 4 }}>
           <span style={{ color: T.textMut }}>Shopify status:</span> financial=<b>{fulfillSync.financial_status || "—"}</b>, fulfillment=<b>{fulfillSync.fulfillment_status || "—"}</b>
         </div>
@@ -1348,4 +1394,36 @@ function OrderCard({ order, isMob, canEdit, busy, onMarkDelivered, onMarkRefused
       </div>
     </div>
   );
+}
+
+/* V19.94 Phase 2: Compact summary of an order's stock reservations.
+   Shows: active count + qty, plus warnings for unmatched SKUs (which
+   means the order's product isn't in CLARK's inventoryItems and Phase 4
+   inventory push will skip it). */
+function ReservationSummary({ reservations }){
+  if(!reservations || reservations.length === 0) return null;
+  const active = reservations.filter(r => r.status === "active");
+  const committed = reservations.filter(r => r.status === "committed");
+  const released = reservations.filter(r => r.status === "released" || r.status === "expired");
+  const unmatchedActive = active.filter(r => r.unmatched);
+  if(active.length > 0){
+    const totalQty = active.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    return (
+      <div style={{ marginTop: 4 }}>
+        📦 <b>Stock محجوز</b>: {totalQty} قطعة في {active.length} reservation{active.length > 1 ? "s" : ""}
+        {unmatchedActive.length > 0 && (
+          <span style={{ color: T.warn, marginInlineStart: 8 }}>
+            ⚠️ {unmatchedActive.length} منهم SKU مش متوفر في CLARK
+          </span>
+        )}
+      </div>
+    );
+  }
+  if(committed.length > 0){
+    return <div style={{ marginTop: 4 }}>📦 Stock تم خصمه ({committed.length} reservation committed)</div>;
+  }
+  if(released.length > 0){
+    return <div style={{ marginTop: 4, color: T.textMut }}>📦 Stock تم تحريره ({released.length} reservation released)</div>;
+  }
+  return null;
 }

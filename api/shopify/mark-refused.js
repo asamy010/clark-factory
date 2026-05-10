@@ -15,6 +15,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { releaseReservationsForOrder } from "./_reservations.js";
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -60,10 +61,18 @@ export default async function handler(req, res){
         refused_at: new Date().toISOString(),
         refused_by: auth.email || auth.uid,
         refusal_reason: reason || "—",
+        stock_reserved: false, /* Phase 2: release flag */
       };
       const updated = orders.slice();
       updated[idx] = next;
-      tx.set(cfgRef, { shopifyPendingOrders: updated }, { merge: true });
+      /* V19.94 Phase 2: release the order's active reservations.
+         Idempotent — already-released reservations stay released. */
+      const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
+      const releasedReservations = releaseReservationsForOrder(reservations, orderId, "order_refused");
+      tx.set(cfgRef, {
+        shopifyPendingOrders: updated,
+        stockReservations: releasedReservations,
+      }, { merge: true });
       updatedOrder = next;
     });
     res.status(200).json({ ok: true, order: updatedOrder });
