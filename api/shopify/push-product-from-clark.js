@@ -132,8 +132,25 @@ export default async function handler(req, res){
 
   /* ── Resolve effective settings (body wins, then order.shopify_meta defaults) ── */
   const meta = order.shopify_meta || {};
+  /* V21.9.5: explicit title from body */
+  const titleOverride = (typeof body.title === "string" && body.title.trim()) ? body.title.trim() : null;
   const description = body.description != null ? body.description : (meta.description || "");
-  const images = Array.isArray(body.images) ? body.images : (Array.isArray(meta.images) ? meta.images : []);
+  let images = Array.isArray(body.images) ? body.images : (Array.isArray(meta.images) ? meta.images : []);
+  /* V21.9.5: per-color images map { [colorName]: { url, alt, color, source } }.
+     Merged into images list below if not already there. */
+  const colorImages = (body.colorImages && typeof body.colorImages === "object") ? body.colorImages : (meta.color_images || {});
+  /* V21.9.5: add CLARK order's main image as fallback if no images supplied */
+  if(images.length === 0 && order.image){
+    images = [{ url: order.image, alt: order.modelNo || "", position: 1, source: "clark_order_image" }];
+  }
+  /* Merge colorImages into images list */
+  for(const colorName of Object.keys(colorImages)){
+    const ci = colorImages[colorName];
+    if(!ci?.url) continue;
+    /* Skip if already in images by same url */
+    if(images.find(im => im.url === ci.url)) continue;
+    images.push({ ...ci, color: colorName, position: images.length + 1 });
+  }
   const colorSourceFabric = body.colorSourceFabric || meta.color_source_fabric || "A";
   const skuPattern = body.skuPattern || meta.sku_pattern || "{modelNo}-{color}-{size}";
   const vendor = body.vendor || meta.vendor || cfg.shopifyConfig?.shop_name || "CLARK Store";
@@ -159,10 +176,12 @@ export default async function handler(req, res){
   }
 
   /* ── Build product payload for Shopify ── */
-  const title = (order.modelNo ? order.modelNo : "")
+  /* V21.9.5: title can be overridden by body.title; falls back to derived */
+  const derivedTitle = (order.modelNo ? order.modelNo : "")
     + (order.modelDesc ? (order.modelNo ? " — " : "") + order.modelDesc : "");
+  const finalTitle = titleOverride || derivedTitle.trim() || "Untitled";
   const payload = {
-    title: title.trim() || "Untitled",
+    title: finalTitle,
     body_html: descriptionToHtml(description),
     vendor,
     product_type: productType,
@@ -195,26 +214,39 @@ export default async function handler(req, res){
 
   const errors = [];
 
-  /* ── Upload images (if create) or sync (if update + new images) ── */
+  /* ── Upload images (if create) or sync (if update + new images) ──
+     V21.9.5: For color-tagged images, attach them to all variants of that
+     color so Shopify shows the right image when the customer selects the color.
+     Variant matching uses option1 (Color) from Shopify's response. */
   let imagesUploaded = 0;
   if(images.length > 0){
-    /* On update, we don't have a clean "diff" — so for simplicity we
-       only upload images that don't already match an existing src.
-       Shopify deduplicates URL src matches. */
     const existingImageSrcs = new Set((shopifyProduct.images || []).map(img => img.src));
+    /* Map color name → array of Shopify variant IDs for that color */
+    const variantsByColor = new Map();
+    for(const sv of (shopifyProduct.variants || [])){
+      const colorVal = sv.option1 || ""; /* Color is option1 in our matrix */
+      if(!variantsByColor.has(colorVal)) variantsByColor.set(colorVal, []);
+      variantsByColor.get(colorVal).push(sv.id);
+    }
+
     for(let i = 0; i < images.length; i++){
       const img = images[i];
       if(!img.url) continue;
-      if(existingImageSrcs.has(img.url)) continue; /* skip duplicates */
+      if(existingImageSrcs.has(img.url)) continue;
       try {
-        await uploadProductImageBySrc(creds, shopifyProduct.id, {
+        const imageBody = {
           url: img.url,
           alt: img.alt || (order.modelNo + " - " + (i + 1)),
           position: img.position || (i + 1),
-        });
+        };
+        /* If this image is tagged with a color, attach to all variants of that color */
+        if(img.color && variantsByColor.has(img.color)){
+          imageBody.variant_ids = variantsByColor.get(img.color);
+        }
+        await uploadProductImageBySrc(creds, shopifyProduct.id, imageBody);
         imagesUploaded++;
       } catch(e){
-        errors.push({ stage: "image", index: i, error: e.message });
+        errors.push({ stage: "image", index: i, error: e.message, color: img.color || null });
       }
     }
   }
@@ -265,8 +297,10 @@ export default async function handler(req, res){
           last_pushed_by: auth.email || auth.uid,
           last_push_action: pushResult.action,
           /* Save the settings used for this push so re-syncs are stable */
+          title: finalTitle, /* V21.9.5 */
           description,
           images,
+          color_images: colorImages, /* V21.9.5: per-color image map */
           color_source_fabric: colorSourceFabric,
           sku_pattern: skuPattern,
           vendor,

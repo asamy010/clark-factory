@@ -251,17 +251,22 @@ export async function pushProductToShopify(creds, payload, existingShopifyProduc
 
 /* Upload an image to a Shopify product by URL.
    Shopify supports both `src` (URL) and `attachment` (base64).
-   We use src (URL) since CLARK already hosts on Firebase Storage. */
+   We use src (URL) since CLARK already hosts on Firebase Storage.
+   V21.9.5: support `variant_ids` so a color-specific image can be linked
+   to the matching variants — Shopify then shows it when the customer
+   selects that color. */
 export async function uploadProductImageBySrc(creds, shopifyProductId, imageObj){
+  const image = {
+    src: imageObj.url || imageObj.src,
+    alt: imageObj.alt || "",
+    position: imageObj.position || 0,
+  };
+  if(Array.isArray(imageObj.variant_ids) && imageObj.variant_ids.length > 0){
+    image.variant_ids = imageObj.variant_ids.map(id => Number(id) || id);
+  }
   const r = await shopifyFetch(creds, "/products/" + shopifyProductId + "/images.json", {
     method: "POST",
-    body: {
-      image: {
-        src: imageObj.url || imageObj.src,
-        alt: imageObj.alt || "",
-        position: imageObj.position || 0,
-      },
-    },
+    body: { image },
   });
   return { ok: true, image: r.data?.image };
 }

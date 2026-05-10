@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.5",
+    date: "2026-05-10",
+    types: ["fix", "feature", "architectural"],
+    title: "🩹 Phase 11k — Crash fix + Daily splits + Push Modal enhancements",
+    changes: [
+      { type: "fix", text: "🚨 [CRASH critical] React Error #310 لما تضغط 'تحديث القائمة' في تاب العملاء. السبب: useEffect كان مكتوب بعد early return في SyncProgressOverlay → كل ما الـ job يـ toggle بين null/value الـ hooks count يتغيّر → React بـ يـ crash. تم نقل الـ useEffect قبل الـ return، وعزل الـ derived state (isDoneForDismiss) من الـ render-only state." },
+      { type: "architectural", text: "📅 [Daily split V21.9.5 — إشعارات الدائنة + المدينة] tableSetup كامل في splitCollections.js + dataLimits.js + App.jsx merge logic + migration:\n• salesCreditNotes → salesCreditNotesDays/{YYYY-MM-DD}\n• purchaseDebitNotes → purchaseDebitNotesDays/{YYYY-MM-DD}\n• Flag: _splitDaysV2195Done\n• Migration بـ يعمل backup كامل في backups/pre-migration-credit-debit-notes-v2195-<ts>\n• Atomic strip-and-flag في runTransaction\n• Auto-runs بعد V19.53 (notifications) في الـ chain" },
+      { type: "feature", text: "🛍️ [Push Modal — تحسينات شاملة]:\n\n📌 Title field — اسم المنتج في Shopify (افتراضياً modelNo + modelDesc)\n🏷 Model number ظاهر بشكل بارز — بـ يدخل تلقائياً في الـ SKU pattern\n🎨 Per-color images — كل لون له صورة منفصلة في Shopify (variant_ids مربوطة)\n🖼 صورة الموديل من CLARK بتـ added تلقائياً في الـ images list\n💾 الـ user يقدر يحذف أي صورة (زرار 🗑 على كل image card)\n⚠️ Error indicator على الصور اللي مش راضية تـ load\n🏷 Badges على الـ images: 'رئيسية' + '🎨 [color]' + 'من CLARK'" },
+      { type: "improvement", text: "🔌 [Backend support] push-product-from-clark بقى:\n• يقبل body.title (override) + body.colorImages (map)\n• يضيف order.image تلقائياً لو الـ images list فاضي\n• يـ merge الـ color images في الـ images list\n• يربط كل color image بـ variant_ids الخاصة باللون → Shopify يعرض الصورة الصح لما العميل يختار اللون\n• يحفظ title + color_images في shopify_meta للـ stable re-syncs" },
+      { type: "fix", text: "📷 [Image upload preview bug] الـ compressImage احياناً بـ يرجّع Blob بدون .name property → Firebase upload فشل بصمت. تم: wrap في new Blob([data]) explicitly + force contentType='image/jpeg' + sanitize file name + onError indicator على الـ <img> tag. لو الصورة ما اتحملتش بـ يظهر '⚠️ فشل تحميل' بدل ما تـ feel المستخدم إنها رفعت صح." },
+    ]
+  },
+  {
     version: "V21.9.4",
     date: "2026-05-10",
     types: ["feature", "architectural"],

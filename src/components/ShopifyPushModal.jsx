@@ -78,7 +78,12 @@ function buildPreviewSku(pattern, ctx){
 export function ShopifyPushModal({ order, data, onClose, user, isMob }){
   const meta = order?.shopify_meta || {};
 
+  /* V21.9.5: build a sensible default title from modelNo + modelDesc */
+  const defaultTitle = (order?.modelNo ? order.modelNo : "")
+    + (order?.modelDesc ? (order?.modelNo ? " — " : "") + order.modelDesc : "");
+
   /* Form state — initialized from order.shopify_meta or defaults */
+  const [title, setTitle] = useState(meta.title || defaultTitle);
   const [description, setDescription] = useState(meta.description || "");
   const [colorSource, setColorSource] = useState(meta.color_source_fabric || "A");
   const [skuPattern, setSkuPattern] = useState(meta.sku_pattern || "{modelNo}-{color}-{size}");
@@ -86,11 +91,32 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
   const [productType, setProductType] = useState(meta.product_type || order?.garmentType || "");
   const [tags, setTags] = useState(meta.tags || "");
   const [status, setStatus] = useState(meta.status || "active");
-  const [images, setImages] = useState(Array.isArray(meta.images) ? meta.images : []);
+  /* V21.9.5: seed product images with the order's main image (from CLARK
+     OrdForm) by default, so the user doesn't have to re-upload it. */
+  const [images, setImages] = useState(() => {
+    const arr = Array.isArray(meta.images) ? meta.images : [];
+    if(arr.length > 0) return arr;
+    if(order?.image){
+      return [{
+        url: order.image,
+        alt: defaultTitle || order?.modelNo || "",
+        position: 1,
+        source: "clark_order_image",
+      }];
+    }
+    return [];
+  });
+  /* V21.9.5: per-color image map. Shape: { [colorName]: { url, alt, source } }
+     When pushing, the matrix builder picks the right color image for each
+     variant. Falls back to the global `images` list if no per-color image. */
+  const [colorImages, setColorImages] = useState(() => meta.color_images || {});
   const [busy, setBusy] = useState(false);
   const [uploadingIdx, setUploadingIdx] = useState(null);
+  const [uploadingColorKey, setUploadingColorKey] = useState(null);
   const [pushResult, setPushResult] = useState(null);
   const fileInputRef = useRef(null);
+  const colorFileInputRef = useRef(null);
+  const [pickingColorForUpload, setPickingColorForUpload] = useState(null); /* color name or null */
 
   /* Detected fabric colors per source */
   const detectedColors = useMemo(() => extractColorsFromFabric(order, colorSource), [order, colorSource]);
@@ -137,7 +163,22 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
     return { rows, total: rows.length, hasOptions: colors.length > 0 || sizes.length > 0 };
   }, [order, detectedColors, sizes, skuPattern, colorSource]);
 
-  /* ── Image upload ── */
+  /* ── Image upload ──
+     V21.9.5: refactored to handle compressImage that returns a Blob (not File).
+     Some browsers' Blob doesn't have a name property — force one for Firebase. */
+  const sanitizeFileName = (n) => String(n || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
+
+  const uploadOne = async (file, pathPrefix) => {
+    const compressed = await compressImage(file, 1200, 0.85);
+    /* compressImage may return a Blob — wrap in File for Firebase Storage */
+    const blob = compressed instanceof Blob ? compressed : new Blob([compressed]);
+    const fname = sanitizeFileName(file.name);
+    const path = pathPrefix + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "-" + fname;
+    const ref = storageRef(storage, path);
+    await uploadBytes(ref, blob, { contentType: blob.type || "image/jpeg" });
+    return await getDownloadURL(ref);
+  };
+
   const handleImageUpload = async (files) => {
     if(!files || files.length === 0) return;
     const list = Array.from(files);
@@ -146,23 +187,76 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
       const idx = images.length + i;
       setUploadingIdx(idx);
       try {
-        /* Compress image first (CLARK's existing utility) */
-        const compressed = await compressImage(file, 1200, 0.85);
-        /* Upload to Firebase Storage */
-        const path = "shopify-products/" + order.id + "/" + Date.now() + "-" + i + "-" + (file.name || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
-        const ref = storageRef(storage, path);
-        await uploadBytes(ref, compressed);
-        const url = await getDownloadURL(ref);
-        setImages(prev => [...prev, { url, alt: order.modelNo + " - " + (prev.length + 1), position: prev.length + 1 }]);
+        const url = await uploadOne(file, "shopify-products/" + (order.id || "anon"));
+        setImages(prev => [...prev, {
+          url,
+          alt: title || order.modelNo + " - " + (prev.length + 1),
+          position: prev.length + 1,
+          source: "user_upload",
+        }]);
       } catch(e){
         showToast("⛔ فشل رفع الصورة: " + (e.message || ""));
+        console.error("[ShopifyPushModal] upload failed:", e);
       }
     }
     setUploadingIdx(null);
   };
 
+  /* V21.9.5: per-color image upload.
+     User picks a color from the matrix → picks file → uploads → saved in
+     colorImages[colorName]. The color image is also added to the global
+     images list (pushed to Shopify) AND tagged with the color name. */
+  const handleColorImageUpload = async (colorName, files) => {
+    if(!colorName || !files || files.length === 0) return;
+    const file = files[0];
+    setUploadingColorKey(colorName);
+    try {
+      const url = await uploadOne(file, "shopify-products/" + (order.id || "anon") + "/colors");
+      const entry = {
+        url,
+        alt: (title || order.modelNo) + " - " + colorName,
+        color: colorName,
+        source: "color_image",
+      };
+      setColorImages(prev => ({ ...prev, [colorName]: entry }));
+      /* Also append to images list so it gets pushed to Shopify.
+         Replace existing color image for this color if present. */
+      setImages(prev => {
+        const filtered = prev.filter(im => im.color !== colorName);
+        return [...filtered, { ...entry, position: filtered.length + 1 }];
+      });
+    } catch(e){
+      showToast("⛔ فشل رفع صورة اللون: " + (e.message || ""));
+      console.error("[ShopifyPushModal] color image upload failed:", e);
+    } finally {
+      setUploadingColorKey(null);
+      setPickingColorForUpload(null);
+    }
+  };
+
   const removeImage = (idx) => {
-    setImages(prev => prev.filter((_, i) => i !== idx));
+    setImages(prev => {
+      const removed = prev[idx];
+      const next = prev.filter((_, i) => i !== idx).map((img, i) => ({ ...img, position: i + 1 }));
+      /* If removing a color image, also clear it from colorImages */
+      if(removed?.color){
+        setColorImages(c => {
+          const n = { ...c };
+          delete n[removed.color];
+          return n;
+        });
+      }
+      return next;
+    });
+  };
+
+  const removeColorImage = (colorName) => {
+    setColorImages(prev => {
+      const n = { ...prev };
+      delete n[colorName];
+      return n;
+    });
+    setImages(prev => prev.filter(im => im.color !== colorName).map((img, i) => ({ ...img, position: i + 1 })));
   };
 
   const moveImage = (idx, dir) => {
@@ -192,8 +286,10 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
     try {
       const r = await shopifyPushProductFromClark({
         orderId: order.id,
+        title, /* V21.9.5: explicit title override */
         description,
         images,
+        colorImages, /* V21.9.5: per-color image map */
         colorSourceFabric: colorSource,
         skuPattern,
         vendor,
@@ -281,6 +377,29 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
 
           {/* Basic info */}
           <Card title="📝 المعلومات الأساسية">
+            {/* V21.9.5: Title + Model number + auto-SKU info */}
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "2fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>📌 اسم المنتج (Title) في Shopify</label>
+                <Inp value={title} onChange={setTitle} placeholder={defaultTitle} />
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  افتراضياً: رقم الموديل + الوصف من CLARK
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>🏷 رقم الموديل (CLARK)</label>
+                <div style={{
+                  padding: "8px 12px", background: T.bg, border: "1px solid " + T.brd,
+                  borderRadius: 8, fontFamily: "monospace", fontSize: FS, fontWeight: 800,
+                  color: T.accent, letterSpacing: 1,
+                }}>
+                  {order.modelNo || "—"}
+                </div>
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  بـ يدخل تلقائياً في الـ SKU pattern
+                </div>
+              </div>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={labelStyle}>Vendor</label>
@@ -397,21 +516,109 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
           </Card>
 
           {/* Images */}
-          <Card title={"🖼 الصور (" + images.length + ")"}>
+          {/* V21.9.5: Per-color image upload — one image per color */}
+          {detectedColors.length > 0 && (
+            <Card title={"🎨 صورة لكل لون (" + Object.keys(colorImages).length + "/" + detectedColors.length + ")"}>
+              <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
+                ℹ️ ارفع صورة منفصلة لكل لون من خامة {colorSource}. الصور هـ تظهر بجنب كل variant في Shopify.
+              </div>
+              <input
+                ref={colorFileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={e => {
+                  if(pickingColorForUpload && e.target.files){
+                    handleColorImageUpload(pickingColorForUpload, e.target.files);
+                  }
+                  e.target.value = ""; /* allow re-uploading same file */
+                }}
+              />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {detectedColors.map(colorName => {
+                  const ci = colorImages[colorName];
+                  const isUploading = uploadingColorKey === colorName;
+                  return (
+                    <div key={colorName} style={{
+                      width: isMob ? 100 : 130,
+                      borderRadius: 10,
+                      border: "1.5px solid " + (ci ? T.ok : T.brd),
+                      background: ci ? T.ok + "08" : T.bg,
+                      padding: 6,
+                      display: "flex", flexDirection: "column", gap: 6, alignItems: "center",
+                    }}>
+                      {/* Color label */}
+                      <div style={{
+                        fontSize: FS - 2, fontWeight: 800, color: T.text,
+                        textAlign: "center", lineHeight: 1.3,
+                      }}>
+                        {colorName}
+                      </div>
+                      {/* Image preview slot */}
+                      <div style={{
+                        width: "100%",
+                        aspectRatio: "3 / 4",
+                        borderRadius: 6,
+                        border: "1px dashed " + T.brd,
+                        background: T.bg,
+                        position: "relative",
+                        overflow: "hidden",
+                      }}>
+                        {isUploading ? (
+                          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 3, color: T.textMut }}>
+                            ⏳ جاري الرفع...
+                          </div>
+                        ) : ci ? (
+                          <img
+                            src={ci.url}
+                            alt={colorName}
+                            style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+                            loading="lazy"
+                            onError={(e) => { e.currentTarget.style.opacity = "0.3"; }}
+                          />
+                        ) : (
+                          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textMut, fontSize: 20, opacity: 0.5 }}>
+                            📷
+                          </div>
+                        )}
+                      </div>
+                      {/* Action buttons */}
+                      <div style={{ display: "flex", gap: 4, width: "100%" }}>
+                        <Btn small onClick={() => {
+                          setPickingColorForUpload(colorName);
+                          colorFileInputRef.current?.click();
+                        }} disabled={isUploading} style={{ flex: 1, fontSize: FS - 3, padding: "4px 6px" }}>
+                          {ci ? "🔄 تغيير" : "➕ اختر"}
+                        </Btn>
+                        {ci && (
+                          <Btn small ghost danger onClick={() => removeColorImage(colorName)} style={{ fontSize: FS - 3, padding: "4px 6px" }}>
+                            🗑
+                          </Btn>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* General product images (gallery) — non-color-specific */}
+          <Card title={"🖼 صور إضافية (" + images.filter(i => !i.color).length + ")"}>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               multiple
               style={{ display: "none" }}
-              onChange={e => handleImageUpload(e.target.files)}
+              onChange={e => { handleImageUpload(e.target.files); e.target.value = ""; }}
             />
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
               <Btn small onClick={() => fileInputRef.current?.click()} disabled={uploadingIdx != null}>
                 {uploadingIdx != null ? "⏳ جاري الرفع..." : "➕ ارفع صور (multiple)"}
               </Btn>
               <span style={{ fontSize: FS - 3, color: T.textMut }}>
-                ينضغطوا تلقائياً (1200px) ويرفعوا على Firebase Storage. الـ URL بـ يـ pass لـ Shopify.
+                صور عامة للمنتج (مش مخصصة للون). 1200px JPEG على Firebase Storage. الـ URL بـ يـ pass لـ Shopify.
               </span>
             </div>
 
@@ -419,6 +626,11 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
               <div style={{ padding: 30, textAlign: "center", color: T.textMut, border: "2px dashed " + T.brd, borderRadius: 10 }}>
                 <div style={{ fontSize: 32, marginBottom: 6, opacity: 0.5 }}>📷</div>
                 <div>اضغط "ارفع صور" لاختيار صور المنتج</div>
+                {order?.image && (
+                  <div style={{ fontSize: FS - 3, marginTop: 6 }}>
+                    💡 صورة الموديل من CLARK اتـ added تلقائياً
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -428,22 +640,43 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
                     width: isMob ? 90 : 110,
                     height: isMob ? 120 : 147, /* 3:4 portrait */
                     borderRadius: 8,
-                    border: "1px solid " + T.brd,
+                    border: "1px solid " + (img.color ? T.accent + "60" : T.brd),
                     overflow: "hidden",
                     background: T.bg,
                   }}>
                     <img
                       src={img.url}
-                      alt=""
+                      alt={img.alt || ""}
                       style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
                       loading="lazy"
+                      onError={(e) => {
+                        /* V21.9.5: error indicator if image fails to load */
+                        const wrap = e.currentTarget.parentElement;
+                        if(wrap && !wrap.querySelector(".img-err")){
+                          const div = document.createElement("div");
+                          div.className = "img-err";
+                          div.textContent = "⚠️ فشل تحميل";
+                          div.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);color:#fff;font-size:10px;text-align:center;padding:4px";
+                          wrap.appendChild(div);
+                        }
+                      }}
                     />
                     {i === 0 && (
                       <div style={{ position: "absolute", top: 4, insetInlineStart: 4, fontSize: FS - 4, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: T.accent, color: "#fff" }}>
                         رئيسية
                       </div>
                     )}
-                    <div style={{ position: "absolute", bottom: 0, insetInlineStart: 0, insetInlineEnd: 0, background: "rgba(0,0,0,0.6)", padding: 4, display: "flex", gap: 2, justifyContent: "space-around" }}>
+                    {img.color && (
+                      <div style={{ position: "absolute", top: 4, insetInlineEnd: 4, fontSize: FS - 4, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: T.ok, color: "#fff" }}>
+                        🎨 {img.color}
+                      </div>
+                    )}
+                    {img.source === "clark_order_image" && (
+                      <div style={{ position: "absolute", bottom: 28, insetInlineStart: 4, fontSize: FS - 5, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: "#FF6F61", color: "#fff" }}>
+                        من CLARK
+                      </div>
+                    )}
+                    <div style={{ position: "absolute", bottom: 0, insetInlineStart: 0, insetInlineEnd: 0, background: "rgba(0,0,0,0.7)", padding: 4, display: "flex", gap: 2, justifyContent: "space-around" }}>
                       <button onClick={() => moveImage(i, -1)} disabled={i === 0} style={btnStyle}>◀</button>
                       <button onClick={() => moveImage(i, 1)} disabled={i === images.length - 1} style={btnStyle}>▶</button>
                       <button onClick={() => removeImage(i)} style={{ ...btnStyle, color: "#FCA5A5" }}>🗑</button>

@@ -84,13 +84,14 @@ export function SyncProgressOverlay(){
 
   /* Tick elapsed seconds */
   useEffect(() => {
-    if(!job){ setElapsedSec(0); return; }
+    if(!job?.jobId){ setElapsedSec(0); return; }
     const start = job._started || Date.now();
     setElapsedSec(0);
-    tickRef.current = setInterval(() => {
+    const interval = setInterval(() => {
       setElapsedSec(Math.floor((Date.now() - start) / 1000));
     }, 1000);
-    return () => clearInterval(tickRef.current);
+    tickRef.current = interval;
+    return () => clearInterval(interval);
   }, [job?.jobId]);
 
   /* Block Escape key while overlay is shown */
@@ -102,6 +103,17 @@ export function SyncProgressOverlay(){
     window.addEventListener("keydown", stop, true);
     return () => window.removeEventListener("keydown", stop, true);
   }, [job]);
+
+  /* V21.9.5 CRITICAL FIX: this useEffect was AFTER the early return → React
+     Error #310 ("rendered fewer hooks than expected") whenever job toggled
+     null↔value. ALL hooks MUST be called unconditionally before any early
+     return. We compute isDone here and gate inside the effect itself. */
+  const isDoneForDismiss = (snap?.status === "done");
+  useEffect(() => {
+    if(!isDoneForDismiss) return;
+    const t = setTimeout(() => dismissSyncProgress(), 1500);
+    return () => clearTimeout(t);
+  }, [isDoneForDismiss]);
 
   if(!job) return null;
 
@@ -125,14 +137,6 @@ export function SyncProgressOverlay(){
     const ss = s % 60;
     return m > 0 ? `${m}:${String(ss).padStart(2, "0")}` : `${s}ث`;
   };
-
-  /* Auto-dismiss on success after 1.5s; manual dismiss for errors */
-  useEffect(() => {
-    if(isDone){
-      const t = setTimeout(() => dismissSyncProgress(), 1500);
-      return () => clearTimeout(t);
-    }
-  }, [isDone]);
 
   const banner =
     isDone ? { color: T.ok, icon: "✅", label: "تمت بنجاح" } :

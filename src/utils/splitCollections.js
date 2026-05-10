@@ -42,12 +42,16 @@ export const SPLIT_FIELDS_V1949 = ["custPayments", "supplierPayments", "wsPaymen
 export const SPLIT_FIELDS_V1950 = ["salesInvoices", "purchaseInvoices", "purchaseOrders"];
 export const SPLIT_FIELDS_V1952 = ["stockMovements", "purchaseReceipts", "treasuryTransfers", "salesAudits"];
 export const SPLIT_FIELDS_V1953 = ["notifications"];
+/* V21.9.5 — credit/debit notes (إشعارات الدائنة/المدينة) — daily split per
+   creation date. Same growth pressure as invoices, must split early. */
+export const SPLIT_FIELDS_V2195 = ["salesCreditNotes", "purchaseDebitNotes"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
 export const SPLIT_FLAG_V1950 = "_splitDaysV1950Done";
 export const SPLIT_FLAG_V1952 = "_splitDaysV1952Done";
 export const SPLIT_FLAG_V1953 = "_splitDaysV1953Done";
+export const SPLIT_FLAG_V2195 = "_splitDaysV2195Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -71,6 +75,9 @@ export const SPLIT_COLLECTIONS = {
   salesAudits:      "salesAuditsDays",
   /* V19.53 — notifications (refactored: readBy/dismissedBy/doneBy moved to userNotifStates/{email}) */
   notifications:    "notificationsDays",
+  /* V21.9.5 — credit/debit notes split */
+  salesCreditNotes:   "salesCreditNotesDays",
+  purchaseDebitNotes: "purchaseDebitNotesDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -418,6 +425,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V1953]) {
     for (const field of SPLIT_FIELDS_V1953) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V2195]) {
+    for (const field of SPLIT_FIELDS_V2195) delete stripped[field];
   }
   return stripped;
 }
