@@ -117,3 +117,15 @@ export function shopifySyncProductsNow(user){
 export function shopifyProcessReturn({ orderId, reason }, user){
   return call("POST", "/api/shopify/process-return", { orderId, reason }, user);
 }
+
+/* V19.96 Phase 4: Push CLARK's computed available stock to Shopify.
+   { dryRun?, skus? } → { ok, total, pushed, skipped, errors, details } */
+export function shopifyPushInventoryNow(opts, user){
+  return call("POST", "/api/shopify/push-inventory-now", opts || {}, user);
+}
+
+/* V19.96 Phase 4: Update per-product inventory-push settings.
+   { shopifyProductId, settings } → { ok, product } */
+export function shopifyUpdateProductSettings({ shopifyProductId, settings }, user){
+  return call("POST", "/api/shopify/update-product-settings", { shopifyProductId, settings }, user);
+}

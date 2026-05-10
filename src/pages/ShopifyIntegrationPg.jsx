@@ -35,7 +35,7 @@ import { ask, tell, askInput, showToast } from "../utils/popups.js";
 import {
   shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
-  shopifyProcessReturn,
+  shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { fmt } from "../utils/format.js";
@@ -166,7 +166,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
       <div>
         {activeTab === "connection"     && <ConnectionTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "dashboard"      && <PlaceholderTab title="لوحة التحكم" phase="Phase 5" desc="إحصائيات اليوم/الشهر، إيرادات محققة، مخزون محجوز، تنبيهات SKU mismatch، أكثر المنتجات مبيعاً." shopifyConfig={shopifyConfig} />}
-        {activeTab === "products"       && <PlaceholderTab title="المنتجات والمخزون" phase="Phase 4" desc="مزامنة المنتجات مع Shopify، إعدادات الـ safety buffer لكل منتج، معالجة SKU mismatches، Push المخزون." shopifyConfig={shopifyConfig} />}
+        {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <PlaceholderTab title="المطابقة اليومية" phase="Phase 5" desc="Stale pending orders >7 أيام، Daily reconciliation report، Cash matching مع MAIN_CASH، WhatsApp daily summary." shopifyConfig={shopifyConfig} />}
@@ -1425,6 +1425,325 @@ function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered,
           </LoadingBtn>
         )}
         <Btn small onClick={onOpenInShopify}>↗ افتح في Shopify</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* V19.96 Phase 4: ProductsTab — Shopify product catalog + inventory push.
+   Shows all products synced from Shopify, classified as matched/missing/
+   mismatch. Lets the user toggle shopify_synced per product, set safety
+   buffer, and trigger a manual inventory push. */
+function ProductsTab({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const products = useMemo(() =>
+    Array.isArray(data?.shopifyProducts) ? data.shopifyProducts : [],
+    [data?.shopifyProducts]
+  );
+  const [filter, setFilter] = useState("all"); /* all|matched|missing|mismatch */
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [lastPushResult, setLastPushResult] = useState(null);
+
+  const stats = useMemo(() => {
+    const s = { total: products.length, matched: 0, missing: 0, mismatch: 0, synced: 0 };
+    products.forEach(p => {
+      s[p.mapping_status] = (s[p.mapping_status] || 0) + 1;
+      if(p.shopify_synced !== false && p.mapping_status === "matched") s.synced++;
+    });
+    return s;
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    let res = products;
+    if(filter !== "all") res = res.filter(p => p.mapping_status === filter);
+    const q = search.trim().toLowerCase();
+    if(q) res = res.filter(p =>
+      String(p.sku || "").toLowerCase().includes(q) ||
+      String(p.title || "").toLowerCase().includes(q)
+    );
+    return res;
+  }, [products, filter, search]);
+
+  const connected = !!cfg.connected;
+
+  const handleSyncProducts = async () => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(!connected){ showToast("⚠️ مش متصل بـ Shopify"); return; }
+    setBusy(true);
+    try {
+      const r = await shopifySyncProductsNow(user);
+      if(r && r.ok){
+        showToast(`✅ تم سحب ${r.total} منتج · matched: ${r.matched} · missing: ${r.missing}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل السحب"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل السحب"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePush = async (dryRun = false) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(!connected){ showToast("⚠️ مش متصل"); return; }
+    if(stats.synced === 0){
+      showToast("⚠️ مفيش منتجات matched + synced للـ push");
+      return;
+    }
+    if(!dryRun){
+      const yes = await ask("📤 Push المخزون", `هتـ push المخزون لـ ${stats.synced} منتج لـ Shopify. الـ Shopify quantities الحالية هـ يتـ override.\n\nالحساب:\navailable = stock - active reservations - safety buffer\n\nتأكيد؟`);
+      if(!yes) return;
+    }
+    setPushing(true);
+    try {
+      const r = await shopifyPushInventoryNow({ dryRun }, user);
+      if(r && r.ok){
+        setLastPushResult(r);
+        showToast(`${dryRun ? "🔍 Dry run" : "✅ تم"} · pushed: ${r.pushed} · skipped: ${r.skipped} · errors: ${r.errors}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل الـ push"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل الـ push"));
+    } finally {
+      setPushing(false);
+    }
+  };
+
+  const handleToggleSync = async (product) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    try {
+      const r = await shopifyUpdateProductSettings({
+        shopifyProductId: product.shopify_id,
+        settings: { shopify_synced: !(product.shopify_synced !== false) }
+      }, user);
+      if(r && r.ok){
+        showToast("✅ تم التعديل");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل التعديل"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل التعديل"));
+    }
+  };
+
+  const handleSetBuffer = async (product) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const current = product.safety_buffer != null ? String(product.safety_buffer) : String(cfg.default_safety_buffer || 5);
+    const v = await askInput("Safety Buffer للمنتج", {
+      defaultValue: current,
+      label: "عدد القطع اللي تـ keep-ها للـ Jumla (مش push للـ Shopify)",
+      type: "number",
+      placeholder: "5",
+      confirmText: "حفظ",
+    });
+    if(v === null) return;
+    try {
+      const r = await shopifyUpdateProductSettings({
+        shopifyProductId: product.shopify_id,
+        settings: { safety_buffer: v.trim() === "" ? null : Number(v) }
+      }, user);
+      if(r && r.ok){
+        showToast("✅ تم");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل التعديل"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل التعديل"));
+    }
+  };
+
+  if(!connected){
+    return (
+      <Card title="⚠️ مش متصل">
+        <div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي المنتجات" value={String(stats.total)} icon="📦" color="#0EA5E9" />
+        <MetricCard label="matched" value={String(stats.matched)} icon="✅" color="#10B981" />
+        <MetricCard label="missing in CLARK" value={String(stats.missing)} icon="⚠️" color="#F59E0B" />
+        <MetricCard label="synced للـ Shopify" value={String(stats.synced)} icon="🔄" color="#8B5CF6" />
+      </div>
+
+      <Card title="📦 المنتجات والمخزون" extra={
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSyncProducts} disabled={!canEdit} small>
+            🔄 سحب المنتجات من Shopify
+          </LoadingBtn>
+          <LoadingBtn loading={pushing} loadingText="..." onClick={() => handlePush(true)} disabled={!canEdit} small>
+            🔍 Dry Run
+          </LoadingBtn>
+          <LoadingBtn loading={pushing} loadingText="..." onClick={() => handlePush(false)} disabled={!canEdit} small>
+            📤 Push المخزون
+          </LoadingBtn>
+        </div>
+      }>
+        {cfg.last_products_sync_at && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 6 }}>
+            آخر sync للمنتجات: {new Date(cfg.last_products_sync_at).toLocaleString("ar-EG")}
+          </div>
+        )}
+        {cfg.last_inventory_push_at && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 10 }}>
+            آخر push للمخزون: {new Date(cfg.last_inventory_push_at).toLocaleString("ar-EG")} ({cfg.last_inventory_push_count || 0} منتج)
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 12 }}>
+          <Sel value={filter} onChange={setFilter}>
+            <option value="all">كل المنتجات ({products.length})</option>
+            <option value="matched">✅ matched فقط ({stats.matched})</option>
+            <option value="missing_in_clark">⚠️ missing in CLARK ({stats.missing})</option>
+            <option value="mismatch">❌ mismatch ({stats.mismatch})</option>
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالـ SKU أو العنوان..." />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>📭</div>
+            <div>{products.length === 0 ? "اضغط \"سحب المنتجات\" لأول مرة" : "مفيش منتجات تطابق الـ filter"}</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.slice(0, 100).map(p => (
+              <ProductRow
+                key={p.shopify_id}
+                product={p}
+                cfg={cfg}
+                data={data}
+                canEdit={canEdit}
+                isMob={isMob}
+                onToggleSync={() => handleToggleSync(p)}
+                onSetBuffer={() => handleSetBuffer(p)}
+              />
+            ))}
+            {filtered.length > 100 && (
+              <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>
+                + {filtered.length - 100} منتج أخرى — استخدم البحث للوصول إليهم
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Last push result */}
+      {lastPushResult && (
+        <Card title="📊 نتيجة آخر Push">
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>
+            Location: {lastPushResult.location?.name || lastPushResult.location?.id}
+            · Total: {lastPushResult.total}
+            · Pushed: {lastPushResult.pushed}
+            · Skipped: {lastPushResult.skipped}
+            · Errors: {lastPushResult.errors}
+          </div>
+          {(lastPushResult.details || []).slice(0, 30).map((d, i) => (
+            <div key={i} style={{
+              padding: "6px 10px",
+              fontSize: FS - 2,
+              borderRadius: 6,
+              background: d.status === "pushed" ? "#10B98110"
+                       : d.status === "error" ? "#EF444410"
+                       : T.bg,
+              border: "1px solid " + T.brd,
+              marginBottom: 4,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 8,
+            }}>
+              <span style={{ fontFamily: "monospace" }}>{d.sku}</span>
+              <span style={{ color: T.textSec }}>
+                {d.physical != null && (
+                  <>
+                    physical: {d.physical} − reserved: {d.reserved} − buffer: {d.buffer} = <b>{d.available}</b>
+                  </>
+                )}
+                {d.error && <span style={{ color: T.err, marginInlineStart: 8 }}>· {d.error}</span>}
+                {d.status === "no_change" && <span style={{ color: T.textMut, marginInlineStart: 8 }}>· no change</span>}
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ProductRow({ product, cfg, data, canEdit, isMob, onToggleSync, onSetBuffer }){
+  const synced = product.shopify_synced !== false;
+  const matched = product.mapping_status === "matched";
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const v0 = variants[0] || {};
+  const inv = (Array.isArray(data?.inventoryItems) ? data.inventoryItems : [])
+    .find(it => (it.model_no && it.model_no === product.sku) || (it.sku && it.sku === product.sku));
+  const physicalStock = Number(inv?.stock) || 0;
+  const reserved = (Array.isArray(data?.stockReservations) ? data.stockReservations : [])
+    .filter(r => (r.status === "active" || r.status === "committed") && r.product_sku === product.sku)
+    .reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const defaultBuffer = Number(cfg.default_safety_buffer) || 0;
+  const buffer = product.safety_buffer != null ? Number(product.safety_buffer) : defaultBuffer;
+  const available = Math.max(0, physicalStock - reserved - buffer);
+  const shopifyQty = Number(v0.inventory_quantity) || 0;
+  const inSync = available === shopifyQty;
+
+  const statusMeta = matched ? { c: "#10B981", l: "matched" }
+                  : product.mapping_status === "missing_in_clark" ? { c: "#F59E0B", l: "missing" }
+                  : { c: "#EF4444", l: "mismatch" };
+
+  return (
+    <div style={{
+      padding: "10px 14px",
+      borderRadius: 10,
+      background: T.cardSolid,
+      border: "1px solid " + T.brd,
+      borderInlineStart: "3px solid " + statusMeta.c,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: FS, color: T.text }}>{product.title || "(no title)"}</span>
+            <span style={{
+              fontSize: FS - 3, fontWeight: 700, padding: "2px 8px",
+              borderRadius: 8, background: statusMeta.c + "20", color: statusMeta.c,
+            }}>{statusMeta.l}</span>
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, fontFamily: "monospace", marginTop: 2 }}>
+            SKU: {product.sku || "(none)"} · variants: {variants.length}
+          </div>
+          {matched && (
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 6, lineHeight: 1.6 }}>
+              <span>📦 CLARK stock: <b>{physicalStock}</b></span>
+              <span style={{ marginInlineStart: 10 }}>− Reserved: <b>{reserved}</b></span>
+              <span style={{ marginInlineStart: 10 }}>− Buffer: <b>{buffer}</b></span>
+              <span style={{ marginInlineStart: 10 }}>= <b style={{ color: T.accent }}>{available}</b></span>
+              {!isMob && (
+                <span style={{ marginInlineStart: 12, padding: "1px 8px", borderRadius: 6, background: inSync ? "#10B98115" : "#F59E0B15", color: inSync ? "#10B981" : "#F59E0B", fontWeight: 700 }}>
+                  Shopify: {shopifyQty} {inSync ? "✓" : "(out of sync)"}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+          {matched && (
+            <>
+              <Btn small onClick={onToggleSync} disabled={!canEdit}>
+                {synced ? "🔄 Synced" : "⏸ Paused"}
+              </Btn>
+              <Btn small onClick={onSetBuffer} disabled={!canEdit}>
+                🛡 Buffer ({buffer})
+              </Btn>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

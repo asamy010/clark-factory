@@ -516,6 +516,85 @@ export async function fetchAllProducts(creds, opts = {}){
   return all.map(mapShopifyProductToCLARK).filter(Boolean);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.96 — Phase 4: Inventory push helpers
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Fetch the store's primary fulfillment location.
+   Returns { id, name } or null if no location is configured.
+   The push-inventory flow needs a location_id to set inventory levels. */
+export async function fetchPrimaryLocation(creds){
+  try {
+    const r = await shopifyFetch(creds, "/locations.json");
+    const locations = r.data && Array.isArray(r.data.locations) ? r.data.locations : [];
+    if(locations.length === 0) return null;
+    /* Prefer the primary/active location. Shopify marks one as primary
+       via `legacy: true` (default location) or `active: true`. */
+    const primary = locations.find(l => l.primary || l.legacy) || locations.find(l => l.active) || locations[0];
+    return { id: String(primary.id), name: primary.name || "" };
+  } catch(_){
+    return null;
+  }
+}
+
+/* Set inventory level for a given inventory_item_id at a location.
+   Shopify endpoint: POST /inventory_levels/set.json
+   Body: { inventory_item_id, location_id, available }
+
+   This is the WRITE call. It overrides whatever Shopify currently has.
+   Returns { ok:true, data } on success or throws on failure. */
+export async function setInventoryLevel(creds, inventoryItemId, locationId, available){
+  if(!inventoryItemId || !locationId) throw new Error("inventory_item_id + location_id مطلوبين");
+  const qty = Math.max(0, Math.floor(Number(available) || 0));
+  const r = await shopifyFetch(creds, "/inventory_levels/set.json", {
+    method: "POST",
+    body: {
+      inventory_item_id: inventoryItemId,
+      location_id: locationId,
+      available: qty,
+    },
+  });
+  return { ok: true, data: r.data, available: qty };
+}
+
+/* Compute the qty that should be live on Shopify for a given SKU.
+   physical = CLARK inventoryItems.stock (matched by model_no/sku/name)
+   reserved = sum of active+committed Shopify reservations for this SKU
+   buffer = per-product safety_buffer or shopifyConfig.default_safety_buffer
+   available = max(0, physical - reserved - buffer)
+
+   Returns { available, physical, reserved, buffer, source }. The `source`
+   is a debug tag explaining where physical came from. */
+export function computeAvailableForSku(cfg, sku, perProductBuffer){
+  if(!sku) return { available: 0, physical: 0, reserved: 0, buffer: 0, source: "no_sku" };
+  const items = Array.isArray(cfg.inventoryItems) ? cfg.inventoryItems : [];
+  const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
+  const skuStr = String(sku).trim();
+  /* Try matching by model_no first (spec), then sku, then exact name */
+  let matched = items.find(it => it.model_no && String(it.model_no).trim() === skuStr);
+  let source = "model_no";
+  if(!matched){
+    matched = items.find(it => it.sku && String(it.sku).trim() === skuStr);
+    if(matched) source = "sku";
+  }
+  if(!matched){
+    matched = items.find(it => it.name && String(it.name).trim() === skuStr);
+    if(matched) source = "name";
+  }
+  if(!matched) return { available: 0, physical: 0, reserved: 0, buffer: 0, source: "unmatched" };
+
+  const physical = Math.max(0, Number(matched.stock) || 0);
+  const reserved = reservations
+    .filter(r => (r.status === "active" || r.status === "committed") && r.product_sku === skuStr)
+    .reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const defaultBuffer = Number(cfg.shopifyConfig?.default_safety_buffer) || 0;
+  const buffer = (perProductBuffer != null && Number.isFinite(Number(perProductBuffer)))
+    ? Math.max(0, Number(perProductBuffer))
+    : defaultBuffer;
+  const available = Math.max(0, physical - reserved - buffer);
+  return { available, physical, reserved, buffer, source, matched_item_id: matched.id };
+}
+
 /* Convenience: build the Shopify install URL (the "approve scopes" page).
    Caller passes the redirect_uri (must match what's registered in the
    Dev Dashboard under "Allowed redirection URLs"). */

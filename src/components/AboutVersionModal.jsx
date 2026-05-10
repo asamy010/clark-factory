@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.96.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 4 — Inventory Push (CLARK → Shopify)",
+    changes: [
+      { type: "feature", text: "📤 [Inventory Push شغّال] CLARK دلوقتي بيـ push المخزون لـ Shopify بـ الـ formula:\n  available = max(0, inventoryItems.stock - active_reservations - safety_buffer)\nالـ Shopify quantity بـ يتـ override بقيمة CLARK (CLARK = source of truth). الـ matching بين الـ Shopify SKU والـ CLARK item بـ يحصل بـ:\n1. inventoryItems.model_no === SKU (الـ spec)\n2. inventoryItems.sku === SKU (fallback)\n3. inventoryItems.name === SKU (last resort)" },
+      { type: "feature", text: "📡 [3 endpoints جديدة]\n• POST /api/shopify/push-inventory-now (admin) — Push manual بـ dryRun option وفلتر skus\n• POST /api/shopify/update-product-settings (admin) — تحديث shopify_synced/safety_buffer/max_qty لمنتج معيّن\n• GET/POST /api/cron/shopify-push-inventory — cron variant بـ skip للمنتجات اللي available == prev (delta-only push)\nكل الـ pushes بـ تـ rate-limited: 550ms بين الـ calls (1.8 req/sec، تحت Shopify Basic 2/sec)." },
+      { type: "feature", text: "📦 [Tab المنتجات شغّال] الـ placeholder اتـ replaced بـ ProductsTab:\n• 4 stat cards: total / matched / missing in CLARK / synced للـ Shopify\n• Filter بالـ mapping_status + search بالـ SKU/title\n• كل ProductRow بـ يعرض:\n  - SKU + variants count + status badge\n  - الحساب الكامل: physical (CLARK) − reserved − buffer = available\n  - Shopify quantity مقابل المحسوب (في sync ✓ أو out of sync)\n  - زرار Synced/Paused (toggle shopify_synced)\n  - زرار Buffer (تعديل safety_buffer لكل منتج)\n• 3 buttons في الـ header: 🔄 Sync products / 🔍 Dry Run / 📤 Push" },
+      { type: "feature", text: "🔍 [Dry Run mode] قبل الـ push الفعلي، الـ user يقدر يضغط \"Dry Run\" عشان يشوف:\n• كل SKU + الحساب التفصيلي (physical, reserved, buffer, available)\n• الفرق بين الـ desired والـ Shopify الحالي\n• يحدد ايه اللي هـ يتغيّر قبل ما الـ push يحصل\nده مفيد جداً للـ first-time push عشان تتأكد من صحة الـ buffer + الـ matching." },
+      { type: "feature", text: "🛡 [Per-product settings] لكل منتج:\n• shopify_synced (bool) — لو false، الـ push بـ يـ skip-ه (مش بـ يطلع في الـ store حتى لو فيه stock)\n• safety_buffer (number أو null) — override للـ default. مثلاً منتج مهم → buffer = 10، منتج عادي → null (uses default)\n• max_shopify_qty — cap على الـ pushed qty (للـ products اللي مش عاوز تـ over-promise stock)\n• auto_disable_at_zero — لو الـ available = 0، الـ product status بـ يرجع draft تلقائياً\nالـ settings دي بـ تتعدّل live من الـ UI." },
+      { type: "feature", text: "📊 [Last push result panel] بعد كل push بـ يظهر panel فيه:\n• Location المستخدم في الـ push\n• إجمالي الـ pushed/skipped/errors\n• جدول تفصيلي لكل SKU بـ status:\n  - 🟢 pushed — اتـ سعّت في Shopify\n  - 🟡 no_change — الـ delta = 0 (skipped optimization)\n  - 🔴 error — مع رسالة الخطأ من Shopify\nمفيد للـ debug + للتأكد من النجاح." },
+      { type: "feature", text: "⏰ [Cron schedule] vercel.json بقى فيه 3 crons:\n• shopify-poll-orders كل 5 دقايق\n• shopify-push-inventory كل 30 دقيقة\n• shopify-cleanup-reservations يومي 3 صباحاً\nالـ user على Hobby tier محتاج يعدّل الـ schedules لـ daily أو يستخدم الـ manual buttons." },
+      { type: "doc", text: "🚧 [Phase 5 next] Reconciliation Tab — daily comparison report بين Shopify orders/CLARK pending orders + cash matching مع MAIN_CASH + WhatsApp daily summary." },
+    ]
+  },
+  {
     version: "V19.95.0",
     date: "2026-05-10",
     types: ["feature"],
