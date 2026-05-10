@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.97.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 5 — Dashboard + Reconciliation",
+    changes: [
+      { type: "feature", text: "📊 [Dashboard tab شغّال] الـ placeholder اتـ replaced بـ DashboardTab كامل:\n• إحصائيات اليوم: طلبات جديدة، delivered + قيمة، refused، محجوز حالياً\n• إحصائيات الشهر: total، delivered + delivery rate %، refused + refused rate %، إيرادات\n• الإيرادات المحققة: posted invoices net + refunds + reservation value\n• 🔥 Top 5 منتجات مبيعاً (delivered orders فقط) مع badges (gold/silver/bronze)\n• تنبيهات clickable: stale pending orders، product mismatches، unmatched SKUs\n• قيمة الـ pending value (للمتابعة)" },
+      { type: "feature", text: "🔄 [Reconciliation tab شغّال]\n• Stale Orders: كل الطلبات pending أكتر من timeout (default 7 أيام) مع زرار Mark Delivered/Refused مباشرة. لو الـ courier ما رجعش رد، الأدمن يحلّ يدوياً.\n• Daily Reconciliation: 4 metrics مقابل بعض:\n  - Shopify orders اليوم vs CLARK pending\n  - Fulfilled اليوم vs CLARK invoices اليوم (لو فيه diff = mismatch)\n  - Cash متوقع اليوم (للمراجعة مقابل MAIN_CASH)\n• Reservations Health: stale (TTL expired)، expiring soon، unmatched SKUs\n• Quick actions: links للـ Orders/Products/Invoices tabs" },
+      { type: "feature", text: "🎯 [Smart alerts] الـ Dashboard بـ يـ surface 3 أنواع تنبيهات:\n• 🔴 Stale orders > timeout — clickable يفتح Reconciliation\n• 🟡 منتجات Shopify مش مربوطة بـ CLARK — clickable يفتح Products\n• 🟡 Reservations بـ unmatched SKU\nالـ user من الـ Dashboard يقدر يـ navigate مباشرة لمكان الحل." },
+      { type: "feature", text: "🛡 [Reservations health monitoring] التاب reconciliation بـ يعرض:\n• كم reservation expired لكن لسه active (الـ daily cron هـ يـ release-هم)\n• كم reservation هـ ينتهي خلال 24 ساعة (warning مبكر)\n• كم reservation عندهم unmatched SKU (محتاج sync products + setup CLARK items)" },
+      { type: "improvement", text: "🎨 [ReconcileRow component] component reusable للـ key/value rows في reconciliation. بـ يعرض:\n• Label + value بـ font-weight كبير\n• Secondary line (شرح إضافي)\n• Status border (أخضر = OK، أصفر = mismatch)\n• Mismatch warning بـ تفصيل المشكلة" },
+      { type: "doc", text: "🚧 [Phase 6 next] Polish + Settings tweaks + (إن أمكن) WhatsApp daily summary integration مع الـ existing campaignBridge في CLARK. الـ Phase 6 بـ يكون فيه:\n• Test scenarios + edge case handling\n• Soft launch checklist\n• Full documentation update" },
+    ]
+  },
+  {
     version: "V19.96.0",
     date: "2026-05-10",
     types: ["feature"],

@@ -165,11 +165,11 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
       {/* Tab content */}
       <div>
         {activeTab === "connection"     && <ConnectionTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
-        {activeTab === "dashboard"      && <PlaceholderTab title="لوحة التحكم" phase="Phase 5" desc="إحصائيات اليوم/الشهر، إيرادات محققة، مخزون محجوز، تنبيهات SKU mismatch، أكثر المنتجات مبيعاً." shopifyConfig={shopifyConfig} />}
+        {activeTab === "dashboard"      && <DashboardTab data={data} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
-        {activeTab === "reconciliation" && <PlaceholderTab title="المطابقة اليومية" phase="Phase 5" desc="Stale pending orders >7 أيام، Daily reconciliation report، Cash matching مع MAIN_CASH، WhatsApp daily summary." shopifyConfig={shopifyConfig} />}
+        {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob} />}
       </div>
     </div>
@@ -1426,6 +1426,516 @@ function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered,
         )}
         <Btn small onClick={onOpenInShopify}>↗ افتح في Shopify</Btn>
       </div>
+    </div>
+  );
+}
+
+/* V19.97 Phase 5: DashboardTab — comprehensive overview of Shopify
+   integration health. Pulls from all the data slices (orders, invoices,
+   reservations, products) and surfaces:
+     • Today's metrics (new orders, delivered, refunds)
+     • Month metrics (orders/delivered/refused/conversion rate)
+     • Revenue summary (this month + this year)
+     • Top products (sold qty)
+     • Active stock reservations (qty + value)
+     • Alerts (SKU mismatches, stale pending, sync errors)
+*/
+function DashboardTab({ data, isMob, setActiveTab }){
+  const cfg = data?.shopifyConfig || {};
+  const orders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data]);
+  const invoices = useMemo(() =>
+    (Array.isArray(data?.salesInvoices) ? data.salesInvoices : []).filter(i => i.source === "shopify"),
+    [data]
+  );
+  const creditNotes = useMemo(() =>
+    (Array.isArray(data?.salesCreditNotes) ? data.salesCreditNotes : []).filter(c => c.source === "shopify"),
+    [data]
+  );
+  const reservations = useMemo(() => Array.isArray(data?.stockReservations) ? data.stockReservations : [], [data]);
+  const products = useMemo(() => Array.isArray(data?.shopifyProducts) ? data.shopifyProducts : [], [data]);
+
+  /* ── Compute metrics ── */
+  const metrics = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 86400000;
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+
+    let todayCount = 0, todayDelivered = 0, todayRefused = 0, todayRevenue = 0;
+    let monthCount = 0, monthDelivered = 0, monthRefused = 0, monthRevenue = 0;
+    let yearRevenue = 0;
+    let pendingValue = 0;
+    let staleCount = 0;
+    let staleSkuMismatch = 0;
+    /* Top products by qty sold */
+    const skuQty = new Map();
+
+    const timeoutDays = Number(cfg.pending_order_timeout_days) || 7;
+
+    orders.forEach(o => {
+      const created = o.shopify_created_at ? new Date(o.shopify_created_at).getTime() : 0;
+      const total = Number(o.total) || 0;
+      const isToday = created >= startOfToday.getTime();
+      const isMonth = created >= startOfMonth.getTime();
+
+      if(isToday){
+        todayCount++;
+        if(o.status === "delivered"){ todayDelivered++; todayRevenue += total; }
+        else if(o.status === "refused"){ todayRefused++; }
+      }
+      if(isMonth){
+        monthCount++;
+        if(o.status === "delivered"){ monthDelivered++; monthRevenue += total; }
+        else if(o.status === "refused"){ monthRefused++; }
+      }
+      if(o.status === "delivered") yearRevenue += total;
+      if(o.status === "pending_delivery"){
+        pendingValue += total;
+        const ageDays = (now - created) / dayMs;
+        if(ageDays > timeoutDays) staleCount++;
+        /* Count line items with unmatched SKU (not matched to inventoryItems) */
+      }
+
+      /* Top products — only count delivered orders */
+      if(o.status === "delivered"){
+        (o.line_items || []).forEach(li => {
+          const sku = li.sku || "(no-sku)";
+          const cur = skuQty.get(sku) || { qty: 0, title: li.title || sku };
+          cur.qty += Number(li.quantity) || 0;
+          skuQty.set(sku, cur);
+        });
+      }
+    });
+
+    /* SKU mismatches from products */
+    const mismatchedProducts = products.filter(p => p.mapping_status !== "matched").length;
+    /* SKU mismatches in active reservations */
+    const reservedSkuMismatch = reservations.filter(r => r.status === "active" && r.unmatched).length;
+
+    /* Top products list (top 5) */
+    const topProducts = Array.from(skuQty.entries())
+      .map(([sku, info]) => ({ sku, ...info }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+
+    /* Net revenue = invoices posted - credit notes posted */
+    let postedInvoices = 0, postedRevenue = 0;
+    invoices.forEach(i => { if(i.status === "posted"){ postedInvoices++; postedRevenue += Number(i.total) || 0; } });
+    let postedCreditNotes = 0, refundsValue = 0;
+    creditNotes.forEach(c => { if(c.status === "posted"){ postedCreditNotes++; refundsValue += Number(c.total) || 0; } });
+
+    /* Reservations stats */
+    let activeReservationCount = 0, activeReservationQty = 0, reservationValue = 0;
+    reservations.forEach(r => {
+      if(r.status === "active"){
+        activeReservationCount++;
+        activeReservationQty += Number(r.qty) || 0;
+        /* Approximate value: lookup in orders */
+        const order = orders.find(o => String(o.shopify_order_id) === String(r.source_ref));
+        if(order){
+          const item = (order.line_items || []).find(li => li.sku === r.product_sku);
+          if(item) reservationValue += (Number(item.price) || 0) * (Number(r.qty) || 0);
+        }
+      }
+    });
+
+    return {
+      today: { count: todayCount, delivered: todayDelivered, refused: todayRefused, revenue: todayRevenue },
+      month: {
+        count: monthCount,
+        delivered: monthDelivered,
+        refused: monthRefused,
+        revenue: monthRevenue,
+        deliveryRate: monthCount > 0 ? Math.round((monthDelivered / monthCount) * 100) : 0,
+      },
+      yearRevenue,
+      pendingValue,
+      staleCount,
+      mismatchedProducts,
+      reservedSkuMismatch,
+      topProducts,
+      postedInvoices,
+      postedRevenue,
+      postedCreditNotes,
+      refundsValue,
+      activeReservationCount,
+      activeReservationQty,
+      reservationValue,
+    };
+  }, [orders, invoices, creditNotes, reservations, products, cfg]);
+
+  const connected = !!cfg.connected;
+  if(!connected){
+    return (
+      <Card title="⚠️ مش متصل">
+        <div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Today */}
+      <Card title="📊 إحصائيات اليوم" extra={
+        <span style={{ fontSize: FS - 2, color: T.textMut }}>{new Date().toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
+      }>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+          <MetricCard label="🛒 طلبات جديدة" value={String(metrics.today.count)} color="#0EA5E9" />
+          <MetricCard label="✅ تم الاستلام" value={String(metrics.today.delivered)} color="#10B981" sub={fmt(metrics.today.revenue) + " ج"} />
+          <MetricCard label="❌ تم الرفض" value={String(metrics.today.refused)} color="#EF4444" />
+          <MetricCard label="📦 محجوز حالياً" value={String(metrics.activeReservationQty)} color="#F59E0B" sub={metrics.activeReservationCount + " reservation"} />
+        </div>
+      </Card>
+
+      {/* Month */}
+      <Card title="📈 إحصائيات الشهر">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+          <MetricCard label="إجمالي طلبات" value={String(metrics.month.count)} color="#0EA5E9" />
+          <MetricCard label="تم الاستلام" value={String(metrics.month.delivered)} color="#10B981" sub={metrics.month.deliveryRate + "% delivery rate"} />
+          <MetricCard label="تم الرفض" value={String(metrics.month.refused)} color="#EF4444" sub={metrics.month.count > 0 ? Math.round((metrics.month.refused / metrics.month.count) * 100) + "%" : "0%"} />
+          <MetricCard label="💰 إيرادات" value={fmt(metrics.month.revenue) + " ج"} color="#8B5CF6" />
+        </div>
+      </Card>
+
+      {/* Revenue summary */}
+      <Card title="💰 الإيرادات المحققة">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
+          <MetricCard label="فواتير posted (Net)" value={fmt(metrics.postedRevenue - metrics.refundsValue) + " ج"} color="#10B981" sub={metrics.postedInvoices + " فاتورة"} />
+          <MetricCard label="إجمالي مرتجعات" value={fmt(metrics.refundsValue) + " ج"} color="#EF4444" sub={metrics.postedCreditNotes + " credit note"} />
+          <MetricCard label="مخزون محجوز" value={fmt(metrics.reservationValue) + " ج"} color="#F59E0B" sub={metrics.activeReservationQty + " قطعة"} />
+        </div>
+      </Card>
+
+      {/* Top products */}
+      {metrics.topProducts.length > 0 && (
+        <Card title="🔥 أكتر المنتجات مبيعاً (delivered orders)">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {metrics.topProducts.map((p, i) => (
+              <div key={p.sku} style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: T.bg,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  <span style={{
+                    width: 26, height: 26, borderRadius: "50%",
+                    background: i === 0 ? "#FCD34D" : i === 1 ? "#E5E7EB" : i === 2 ? "#FCA5A5" : T.bg,
+                    color: T.text, fontWeight: 800, fontSize: FS - 2,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{i + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: FS, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
+                    <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>{p.sku}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: FS, fontWeight: 800, color: T.accent }}>{p.qty} قطعة</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Alerts */}
+      {(metrics.staleCount > 0 || metrics.mismatchedProducts > 0 || metrics.reservedSkuMismatch > 0) && (
+        <Card title="⚠️ تنبيهات">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {metrics.staleCount > 0 && (
+              <div onClick={() => setActiveTab("reconciliation")} style={{
+                cursor: "pointer", padding: "10px 14px", borderRadius: 8,
+                background: "#FEE2E215", border: "1px solid #EF444430",
+              }}>
+                <div style={{ fontSize: FS, fontWeight: 700, color: "#EF4444" }}>
+                  🔴 {metrics.staleCount} طلب pending أكثر من {cfg.pending_order_timeout_days || 7} أيام
+                </div>
+                <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+                  اضغط لفتح تاب المطابقة وحلّ الـ stale orders
+                </div>
+              </div>
+            )}
+            {metrics.mismatchedProducts > 0 && (
+              <div onClick={() => setActiveTab("products")} style={{
+                cursor: "pointer", padding: "10px 14px", borderRadius: 8,
+                background: "#FEF3C715", border: "1px solid #F59E0B30",
+              }}>
+                <div style={{ fontSize: FS, fontWeight: 700, color: "#F59E0B" }}>
+                  ⚠️ {metrics.mismatchedProducts} منتج Shopify مش مربوط بـ CLARK
+                </div>
+                <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+                  اضغط لفتح تاب المنتجات وراجع الـ matching
+                </div>
+              </div>
+            )}
+            {metrics.reservedSkuMismatch > 0 && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 8,
+                background: "#FEF3C715", border: "1px solid #F59E0B30",
+              }}>
+                <div style={{ fontSize: FS, fontWeight: 700, color: "#F59E0B" }}>
+                  ⚠️ {metrics.reservedSkuMismatch} reservation فيه SKU مش موجود في CLARK
+                </div>
+                <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+                  الطلبات دي اتسحبت من Shopify لكن المنتج مش معروف لـ CLARK
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Pending value */}
+      {metrics.pendingValue > 0 && (
+        <Card title="📋 قيمة الطلبات Pending">
+          <div style={{ padding: 16, textAlign: "center" }}>
+            <div style={{ fontSize: FS + 8, fontWeight: 800, color: T.accent }}>{fmt(metrics.pendingValue)} ج</div>
+            <div style={{ fontSize: FS - 1, color: T.textSec, marginTop: 6 }}>
+              قيمة كل الطلبات pending_delivery (لسه ما اتسلمت ولا اتـ refuse)
+            </div>
+          </div>
+        </Card>
+      )}
+
+    </div>
+  );
+}
+
+/* V19.97 Phase 5: ReconciliationTab — surface discrepancies + stale orders.
+   Compares Shopify-side state to CLARK-side state and highlights what
+   doesn't match. Lets the admin resolve stale pending orders manually. */
+function ReconciliationTab({ data, canEdit, user, isMob, setActiveTab }){
+  const cfg = data?.shopifyConfig || {};
+  const orders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data]);
+  const invoices = useMemo(() =>
+    (Array.isArray(data?.salesInvoices) ? data.salesInvoices : []).filter(i => i.source === "shopify"),
+    [data]
+  );
+  const reservations = useMemo(() => Array.isArray(data?.stockReservations) ? data.stockReservations : [], [data]);
+  const [busyId, setBusyId] = useState(null);
+
+  /* ── Stale orders ── */
+  const staleOrders = useMemo(() => {
+    const timeout = Number(cfg.pending_order_timeout_days) || 7;
+    const cutoff = Date.now() - timeout * 86400000;
+    return orders
+      .filter(o => o.status === "pending_delivery" && o.shopify_created_at && new Date(o.shopify_created_at).getTime() < cutoff)
+      .sort((a, b) => new Date(a.shopify_created_at).getTime() - new Date(b.shopify_created_at).getTime());
+  }, [orders, cfg.pending_order_timeout_days]);
+
+  /* ── Daily reconciliation ── */
+  const reconciliation = useMemo(() => {
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const todayStart = startOfToday.getTime();
+    /* Shopify orders today (created at) */
+    const shopifyOrdersToday = orders.filter(o => o.shopify_created_at && new Date(o.shopify_created_at).getTime() >= todayStart);
+    /* Shopify "fulfilled" today — orders whose status flipped to delivered today */
+    const fulfilledToday = orders.filter(o => o.delivered_at && new Date(o.delivered_at).getTime() >= todayStart);
+    /* Invoices created today */
+    const invoicesToday = invoices.filter(i => {
+      if(!i.createdAt) return false;
+      return new Date(i.createdAt).getTime() >= todayStart;
+    });
+    /* Cash matching: expected = sum of delivered today */
+    const expectedCash = fulfilledToday.reduce((s, o) => s + (Number(o.total) || 0), 0);
+
+    return {
+      shopifyOrdersToday: shopifyOrdersToday.length,
+      pendingOrdersInClark: orders.filter(o => o.status === "pending_delivery").length,
+      fulfilledToday: fulfilledToday.length,
+      invoicesToday: invoicesToday.length,
+      expectedCash,
+      /* Discrepancies */
+      diffOrdersVsPending: shopifyOrdersToday.length - orders.filter(o =>
+        o.shopify_created_at && new Date(o.shopify_created_at).getTime() >= todayStart
+      ).length, // 0 by definition
+      diffFulfilledVsInvoices: fulfilledToday.length - invoicesToday.length,
+    };
+  }, [orders, invoices]);
+
+  /* ── Reservations health ── */
+  const reservationHealth = useMemo(() => {
+    const now = Date.now();
+    const stale = reservations.filter(r =>
+      r.status === "active" && r.expires_at && new Date(r.expires_at).getTime() < now
+    );
+    const expiringSoon = reservations.filter(r =>
+      r.status === "active" && r.expires_at &&
+      new Date(r.expires_at).getTime() < now + 86400000 &&
+      new Date(r.expires_at).getTime() >= now
+    );
+    const unmatched = reservations.filter(r => r.status === "active" && r.unmatched);
+    return { stale: stale.length, expiringSoon: expiringSoon.length, unmatched: unmatched.length };
+  }, [reservations]);
+
+  const handleMarkDelivered = async (order) => {
+    const yes = await ask("✅ تأكيد الاستلام", `الطلب #${order.shopify_order_number} (${fmt(order.total)} ج) — تأكيد؟`);
+    if(!yes) return;
+    setBusyId(order.shopify_order_id);
+    try {
+      const r = await shopifyMarkDelivered({ orderId: order.shopify_order_id }, user);
+      if(r && r.ok){ showToast("✅ تم"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const handleMarkRefused = async (order) => {
+    const reason = await askInput("سبب الرفض", { placeholder: "العميل غيّر رأيه / مش موجود / ..." });
+    if(reason === null) return;
+    setBusyId(order.shopify_order_id);
+    try {
+      const r = await shopifyMarkRefused({ orderId: order.shopify_order_id, reason }, user);
+      if(r && r.ok){ showToast("🔴 تم"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const connected = !!cfg.connected;
+  if(!connected){
+    return (
+      <Card title="⚠️ مش متصل">
+        <div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Stale Orders */}
+      <Card title={"⏰ طلبات Pending قديمة (>" + (cfg.pending_order_timeout_days || 7) + " أيام)"}>
+        {staleOrders.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+            <div>مفيش stale orders — كل الطلبات في الـ window الطبيعي</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {staleOrders.map(o => {
+              const ageDays = Math.floor((Date.now() - new Date(o.shopify_created_at).getTime()) / 86400000);
+              return (
+                <div key={o.shopify_order_id} style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  background: T.cardSolid,
+                  border: "1px solid #EF444430",
+                  borderInlineStart: "3px solid #EF4444",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>#{o.shopify_order_number || o.shopify_order_id}</span>
+                        <span style={{
+                          fontSize: FS - 2, fontWeight: 700, padding: "2px 8px",
+                          borderRadius: 8, background: "#EF444415", color: "#EF4444",
+                        }}>منذ {ageDays} يوم</span>
+                      </div>
+                      <div style={{ fontSize: FS - 1, color: T.textSec, marginTop: 4 }}>
+                        👤 {o.customer_info?.name || "—"}
+                        {o.customer_info?.phone && <span style={{ marginInlineStart: 8 }}>📞 {o.customer_info.phone}</span>}
+                      </div>
+                      <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.accent, marginTop: 4 }}>
+                        {fmt(o.total)} {o.currency || "EGP"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <LoadingBtn primary loading={busyId === o.shopify_order_id} loadingText="..." onClick={() => handleMarkDelivered(o)} disabled={!canEdit} small>
+                        ✅ تم الاستلام
+                      </LoadingBtn>
+                      <LoadingBtn danger loading={busyId === o.shopify_order_id} loadingText="..." onClick={() => handleMarkRefused(o)} disabled={!canEdit} small>
+                        ❌ تم الرفض
+                      </LoadingBtn>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* Daily reconciliation */}
+      <Card title="📊 المطابقة اليومية">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 10 }}>
+          <ReconcileRow label="Shopify orders اليوم" value={reconciliation.shopifyOrdersToday} ok />
+          <ReconcileRow label="CLARK pending orders (إجمالي)" value={reconciliation.pendingOrdersInClark} ok />
+          <ReconcileRow
+            label="Fulfilled اليوم"
+            value={reconciliation.fulfilledToday}
+            secondary={"CLARK invoices اليوم: " + reconciliation.invoicesToday}
+            ok={reconciliation.diffFulfilledVsInvoices === 0}
+            mismatch={reconciliation.diffFulfilledVsInvoices !== 0 ? `Diff: ${reconciliation.diffFulfilledVsInvoices}` : null}
+          />
+          <ReconcileRow
+            label="💰 Cash متوقع اليوم"
+            value={fmt(reconciliation.expectedCash) + " ج"}
+            secondary="من الطلبات اللي اتسلمت اليوم — راجع الـ MAIN_CASH في Treasury"
+            ok
+          />
+        </div>
+      </Card>
+
+      {/* Reservations health */}
+      <Card title="🛡 صحة الـ Stock Reservations">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
+          <ReconcileRow
+            label="Stale active (TTL expired)"
+            value={reservationHealth.stale}
+            ok={reservationHealth.stale === 0}
+            mismatch={reservationHealth.stale > 0 ? "الـ daily cron هـ يـ release-هم تلقائياً" : null}
+          />
+          <ReconcileRow
+            label="بـ تنتهي خلال 24 ساعة"
+            value={reservationHealth.expiringSoon}
+            ok
+            secondary="نبهك مبكراً قبل ما الـ stock يتـ release"
+          />
+          <ReconcileRow
+            label="SKU غير معروف لـ CLARK"
+            value={reservationHealth.unmatched}
+            ok={reservationHealth.unmatched === 0}
+            mismatch={reservationHealth.unmatched > 0 ? "اعمل sync products + ضيف الـ items في CLARK" : null}
+          />
+        </div>
+      </Card>
+
+      {/* Quick actions */}
+      <Card title="⚡ إجراءات سريعة">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
+          <Btn onClick={() => setActiveTab("orders")}>📋 افتح الطلبات</Btn>
+          <Btn onClick={() => setActiveTab("products")}>📦 افتح المنتجات</Btn>
+          <Btn onClick={() => setActiveTab("invoices")}>🧾 افتح الفواتير</Btn>
+        </div>
+      </Card>
+
+    </div>
+  );
+}
+
+function ReconcileRow({ label, value, secondary, ok, mismatch }){
+  const color = ok ? T.ok : T.warn;
+  return (
+    <div style={{
+      padding: "12px 14px",
+      borderRadius: 10,
+      background: T.bg,
+      border: "1px solid " + T.brd,
+      borderInlineStart: "3px solid " + color,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: FS - 1, color: T.textSec, fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: FS + 2, fontWeight: 800, color: T.text }}>{value}</span>
+      </div>
+      {secondary && (
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>{secondary}</div>
+      )}
+      {mismatch && (
+        <div style={{ fontSize: FS - 3, color: T.warn, marginTop: 4, fontWeight: 600 }}>⚠️ {mismatch}</div>
+      )}
     </div>
   );
 }
