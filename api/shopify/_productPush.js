@@ -40,19 +40,30 @@ export function buildVariantSku(pattern, ctx){
 }
 
 /* Extract the colors array from a CLARK order's selected fabric.
-   CLARK fabrics live as fabricA, fabricB, ..., fabricH on the order.
-   Each fabric typically has shape: { name, type, colors:[{n,h,qty,...}], ... }.
-   Returns array of color names (strings). */
+   ⚠ CLARK schema (V21.8 Phase 11a fix):
+     • order.fabricA  = fabric ID (string reference to data.fabrics)
+     • order.colorsA  = array of { color, colorHex, layers, pcsPerLayer, qty }
+   Colors live in a SEPARATE top-level field (`colors` + letter), NOT inside
+   the fabric object. The color NAME is in the `.color` property (not `.n`).
+   Returns array of color name strings, deduped & non-empty. */
 export function extractFabricColors(order, fabricKey){
   if(!order || !fabricKey) return [];
-  const fabric = order["fabric" + String(fabricKey).toUpperCase()];
-  if(!fabric) return [];
-  const colors = Array.isArray(fabric.colors) ? fabric.colors : [];
-  /* Each color entry can be a string OR { n, h }. Normalize to string name. */
-  return colors
-    .map(c => typeof c === "string" ? c : (c?.n || c?.name || ""))
-    .map(c => String(c).trim())
-    .filter(Boolean);
+  const key = String(fabricKey).toUpperCase();
+  const colors = Array.isArray(order["colors" + key]) ? order["colors" + key] : [];
+  const out = [];
+  const seen = new Set();
+  for(const c of colors){
+    let name = "";
+    if(typeof c === "string") name = c;
+    else if(c && typeof c === "object") name = c.color || c.n || c.name || "";
+    name = String(name || "").trim();
+    if(!name) continue;
+    const k = name.toLowerCase();
+    if(seen.has(k)) continue;
+    seen.add(k);
+    out.push(name);
+  }
+  return out;
 }
 
 /* Compute per-variant inventory from CLARK's confirmed-stock matrix.

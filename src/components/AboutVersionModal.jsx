@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.0",
+    date: "2026-05-10",
+    types: ["fix", "feature"],
+    title: "🩹 Phase 11 — Bug Fixes + Historical Sync + Diagnostics",
+    changes: [
+      { type: "fix", text: "🐛 [Variant Matrix bug في Push Modal] لما ضغطت 'Push Model'، الـ matrix كان فاضي حتى مع وجود ألوان في خامة A. السبب: الـ extraction كان يقرا من order.fabricA.colors لكن CLARK يحفظ الألوان في field منفصل order.colorsA بشكل [{color, colorHex, layers, qty}]. تم تصحيح الـ extraction في الـ frontend والـ backend للقراءة من المكان الصحيح." },
+      { type: "fix", text: "📱 [WhatsApp button مش بيشتغل] الـ window.open كان يحصل بعد await ask() الـ confirmation popup → الـ popup blocker يـ silently drop الـ open. تم الإصلاح: pre-open blank tab synchronously في الـ click handler ثم نـ navigate-ه بعد الـ await، مع fallback لـ location.href لو الـ popup blocked." },
+      { type: "feature", text: "✅ [Purchase indicator على العملاء] لو العميل اشترى فعلاً (delivered_count > 0) بـ يظهر badge أخضر بارز '✓ اشترى ×N' بجنب tier badge. للـ refused orders بـ يظهر '⚠️ رفض'. للـ pending '⏳ بانتظار'." },
+      { type: "feature", text: "📚 [Historical Backfill — Shopify orders]\n• POST /api/shopify/sync-historical-orders بـ يـ pull كل الطلبات القديمة (default: آخر سنتين)\n• استخدام Link-header cursor pagination (>250 طلب per page)\n• Splits storage: collection shopifyOrdersArchive، docs مقسّمة بـ year-month، max 600 طلب per doc (تحت حد 1MB لـ Firestore)\n• Returns monthlyBreakdown + count + duration" },
+      { type: "feature", text: "📚 [Historical Backfill — Bosta deliveries + Verification]\n• POST /api/bosta/sync-historical بـ يـ pull كل الـ deliveries من Bosta (default: آخر سنة)\n• Storage: collection bostaDeliveriesArchive split per year-month\n• Verification check: لكل CLARK order مرتبط بـ tracking number، يقارن CLARK status مع Bosta state\n• تقرير mismatches بـ severity (high/medium/low) + شاشة في Settings تعرضهم" },
+      { type: "feature", text: "🩺 [Smart Diagnostics tool في Settings]\n• GET /api/diagnostics — health monitor شامل\n• Storage: حجم factory/config + breakdown per array (sorted by size) + archive collections\n• Connections: Shopify (last sync age) + Bosta (webhook secret status)\n• Critical alerts: orphaned reservations، stale pending orders >14 يوم، customers بدون phone\n• Severity colors: ok/info/warn/error/critical مع banners + icons\n• الـ overall_severity في الـ topbar" },
+      { type: "feature", text: "📊 [Storage monitoring panel]\n• Document size مع progress bar يـ color حسب الـ % من الحد الأقصى\n• Top 8 arrays by size (orders, shopifyPendingOrders, customers, etc.) مع pct_of_doc\n• Archive collections (count + estimated total bytes)\n• تنبيه فوري لو array قارب على cap الـ 1MB" },
+      { type: "improvement", text: "🛡️ [Document splitting architecture] الـ archive collections (shopifyOrdersArchive, bostaDeliveriesArchive) بـ تـ scale لآلاف الطلبات بدون ما تـ break factory/config doc. كل bucket = شهر واحد، يتـ pageينات لو زاد على 600. الـ live data لسه في factory/config (cap 200) للـ fast access." },
+      { type: "improvement", text: "👥 [Customer enrichment] الـ aggregator كان بالفعل يقرا من ALL orders (delivered + refused + cancelled + returned + pending). الـ purchase indicator الجديد بـ يـ surface الـ delivered_count بشكل مرئي بارز. الـ source badges (✓ verified / 🛍️ Shopify) لسه شغّالة." },
+    ]
+  },
+  {
     version: "V21.8.0",
     date: "2026-05-10",
     types: ["feature"],

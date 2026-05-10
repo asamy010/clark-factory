@@ -40,6 +40,8 @@ import {
   shopifySyncCustomers, shopifyUpdateCustomer,
   shopifySyncAbandonedCarts, shopifyUpdateCartRecovery,
   shopifyDiscountCodes, shopifyPushCustomerTags,
+  /* V21.9 Phase 11: historical sync + diagnostics */
+  shopifySyncHistoricalOrders, bostaSyncHistorical, fetchDiagnostics,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -930,7 +932,377 @@ function SettingsTab({ data, upConfig, canEdit, user, isMob }){
         <CheckLine label="ملخص يومي" checked={!!cfg?.notify_on?.daily_summary} onChange={() => toggleNotify("daily_summary")} disabled={!canEdit} />
       </Card>
 
+      {/* V21.9 Phase 11c+d: Historical sync — pull ALL old orders */}
+      <HistoricalSyncCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
+
+      {/* V21.9 Phase 11e: Smart diagnostics — health + storage monitor */}
+      <DiagnosticsCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
+
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.9 Phase 11c+d — Historical Sync Card
+   ───────────────────────────────────────────────────────────────────────
+   One button to backfill ALL old Shopify orders + ALL Bosta deliveries
+   into split archive collections. Shows verification report (mismatches).
+   ═══════════════════════════════════════════════════════════════════════ */
+function HistoricalSyncCard({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const [busyShopify, setBusyShopify] = useState(false);
+  const [busyBosta, setBusyBosta] = useState(false);
+  const [shopifyResult, setShopifyResult] = useState(null);
+  const [bostaResult, setBostaResult] = useState(null);
+  const [showVerification, setShowVerification] = useState(false);
+
+  const lastShopifySync = cfg.last_historical_sync_at;
+  const lastBostaSync = cfg.last_bosta_historical_sync_at;
+  const lastVerification = cfg.last_bosta_verification;
+
+  const handleSyncShopify = async () => {
+    if(!canEdit) return;
+    const yes = await ask("📚 سحب كل الطلبات القديمة من Shopify",
+      "هـ يـ pull كل الطلبات من آخر سنتين، يـ split-هم على Firestore حسب الشهر." +
+      "\n\nالمدة: ~2-5 دقايق حسب عدد الطلبات." +
+      "\n\nتأكيد؟");
+    if(!yes) return;
+    setBusyShopify(true);
+    setShopifyResult(null);
+    try {
+      const r = await shopifySyncHistoricalOrders({}, user);
+      setShopifyResult(r);
+      if(r?.ok){
+        showToast(`✅ ${r.totalFetched} طلب · ${r.archiveDocsWritten} archive doc · ${Math.round(r.durationMs/1000)} ث`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyShopify(false); }
+  };
+
+  const handleSyncBosta = async () => {
+    if(!canEdit) return;
+    const yes = await ask("📚 سحب كل deliveries Bosta + verification",
+      "هـ يـ pull كل deliveries Bosta من آخر سنة، يـ split-هم في archive، ويعمل verification check ضد طلبات CLARK." +
+      "\n\nهيظهر لك تقرير mismatches (طلبات CLARK status ≠ Bosta state)." +
+      "\n\nتأكيد؟");
+    if(!yes) return;
+    setBusyBosta(true);
+    setBostaResult(null);
+    try {
+      const r = await bostaSyncHistorical({}, user);
+      setBostaResult(r);
+      if(r?.ok){
+        const v = r.verification || {};
+        showToast(`✅ ${r.totalFetched} delivery · ${v.matching}/${v.linked} matching · ${v.mismatches?.length || 0} mismatch`);
+        if(v.mismatches?.length > 0) setShowVerification(true);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyBosta(false); }
+  };
+
+  return (
+    <Card title="📚 سحب الطلبات القديمة (Historical Backfill)">
+      <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
+        ℹ️ بـ يـ pull كل الطلبات القديمة من Shopify + Bosta ويحفظهم في <code>shopifyOrdersArchive</code> / <code>bostaDeliveriesArchive</code> collections (split per شهر, max 600/doc — تحت حد 1MB لـ Firestore). الـ verification بـ يقارن CLARK status مع Bosta state ويبلغ عن الفروقات.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12 }}>
+        {/* Shopify */}
+        <div style={{ padding: 12, border: "1px solid " + T.brd, borderRadius: 10, background: "#96BF4810" }}>
+          <div style={{ fontWeight: 800, marginBottom: 8, color: "#5A8B26" }}>🛍️ طلبات Shopify</div>
+          {lastShopifySync && (
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 8 }}>
+              آخر sync: {new Date(lastShopifySync).toLocaleString("ar-EG")} · <b>{cfg.last_historical_sync_count || 0}</b> طلب · <b>{cfg.last_historical_sync_archive_docs || 0}</b> doc
+            </div>
+          )}
+          <LoadingBtn primary loading={busyShopify} loadingText="جاري السحب..." onClick={handleSyncShopify} disabled={!canEdit} small>
+            📚 ابدأ السحب الكامل
+          </LoadingBtn>
+          {shopifyResult?.ok && (
+            <div style={{ marginTop: 10, fontSize: FS - 2, lineHeight: 1.7 }}>
+              <div>إجمالي: <b>{shopifyResult.totalFetched}</b></div>
+              <div>أشهر: <b>{Object.keys(shopifyResult.monthlyBreakdown || {}).length}</b></div>
+              <div>Archive docs: <b>{shopifyResult.archiveDocsWritten}</b></div>
+            </div>
+          )}
+        </div>
+
+        {/* Bosta */}
+        <div style={{ padding: 12, border: "1px solid " + T.brd, borderRadius: 10, background: "#FF634710" }}>
+          <div style={{ fontWeight: 800, marginBottom: 8, color: "#C73E20" }}>🚀 Bosta deliveries + Verification</div>
+          {lastBostaSync && (
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 8 }}>
+              آخر sync: {new Date(lastBostaSync).toLocaleString("ar-EG")} · <b>{cfg.last_bosta_historical_sync_count || 0}</b> delivery
+            </div>
+          )}
+          <LoadingBtn primary loading={busyBosta} loadingText="جاري السحب..." onClick={handleSyncBosta} disabled={!canEdit || !cfg.bosta_api_key} small>
+            📚 سحب + Verify
+          </LoadingBtn>
+          {bostaResult?.ok && bostaResult.verification && (
+            <div style={{ marginTop: 10, fontSize: FS - 2, lineHeight: 1.7 }}>
+              <div>إجمالي: <b>{bostaResult.totalFetched}</b></div>
+              <div>مرتبط بـ CLARK: <b>{bostaResult.verification.linked}</b></div>
+              <div>مطابق: <b style={{ color: T.ok }}>{bostaResult.verification.matching}</b></div>
+              <div>غير مطابق: <b style={{ color: T.err }}>{bostaResult.verification.mismatches.length}</b></div>
+              {bostaResult.verification.mismatches.length > 0 && (
+                <Btn small onClick={() => setShowVerification(s => !s)} style={{ marginTop: 6 }}>
+                  {showVerification ? "▲ إخفاء" : "▼ عرض"} mismatches
+                </Btn>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Verification details */}
+      {(showVerification || (lastVerification && !bostaResult)) && (lastVerification?.mismatches?.length > 0 || bostaResult?.verification?.mismatches?.length > 0) && (
+        <div style={{ marginTop: 14, padding: 12, background: T.warn + "08", border: "1px solid " + T.warn + "30", borderRadius: 10 }}>
+          <div style={{ fontWeight: 800, marginBottom: 8, color: T.warn }}>
+            ⚠️ Verification — حالات غير مطابقة
+          </div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10 }}>
+            CLARK status لا يطابق Bosta state — تحتاج مراجعة:
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
+              <thead>
+                <tr style={{ background: T.bg }}>
+                  <th style={{ padding: 6, border: "1px solid " + T.brd, textAlign: "right" }}>الطلب</th>
+                  <th style={{ padding: 6, border: "1px solid " + T.brd }}>العميل</th>
+                  <th style={{ padding: 6, border: "1px solid " + T.brd }}>CLARK</th>
+                  <th style={{ padding: 6, border: "1px solid " + T.brd }}>Bosta</th>
+                  <th style={{ padding: 6, border: "1px solid " + T.brd }}>severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(bostaResult?.verification?.mismatches || lastVerification?.mismatches || []).slice(0, 20).map((m, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: 6, border: "1px solid " + T.brd, fontFamily: "monospace" }}>{m.orderName || m.orderId}</td>
+                    <td style={{ padding: 6, border: "1px solid " + T.brd }}>{m.customerName} · {m.customerPhone}</td>
+                    <td style={{ padding: 6, border: "1px solid " + T.brd }}>{m.clarkStatus}</td>
+                    <td style={{ padding: 6, border: "1px solid " + T.brd }}>{m.bostaState} ({m.bostaBucket})</td>
+                    <td style={{ padding: 6, border: "1px solid " + T.brd, fontWeight: 700, color: m.severity === "high" ? T.err : (m.severity === "medium" ? T.warn : T.textMut) }}>
+                      {m.severity === "high" ? "🔴 عاجل" : m.severity === "medium" ? "🟡 وسط" : "🔵 خفيف"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.9 Phase 11e — Diagnostics Card
+   ───────────────────────────────────────────────────────────────────────
+   Smart health monitor: file sizes per array, connection state per
+   provider, critical data alerts. Severity-coded.
+   ═══════════════════════════════════════════════════════════════════════ */
+function DiagnosticsCard({ data, canEdit, user, isMob }){
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState(null);
+
+  const sevColor = (s) => ({
+    ok: T.ok, info: "#0EA5E9", warn: T.warn, error: T.err,
+    critical: "#DC2626",
+  })[s] || T.textMut;
+  const sevIcon = (s) => ({
+    ok: "✅", info: "ℹ️", warn: "⚠️", error: "❌", critical: "🚨",
+  })[s] || "•";
+  const sevLabel = (s) => ({
+    ok: "سليم", info: "معلومة", warn: "تحذير", error: "خطأ", critical: "حرج جداً",
+  })[s] || s;
+
+  const runCheck = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetchDiagnostics(user);
+      if(r?.ok) setReport(r);
+      else { setError(r?.error || "فشل"); setReport(null); }
+    } catch(e){ setError(e.message); setReport(null); }
+    finally { setBusy(false); }
+  };
+
+  const fmtBytes = (b) => {
+    if(b < 1024) return b + " B";
+    if(b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1024 / 1024).toFixed(2) + " MB";
+  };
+
+  return (
+    <Card title="🩺 فحص الصحة + المخزن (Diagnostics)" extra={
+      <LoadingBtn primary loading={busy} loadingText="..." onClick={runCheck} disabled={!canEdit} small>
+        🔍 شغّل فحص شامل
+      </LoadingBtn>
+    }>
+      <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
+        ℹ️ بـ يـ check حجم الـ Firestore docs، آخر sync لكل provider، الحجوزات اليتيمة، الطلبات pending قديمة، إلخ. أي حالة <b>error</b> أو <b>critical</b> تحتاج action فوري.
+      </div>
+
+      {error && (
+        <div style={{ padding: 10, background: T.err + "10", color: T.err, borderRadius: 8, fontSize: FS - 2 }}>
+          ⛔ {error}
+        </div>
+      )}
+
+      {report && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Overall severity banner */}
+          <div style={{
+            padding: 14,
+            background: sevColor(report.overall_severity) + "12",
+            border: "2px solid " + sevColor(report.overall_severity) + "40",
+            borderRadius: 10,
+            display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
+          }}>
+            <div>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: sevColor(report.overall_severity) }}>
+                {sevIcon(report.overall_severity)} الحالة العامة: {sevLabel(report.overall_severity)}
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                {new Date(report.generated_at).toLocaleString("ar-EG")}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {["ok", "info", "warn", "error", "critical"].map(s => (
+                report.summary[s] > 0 && (
+                  <span key={s} style={{
+                    padding: "2px 8px", borderRadius: 6,
+                    background: sevColor(s) + "20", color: sevColor(s),
+                    fontSize: FS - 3, fontWeight: 700,
+                  }}>
+                    {sevIcon(s)} {report.summary[s]}
+                  </span>
+                )
+              ))}
+            </div>
+          </div>
+
+          {/* Storage */}
+          <div>
+            <div style={{ fontWeight: 800, marginBottom: 8, fontSize: FS, color: T.text }}>💾 المخزن</div>
+            <div style={{ marginBottom: 8, padding: 10, background: T.bg, borderRadius: 8 }}>
+              <div style={{ fontSize: FS - 2, marginBottom: 6 }}>
+                Document <code>factory/config</code>: <b>{fmtBytes(report.storage.config_doc_bytes)}</b>
+                {" "}({report.storage.config_doc_pct_of_max}% من الحد الأقصى 1 MB)
+              </div>
+              <div style={{ height: 8, background: T.brd, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{
+                  width: Math.min(100, report.storage.config_doc_pct_of_max) + "%",
+                  height: "100%",
+                  background: sevColor(report.storage.config_doc_pct_of_max >= 80 ? "critical" : report.storage.config_doc_pct_of_max >= 60 ? "error" : report.storage.config_doc_pct_of_max >= 40 ? "warn" : "ok"),
+                  transition: "width 300ms",
+                }} />
+              </div>
+            </div>
+
+            {/* Top arrays by size */}
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4, fontSize: FS - 1 }}>أكبر 8 مصفوفات:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {report.storage.arrays.slice(0, 8).map(a => (
+                  <div key={a.name} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "5px 10px", background: T.cardSolid, borderRadius: 6,
+                    border: "1px solid " + (a.severity === "ok" ? T.brd : sevColor(a.severity) + "40"),
+                  }}>
+                    <span style={{ fontSize: FS - 2 }}>
+                      <span style={{ color: sevColor(a.severity), marginInlineEnd: 6 }}>{sevIcon(a.severity)}</span>
+                      <b>{a.label}</b> · {a.count} عنصر
+                    </span>
+                    <span style={{ fontSize: FS - 3, fontFamily: "monospace", color: T.textMut }}>
+                      {fmtBytes(a.est_bytes)} · {a.pct_of_doc}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Archive collections */}
+            {report.storage.archive_collections.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, fontSize: FS - 1 }}>Archive collections:</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {report.storage.archive_collections.map(c => (
+                    <div key={c.name} style={{ padding: "5px 10px", background: T.cardSolid, borderRadius: 6, border: "1px solid " + T.brd, fontSize: FS - 2 }}>
+                      <code>{c.name}</code> — <b>{c.doc_count}</b> doc · ~{fmtBytes(c.est_total_bytes)}
+                      {c.error && <span style={{ color: T.err }}> · {c.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Connections */}
+          <div>
+            <div style={{ fontWeight: 800, marginBottom: 8, fontSize: FS, color: T.text }}>🔌 الاتصالات</div>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+              <div style={{ padding: 10, background: sevColor(report.connections.shopify.severity) + "10", borderRadius: 8, border: "1px solid " + sevColor(report.connections.shopify.severity) + "40" }}>
+                <div style={{ fontWeight: 700, fontSize: FS - 1 }}>
+                  {sevIcon(report.connections.shopify.severity)} Shopify
+                </div>
+                <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4 }}>
+                  {report.connections.shopify.configured ? "✓ متصل" : "✕ مش متصل"}
+                  {report.connections.shopify.age_hours != null && (
+                    <> · آخر sync: {report.connections.shopify.age_hours}h</>
+                  )}
+                </div>
+              </div>
+              <div style={{ padding: 10, background: sevColor(report.connections.bosta.severity) + "10", borderRadius: 8, border: "1px solid " + sevColor(report.connections.bosta.severity) + "40" }}>
+                <div style={{ fontWeight: 700, fontSize: FS - 1 }}>
+                  {sevIcon(report.connections.bosta.severity)} Bosta
+                </div>
+                <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4 }}>
+                  {report.connections.bosta.configured ? "✓ متصل" : "○ غير معدّ"}
+                  {" · webhook: "}{report.connections.bosta.has_webhook ? "✓" : "✕"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Critical alerts */}
+          {report.critical.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 800, marginBottom: 8, fontSize: FS, color: T.text }}>🚨 تنبيهات حرجة</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {report.critical.map((c, i) => (
+                  <div key={i} style={{
+                    padding: 10,
+                    borderRadius: 8,
+                    background: sevColor(c.severity) + "10",
+                    border: "1px solid " + sevColor(c.severity) + "40",
+                    borderInlineStart: "4px solid " + sevColor(c.severity),
+                  }}>
+                    <div style={{ fontWeight: 700, color: sevColor(c.severity), fontSize: FS - 1 }}>
+                      {sevIcon(c.severity)} {sevLabel(c.severity)}
+                    </div>
+                    <div style={{ fontSize: FS - 2, color: T.text, marginTop: 4 }}>
+                      {c.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!report && !error && (
+        <div style={{ padding: 30, textAlign: "center", color: T.textMut, border: "2px dashed " + T.brd, borderRadius: 10 }}>
+          <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.4 }}>🩺</div>
+          <div>اضغط "شغّل فحص شامل" لتقرير الحالة الكاملة</div>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -4083,16 +4455,62 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9 Phase 11f WhatsApp fix:
+     The bug was: after `await ask(...)` for do_not_contact confirmation,
+     the call to window.open() loses the user-gesture context and
+     popup blockers silently drop the open. Also: opening a wa.me URL
+     after async work fails on mobile Safari.
+     Fix:
+       1. Pre-open a blank tab synchronously in the click handler — this
+          preserves the user gesture. We then update its location after
+          the awaits resolve.
+       2. Fallback to location.href if window.open returned null (popup
+          blocked) so at least the current tab navigates to wa.me.
+       3. Run the contact-bump call AFTER the window opens — never let
+          a Firestore call block opening WhatsApp.
+       4. Validate the phone digits BEFORE building the link, since
+          wa.me silently rejects malformed phones (e.g. with + or spaces). */
   const handleWhatsAppSingle = async (customer, customMessage) => {
     if(!customer.phone){ showToast("⚠️ مفيش رقم تليفون"); return; }
+    /* Strip any non-digits — wa.me requires bare digits */
+    const phoneDigits = String(customer.phone).replace(/[^0-9]/g, "");
+    if(phoneDigits.length < 10){ showToast("⚠️ رقم التليفون غير صحيح"); return; }
+
+    /* Step 1: Pre-open blank tab to preserve user gesture */
+    const win = window.open("about:blank", "_blank");
+    /* If popup blocked, win is null — we'll fall back to direct navigation */
+
+    /* Step 2: Confirm do_not_contact */
     if(customer.do_not_contact){
       const proceed = await ask("⚠️ تأكيد", `العميل ${customer.name} مفعّل عليه "عدم الاتصال". هتكمّل برضه؟`);
-      if(!proceed) return;
+      if(!proceed){
+        if(win) win.close();
+        return;
+      }
     }
+
+    /* Step 3: Build & navigate to WhatsApp link */
     const text = customMessage || `أهلاً ${customer.name || ""} 👋`;
-    const url = buildWhatsAppLink(customer.phone, text);
-    window.open(url, "_blank");
-    /* Bump contact count */
+    const url = "https://wa.me/" + phoneDigits + (text ? "?text=" + encodeURIComponent(text) : "");
+
+    if(win && !win.closed){
+      try { win.location.href = url; }
+      catch(_){
+        /* Some browsers (esp. mobile) throw on cross-origin location set
+           to a blank tab. Fall back to opener.location. */
+        try { win.location.replace(url); }
+        catch(__){
+          win.close();
+          window.location.href = url; /* last resort: navigate current tab */
+        }
+      }
+    } else {
+      /* Popup blocked → navigate the current tab so the user at least
+         lands on WhatsApp. They can press Back to return. */
+      window.location.href = url;
+    }
+
+    /* Step 4: Bump contact count (background, never blocks UX) */
     try {
       await shopifyUpdateCustomer({ customerId: customer.id, bumpContact: true }, user);
     } catch(_){}
@@ -4431,6 +4849,34 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
               fontSize: FS - 3, fontWeight: 700, padding: "2px 8px",
               borderRadius: 8, background: tier.color + "20", color: tier.color,
             }}>{tier.emoji} {tier.label}</span>
+            {/* V21.9 Phase 11b: prominent purchase indicator */}
+            {customer.delivered_count > 0 && (
+              <span style={{
+                fontSize: FS - 3, fontWeight: 800, padding: "2px 9px",
+                borderRadius: 999,
+                background: "linear-gradient(135deg,#10B981,#059669)",
+                color: "#fff",
+                boxShadow: "0 1px 3px rgba(16,185,129,0.35)",
+              }} title={"اشترى " + customer.delivered_count + " مرة"}>
+                ✓ اشترى{customer.delivered_count > 1 ? " ×" + customer.delivered_count : ""}
+              </span>
+            )}
+            {customer.delivered_count === 0 && customer.orders_count > 0 && customer.refused_count > 0 && (
+              <span style={{
+                fontSize: FS - 4, fontWeight: 700, padding: "1px 7px", borderRadius: 8,
+                background: T.err + "15", color: T.err,
+              }} title="رفض الاستلام">
+                ⚠️ رفض
+              </span>
+            )}
+            {customer.delivered_count === 0 && customer.orders_count > 0 && customer.refused_count === 0 && customer.pending_count > 0 && (
+              <span style={{
+                fontSize: FS - 4, fontWeight: 700, padding: "1px 7px", borderRadius: 8,
+                background: T.warn + "15", color: T.warn,
+              }} title="في انتظار التوصيل">
+                ⏳ بانتظار
+              </span>
+            )}
             {/* V20.3: source badge */}
             {customer.source === "merged" && (
               <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: T.ok + "15", color: T.ok, fontWeight: 600 }} title="Shopify + Orders">
@@ -4664,8 +5110,12 @@ function AbandonedCartsTab({ data, canEdit, user, isMob }){
     finally { setBusy(false); }
   };
 
+  /* V21.9 Phase 11f: open WhatsApp synchronously to preserve user gesture
+     (otherwise popup blockers silently drop the open). */
   const handleWhatsApp = async (cart) => {
     if(!cart.phone){ showToast("⚠️ مفيش تليفون"); return; }
+    const phoneDigits = cart.phone.replace(/[^0-9]/g, "");
+    if(phoneDigits.length < 10){ showToast("⚠️ رقم تليفون غير صحيح"); return; }
     const items = (cart.line_items || []).slice(0, 3).map(li => `• ${li.quantity}× ${li.title}`).join("\n");
     const message = `أهلاً ${cart.customer_name || ""} 👋
 
@@ -4682,8 +5132,15 @@ ${cart.abandoned_checkout_url}
 
 🎁 خصم خاص للعميل الراجع: استخدم كوبون BACK10 للحصول على خصم 10%`;
 
-    const url = "https://wa.me/" + cart.phone.replace(/[^0-9]/g, "") + "?text=" + encodeURIComponent(message);
-    window.open(url, "_blank");
+    const url = "https://wa.me/" + phoneDigits + "?text=" + encodeURIComponent(message);
+    /* Open synchronously — no awaits before this */
+    const win = window.open(url, "_blank");
+    if(!win){
+      /* Popup blocked → fall back */
+      window.location.href = url;
+      return;
+    }
+    /* Bookkeeping in background, never blocks UX */
     try {
       await shopifyUpdateCartRecovery({ cartId: cart.id, bumpContact: true }, user);
     } catch(_){}

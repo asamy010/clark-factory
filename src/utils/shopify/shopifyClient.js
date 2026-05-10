@@ -195,3 +195,27 @@ export function shopifyDiscountCodes(opts, user){
 export function shopifyPushCustomerTags(opts, user){
   return call("POST", "/api/shopify/push-customer-tags", opts, user);
 }
+
+/* V21.9 Phase 11c: FULL-HISTORY backfill of Shopify orders. Walks every
+   order from sinceISO forward (default 2 years), splits per yearmonth in
+   shopifyOrdersArchive collection.
+   { sinceISO?, maxOrders?, maxPages?, status? }
+   → { ok, totalFetched, monthlyBreakdown, archiveDocsWritten, durationMs } */
+export function shopifySyncHistoricalOrders(opts, user){
+  return call("POST", "/api/shopify/sync-historical-orders", opts || {}, user);
+}
+
+/* V21.9 Phase 11d: Pull all Bosta deliveries + run verification check
+   against existing CLARK orders to catch state mismatches.
+   { sinceISO?, maxDeliveries? }
+   → { ok, totalFetched, verification: { linked, matching, mismatches[], ... } } */
+export function bostaSyncHistorical(opts, user){
+  return call("POST", "/api/bosta/sync-historical", opts || {}, user);
+}
+
+/* V21.9 Phase 11e: Smart diagnostics — file-size, connection-health,
+   critical data alerts.
+   {} → full report (see api/diagnostics.js for shape) */
+export function fetchDiagnostics(user){
+  return call("GET", "/api/diagnostics", null, user);
+}

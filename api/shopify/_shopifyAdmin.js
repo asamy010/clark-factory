@@ -457,6 +457,87 @@ export async function fetchOrderById(creds, orderId){
   return r.data && r.data.order ? mapShopifyOrderToCLARK(r.data.order) : null;
 }
 
+/* V21.9 Phase 11c — Parse Shopify's Link header for cursor pagination.
+   Format example:
+     <https://x.myshopify.com/admin/api/2024-10/orders.json?page_info=abc&limit=250>; rel="next", <…>; rel="previous"
+   Returns the page_info query param of the rel="next" link, or null if last page. */
+export function parseLinkHeaderForNext(linkHeader){
+  if(!linkHeader || typeof linkHeader !== "string") return null;
+  const parts = linkHeader.split(",");
+  for(const p of parts){
+    const m = p.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if(m){
+      try {
+        const u = new URL(m[1]);
+        return u.searchParams.get("page_info");
+      } catch(_){ return null; }
+    }
+  }
+  return null;
+}
+
+/* V21.9 Phase 11c — Fetch ALL historical orders with cursor pagination.
+   Pulls every order from a given start date forward, using Shopify's Link
+   header for cursor-based pagination (the only way to go beyond 250 results).
+   Calls back per-page so the caller can save incrementally and avoid OOM.
+   Args:
+     creds: Shopify credentials
+     opts.createdSince: ISO timestamp — fetch orders created at/after this
+     opts.updatedSince: ISO — fetch orders updated at/after this
+     opts.status: "any" | "open" | "closed" | "cancelled"  (default: any)
+     opts.maxOrders: cap (default: 50000)
+     opts.maxPages: cap (default: 250 = 62,500 orders @ 250 per page)
+     opts.onPage: async (orders) => void — called per page with mapped orders
+   Returns: { totalFetched, pagesFetched, hitMax, lastCreatedAt }. */
+export async function fetchHistoricalOrders(creds, opts = {}){
+  const status = opts.status || "any";
+  const maxOrders = Math.max(1, Number(opts.maxOrders) || 50000);
+  const maxPages = Math.max(1, Number(opts.maxPages) || 250);
+  const onPage = typeof opts.onPage === "function" ? opts.onPage : null;
+  const createdSince = opts.createdSince || null;
+  const updatedSince = opts.updatedSince || null;
+
+  let totalFetched = 0;
+  let pagesFetched = 0;
+  let hitMax = false;
+  let lastCreatedAt = null;
+
+  /* First page: filter by created_at_min / updated_at_min.
+     Subsequent pages: only page_info=<cursor> + limit (Shopify rules — adding
+     filters on subsequent pages is rejected with a 400). */
+  let firstUrl = "/orders.json?limit=250&status=" + encodeURIComponent(status);
+  if(createdSince) firstUrl += "&created_at_min=" + encodeURIComponent(createdSince);
+  if(updatedSince) firstUrl += "&updated_at_min=" + encodeURIComponent(updatedSince);
+
+  let nextCursor = null;
+  let url = firstUrl;
+  while(pagesFetched < maxPages){
+    const r = await shopifyFetch(creds, url);
+    const orders = (r.data && Array.isArray(r.data.orders)) ? r.data.orders : [];
+    if(orders.length === 0) break;
+    const mapped = orders.map(mapShopifyOrderToCLARK).filter(Boolean);
+    pagesFetched++;
+    totalFetched += mapped.length;
+    if(mapped.length > 0){
+      lastCreatedAt = mapped[mapped.length - 1].shopify_created_at || lastCreatedAt;
+    }
+    if(onPage){
+      try { await onPage(mapped, pagesFetched, totalFetched); }
+      catch(e){ /* caller decides; we keep going to avoid losing later pages */ }
+    }
+    if(totalFetched >= maxOrders){
+      hitMax = true;
+      break;
+    }
+    /* Get cursor for next page from Link header */
+    const linkHeader = r.headers?.get ? r.headers.get("link") || r.headers.get("Link") : null;
+    nextCursor = parseLinkHeaderForNext(linkHeader);
+    if(!nextCursor) break;
+    url = "/orders.json?limit=250&page_info=" + encodeURIComponent(nextCursor);
+  }
+  return { totalFetched, pagesFetched, hitMax, lastCreatedAt };
+}
+
 /* Map a Shopify product JSON → CLARK shopifyProducts entry. */
 export function mapShopifyProductToCLARK(product){
   if(!product) return null;

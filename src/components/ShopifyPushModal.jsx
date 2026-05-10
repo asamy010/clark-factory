@@ -34,15 +34,28 @@ const STATUS_OPTS = [
   { value: "archived", label: "📦 Archived" },
 ];
 
+/* CLARK schema (V21.8 Phase 11a fix):
+   Colors are stored in a SEPARATE top-level field `colors`+letter (e.g. colorsA,
+   colorsB, ...), NOT inside `fabricA`. Each entry is { color, colorHex, layers,
+   pcsPerLayer, qty }. The color NAME is `.color`, not `.n`. */
 function extractColorsFromFabric(order, fabricKey){
   if(!order || !fabricKey) return [];
-  const f = order["fabric" + fabricKey];
-  if(!f) return [];
-  const cols = Array.isArray(f.colors) ? f.colors : [];
-  return cols
-    .map(c => typeof c === "string" ? c : (c?.n || c?.name || ""))
-    .map(c => String(c).trim())
-    .filter(Boolean);
+  const key = String(fabricKey).toUpperCase();
+  const cols = Array.isArray(order["colors" + key]) ? order["colors" + key] : [];
+  const out = [];
+  const seen = new Set();
+  for(const c of cols){
+    let name = "";
+    if(typeof c === "string") name = c;
+    else if(c && typeof c === "object") name = c.color || c.n || c.name || "";
+    name = String(name || "").trim();
+    if(!name) continue;
+    const k = name.toLowerCase();
+    if(seen.has(k)) continue;
+    seen.add(k);
+    out.push(name);
+  }
+  return out;
 }
 
 function buildPreviewSku(pattern, ctx){
