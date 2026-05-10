@@ -40,6 +40,8 @@ import {
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
+import { bostaConfigure, bostaTrack } from "../utils/bosta/bostaClient.js";
+import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
@@ -47,6 +49,7 @@ const SUB_TABS = [
   { key: "connection",     label: "🔌 الاتصال",       color: "#10B981" },
   { key: "products",       label: "📦 المنتجات",      color: "#F59E0B" },
   { key: "orders",         label: "🛒 الطلبات",       color: "#8B5CF6" },
+  { key: "shipping",       label: "🚚 الشحن (Bosta)", color: "#0D9488" },
   { key: "invoices",       label: "🧾 الفواتير",      color: "#06B6D4" },
   { key: "reconciliation", label: "🔄 المطابقة",       color: "#EC4899" },
   { key: "settings",       label: "⚙️ الإعدادات",     color: "#64748B" },
@@ -170,6 +173,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "dashboard"      && <DashboardTab data={data} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob} />}
@@ -892,6 +896,9 @@ function SettingsTab({ data, upConfig, canEdit, isMob }){
           disabled={!canEdit}
         />
       </Card>
+
+      {/* V20.1 Phase 9: Bosta integration settings */}
+      <BostaSettingsCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
 
       <Card title="🚨 التنبيهات (WhatsApp)">
         <div style={{ marginBottom: 10 }}>
@@ -3154,4 +3161,568 @@ function ReservationSummary({ reservations }){
     return <div style={{ marginTop: 4, color: T.textMut }}>📦 Stock تم تحريره ({released.length} reservation released)</div>;
   }
   return null;
+}
+
+/* V20.1 Phase 9: Bosta integration settings card (used in SettingsTab).
+   Lets the admin enable Bosta, save the API key, generate a webhook
+   secret (returned ONCE for env var setup), and toggle auto-actions. */
+function BostaSettingsCard({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const [apiKey, setApiKey] = useState("");
+  const [businessId, setBusinessId] = useState(cfg.bosta_business_id || "");
+  const [busy, setBusy] = useState(false);
+  const [generatedSecret, setGeneratedSecret] = useState(null);
+  const [generatedUrl, setGeneratedUrl] = useState("");
+  const [hasEnvSecret, setHasEnvSecret] = useState(false);
+  const [webhookUrlBase, setWebhookUrlBase] = useState("");
+
+  const enabled = !!cfg.bosta_enabled;
+  const apiKeySet = !!cfg.bosta_api_key;
+
+  /* Initial fetch to know if env secret is set + the webhook URL base */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await bostaConfigure({}, user); /* read current settings */
+        if(cancelled) return;
+        if(r?.ok){
+          setHasEnvSecret(!!r.hasWebhookSecretSet);
+          setWebhookUrlBase(r.webhookUrlBase || "");
+        }
+      } catch(_){}
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (overrides) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    setBusy(true);
+    try {
+      const payload = {};
+      if(apiKey.trim()) payload.api_key = apiKey.trim();
+      if(businessId !== cfg.bosta_business_id) payload.business_id = businessId.trim();
+      Object.assign(payload, overrides || {});
+      const r = await bostaConfigure(payload, user);
+      if(r?.ok){
+        if(r.generatedSecret){
+          setGeneratedSecret(r.generatedSecret);
+          setGeneratedUrl(r.webhookUrl || "");
+        }
+        setApiKey(""); /* never keep API key in UI state */
+        setHasEnvSecret(!!r.hasWebhookSecretSet);
+        if(r.webhookUrlBase) setWebhookUrlBase(r.webhookUrlBase);
+        showToast("✅ تم الحفظ");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const generateSecret = async () => {
+    const yes = await ask("🔑 توليد webhook secret جديد",
+      "هـ يتولّد secret جديد. لازم تـ:\n1. تنسخه دلوقتي (مش هـ يظهر تاني)\n2. تضيفه في Vercel env vars (BOSTA_WEBHOOK_SECRET)\n3. تحط الـ URL الكامل في Bosta dashboard\n\nتأكيد؟");
+    if(!yes) return;
+    save({ regenerate_secret: true });
+  };
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("📋 تم النسخ");
+    } catch(_){
+      showToast("⚠️ النسخ فشل — حدد النص يدوياً");
+    }
+  };
+
+  const labelStyle = { display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 };
+
+  return (
+    <Card title="🚚 تكامل Bosta للشحن" extra={
+      <span style={{
+        fontSize: FS - 2, fontWeight: 700,
+        padding: "3px 10px", borderRadius: 10,
+        background: enabled ? T.ok + "15" : T.textMut + "15",
+        color: enabled ? T.ok : T.textMut,
+      }}>{enabled ? "● مفعّل" : "○ متوقف"}</span>
+    }>
+      <CheckLine
+        label="تفعيل التكامل مع Bosta"
+        checked={enabled}
+        onChange={v => save({ enabled: v })}
+        disabled={!canEdit}
+      />
+
+      <div style={{ marginTop: 12, padding: 12, background: T.bg, borderRadius: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 10 }}>1️⃣ Bosta API Key</div>
+        <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 8 }}>
+          دي للـ outbound calls (refresh status من Bosta API). انسخها من Bosta Dashboard → ربط التطبيقات → API key المسمى "Shopify".
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <Inp
+              value={apiKey}
+              onChange={setApiKey}
+              type="password"
+              placeholder={apiKeySet ? "محفوظ — اكتب جديد للتحديث" : "ادخل الـ API key من Bosta"}
+            />
+          </div>
+          <LoadingBtn primary loading={busy} loadingText="..." onClick={() => save({})} disabled={!canEdit || (!apiKey.trim() && businessId === cfg.bosta_business_id)} small>
+            💾 حفظ
+          </LoadingBtn>
+        </div>
+        {apiKeySet && <div style={{ fontSize: FS - 3, color: T.ok, marginTop: 4 }}>✅ API key محفوظ server-side</div>}
+      </div>
+
+      <div style={{ marginTop: 12, padding: 12, background: T.bg, borderRadius: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 10 }}>2️⃣ Webhook URL — يستلم updates من Bosta</div>
+        <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.7, marginBottom: 10 }}>
+          الـ webhook بـ يخلّي Bosta تـ inform CLARK فوراً لما حالة شحنة تتغيّر. لازم secret token عشان نأمن الـ endpoint.
+        </div>
+
+        {!hasEnvSecret && !generatedSecret && (
+          <div style={{ padding: "8px 12px", background: "#FEF3C715", border: "1px solid #F59E0B40", borderRadius: 6, marginBottom: 10, fontSize: FS - 2, color: "#92400E" }}>
+            ⚠️ مفيش webhook secret في Vercel env vars (BOSTA_WEBHOOK_SECRET). اضغط "ولّد Secret" تحت لتوليد واحد.
+          </div>
+        )}
+
+        {hasEnvSecret && !generatedSecret && (
+          <div style={{ padding: "8px 12px", background: "#D1FAE515", border: "1px solid " + T.ok + "40", borderRadius: 6, marginBottom: 10, fontSize: FS - 2, color: T.ok }}>
+            ✅ Webhook secret معدّ في Vercel. الـ URL جاهز للاستخدام.
+          </div>
+        )}
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Webhook URL (قاعدة)</label>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <code style={{
+              flex: 1,
+              padding: "8px 10px",
+              background: T.cardSolid,
+              border: "1px solid " + T.brd,
+              borderRadius: 6,
+              fontSize: FS - 2,
+              wordBreak: "break-all",
+            }}>{webhookUrlBase || "(loading…)"}</code>
+            {webhookUrlBase && (
+              <Btn small onClick={() => copyToClipboard(webhookUrlBase)}>📋</Btn>
+            )}
+          </div>
+        </div>
+
+        {generatedSecret && (
+          <div style={{ marginTop: 10, padding: 12, background: "#FEF3C7", border: "2px solid #F59E0B", borderRadius: 8 }}>
+            <div style={{ fontWeight: 800, color: "#92400E", marginBottom: 8 }}>🔐 Secret جديد — انسخه فوراً (هـ يظهر مرة واحدة فقط)</div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={labelStyle}>الـ Secret:</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <code style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  background: "#fff",
+                  border: "1px solid " + T.brd,
+                  borderRadius: 6,
+                  fontFamily: "monospace",
+                  fontSize: FS - 1,
+                  wordBreak: "break-all",
+                }}>{generatedSecret}</code>
+                <Btn small primary onClick={() => copyToClipboard(generatedSecret)}>📋 انسخ</Btn>
+              </div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={labelStyle}>الـ URL الكامل (للصق في Bosta):</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <code style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  background: "#fff",
+                  border: "1px solid " + T.brd,
+                  borderRadius: 6,
+                  fontFamily: "monospace",
+                  fontSize: FS - 2,
+                  wordBreak: "break-all",
+                  color: T.accent,
+                }}>{generatedUrl}</code>
+                <Btn small primary onClick={() => copyToClipboard(generatedUrl)}>📋</Btn>
+              </div>
+            </div>
+            <div style={{ fontSize: FS - 2, color: "#92400E", lineHeight: 1.8 }}>
+              <b>الخطوات:</b><br/>
+              1. روح <b>Vercel Dashboard → Settings → Environment Variables</b><br/>
+              2. أضف: <code>BOSTA_WEBHOOK_SECRET</code> = الـ Secret اللي فوق<br/>
+              3. روح <b>Bosta Dashboard → ربط التطبيقات → إضافة رابط الـ Webhook</b><br/>
+              4. الصق الـ URL الكامل (مع <code>?token=…</code>)<br/>
+              5. Save في الجانبين — Vercel هـ يـ redeploy تلقائياً
+            </div>
+            <div style={{ marginTop: 10, textAlign: "center" }}>
+              <Btn small ghost onClick={() => { setGeneratedSecret(null); setGeneratedUrl(""); }}>إخفاء</Btn>
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 10 }}>
+          <Btn small onClick={generateSecret} disabled={!canEdit || busy}>
+            🔑 {hasEnvSecret ? "ولّد Secret جديد (rotation)" : "ولّد Webhook Secret"}
+          </Btn>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12, padding: 12, background: T.bg, borderRadius: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 10 }}>3️⃣ Auto Actions</div>
+        <CheckLine
+          label="✅ Mark order as delivered تلقائياً لما Bosta يقول Delivered"
+          checked={!!cfg.bosta_auto_mark_delivered}
+          onChange={v => save({ auto_mark_delivered: v })}
+          disabled={!canEdit}
+        />
+        <CheckLine
+          label="❌ Mark order as refused تلقائياً لما Bosta يقول Returned"
+          checked={!!cfg.bosta_auto_mark_refused}
+          onChange={v => save({ auto_mark_refused: v })}
+          disabled={!canEdit}
+        />
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6 }}>
+          ⚠️ الـ Auto-actions بـ تـ trigger الـ flow الكامل (فاتورة + commit reservations). شغّلها بس لما تكون مطمن للتكامل.
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V20.1 Phase 9 — ShippingTab (Bosta integration)
+   ───────────────────────────────────────────────────────────────────────
+   Shows all Shopify orders with their Bosta tracking status. Lets the
+   admin manually link a tracking number, refresh status from Bosta API,
+   or view the full state-history timeline.
+
+   Reads from: data.shopifyPendingOrders[].bosta (set by webhook + manual)
+   ═══════════════════════════════════════════════════════════════════════ */
+function ShippingTab({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const orders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data]);
+  const misses = useMemo(() => Array.isArray(data?.bostaWebhookMisses) ? data.bostaWebhookMisses : [], [data]);
+  const [bucketFilter, setBucketFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [showOnlyTracked, setShowOnlyTracked] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+
+  const enabled = !!cfg.bosta_enabled;
+  const apiKeySet = !!cfg.bosta_api_key;
+
+  /* Stats by bucket */
+  const stats = useMemo(() => {
+    const s = { total: 0, tracked: 0, untracked: 0, byBucket: {} };
+    BOSTA_BUCKETS.forEach(b => { s.byBucket[b.key] = 0; });
+    orders.forEach(o => {
+      s.total++;
+      if(o.bosta?.tracking_number){
+        s.tracked++;
+        const b = o.bosta?.state_bucket || "unknown";
+        s.byBucket[b] = (s.byBucket[b] || 0) + 1;
+      } else {
+        s.untracked++;
+      }
+    });
+    return s;
+  }, [orders]);
+
+  /* Filtered list */
+  const filtered = useMemo(() => {
+    let res = orders;
+    if(showOnlyTracked) res = res.filter(o => o.bosta?.tracking_number);
+    if(bucketFilter !== "all"){
+      if(bucketFilter === "untracked"){
+        res = res.filter(o => !o.bosta?.tracking_number);
+      } else {
+        res = res.filter(o => o.bosta?.state_bucket === bucketFilter);
+      }
+    }
+    const q = search.trim().toLowerCase();
+    if(q){
+      res = res.filter(o =>
+        String(o.shopify_order_number || "").toLowerCase().includes(q) ||
+        String(o.bosta?.tracking_number || "").toLowerCase().includes(q) ||
+        String(o.customer_info?.name || "").toLowerCase().includes(q) ||
+        String(o.customer_info?.phone || "").toLowerCase().includes(q)
+      );
+    }
+    /* Sort: most-recently-updated bosta state first, then by created_at */
+    res = res.slice().sort((a, b) => {
+      const ta = new Date(a.bosta?.last_state_at || a.shopify_created_at || 0).getTime();
+      const tb = new Date(b.bosta?.last_state_at || b.shopify_created_at || 0).getTime();
+      return tb - ta;
+    });
+    return res;
+  }, [orders, bucketFilter, search, showOnlyTracked]);
+
+  const handleLinkTracking = async (order) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const tn = await askInput("🔗 ربط Tracking Number", {
+      defaultValue: order.bosta?.tracking_number || "",
+      label: "ادخل رقم الـ tracking من Bosta dashboard للطلب ده",
+      placeholder: "مثلاً: 12345678",
+      confirmText: "ربط",
+    });
+    if(tn === null) return;
+    if(!tn.trim()){ showToast("⚠️ ادخل رقم صالح"); return; }
+    setBusyId(order.shopify_order_id);
+    try {
+      const r = await bostaTrack({ orderId: order.shopify_order_id, trackingNumber: tn.trim() }, user);
+      if(r?.ok){ showToast("✅ تم الربط — Bosta هـ يبعت updates webhook لما الحالة تتغيّر"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const handleRefresh = async (order) => {
+    if(!canEdit) return;
+    if(!apiKeySet){ showToast("⚠️ Bosta API key مش معدّ — روح Settings tab"); return; }
+    if(!order.bosta?.tracking_number){
+      showToast("⚠️ مفيش tracking — اربطه أولاً");
+      return;
+    }
+    setBusyId(order.shopify_order_id);
+    try {
+      const r = await bostaTrack({ orderId: order.shopify_order_id, refresh: true }, user);
+      if(r?.ok){
+        showToast(`🔄 ${r.state?.value || ""} (code: ${r.state?.code})`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  if(!enabled){
+    return (
+      <Card title="🚚 Bosta — التكامل مش مفعّل">
+        <div style={{ padding: 30, textAlign: "center", color: T.textSec, lineHeight: 1.8 }}>
+          <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.6 }}>📦</div>
+          <div style={{ fontSize: FS, fontWeight: 700, color: T.text, marginBottom: 6 }}>التكامل مع Bosta مش مفعّل</div>
+          <div style={{ fontSize: FS - 1, marginBottom: 14 }}>
+            روح <b>تاب الإعدادات → قسم Bosta</b> وفعّل التكامل عشان تتابع شحناتك من هنا.
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.textMut, maxWidth: 480, margin: "0 auto" }}>
+            ℹ️ بعد التفعيل، كل ما حالة شحنة تتغيّر في Bosta، CLARK هـ يستلم webhook فوراً ويحدّث الـ status هنا.
+            تقدر كمان تربط tracking يدوياً وتـ refresh من Bosta API.
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Stats banner */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(6, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي الطلبات" value={String(stats.total)} icon="📦" color="#0EA5E9" />
+        <MetricCard label="مع tracking" value={String(stats.tracked)} icon="🔗" color="#10B981" />
+        <MetricCard label="بدون tracking" value={String(stats.untracked)} icon="⚪" color="#94A3B8" />
+        <MetricCard label="🛵 خرج للتوصيل" value={String(stats.byBucket.out_for_del || 0)} color="#0EA5E9" />
+        <MetricCard label="✅ تم التوصيل" value={String(stats.byBucket.delivered || 0)} color="#10B981" />
+        <MetricCard label="⚠️ مشاكل" value={String((stats.byBucket.delayed || 0) + (stats.byBucket.lost || 0) + (stats.byBucket.damaged || 0))} color="#F59E0B" />
+      </div>
+
+      {/* Webhook misses warning */}
+      {misses.length > 0 && (
+        <div style={{
+          padding: "10px 14px",
+          borderRadius: 10,
+          background: "#FEF3C715",
+          border: "1px solid #F59E0B40",
+          color: "#92400E",
+          fontSize: FS - 1,
+        }}>
+          ⚠️ <b>{misses.length} webhook</b> من Bosta وصلوا CLARK لكن مفيش طلب يطابقهم.
+          <span style={{ marginInlineStart: 6, color: T.textSec, fontSize: FS - 2 }}>
+            ممكن يكون الـ tracking number مش مربوط بطلب — افتح آخر مساه تحت لمعرفة التفاصيل.
+          </span>
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <Card title="🚚 الشحنات">
+        {cfg.bosta_last_webhook_at && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 8 }}>
+            آخر webhook من Bosta: {new Date(cfg.bosta_last_webhook_at).toLocaleString("ar-EG")} ({cfg.bosta_last_webhook_status || "—"})
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 12 }}>
+          <Sel value={bucketFilter} onChange={setBucketFilter}>
+            <option value="all">كل الحالات ({stats.total})</option>
+            <option value="untracked">⚪ بدون tracking ({stats.untracked})</option>
+            {BOSTA_BUCKETS.map(b => (
+              <option key={b.key} value={b.key}>
+                {b.emoji} {b.label} ({stats.byBucket[b.key] || 0})
+              </option>
+            ))}
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث برقم الـ tracking، الطلب، الاسم، أو التليفون..." />
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <CheckLine label="عرض الطلبات اللي ليها tracking فقط"
+            checked={showOnlyTracked} onChange={setShowOnlyTracked} />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>📦</div>
+            <div>{orders.length === 0 ? "مفيش طلبات Shopify لسه" : "مفيش طلبات تطابق الـ filters"}</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.slice(0, 80).map(o => (
+              <ShippingRow
+                key={o.shopify_order_id}
+                order={o}
+                isMob={isMob}
+                canEdit={canEdit}
+                isExpanded={expandedId === String(o.shopify_order_id)}
+                busy={busyId === o.shopify_order_id}
+                onToggleExpand={() => setExpandedId(expandedId === String(o.shopify_order_id) ? null : String(o.shopify_order_id))}
+                onLink={() => handleLinkTracking(o)}
+                onRefresh={() => handleRefresh(o)}
+                apiKeySet={apiKeySet}
+              />
+            ))}
+            {filtered.length > 80 && (
+              <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>
+                + {filtered.length - 80} طلب أخرى
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Webhook misses log */}
+      {misses.length > 0 && (
+        <Card title={"⚠️ Webhook Misses (" + misses.length + ")"}>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>
+            الـ webhooks دي من Bosta لكن ما لقيناش طلب يطابقها. غالباً السبب إن الـ tracking مش مربوط أو الـ businessReference مش مظبوط.
+          </div>
+          <div style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+            {misses.slice(0, 20).map((m, i) => (
+              <div key={i} style={{
+                padding: "6px 10px",
+                background: T.bg,
+                borderRadius: 6,
+                fontSize: FS - 2,
+                fontFamily: "monospace",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+                flexWrap: "wrap",
+              }}>
+                <span>📦 {m.tracking_number || "—"}</span>
+                <span>🧾 {m.business_reference || "—"}</span>
+                <span>📞 {m.receiver_phone || "—"}</span>
+                <span>{m.state_value} ({m.state_code})</span>
+                <span style={{ color: T.textMut }}>{new Date(m.at).toLocaleString("ar-EG")}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, onLink, onRefresh, apiKeySet }){
+  const bosta = order.bosta || {};
+  const hasTracking = !!bosta.tracking_number;
+  const meta = hasTracking ? getBucketMeta(bosta.state_bucket) : { color: "#94A3B8", emoji: "⚪", label: "بدون tracking" };
+  const customer = order.customer_info || {};
+  const stateLabel = bosta.state_value || meta.label;
+
+  const lastUpdate = bosta.last_state_at ? new Date(bosta.last_state_at) : null;
+  const minutesAgo = lastUpdate ? Math.floor((Date.now() - lastUpdate.getTime()) / 60000) : null;
+  const ageLabel = minutesAgo == null ? null
+                 : minutesAgo < 60 ? `منذ ${minutesAgo} دقيقة`
+                 : minutesAgo < 1440 ? `منذ ${Math.floor(minutesAgo / 60)} ساعة`
+                 : `منذ ${Math.floor(minutesAgo / 1440)} يوم`;
+
+  return (
+    <div style={{
+      padding: "10px 14px",
+      borderRadius: 10,
+      background: T.cardSolid,
+      border: "1px solid " + meta.color + "30",
+      borderInlineStart: "3px solid " + meta.color,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+              #{order.shopify_order_number || order.shopify_order_id}
+            </span>
+            <span style={{
+              fontSize: FS - 2, fontWeight: 700, padding: "2px 10px",
+              borderRadius: 12, background: meta.color + "20", color: meta.color,
+            }}>{meta.emoji} {stateLabel}</span>
+            {hasTracking && (
+              <span style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
+                🔗 {bosta.tracking_number}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+            👤 {customer.name || "—"}
+            {customer.phone && <span style={{ marginInlineStart: 8 }}>📞 {customer.phone}</span>}
+            {ageLabel && <span style={{ marginInlineStart: 8, color: T.textMut }}>· {ageLabel}</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+          {!hasTracking && (
+            <Btn small primary onClick={onLink} disabled={!canEdit || busy}>🔗 ربط tracking</Btn>
+          )}
+          {hasTracking && (
+            <>
+              <Btn small onClick={onRefresh} disabled={!canEdit || !apiKeySet || busy} title={!apiKeySet ? "API key مش معدّ" : ""}>
+                🔄 refresh
+              </Btn>
+              <Btn small onClick={onLink} disabled={!canEdit || busy}>✏️ تعديل</Btn>
+            </>
+          )}
+          {Array.isArray(bosta.state_history) && bosta.state_history.length > 0 && (
+            <Btn small ghost onClick={onToggleExpand}>
+              {isExpanded ? "▲" : "▼"} timeline
+            </Btn>
+          )}
+        </div>
+      </div>
+
+      {/* Timeline */}
+      {isExpanded && Array.isArray(bosta.state_history) && bosta.state_history.length > 0 && (
+        <div style={{ marginTop: 12, padding: 12, background: T.bg, borderRadius: 8 }}>
+          <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, marginBottom: 8 }}>📜 Timeline ({bosta.state_history.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {bosta.state_history.map((h, i) => {
+              const m = getBucketMeta(h.bucket);
+              return (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, marginTop: 6, flexShrink: 0 }}/>
+                  <div style={{ flex: 1, fontSize: FS - 2 }}>
+                    <div style={{ fontWeight: 600, color: T.text }}>
+                      {m.emoji} {h.value || m.label}
+                      <span style={{ marginInlineStart: 6, color: T.textMut, fontSize: FS - 3 }}>(code {h.code})</span>
+                    </div>
+                    <div style={{ color: T.textMut, fontSize: FS - 3 }}>
+                      {h.at ? new Date(h.at).toLocaleString("ar-EG") : "—"}
+                      {h.source && <span style={{ marginInlineStart: 6 }}>· via {h.source}</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

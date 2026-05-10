@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V20.1.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🚚 Phase 9 — Bosta Shipping Integration",
+    changes: [
+      { type: "feature", text: "🚚 [تكامل Bosta كامل] CLARK دلوقتي بـ يستلم updates من Bosta لما حالة شحنة تتغيّر، ويحدّث الطلبات تلقائياً. الـ workflow:\n1. الـ user بـ يولّد webhook secret (مرة واحدة)\n2. بـ يضيفه في Vercel env (BOSTA_WEBHOOK_SECRET) + Bosta dashboard URL\n3. بـ يضيف Bosta API key في CLARK\n4. أي تغيير حالة في Bosta → CLARK بـ يستلم webhook → يطابق الطلب → يحدّث state\n5. اختياري: auto mark-delivered/refused" },
+      { type: "feature", text: "📡 [3 API endpoints جديدة]\n• POST /api/bosta/webhook (public + secret token) — يستلم Bosta webhooks، normalize payload، يطابق الـ order، يحدّث state_history\n• POST /api/bosta/track (admin) — link tracking number لـ order أو refresh من Bosta API (outbound call)\n• POST /api/bosta/configure (admin) — حفظ API key، توليد webhook secret، toggle auto-actions" },
+      { type: "feature", text: "🎯 [Order matching بـ 3 strategies]\n1. By tracking_number (الأكثر دقة) — لو الـ user ربط الـ tracking يدوياً\n2. By businessReference (= shopify_order_id) — لو متضبط في Bosta عند إنشاء الشحنة\n3. By phone number (last resort) — يفضّل pending_delivery، ثم الـ most-recent\nلو ما لقاش match: بـ يـ log في bostaWebhookMisses[] للـ debugging." },
+      { type: "feature", text: "🗂 [State codes mapping كامل] 17 Bosta state code محددين بـ buckets:\n• 10/11 = pending — بانتظار الاستلام\n• 20-23 = in_transit — في الطريق / في المخزن\n• 24/25 = out_for_del — 🛵 خرج للتوصيل\n• 41-44 = delayed — ⚠️ متأخر / محاولة فاشلة\n• 45 = delivered — ✅\n• 46-48 = returned — ↩️\n• 49 = lost ❓ · 50 = damaged 💥 · 60 = cancelled 🚫\nكل state بـ emoji + لون + bucket عشان UI consistency." },
+      { type: "feature", text: "🚚 [Shipping sub-tab جديد] في Shopify integration:\n• 6 stat cards: total / tracked / untracked / out for delivery / delivered / issues\n• Filters: by bucket / search by tracking#/order#/name/phone / show tracked-only\n• كل order row: tracking number + state badge + customer + age\n• Per-order actions: 🔗 ربط tracking / 🔄 refresh من Bosta API / ✏️ تعديل / ▼ Timeline\n• Timeline view: full state history مع dot indicators + الـ source (webhook/manual/api_refresh)\n• Webhook misses log في الأسفل لو فيه payloads ما لقتش matching" },
+      { type: "feature", text: "⚙️ [Bosta settings card] في Settings tab بـ 3 sections:\n1. تفعيل/إيقاف التكامل (toggle)\n2. API Key (server-side only، مش بـ يظهر في UI)\n3. Webhook URL + Secret generation:\n   • زرار 'ولّد Secret' → يطلع secret + URL كامل\n   • تعليمات واضحة لـ Vercel env + Bosta dashboard setup\n   • الـ secret يظهر مرة واحدة فقط (security)\n4. Auto-actions toggles:\n   • Auto mark-delivered لما Bosta يقول delivered\n   • Auto mark-refused لما يقول returned" },
+      { type: "feature", text: "🛡 [Webhook security]\n• Token-based auth: ?token=<secret> أو X-Bosta-Token header\n• Token مخزّن في Vercel env (BOSTA_WEBHOOK_SECRET)\n• Constant-time-ish comparison (string equality is fine for short secrets)\n• De-dup: نفس الـ state code خلال 60 ثانية بـ يتـ skip\n• Always 200 OK to Bosta (even if unmatched) — Bosta ما يـ retry للأبد" },
+      { type: "feature", text: "🔄 [Manual refresh] في Shipping tab، الـ user يقدر يضغط 🔄 على أي order عنده tracking → CLARK بـ يـ call Bosta API (GET /deliveries/{tn}) ويحدّث الـ state. مفيد لو الـ webhook ما وصل-ش لأي سبب." },
+      { type: "doc", text: "📋 [الـ user setup steps]\n1. روح Bosta Dashboard → ربط التطبيقات → خد الـ API key (\"Shopify\")\n2. CLARK → Shopify tab → Settings → Bosta section\n3. الصق الـ API key + احفظ\n4. اضغط 'ولّد Webhook Secret' → انسخ الـ Secret + URL\n5. روح Vercel → Environment Variables → أضف BOSTA_WEBHOOK_SECRET\n6. روح Bosta → Add Webhook URL → الصق الـ URL الكامل (مع ?token=...)\n7. فعّل التكامل في CLARK + (اختياري) فعّل auto-actions\n8. خلاص — أي شحنة بعد كده هـ تـ track تلقائياً" },
+    ]
+  },
+  {
     version: "V20.0.0",
     date: "2026-05-10",
     types: ["feature"],
