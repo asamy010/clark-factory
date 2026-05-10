@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.92.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 0.5 — OAuth 2.0 install flow",
+    changes: [
+      { type: "feature", text: "🔐 [User report confirmed] الـ atkn_ token من Dev Dashboard ما اشتغلش مع الـ Admin API (رجع 401/403). ده مش bug في الكود — الـ atkn_ tokens رسمياً للـ app-level operations (إدارة الـ app نفسها) مش للـ store Admin API. الـ User كان عنده كل الـ scopes 100% (read_orders, write_inventory, etc.) لكن التوكين نفسه مش مصمّم للغرض ده." },
+      { type: "feature", text: "🚀 [OAuth 2.0 install flow كامل] الـ V19.92 بـ تـ implement الـ official Shopify OAuth flow:\n• POST /api/shopify/oauth-init → بـ يبني authorize URL ويـ redirect-ك لـ Shopify\n• Shopify بـ يعرض \"approve scopes\" screen\n• بعد الموافقة، Shopify بـ يـ redirect لـ /api/shopify/oauth-callback مع authorization code\n• الـ callback بـ يـ verify الـ HMAC من Shopify (Client Secret + sorted query) + الـ state HMAC بتاعنا (signed with DELIVERY_CONFIRM_SECRET)\n• بـ يبادل الـ code بـ offline access token (= shpat_…)\n• بـ يحفظه في factory/config.shopifyConfig\n• بـ يـ redirect رجوع لـ CLARK مع shopify_connected=1 flag" },
+      { type: "feature", text: "🛡 [Security guardrails] الـ flow عنده 4 layers من الحماية:\n• HMAC على الـ state بتاعنا (مع TTL 10 دقايق + uid + redirectUri في الـ payload) → يمنع CSRF + replay\n• HMAC verification على الـ callback من Shopify (مع timing-safe compare) → يثبت إن الـ redirect حقاً من Shopify\n• Constant-time signature comparison → يمنع timing attacks\n• Admin auth gate على /api/shopify/oauth-init → يمنع المستخدمين العاديين يبتدوا OAuth flow على ستورات تانية" },
+      { type: "feature", text: "🎨 [UI redesign للـ Connection tab] قبل V19.92 الـ form كان يدوي بحت. دلوقتي:\n• زرار كبير primary \"🔗 اتصل بـ Shopify\" — الـ default path\n• Field واحد فقط للـ Store URL\n• Manual token entry collapsed default (للـ legacy custom apps لو حد عنده توكين shpat_ جاهز)\n• في الـ setup card: الـ redirect URL الفعلي يظهر بالـ window.origin + path عشان الـ user يـ paste-ه مباشرة في Dev Dashboard\n• قائمة الـ Vercel env vars المطلوبة (SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET + DELIVERY_CONFIRM_SECRET)\n• تحذير أصفر بـ تذكير الـ user يعمل Rotate للـ Client Secret اللي اتعرض في الـ chat" },
+      { type: "feature", text: "📡 [Callback detection effect] في ShopifyIntegrationPg الـ useEffect على mount بـ يقرأ window.location.search:\n• shopify_connected=1 → showToast \"✅ تم الاتصال بـ Shopify (shop_name)\"\n• shopify_error=… → tell() popup مع الـ message التفصيلي\n• في الحالتين بـ يـ strip الـ params من الـ URL باستخدام history.replaceState عشان refresh ما يـ trigger الـ toast تاني" },
+      { type: "doc", text: "📋 [خطوات الـ user قبل ما يـ test]\n1. Dev Dashboard → Settings → Credentials → اعمل Rotate للـ Client Secret (لأنه ظهر في الـ chat)\n2. Vercel Dashboard → Settings → Environment Variables → أضف:\n   • SHOPIFY_CLIENT_ID = (الـ Client ID من Dev Dashboard)\n   • SHOPIFY_CLIENT_SECRET = (الـ shpss_… الجديد بعد Rotate)\n   • DELIVERY_CONFIRM_SECRET = (32+ chars random)\n3. Dev Dashboard → CLARK Integration → Configuration → Allowed redirection URLs → أضف: <vercel-url>/api/shopify/oauth-callback\n4. Versions → New version (عشان التغييرات تتفعّل)\n5. CLARK → Shopify tab → ادخل clarkstore.myshopify.com → اضغط 🔗 اتصل بـ Shopify\n6. Shopify هـ يعرض scopes — وافق\n7. هترجع لـ CLARK مع رسالة نجاح" },
+      { type: "improvement", text: "🔄 [Disconnect + reconnect flow] الـ user المتصل بقى عنده 4 buttons:\n• 💾 تحديث التوكين يدوياً (للـ legacy)\n• 🔄 اختبار الاتصال (ping live)\n• 🔗 إعادة الاتصال عبر OAuth (لو التوكين بـ يفشل أو الـ scopes اتغيرت)\n• 🔌 قطع الاتصال\n+ إشارة ✅ \"متصل عبر OAuth — التوكين دائم (مفيش expiry)\" عشان الـ user يطمن إن مش محتاج Rotate." },
+    ]
+  },
+  {
     version: "V19.91.2",
     date: "2026-05-10",
     types: ["fix","feature"],

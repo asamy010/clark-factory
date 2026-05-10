@@ -14,8 +14,29 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb } from "../_firebase.js";
+import crypto from "crypto";
 
 const DEFAULT_API_VERSION = "2024-10";
+
+/* V19.92: Required Admin API scopes for the CLARK ↔ Shopify integration.
+   Single source of truth — used by:
+     • OAuth init endpoint (passed in scope= query param)
+     • Setup instructions UI (must match what user configures in Dev Dashboard)
+     • Phase 1+ feature gating (skip features if scope is missing) */
+export const REQUIRED_SHOPIFY_SCOPES = [
+  "read_orders",
+  "read_all_orders",
+  "read_products",
+  "write_products",
+  "read_inventory",
+  "write_inventory",
+  "read_locations",
+  "read_fulfillments",
+  "read_customers",
+];
+export function getRequiredScopesString(){
+  return REQUIRED_SHOPIFY_SCOPES.join(",");
+}
 
 /* Strip protocol + trailing slash so we always store/use a clean host. */
 export function normalizeStoreUrl(raw){
@@ -171,4 +192,162 @@ export async function fetchProductsCount(creds){
   } catch(_){
     return 0;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.92 — OAuth 2.0 flow helpers
+   ───────────────────────────────────────────────────────────────────────
+   Why we need OAuth:
+   Since Jan 1 2026 Shopify deprecated legacy custom apps. The new Dev
+   Dashboard apps generate "App automation tokens" (atkn_…) that work for
+   APP-LEVEL operations (managing the app itself) but NOT for the Admin
+   REST API of an installed store. To call /shop.json, /products.json,
+   etc., we need a real Admin API access token (shpat_…).
+
+   The official way to get one: OAuth 2.0 install flow.
+     1. Redirect user to Shopify's authorize endpoint with our Client ID +
+        scopes + redirect_uri + signed state
+     2. User approves → Shopify redirects to our callback with an auth code
+     3. We exchange the code (POST + Client Secret) for an offline access
+        token — the shpat_ we wanted.
+     4. Store the token in factory/config.shopifyConfig and use it for all
+        future Admin API calls.
+
+   Required Vercel env vars:
+     SHOPIFY_CLIENT_ID      — public, ok to expose in HTML
+     SHOPIFY_CLIENT_SECRET  — must stay server-side, used to verify HMAC +
+                              exchange auth code
+     DELIVERY_CONFIRM_SECRET — already exists; reused to sign OAuth state
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; /* 10 min — generous for slow users */
+
+/* Sign an OAuth state payload with HMAC + timestamp.
+   Returns "<base64url(json)>.<base64url(hmac)>". Stateless — no Firestore
+   write needed. The signature ties the state to our server (prevents an
+   attacker from forging a state). The timestamp inside the payload caps
+   replay-window length. */
+export function signOAuthState(payload){
+  const secret = process.env.DELIVERY_CONFIRM_SECRET;
+  if(!secret || secret.length < 16){
+    throw new Error("DELIVERY_CONFIRM_SECRET not set (or too short, min 16)");
+  }
+  const json = JSON.stringify({ ...payload, ts: Date.now() });
+  const data = Buffer.from(json, "utf8").toString("base64url");
+  const sig = crypto.createHmac("sha256", secret).update(data).digest("base64url");
+  return data + "." + sig;
+}
+
+/* Verify and decode an OAuth state. Returns payload object on success,
+   null on any failure (bad signature, expired, malformed, etc). */
+export function verifyOAuthState(state, maxAgeMs){
+  try {
+    const secret = process.env.DELIVERY_CONFIRM_SECRET;
+    if(!secret || !state || typeof state !== "string") return null;
+    const dot = state.indexOf(".");
+    if(dot < 0) return null;
+    const data = state.slice(0, dot);
+    const sig = state.slice(dot + 1);
+    const expected = crypto.createHmac("sha256", secret).update(data).digest("base64url");
+    /* Constant-time compare */
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if(a.length !== b.length) return null;
+    if(!crypto.timingSafeEqual(a, b)) return null;
+    const json = Buffer.from(data, "base64url").toString("utf8");
+    const payload = JSON.parse(json);
+    const ttl = typeof maxAgeMs === "number" ? maxAgeMs : OAUTH_STATE_TTL_MS;
+    if(!payload.ts || Date.now() - payload.ts > ttl) return null;
+    return payload;
+  } catch(_){
+    return null;
+  }
+}
+
+/* Verify Shopify's HMAC on the OAuth callback URL. Shopify signs all
+   non-hmac query params (sorted by key, joined with &) using the app's
+   Client Secret. Validating this proves the redirect actually came from
+   Shopify and wasn't forged by an attacker who got our Client ID.
+
+   Spec: https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant#step-3-verify-the-installation-request */
+export function verifyShopifyHmac(query, clientSecret){
+  if(!query || !query.hmac || !clientSecret) return false;
+  const hmac = String(query.hmac);
+  const params = { ...query };
+  delete params.hmac;
+  /* Some Shopify endpoints also include `signature` which is excluded too */
+  delete params.signature;
+  const sorted = Object.keys(params)
+    .sort()
+    .map(k => k + "=" + params[k])
+    .join("&");
+  const computed = crypto.createHmac("sha256", clientSecret).update(sorted).digest("hex");
+  try {
+    const a = Buffer.from(hmac, "hex");
+    const b = Buffer.from(computed, "hex");
+    if(a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch(_){
+    return false;
+  }
+}
+
+/* Exchange an OAuth authorization code for a permanent (offline) Admin
+   API access token. POST { client_id, client_secret, code } to the
+   store's /admin/oauth/access_token endpoint.
+   Response: { access_token: "shpat_…", scope: "read_orders,…" } */
+export async function exchangeCodeForToken(storeUrl, code, clientId, clientSecret){
+  if(!storeUrl || !code || !clientId || !clientSecret){
+    throw new Error("exchangeCodeForToken: missing required arg");
+  }
+  const url = "https://" + storeUrl + "/admin/oauth/access_token";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
+      signal: ctrl.signal,
+    });
+  } catch(e){
+    clearTimeout(timer);
+    throw new Error("Token exchange request failed: " + (e.message || e));
+  }
+  clearTimeout(timer);
+  let data = null;
+  try { data = await resp.json(); } catch(_){ /* leave null */ }
+  if(!resp.ok){
+    const errTxt = data?.error_description || data?.error || ("HTTP " + resp.status);
+    throw new Error("Shopify rejected token exchange: " + errTxt);
+  }
+  if(!data || !data.access_token){
+    throw new Error("Shopify response missing access_token");
+  }
+  return data;
+}
+
+/* Convenience: build the Shopify install URL (the "approve scopes" page).
+   Caller passes the redirect_uri (must match what's registered in the
+   Dev Dashboard under "Allowed redirection URLs"). */
+export function buildAuthorizeUrl({ storeUrl, clientId, scopes, redirectUri, state, online = false }){
+  if(!storeUrl || !clientId || !redirectUri || !state){
+    throw new Error("buildAuthorizeUrl: missing arg");
+  }
+  const params = [
+    "client_id=" + encodeURIComponent(clientId),
+    "scope=" + encodeURIComponent(scopes || getRequiredScopesString()),
+    "redirect_uri=" + encodeURIComponent(redirectUri),
+    "state=" + encodeURIComponent(state),
+  ];
+  /* Default = offline access (permanent shpat_ token).
+     For online access (per-user, expires after ~24h), uncomment:
+       params.push("grant_options[]=per-user");
+     We don't need online for server-side polling. */
+  if(online) params.push("grant_options[]=per-user");
+  return "https://" + storeUrl + "/admin/oauth/authorize?" + params.join("&");
 }

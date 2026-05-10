@@ -76,3 +76,13 @@ export function shopifyStatus(user){
 export function shopifyDisconnect(user){
   return call("POST", "/api/shopify/disconnect", {}, user);
 }
+
+/* V19.92: Initiate OAuth 2.0 install flow.
+   { storeUrl } → { ok, authUrl, redirectUri }
+   The caller redirects window.location to authUrl. Shopify shows the
+   approve-scopes screen, then redirects back to /api/shopify/oauth-callback
+   which saves the resulting shpat_ token to Firestore and bounces the
+   browser back to /?tab=shopify&shopify_connected=1. */
+export function shopifyOAuthInit({ storeUrl }, user){
+  return call("POST", "/api/shopify/oauth-init", { storeUrl }, user);
+}

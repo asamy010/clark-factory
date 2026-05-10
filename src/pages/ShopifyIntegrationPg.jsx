@@ -32,7 +32,7 @@ import { Btn, Card, Inp, Sel, Spinner, LoadingBtn, MetricCard } from "../compone
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
-import { shopifyConnect, shopifyStatus, shopifyDisconnect } from "../utils/shopify/shopifyClient.js";
+import { shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit } from "../utils/shopify/shopifyClient.js";
 
 const SUB_TABS = [
   { key: "dashboard",      label: "📊 لوحة التحكم",   color: "#0EA5E9" },
@@ -53,6 +53,36 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
      for credentials — UI mirrors via the live data prop, but the token is
      never returned from the API for safety). */
   const shopifyConfig = data?.shopifyConfig || {};
+
+  /* V19.92: Detect OAuth callback redirect.
+     When /api/shopify/oauth-callback finishes (success or fail), it 302s
+     back to /?tab=shopify&shopify_connected=1 (or &shopify_error=…). We
+     surface the result to the user and clean the URL so a refresh doesn't
+     re-trigger the toast. */
+  useEffect(() => {
+    if(typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const ok = params.get("shopify_connected");
+    const err = params.get("shopify_error");
+    if(ok === "1"){
+      const shop = params.get("shop") || "";
+      showToast("✅ تم الاتصال بـ Shopify" + (shop ? " (" + shop + ")" : ""));
+      setActiveTab("connection"); /* show the summary */
+    } else if(err){
+      tell("⛔ فشل الاتصال بـ Shopify\n\n" + err);
+      setActiveTab("connection");
+    }
+    if(ok || err){
+      /* Strip the params so a refresh doesn't repeat the toast. Keep the
+         tab=shopify part so the user stays on this tab. */
+      const url = new URL(window.location.href);
+      url.searchParams.delete("shopify_connected");
+      url.searchParams.delete("shopify_error");
+      url.searchParams.delete("shop");
+      url.searchParams.delete("products");
+      window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    }
+  }, []);
 
   return (
     <div style={{ padding: isMob ? 8 : 16, direction: "rtl" }}>
@@ -185,6 +215,10 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
   const [pingBusy, setPingBusy] = useState(false);
   const [storeInfo, setStoreInfo] = useState(null);
   const [pingError, setPingError] = useState("");
+  /* V19.92: collapse the manual-token form by default and steer users to
+     the OAuth flow. Manual entry stays available for legacy custom apps
+     and for users who already have a working shpat_ token from elsewhere. */
+  const [showManual, setShowManual] = useState(false);
 
   const connected = !!cfg.connected && !!cfg.store_url;
 
@@ -221,6 +255,43 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
+
+  /* V19.92: OAuth 2.0 install flow — the recommended path for new
+     Dev Dashboard apps (since legacy custom apps are deprecated).
+     Calls /api/shopify/oauth-init to build the Shopify authorize URL,
+     then redirects the browser. After approval, Shopify bounces back
+     to /api/shopify/oauth-callback which saves the shpat_ token and
+     302s back to /?tab=shopify&shopify_connected=1.
+
+     The page-level useEffect at the top of ShopifyIntegrationPg picks
+     up the success/error flag and shows a toast. */
+  const handleOAuthInit = async () => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية تعديل"); return; }
+    const cleanUrl = String(storeUrl || "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    if(!cleanUrl){ showToast("⚠️ ادخل Store URL أولاً (مثال: clarkstore.myshopify.com)"); return; }
+    setBusy(true);
+    try {
+      const r = await shopifyOAuthInit({ storeUrl: cleanUrl }, user);
+      if(r && r.ok && r.authUrl){
+        /* Redirect the entire window — the OAuth flow is multi-step and
+           lives outside our SPA. We come back via the callback redirect. */
+        window.location.href = r.authUrl;
+        /* No setBusy(false) — page is unloading */
+      } else {
+        showToast("⛔ " + (r?.error || "فشل بدء OAuth"));
+        setBusy(false);
+      }
+    } catch(e){
+      const msg = e.message || "فشل بدء OAuth";
+      /* Common case: env vars missing on Vercel. Show a descriptive popup. */
+      if(/SHOPIFY_CLIENT_ID|SHOPIFY_CLIENT_SECRET|DELIVERY_CONFIRM_SECRET/i.test(msg)){
+        await tell("⚙️ مفيش env vars مضبوطة على Vercel\n\n" + msg + "\n\nروح Vercel Dashboard → Settings → Environment Variables واضبطهم.");
+      } else {
+        showToast("⛔ " + msg);
+      }
+      setBusy(false);
+    }
+  };
 
   const handleConnect = async () => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية تعديل"); return; }
@@ -389,27 +460,52 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* Setup instructions */}
+      {/* V19.92: OAuth-first setup card */}
       {!connected && (
-        <Card title="🔐 خطوات الإعداد في Shopify Admin">
+        <Card title="🔐 إعداد الاتصال — OAuth (الموصى به)">
           <div style={{ fontSize: FS - 1, lineHeight: 1.9, color: T.textSec }}>
-            <div style={{ fontWeight: 800, color: T.text, marginBottom: 8, fontSize: FS }}>
-              📌 المسار الجديد (Dev Dashboard) — مطلوب من 2026
+            <div style={{ fontWeight: 800, color: T.text, marginBottom: 10, fontSize: FS }}>
+              📋 خطوات الإعداد لمرة واحدة (5 دقايق)
             </div>
-            <div style={{ marginBottom: 8 }}>1. روح <b>Shopify Partners → Apps → Create app</b> أو من الستور <b>Settings → Apps → Build apps in Dev Dashboard</b></div>
-            <div style={{ marginBottom: 8 }}>2. اعمل app باسم "CLARK Integration"</div>
-            <div style={{ marginBottom: 8 }}>3. اعمل <b>Release</b> للـ version بعد ما تـ configure الـ scopes:</div>
-            <div style={{ background: T.bg, padding: 12, borderRadius: 8, marginBottom: 8, fontFamily: "monospace", fontSize: FS - 2 }}>
-              read_orders, read_all_orders, read_products, write_products,<br/>
-              read_inventory, write_inventory, read_locations,<br/>
-              read_fulfillments, read_customers
+
+            <div style={{ marginBottom: 6 }}><b>1)</b> في Shopify Dev Dashboard → CLARK Integration → <b>Configuration</b>:</div>
+            <div style={{ marginInlineStart: 16, marginBottom: 8 }}>
+              • أضف الـ scopes دي (لو لسه):
+              <div style={{ background: T.bg, padding: 10, borderRadius: 6, marginTop: 4, fontFamily: "monospace", fontSize: FS - 3 }}>
+                read_orders, read_all_orders, read_products, write_products,<br/>
+                read_inventory, write_inventory, read_locations,<br/>
+                read_fulfillments, read_customers
+              </div>
             </div>
-            <div style={{ marginBottom: 8 }}>4. اضغط <b>Install app</b> واختار CLARK Store</div>
-            <div style={{ marginBottom: 8 }}>5. روح <b>Settings tab</b> في الـ Dev Dashboard</div>
-            <div style={{ marginBottom: 8 }}>6. تحت <b>App automation token</b> اضغط <b>Create token</b></div>
-            <div style={{ marginBottom: 4 }}>7. ⚠️ التوكين هيظهر <b>مرة واحدة بس</b> — انسخه (هيبدأ بـ <code>atkn_</code>) والصقه هنا تحت.</div>
+
+            <div style={{ marginBottom: 6 }}><b>2)</b> أضف الـ redirect URL:</div>
+            <div style={{ marginInlineStart: 16, marginBottom: 8 }}>
+              <div style={{ background: T.bg, padding: 10, borderRadius: 6, fontFamily: "monospace", fontSize: FS - 3, color: T.accent, wordBreak: "break-all" }}>
+                {typeof window !== "undefined" ? window.location.origin : "https://your-vercel-url"}/api/shopify/oauth-callback
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                Configuration → Allowed redirection URLs → أضف الـ URL ده بالظبط
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 6 }}><b>3)</b> Release version جديدة بعد التعديلات (Versions → New version)</div>
+
+            <div style={{ marginBottom: 6 }}><b>4)</b> في Vercel → Settings → Environment Variables، أضف:</div>
+            <div style={{ marginInlineStart: 16, marginBottom: 8 }}>
+              <div style={{ background: T.bg, padding: 10, borderRadius: 6, fontFamily: "monospace", fontSize: FS - 3 }}>
+                SHOPIFY_CLIENT_ID = <span style={{ color: T.accent }}>(من Settings → Credentials)</span><br/>
+                SHOPIFY_CLIENT_SECRET = <span style={{ color: T.accent }}>(الـ shpss_… بعد Rotate)</span><br/>
+                DELIVERY_CONFIRM_SECRET = <span style={{ color: T.textMut }}>(لو لسه مضبوط، اعمل أي string عشوائي 32+ حرف)</span>
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                بعد ما تضيفهم، Vercel هـ يـ redeploy تلقائياً (دقيقة واحدة).
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 4 }}><b>5)</b> ادخل الـ Store URL تحت واضغط "اتصل بـ Shopify"</div>
+
             <div style={{
-              marginTop: 12,
+              marginTop: 14,
               padding: "10px 12px",
               borderRadius: 8,
               background: "#FEF3C7",
@@ -419,37 +515,93 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
               fontWeight: 600,
               lineHeight: 1.7,
             }}>
-              ⚠️ <b>تنبيه — خلي بالك من 3 توكينات مختلفة:</b><br/>
-              • <code>shpss_…</code> = Client <b>S</b>ecret (للـ OAuth) — <b>مش</b> هيشتغل هنا<br/>
-              • <code>atkn_…</code> = App automation <b>t</b>oken (Dev Dashboard) ✅ ده اللي محتاجه<br/>
-              • <code>shpat_…</code> = Admin API token (legacy custom apps — مش متاح للأبس الجديدة من 2026)
-            </div>
-            <div style={{
-              marginTop: 8,
-              padding: "10px 12px",
-              borderRadius: 8,
-              background: "#DBEAFE",
-              border: "1px solid #3B82F640",
-              color: "#1E40AF",
-              fontSize: FS - 2,
-              fontWeight: 600,
-              lineHeight: 1.7,
-            }}>
-              ℹ️ <b>ملاحظة:</b> الـ <code>atkn_</code> tokens بـ تـ expire (عادة كل 6 شهور). شوف تاريخ الـ Expires في Settings → App automation token وعمل Rotate قبل ما تنتهي.
+              ⚠️ <b>أمان:</b> الـ Client Secret اللي ظهر في الـ screenshots قبل كده <b>محتاج Rotate</b> فوراً (Dev Dashboard → Settings → Credentials → Rotate). استخدم القيمة الجديدة في Vercel.
             </div>
           </div>
         </Card>
       )}
 
-      {/* Credentials form */}
-      <Card title={connected ? "🔌 بيانات الاتصال (متصل)" : "🔌 بيانات الاتصال"}>
+      {/* OAuth Connect button — primary path */}
+      {!connected && (
+        <Card title="🚀 اتصل بـ Shopify (OAuth)">
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 200px", gap: 12, alignItems: "end" }}>
+            <div>
+              <label style={labelStyle}>Store URL</label>
+              <Inp
+                value={storeUrl}
+                onChange={setStoreUrl}
+                placeholder="clarkstore.myshopify.com"
+              />
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                بدون https:// — الـ <b>myshopify.com</b> subdomain فقط (مش الدومين الـ custom)
+              </div>
+            </div>
+            <LoadingBtn
+              primary
+              loading={busy}
+              loadingText="جاري التحويل..."
+              onClick={handleOAuthInit}
+              disabled={!canEdit}
+              style={{ minHeight: 44, fontWeight: 800 }}
+            >
+              🔗 اتصل بـ Shopify
+            </LoadingBtn>
+          </div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 10, lineHeight: 1.7 }}>
+            🔒 ضغطك على الزر هيـ redirect-ك لـ Shopify عشان توافق على الـ scopes. بعد الموافقة، هترجع هنا تلقائياً والـ token هـ يتحفظ server-side.
+          </div>
+
+          {/* Fallback: manual token entry — for legacy custom apps */}
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px dashed " + T.brd }}>
+            <div
+              onClick={() => setShowManual(s => !s)}
+              style={{ cursor: "pointer", fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <span>{showManual ? "▼" : "◀"}</span>
+              <span>عندك توكين shpat_ جاهز؟ (من legacy custom app)</span>
+            </div>
+            {showManual && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={labelStyle}>API Version</label>
+                    <Sel value={apiVersion} onChange={setApiVersion}>
+                      <option value="2024-10">2024-10 (الموصى به)</option>
+                      <option value="2024-07">2024-07</option>
+                      <option value="2024-04">2024-04</option>
+                      <option value="2024-01">2024-01</option>
+                    </Sel>
+                  </div>
+                </div>
+                <label style={labelStyle}>Admin API Access Token</label>
+                <Inp
+                  value={token}
+                  onChange={setToken}
+                  placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  type="password"
+                />
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4, marginBottom: 10 }}>
+                  ⚠️ بس للـ legacy custom apps. الأبس الجديدة في 2026+ لازم OAuth.
+                </div>
+                <LoadingBtn loading={busy} loadingText="جاري الاختبار..." onClick={handleTestOnly} disabled={!canEdit}>
+                  🔍 اختبار + حفظ يدوي
+                </LoadingBtn>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Credentials form — shown when connected */}
+      {connected && (
+      <Card title="🔌 بيانات الاتصال (متصل)">
         <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12 }}>
           <div>
             <label style={labelStyle}>Store URL</label>
             <Inp
               value={storeUrl}
               onChange={setStoreUrl}
-              placeholder="clarkfashion.myshopify.com"
+              placeholder="clarkstore.myshopify.com"
             />
             <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>بدون https:// — الـ subdomain فقط</div>
           </div>
@@ -464,42 +616,41 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
           </div>
         </div>
 
+        {cfg.connected_via === "oauth" && (
+          <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 8, background: T.ok + "12", border: "1px solid " + T.ok + "30", color: T.ok, fontSize: FS - 2, fontWeight: 600 }}>
+            ✅ متصل عبر OAuth — التوكين دائم (مفيش expiry)
+          </div>
+        )}
+
         <div style={{ marginTop: 12 }}>
           <label style={labelStyle}>
             Admin API Access Token
-            {connected && <span style={{ marginInlineStart: 8, fontSize: FS - 2, color: T.ok, fontWeight: 600 }}>(محفوظ — مش لازم تدخله تاني إلا لو هتغيّره)</span>}
+            <span style={{ marginInlineStart: 8, fontSize: FS - 2, color: T.ok, fontWeight: 600 }}>(محفوظ — مش لازم تدخله تاني إلا لو هتغيّره)</span>
           </label>
           <Inp
             value={token}
             onChange={setToken}
-            placeholder={connected ? "اسيبه فاضي للحفاظ على التوكين الحالي، أو ادخل توكين جديد للتحديث" : "shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+            placeholder="اسيبه فاضي للحفاظ على التوكين الحالي، أو ادخل توكين جديد للتحديث"
             type="password"
           />
           <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
-            ⚠️ التوكين بـ يتخزن server-side فقط ومش بيظهر في الـ UI تاني. لو نسيته، ولّد توكين جديد من Shopify Admin.
+            ⚠️ التوكين بـ يتخزن server-side فقط ومش بيظهر في الـ UI تاني. لو نسيته، أعد الاتصال عبر OAuth.
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          {!connected ? (
-            <>
-              <LoadingBtn primary loading={busy} loadingText="جاري الاختبار..." onClick={handleTestOnly} disabled={!canEdit}>
-                🔍 اختبار + حفظ الاتصال
-              </LoadingBtn>
-            </>
-          ) : (
-            <>
-              <LoadingBtn primary loading={busy} loadingText="جاري التحديث..." onClick={handleConnect} disabled={!canEdit || !token.trim()}>
-                💾 تحديث التوكين
-              </LoadingBtn>
-              <LoadingBtn loading={pingBusy} loadingText="جاري التحقق..." onClick={handleRefreshPing}>
-                🔄 اختبار الاتصال
-              </LoadingBtn>
-              <LoadingBtn danger loading={busy} loadingText="..." onClick={handleDisconnect} disabled={!canEdit}>
-                🔌 قطع الاتصال
-              </LoadingBtn>
-            </>
-          )}
+          <LoadingBtn primary loading={busy} loadingText="جاري التحديث..." onClick={handleConnect} disabled={!canEdit || !token.trim()}>
+            💾 تحديث التوكين يدوياً
+          </LoadingBtn>
+          <LoadingBtn loading={pingBusy} loadingText="جاري التحقق..." onClick={handleRefreshPing}>
+            🔄 اختبار الاتصال
+          </LoadingBtn>
+          <LoadingBtn loading={busy} loadingText="جاري التحويل..." onClick={handleOAuthInit} disabled={!canEdit}>
+            🔗 إعادة الاتصال عبر OAuth
+          </LoadingBtn>
+          <LoadingBtn danger loading={busy} loadingText="..." onClick={handleDisconnect} disabled={!canEdit}>
+            🔌 قطع الاتصال
+          </LoadingBtn>
         </div>
 
         {pingError && (
@@ -508,6 +659,7 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
           </div>
         )}
       </Card>
+      )}
 
       {/* Store summary */}
       {summary && connected && (
