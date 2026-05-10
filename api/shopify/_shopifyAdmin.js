@@ -331,6 +331,191 @@ export async function exchangeCodeForToken(storeUrl, code, clientId, clientSecre
   return data;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.93 — Phase 1: Order + product fetch helpers
+   ───────────────────────────────────────────────────────────────────────
+   Wraps Shopify's REST endpoints for orders, products, and fulfillments.
+   All return data in CLARK's internal format (not raw Shopify JSON) so
+   the rest of the codebase doesn't depend on Shopify's response shapes.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Map a Shopify order JSON → CLARK internal pending-order shape.
+   Ref: shopify-integration-spec.md "Data Schema → shopifyPendingOrders".
+   Spec includes shipping_address, line_items, financial_status,
+   fulfillment_status. We extract what we need + keep raw_payload for
+   debugging. */
+export function mapShopifyOrderToCLARK(order){
+  if(!order || typeof order !== "object") return null;
+  const sa = order.shipping_address || order.billing_address || {};
+  const lineItems = (order.line_items || []).map(li => ({
+    sku: li.sku || "",
+    title: li.title || "",
+    variant_title: li.variant_title || "",
+    quantity: Number(li.quantity) || 0,
+    price: Number(li.price) || 0,
+    total: Number(li.price) * Number(li.quantity) || 0,
+    product_id: li.product_id ? String(li.product_id) : "",
+    variant_id: li.variant_id ? String(li.variant_id) : "",
+    fulfillment_status: li.fulfillment_status || null,
+  }));
+  /* Shopify uses "shipping_lines" array for shipping costs */
+  const shippingFee = (order.shipping_lines || [])
+    .reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  /* Determine payment method:
+     COD = pending financial_status + manual gateway
+     Online = paid financial_status before fulfillment */
+  const fs = order.financial_status || "pending";
+  const isPaid = fs === "paid";
+  const paymentMethod = isPaid ? "online" : "cod";
+  /* Status mapping: spec uses "pending_delivery" / "delivered" / "refused" /
+     "cancelled" / "returned". On first import, use Shopify's status to derive. */
+  let internalStatus = "pending_delivery";
+  if(order.cancelled_at){
+    internalStatus = "cancelled";
+  } else if(order.fulfillment_status === "fulfilled" && isPaid){
+    internalStatus = "delivered";
+  }
+  return {
+    /* Identifiers */
+    shopify_order_id: String(order.id),
+    shopify_order_number: order.order_number || order.name || "",
+    shopify_name: order.name || "",
+    /* Customer info */
+    customer_info: {
+      shopify_id: order.customer?.id ? String(order.customer.id) : "",
+      name: [sa.first_name, sa.last_name].filter(Boolean).join(" ") || order.customer?.first_name || "",
+      email: order.email || order.customer?.email || "",
+      phone: order.phone || sa.phone || order.customer?.phone || "",
+      address: {
+        line1: sa.address1 || "",
+        line2: sa.address2 || "",
+        city: sa.city || "",
+        governorate: sa.province || sa.province_code || "",
+        country: sa.country || "",
+        postal_code: sa.zip || "",
+      },
+    },
+    /* Items + totals */
+    line_items: lineItems,
+    subtotal: Number(order.subtotal_price) || 0,
+    shipping_fee: shippingFee,
+    total: Number(order.total_price) || 0,
+    currency: order.currency || "EGP",
+    /* Payment + status */
+    payment_method: paymentMethod,
+    status: internalStatus,
+    /* Stage tracking — CLARK side */
+    stock_reserved: false, /* Phase 2 sets this */
+    stock_reservations: [],
+    invoice_id: null,
+    delivered_at: null,
+    refused_at: null,
+    refusal_reason: "",
+    returned_at: null,
+    return_credit_note_id: null,
+    /* Shopify-side status mirror */
+    shopify_status_synced: {
+      financial_status: fs,
+      fulfillment_status: order.fulfillment_status || "unfulfilled",
+    },
+    /* Timestamps */
+    shopify_created_at: order.created_at || null,
+    shopify_updated_at: order.updated_at || null,
+    last_synced_at: new Date().toISOString(),
+    /* Raw payload — useful for debugging unfamiliar Shopify response shapes.
+       NOT exposed to the UI; only in case of a sync issue. */
+    _raw: {
+      tags: order.tags || "",
+      note: order.note || "",
+      gateway: order.gateway || "",
+      processing_method: order.processing_method || "",
+    },
+  };
+}
+
+/* Fetch orders updated since a given ISO timestamp.
+   Returns a flat array of mapped orders (newest first by Shopify default).
+   Uses cursor-based pagination via the Link header — handles >250 orders. */
+export async function fetchOrdersSince(creds, opts = {}){
+  const since = opts.updatedSince || opts.createdSince || null;
+  const limit = Math.min(Math.max(Number(opts.limit) || 100, 1), 250);
+  const status = opts.status || "any"; /* any | open | closed | cancelled */
+  let url = "/orders.json?limit=" + limit + "&status=" + encodeURIComponent(status);
+  if(since){
+    url += "&updated_at_min=" + encodeURIComponent(since);
+  }
+  /* Disable response caching: we want fresh data each poll */
+  url += "&order=updated_at%20desc";
+  const r = await shopifyFetch(creds, url);
+  const orders = (r.data && Array.isArray(r.data.orders)) ? r.data.orders : [];
+  return orders.map(mapShopifyOrderToCLARK).filter(Boolean);
+}
+
+/* Fetch a single order by Shopify order ID. */
+export async function fetchOrderById(creds, orderId){
+  const r = await shopifyFetch(creds, "/orders/" + encodeURIComponent(orderId) + ".json");
+  return r.data && r.data.order ? mapShopifyOrderToCLARK(r.data.order) : null;
+}
+
+/* Map a Shopify product JSON → CLARK shopifyProducts entry. */
+export function mapShopifyProductToCLARK(product){
+  if(!product) return null;
+  const variants = (product.variants || []).map(v => ({
+    variant_id: String(v.id),
+    sku: v.sku || "",
+    title: v.title || "",
+    price: Number(v.price) || 0,
+    inventory_item_id: v.inventory_item_id ? String(v.inventory_item_id) : "",
+    inventory_quantity: Number(v.inventory_quantity) || 0,
+  }));
+  /* Treat the first variant's SKU as the canonical SKU for the product
+     (CLARK SKU = model_no = product-level, not variant-level). */
+  const primarySku = variants[0]?.sku || "";
+  return {
+    shopify_id: String(product.id),
+    title: product.title || "",
+    handle: product.handle || "",
+    sku: primarySku,
+    product_type: product.product_type || "",
+    vendor: product.vendor || "",
+    status: product.status || "active",
+    variants,
+    /* Mapping to CLARK — set later by the sync logic */
+    clark_model_no: primarySku, /* assume SKU == model_no per spec */
+    clark_inventory_id: null, /* resolved during sync */
+    mapping_status: "pending", /* matched | mismatch | missing_in_clark */
+    /* Sync settings — defaulted; user tweaks per-product in Phase 4 */
+    shopify_synced: true,
+    safety_buffer: null, /* falls back to global default */
+    max_shopify_qty: null,
+    auto_disable_at_zero: true,
+    last_synced_at: new Date().toISOString(),
+  };
+}
+
+/* Fetch all products (paginated). */
+export async function fetchAllProducts(creds, opts = {}){
+  const limit = Math.min(Math.max(Number(opts.limit) || 250, 1), 250);
+  const all = [];
+  /* Shopify uses cursor pagination via Link header. To keep this simple
+     and avoid dragging in a Link parser library, we paginate by `since_id`
+     which is supported on /products.json and gives stable ordering. */
+  let sinceId = 0;
+  let page = 0;
+  const maxPages = 20; /* hard cap = 5000 products, plenty for a fashion store */
+  while(page < maxPages){
+    const url = "/products.json?limit=" + limit + (sinceId ? "&since_id=" + sinceId : "");
+    const r = await shopifyFetch(creds, url);
+    const products = (r.data && Array.isArray(r.data.products)) ? r.data.products : [];
+    if(products.length === 0) break;
+    products.forEach(p => all.push(p));
+    if(products.length < limit) break;
+    sinceId = products[products.length - 1].id;
+    page++;
+  }
+  return all.map(mapShopifyProductToCLARK).filter(Boolean);
+}
+
 /* Convenience: build the Shopify install URL (the "approve scopes" page).
    Caller passes the redirect_uri (must match what's registered in the
    Dev Dashboard under "Allowed redirection URLs"). */

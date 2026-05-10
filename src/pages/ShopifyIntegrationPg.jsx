@@ -31,8 +31,12 @@ import { useState, useEffect, useMemo } from "react";
 import { Btn, Card, Inp, Sel, Spinner, LoadingBtn, MetricCard } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { ask, tell, showToast } from "../utils/popups.js";
-import { shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit } from "../utils/shopify/shopifyClient.js";
+import { ask, tell, askInput, showToast } from "../utils/popups.js";
+import {
+  shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
+  shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
+} from "../utils/shopify/shopifyClient.js";
+import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
   { key: "dashboard",      label: "📊 لوحة التحكم",   color: "#0EA5E9" },
@@ -161,7 +165,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "connection"     && <ConnectionTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "dashboard"      && <PlaceholderTab title="لوحة التحكم" phase="Phase 5" desc="إحصائيات اليوم/الشهر، إيرادات محققة، مخزون محجوز، تنبيهات SKU mismatch، أكثر المنتجات مبيعاً." shopifyConfig={shopifyConfig} />}
         {activeTab === "products"       && <PlaceholderTab title="المنتجات والمخزون" phase="Phase 4" desc="مزامنة المنتجات مع Shopify، إعدادات الـ safety buffer لكل منتج، معالجة SKU mismatches، Push المخزون." shopifyConfig={shopifyConfig} />}
-        {activeTab === "orders"         && <PlaceholderTab title="الطلبات" phase="Phase 1" desc="عرض كل الطلبات (Pending/Delivered/Refused)، Mark Delivered/Refused يدوياً، إنشاء الفاتورة، Process Return." shopifyConfig={shopifyConfig} />}
+        {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <PlaceholderTab title="فواتير Shopify" phase="Phase 3" desc="فواتير المبيعات الـ posted من طلبات Shopify (الـ delivered فقط). تقارير، طباعة، export Excel." shopifyConfig={shopifyConfig} />}
         {activeTab === "reconciliation" && <PlaceholderTab title="المطابقة اليومية" phase="Phase 5" desc="Stale pending orders >7 أيام، Daily reconciliation report، Cash matching مع MAIN_CASH، WhatsApp daily summary." shopifyConfig={shopifyConfig} />}
         {activeTab === "settings"       && <SettingsTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob} />}
@@ -928,6 +932,420 @@ function CheckLine({ label, checked, onChange, disabled }){
         {checked && <span style={{ color: "#fff", fontSize: 12, fontWeight: 900 }}>✓</span>}
       </div>
       <span style={{ fontSize: FS - 1, color: T.text, fontWeight: 600 }}>{label}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V19.93 Phase 1 — OrdersTab
+   ───────────────────────────────────────────────────────────────────────
+   Displays Shopify orders pulled from the Shopify Admin API. Reads from
+   the live `data.shopifyPendingOrders` array (synced by sync-orders-now
+   or the cron poll-orders endpoint).
+
+   Features:
+     • Filter by status (all / pending / delivered / refused / cancelled)
+     • Filter by date (today / this week / this month / all)
+     • Search by customer name or phone
+     • Manual sync button ("اسحب الطلبات الجديدة")
+     • Per-order action buttons:
+       - Mark Delivered / Mark Refused (Phase 1 — status only)
+       - Open in Shopify (external link)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const STATUS_META = {
+  pending_delivery: { label: "بانتظار الاستلام", emoji: "🟡", color: "#F59E0B", bg: "#FEF3C7" },
+  delivered:        { label: "تم الاستلام",      emoji: "🟢", color: "#10B981", bg: "#D1FAE5" },
+  refused:          { label: "تم الرفض",          emoji: "🔴", color: "#EF4444", bg: "#FEE2E2" },
+  cancelled:        { label: "ملغي",              emoji: "⚪", color: "#94A3B8", bg: "#F1F5F9" },
+  returned:         { label: "تم الإرجاع",        emoji: "↩️", color: "#8B5CF6", bg: "#EDE9FE" },
+};
+
+function OrdersTab({ data, upConfig, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const allOrders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data?.shopifyPendingOrders]);
+
+  /* Filters */
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("month"); /* today | week | month | all */
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [busyOrderId, setBusyOrderId] = useState(null);
+
+  const connected = !!cfg.connected;
+  const lastSyncAt = cfg.last_orders_sync_at;
+
+  /* Apply filters */
+  const filtered = useMemo(() => {
+    let result = allOrders;
+    /* Status */
+    if(statusFilter !== "all"){
+      result = result.filter(o => o.status === statusFilter);
+    }
+    /* Date */
+    const now = Date.now();
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const dayMs = 24 * 3600 * 1000;
+    if(dateFilter === "today"){
+      result = result.filter(o => new Date(o.shopify_created_at || 0).getTime() >= startOfToday.getTime());
+    } else if(dateFilter === "week"){
+      result = result.filter(o => now - new Date(o.shopify_created_at || 0).getTime() <= 7 * dayMs);
+    } else if(dateFilter === "month"){
+      result = result.filter(o => now - new Date(o.shopify_created_at || 0).getTime() <= 30 * dayMs);
+    }
+    /* Search */
+    const q = search.trim().toLowerCase();
+    if(q){
+      result = result.filter(o => {
+        const name = (o.customer_info?.name || "").toLowerCase();
+        const phone = (o.customer_info?.phone || "").toLowerCase();
+        const num = String(o.shopify_order_number || "").toLowerCase();
+        return name.includes(q) || phone.includes(q) || num.includes(q) || ("#" + num).includes(q);
+      });
+    }
+    return result;
+  }, [allOrders, statusFilter, dateFilter, search]);
+
+  /* Stats */
+  const stats = useMemo(() => {
+    const byStatus = { pending_delivery: 0, delivered: 0, refused: 0, cancelled: 0, returned: 0 };
+    let totalRevenue = 0;
+    let pendingValue = 0;
+    allOrders.forEach(o => {
+      byStatus[o.status] = (byStatus[o.status] || 0) + 1;
+      if(o.status === "delivered") totalRevenue += Number(o.total) || 0;
+      if(o.status === "pending_delivery") pendingValue += Number(o.total) || 0;
+    });
+    return { byStatus, totalRevenue, pendingValue };
+  }, [allOrders]);
+
+  const handleSync = async () => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(!connected){ showToast("⚠️ مش متصل بـ Shopify — روح تاب Connection"); return; }
+    setBusy(true);
+    try {
+      const r = await shopifySyncOrdersNow({}, user);
+      if(r && r.ok){
+        showToast(`✅ تم سحب ${r.count} طلب — جديد: ${r.new}، محدّث: ${r.updated}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل السحب"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل السحب"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleMarkDelivered = async (order) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const yes = await ask("✅ تأكيد الاستلام", `هل تأكد إن العميل ${order.customer_info?.name || "—"} استلم الطلب فعلاً؟\n\nالقيمة: ${fmt(order.total)} ${order.currency}\n\n⚠️ في Phase 3 ده هيـ generate فاتورة + قيد محاسبي تلقائياً. حالياً (Phase 1) بـ يحدّث الـ status فقط.`);
+    if(!yes) return;
+    setBusyOrderId(order.shopify_order_id);
+    try {
+      const r = await shopifyMarkDelivered({ orderId: order.shopify_order_id }, user);
+      if(r && r.ok){
+        showToast("✅ تم تحديث حالة الطلب");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل التحديث"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل التحديث"));
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
+  const handleMarkRefused = async (order) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const reason = await askInput("❌ سبب الرفض", {
+      message: "اكتب السبب (اختياري):",
+      placeholder: "العميل غيّر رأيه / مش موجود / إلخ",
+      confirmText: "تأكيد الرفض",
+    });
+    if(reason === null) return; /* cancelled */
+    setBusyOrderId(order.shopify_order_id);
+    try {
+      const r = await shopifyMarkRefused({ orderId: order.shopify_order_id, reason }, user);
+      if(r && r.ok){
+        showToast("🔴 تم تسجيل الرفض");
+      } else {
+        showToast("⛔ " + (r?.error || "فشل التحديث"));
+      }
+    } catch(e){
+      showToast("⛔ " + (e.message || "فشل التحديث"));
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
+  const openInShopify = (order) => {
+    const storeUrl = cfg.store_url;
+    if(!storeUrl) return;
+    /* Admin URLs use the canonical myshopify domain even when there's a custom domain */
+    window.open(`https://${storeUrl}/admin/orders/${order.shopify_order_id}`, "_blank");
+  };
+
+  if(!connected){
+    return (
+      <Card title="⚠️ مش متصل">
+        <div style={{ padding: 24, textAlign: "center", color: T.textSec }}>
+          روح تاب 🔌 الاتصال أولاً.
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Stats banner */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(allOrders.length)} icon="🛒" color="#0EA5E9" />
+        <MetricCard label="بانتظار" value={String(stats.byStatus.pending_delivery || 0)} icon="🟡" color="#F59E0B" sub={fmt(stats.pendingValue) + " ج"} />
+        <MetricCard label="تم الاستلام" value={String(stats.byStatus.delivered || 0)} icon="🟢" color="#10B981" sub={fmt(stats.totalRevenue) + " ج"} />
+        <MetricCard label="تم الرفض" value={String(stats.byStatus.refused || 0)} icon="🔴" color="#EF4444" />
+        <MetricCard label="ملغي/مرتجع" value={String((stats.byStatus.cancelled || 0) + (stats.byStatus.returned || 0))} icon="⚪" color="#94A3B8" />
+      </div>
+
+      {/* Toolbar */}
+      <Card title="🛒 الطلبات" extra={
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <LoadingBtn primary loading={busy} loadingText="جاري السحب..." onClick={handleSync} disabled={!canEdit} small>
+            🔄 اسحب الطلبات الجديدة
+          </LoadingBtn>
+        </div>
+      }>
+        {lastSyncAt && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 10 }}>
+            🕐 آخر مزامنة: {new Date(lastSyncAt).toLocaleString("ar-EG")} — في القائمة: {allOrders.length} طلب
+          </div>
+        )}
+
+        {/* Filters */}
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 2fr", gap: 8 }}>
+          <Sel value={statusFilter} onChange={setStatusFilter}>
+            <option value="all">كل الحالات</option>
+            <option value="pending_delivery">🟡 بانتظار الاستلام</option>
+            <option value="delivered">🟢 تم الاستلام</option>
+            <option value="refused">🔴 تم الرفض</option>
+            <option value="cancelled">⚪ ملغي</option>
+            <option value="returned">↩️ مرتجع</option>
+          </Sel>
+          <Sel value={dateFilter} onChange={setDateFilter}>
+            <option value="today">اليوم</option>
+            <option value="week">آخر 7 أيام</option>
+            <option value="month">آخر 30 يوم</option>
+            <option value="all">الكل</option>
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالاسم، التليفون، أو رقم الأوردر..." />
+        </div>
+
+        {/* Result count */}
+        <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 10, marginBottom: 4 }}>
+          عرض <b>{filtered.length}</b> طلب من <b>{allOrders.length}</b>
+        </div>
+      </Card>
+
+      {/* Orders list */}
+      {filtered.length === 0 ? (
+        <Card>
+          <div style={{ padding: 36, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.5 }}>📭</div>
+            <div style={{ fontSize: FS, fontWeight: 600 }}>مفيش طلبات تطابق الـ filters الحالية</div>
+            {allOrders.length === 0 && (
+              <div style={{ fontSize: FS - 1, marginTop: 8 }}>
+                اضغط <b>"اسحب الطلبات الجديدة"</b> لأول مرة لجلب البيانات من Shopify
+              </div>
+            )}
+          </div>
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(order => (
+            <OrderCard
+              key={order.shopify_order_id}
+              order={order}
+              isMob={isMob}
+              canEdit={canEdit}
+              busy={busyOrderId === order.shopify_order_id}
+              onMarkDelivered={() => handleMarkDelivered(order)}
+              onMarkRefused={() => handleMarkRefused(order)}
+              onOpenInShopify={() => openInShopify(order)}
+            />
+          ))}
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function OrderCard({ order, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onOpenInShopify }){
+  const meta = STATUS_META[order.status] || STATUS_META.pending_delivery;
+  const customer = order.customer_info || {};
+  const addr = customer.address || {};
+  const items = order.line_items || [];
+  const fulfillSync = order.shopify_status_synced || {};
+
+  const created = order.shopify_created_at ? new Date(order.shopify_created_at) : null;
+  const delivered = order.delivered_at ? new Date(order.delivered_at) : null;
+  const refused = order.refused_at ? new Date(order.refused_at) : null;
+
+  const minutesAgo = created ? Math.floor((Date.now() - created.getTime()) / 60000) : 0;
+  const ageLabel = minutesAgo < 60 ? `منذ ${minutesAgo} دقيقة`
+                 : minutesAgo < 1440 ? `منذ ${Math.floor(minutesAgo / 60)} ساعة`
+                 : `منذ ${Math.floor(minutesAgo / 1440)} يوم`;
+
+  return (
+    <div style={{
+      background: T.cardSolid,
+      borderRadius: 14,
+      border: "1px solid " + meta.color + "30",
+      borderLeft: "4px solid " + meta.color,
+      padding: isMob ? 12 : 16,
+      boxShadow: T.shadow,
+    }}>
+      {/* Header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 18 }}>{meta.emoji}</span>
+          <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>
+            #{order.shopify_order_number || order.shopify_order_id}
+          </span>
+          <span style={{
+            fontSize: FS - 2,
+            fontWeight: 700,
+            padding: "3px 10px",
+            borderRadius: 12,
+            background: meta.bg,
+            color: meta.color,
+          }}>{meta.label}</span>
+          {order.payment_method === "online" && (
+            <span style={{
+              fontSize: FS - 3,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 10,
+              background: "#DBEAFE",
+              color: "#1E40AF",
+            }}>💳 online</span>
+          )}
+          {order.payment_method === "cod" && (
+            <span style={{
+              fontSize: FS - 3,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 10,
+              background: "#FEF3C7",
+              color: "#92400E",
+            }}>💵 COD</span>
+          )}
+        </div>
+        <div style={{ fontSize: FS - 2, color: T.textMut }}>{ageLabel}</div>
+      </div>
+
+      {/* Customer */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={{ fontSize: FS - 1, lineHeight: 1.7 }}>
+          <div>👤 <b>{customer.name || "—"}</b></div>
+          {customer.phone && (
+            <div>
+              📞 <a href={"tel:" + customer.phone} style={{ color: T.accent, textDecoration: "none" }}>{customer.phone}</a>
+              {customer.phone && (
+                <a
+                  href={"https://wa.me/" + customer.phone.replace(/[^0-9]/g, "")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ marginInlineStart: 8, color: "#25D366", textDecoration: "none", fontSize: FS - 2 }}
+                >📱 WhatsApp</a>
+              )}
+            </div>
+          )}
+          {customer.email && <div style={{ fontSize: FS - 2, color: T.textSec }}>📧 {customer.email}</div>}
+        </div>
+        <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>
+          📍 {[addr.line1, addr.line2, addr.city, addr.governorate].filter(Boolean).join("، ") || "—"}
+        </div>
+      </div>
+
+      {/* Line items */}
+      <div style={{ background: T.bg, borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            paddingTop: i > 0 ? 6 : 0,
+            borderTop: i > 0 ? "1px dashed " + T.brd : "none",
+            paddingBottom: 6,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: FS - 1, fontWeight: 600, color: T.text }}>
+                {it.quantity}× {it.title}
+                {it.variant_title && it.variant_title !== "Default Title" && (
+                  <span style={{ color: T.textMut, fontWeight: 400 }}> — {it.variant_title}</span>
+                )}
+              </div>
+              {it.sku && <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>SKU: {it.sku}</div>}
+            </div>
+            <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>
+              {fmt(it.total)} ج
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Totals */}
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10, fontSize: FS - 1 }}>
+        <div>
+          <span style={{ color: T.textSec }}>Subtotal: </span><span style={{ fontWeight: 600 }}>{fmt(order.subtotal)} ج</span>
+          {order.shipping_fee > 0 && (
+            <>
+              <span style={{ color: T.textSec, marginInlineStart: 12 }}>شحن: </span>
+              <span style={{ fontWeight: 600 }}>{fmt(order.shipping_fee)} ج</span>
+            </>
+          )}
+        </div>
+        <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.accent }}>
+          {fmt(order.total)} {order.currency || "EGP"}
+        </div>
+      </div>
+
+      {/* Local CLARK status notes */}
+      <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10, lineHeight: 1.6 }}>
+        {order.status === "pending_delivery" && (
+          <div>📋 <b>لا فاتورة بعد</b> — Phase 1 (الفاتورة + Stock تـ commit في Phase 3)</div>
+        )}
+        {order.status === "delivered" && delivered && (
+          <div>✅ تم الاستلام: {delivered.toLocaleString("ar-EG")} {order.delivered_by && <span style={{ color: T.textMut }}>· بواسطة {order.delivered_by}</span>}</div>
+        )}
+        {order.status === "delivered" && order.invoice_id && (
+          <div>📄 الفاتورة: <b>{order.invoice_id}</b></div>
+        )}
+        {order.status === "refused" && refused && (
+          <div>🔴 تم الرفض: {refused.toLocaleString("ar-EG")} {order.refusal_reason && <span style={{ color: T.textMut }}>— "{order.refusal_reason}"</span>}</div>
+        )}
+        <div style={{ marginTop: 4 }}>
+          <span style={{ color: T.textMut }}>Shopify status:</span> financial=<b>{fulfillSync.financial_status || "—"}</b>, fulfillment=<b>{fulfillSync.fulfillment_status || "—"}</b>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {order.status === "pending_delivery" && (
+          <>
+            <LoadingBtn primary loading={busy} loadingText="..." onClick={onMarkDelivered} disabled={!canEdit} small>
+              ✅ تم الاستلام
+            </LoadingBtn>
+            <LoadingBtn danger loading={busy} loadingText="..." onClick={onMarkRefused} disabled={!canEdit} small>
+              ❌ تم الرفض
+            </LoadingBtn>
+          </>
+        )}
+        <Btn small onClick={onOpenInShopify}>↗ افتح في Shopify</Btn>
+      </div>
     </div>
   );
 }

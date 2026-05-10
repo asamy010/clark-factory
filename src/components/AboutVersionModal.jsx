@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.93.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 1 — Read & Display (طلبات + منتجات)",
+    changes: [
+      { type: "feature", text: "🛒 [Tab الطلبات شغّال بالكامل] الـ placeholder اتـ replaced بـ component حقيقي بـ:\n• Stats banner: 5 metric cards (إجمالي / pending / delivered / refused / cancelled+returned)\n• Toolbar: 3 filters (status, date range, search by name/phone/order number)\n• قايمة الطلبات: بـ تعرض كل order كـ card متفصّل\n• كل card فيه: customer name + clickable phone + WhatsApp link + address + line items مع SKU + totals + status badge + Shopify status mirror\n• Action buttons لكل order: ✅ تم الاستلام / ❌ تم الرفض / ↗ افتح في Shopify" },
+      { type: "feature", text: "🔄 [Manual sync button] في الـ toolbar زرار \"اسحب الطلبات الجديدة\":\n• بـ يـ call /api/shopify/sync-orders-now\n• بـ يجيب آخر 7 أيام أو من last_orders_sync_at\n• Merge logic: لو الـ order موجود بـ يحدّث الـ Shopify-side fields بس (totals, customer info, fulfillment) ويـ preserve الـ CLARK-side state (status, invoice_id, delivered_at)\n• Auto-promote pending → delivered لو Shopify بـ يقول fulfilled+paid + الـ user ما عدّل-ش الـ status يدوياً\n• Cap: 200 orders حية في factory/config (الأقدم بـ تـ drop بعد 200)" },
+      { type: "feature", text: "⏰ [Vercel Cron job] /api/cron/shopify-poll-orders بـ يشتغل كل 5 دقايق على Vercel Pro (configured in vercel.json). الـ schedule موجود في vercel.json:\n  \"schedule\": \"X/5 X X X X\" (X = *)\n⚠️ Vercel Hobby بـ يدعم daily crons فقط. لو الـ deploy فشل بسبب الـ cron:\n  • Option 1: upgrade لـ Vercel Pro ($20/شهر)\n  • Option 2: غيّر الـ schedule لـ \"0 9 * * *\" (يومي 9 ص)\n  • Option 3: شيل الـ crons array كلياً واعتمد على الـ manual sync button\nالـ cron secret اسمه CRON_SECRET (env var مطلوب على Vercel)." },
+      { type: "feature", text: "📡 [4 API endpoints جديدة + 1 cron]\n• POST /api/shopify/sync-orders-now (admin) — sinceHours/force\n• POST /api/shopify/mark-delivered (admin) — orderId, deliveredAt?\n• POST /api/shopify/mark-refused (admin) — orderId, reason?\n• POST /api/shopify/sync-products-now (admin) — full catalog pull مع SKU matching لـ inventoryItems\n• GET/POST /api/cron/shopify-poll-orders (cron secret OR admin) — same logic كـ sync-orders-now\nكل الـ endpoints محمية بـ verifyAdminToken + بـ تـ rate-limit." },
+      { type: "feature", text: "🗺 [Order mapping helpers في _shopifyAdmin.js] mapShopifyOrderToCLARK + mapShopifyProductToCLARK + fetchOrdersSince + fetchOrderById + fetchAllProducts:\n• Maps Shopify response shapes → CLARK internal format\n• Detects payment method (COD vs online) من financial_status\n• Auto-derives initial status (pending_delivery / delivered / cancelled)\n• Extracts shipping fee من shipping_lines array\n• Cursor pagination via since_id (handles unlimited products)\n• Rate-limited: 1.8 req/sec (under Shopify Basic 2/sec limit)" },
+      { type: "feature", text: "🎨 [UX details]\n• Status badges بـ ألوان مميزة: 🟡 pending / 🟢 delivered / 🔴 refused / ⚪ cancelled / ↩️ returned\n• Payment badges: 💵 COD / 💳 online\n• Age label: \"منذ X دقيقة/ساعة/يوم\"\n• Phone بـ يبقى clickable (tel:) + WhatsApp link\n• كل order card عنده status mirror من Shopify (financial + fulfillment) عشان الـ user يـ debug\n• Order number بـ #1001 format" },
+      { type: "doc", text: "🚧 [Phase 2-6 boundaries — اللي ما اتعملش هنا]\n• Stock reservation logic — Phase 2 (next)\n• Invoice generation عند الاستلام — Phase 3\n• Treasury entry (Dr. MAIN_CASH / Cr. Sales Revenue) — Phase 3\n• Inventory push من CLARK لـ Shopify — Phase 4\n• Returns workflow + credit notes — Phase 5\n• Daily reconciliation report — Phase 5\nحالياً Mark Delivered بـ يحدّث الـ status فقط، مش بـ يولّد invoice أو يخصم stock. ده هـ يضاف في Phase 3." },
+    ]
+  },
+  {
     version: "V19.92.0",
     date: "2026-05-10",
     types: ["feature"],

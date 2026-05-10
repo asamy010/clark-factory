@@ -86,3 +86,27 @@ export function shopifyDisconnect(user){
 export function shopifyOAuthInit({ storeUrl }, user){
   return call("POST", "/api/shopify/oauth-init", { storeUrl }, user);
 }
+
+/* V19.93 Phase 1: Manual orders sync.
+   { sinceHours?, force? } → { ok, count, new, updated, skipped, lastSyncAt } */
+export function shopifySyncOrdersNow(opts, user){
+  return call("POST", "/api/shopify/sync-orders-now", opts || {}, user);
+}
+
+/* V19.93 Phase 1: Mark a Shopify pending order as delivered.
+   { orderId, deliveredAt? } → { ok, order } */
+export function shopifyMarkDelivered({ orderId, deliveredAt }, user){
+  return call("POST", "/api/shopify/mark-delivered", { orderId, deliveredAt }, user);
+}
+
+/* V19.93 Phase 1: Mark a Shopify pending order as refused.
+   { orderId, reason? } → { ok, order } */
+export function shopifyMarkRefused({ orderId, reason }, user){
+  return call("POST", "/api/shopify/mark-refused", { orderId, reason }, user);
+}
+
+/* V19.93 Phase 1: Pull all Shopify products into factory/config.shopifyProducts.
+   {} → { ok, total, matched, missing, mismatch } */
+export function shopifySyncProductsNow(user){
+  return call("POST", "/api/shopify/sync-products-now", {}, user);
+}
