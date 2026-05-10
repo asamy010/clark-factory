@@ -219,3 +219,11 @@ export function bostaSyncHistorical(opts, user){
 export function fetchDiagnostics(user){
   return call("GET", "/api/diagnostics", null, user);
 }
+
+/* V21.9.1 Phase 11g: List archived orders from shopifyOrdersArchive
+   collection. Each order includes payment + shipment status.
+   { month?, limit?, status? }
+   → { ok, month, orders: [...], available_months: [...] } */
+export function shopifyListArchivedOrders(opts, user){
+  return call("POST", "/api/shopify/list-archived-orders", opts || {}, user);
+}

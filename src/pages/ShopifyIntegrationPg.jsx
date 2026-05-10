@@ -42,6 +42,8 @@ import {
   shopifyDiscountCodes, shopifyPushCustomerTags,
   /* V21.9 Phase 11: historical sync + diagnostics */
   shopifySyncHistoricalOrders, bostaSyncHistorical, fetchDiagnostics,
+  /* V21.9.1 Phase 11g: archived orders viewer */
+  shopifyListArchivedOrders,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -1373,7 +1375,17 @@ const STATUS_META = {
 
 function OrdersTab({ data, upConfig, canEdit, user, isMob }){
   const cfg = data?.shopifyConfig || {};
-  const allOrders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data?.shopifyPendingOrders]);
+  const liveOrders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data?.shopifyPendingOrders]);
+
+  /* V21.9.1 Phase 11g: archive viewer */
+  const [showArchive, setShowArchive] = useState(false);
+  const [archiveMonth, setArchiveMonth] = useState("");
+  const [archiveOrders, setArchiveOrders] = useState([]);
+  const [archiveMonths, setArchiveMonths] = useState([]); /* [{month, count}] */
+  const [archiveTotal, setArchiveTotal] = useState(0);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+
+  const allOrders = showArchive ? archiveOrders : liveOrders;
 
   /* Filters */
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1381,6 +1393,43 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState(null);
+
+  const loadArchive = async (monthOverride) => {
+    setArchiveBusy(true);
+    try {
+      const r = await shopifyListArchivedOrders({
+        month: monthOverride || archiveMonth || undefined,
+        limit: 1000,
+        status: "all",
+      }, user);
+      if(r?.ok){
+        setArchiveOrders(r.orders || []);
+        setArchiveMonths(r.available_months || []);
+        setArchiveTotal(r.total_in_archive || 0);
+        if(r.month) setArchiveMonth(r.month);
+        if(!r.orders || r.orders.length === 0){
+          if(r.available_months && r.available_months.length === 0){
+            showToast("ℹ️ مفيش أرشيف — اضغط 'سحب كامل' في الإعدادات الأول");
+          }
+        }
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setArchiveBusy(false); }
+  };
+
+  const toggleArchive = async () => {
+    if(showArchive){
+      setShowArchive(false);
+      return;
+    }
+    setShowArchive(true);
+    setDateFilter("all"); /* archive view: show all by default */
+    if(archiveOrders.length === 0){
+      await loadArchive();
+    }
+  };
 
   const connected = !!cfg.connected;
   const lastSyncAt = cfg.last_orders_sync_at;
@@ -1619,16 +1668,51 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
       )}
 
       {/* Toolbar */}
-      <Card title="🛒 الطلبات" extra={
+      <Card title={showArchive ? "📚 الأرشيف — طلبات قديمة" : "🛒 الطلبات"} extra={
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <LoadingBtn primary loading={busy} loadingText="جاري السحب..." onClick={handleSync} disabled={!canEdit} small>
-            🔄 اسحب الطلبات الجديدة
-          </LoadingBtn>
+          {!showArchive && (
+            <LoadingBtn primary loading={busy} loadingText="جاري السحب..." onClick={handleSync} disabled={!canEdit} small>
+              🔄 اسحب الطلبات الجديدة
+            </LoadingBtn>
+          )}
+          <Btn small onClick={toggleArchive} style={{
+            background: showArchive ? T.accent + "20" : T.bg,
+            color: showArchive ? T.accent : T.text,
+            fontWeight: 700,
+            border: "1px solid " + (showArchive ? T.accent : T.brd),
+          }}>
+            {showArchive ? "← رجوع للـ live" : "📚 اعرض الأرشيف"}
+          </Btn>
         </div>
       }>
-        {lastSyncAt && (
+        {!showArchive && lastSyncAt && (
           <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 10 }}>
-            🕐 آخر مزامنة: {new Date(lastSyncAt).toLocaleString("ar-EG")} — في القائمة: {allOrders.length} طلب
+            🕐 آخر مزامنة: {new Date(lastSyncAt).toLocaleString("ar-EG")} — في القائمة: {liveOrders.length} طلب live
+            {archiveTotal > 0 && (
+              <> · <b>{archiveTotal}</b> في الأرشيف</>
+            )}
+          </div>
+        )}
+        {showArchive && (
+          <div style={{ marginBottom: 10, padding: 10, background: T.accent + "10", borderRadius: 8, fontSize: FS - 2 }}>
+            ℹ️ بـ تـ browse الطلبات القديمة من <code>shopifyOrdersArchive</code>. الطلبات هنا read-only — كل الـ status تـ snapshot وقت السحب الأرشيفي. لو محتاج تعدل status، استخدم تاب الـ live بعد ما تـ migrate الطلب.
+          </div>
+        )}
+
+        {/* Archive month picker */}
+        {showArchive && (
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "2fr 1fr", gap: 8, marginBottom: 8 }}>
+            <Sel value={archiveMonth} onChange={v => { setArchiveMonth(v); loadArchive(v); }}>
+              <option value="">{archiveMonths.length === 0 ? "(مفيش أرشيف)" : "اختار شهر..."}</option>
+              {archiveMonths.map(m => (
+                <option key={m.month} value={m.month}>
+                  {m.month.replace("_", "/")} — {m.count} طلب
+                </option>
+              ))}
+            </Sel>
+            <LoadingBtn primary loading={archiveBusy} loadingText="..." onClick={() => loadArchive(archiveMonth)} small>
+              🔄 تحميل الشهر
+            </LoadingBtn>
           </div>
         )}
 
@@ -1654,6 +1738,9 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
         {/* Result count */}
         <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 10, marginBottom: 4 }}>
           عرض <b>{filtered.length}</b> طلب من <b>{allOrders.length}</b>
+          {showArchive && archiveTotal > 0 && (
+            <> · إجمالي الأرشيف: <b>{archiveTotal}</b></>
+          )}
         </div>
       </Card>
 
@@ -4405,9 +4492,42 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     try {
       const r = await shopifySyncCustomers(user);
       if(r?.ok){
-        showToast(`✅ ${r.total} عميل · ${r.with_delivered} اشتروا · 👑 ${r.vip} · 🌟 ${r.regular} · 🆕 ${r.new}`);
+        const archInfo = r.from_archive > 0 ? ` · 📚 ${r.from_archive} من الأرشيف` : "";
+        showToast(`✅ ${r.total} عميل · ${r.with_delivered} اشتروا · 👑 ${r.vip} · 🌟 ${r.regular} · 🆕 ${r.new}${archInfo}`);
       } else {
         showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  /* V21.9.1 Phase 11g: One-click full workflow — pull all old orders,
+     then re-aggregate customers (which now scans archive too). */
+  const handleFullSync = async () => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    const yes = await ask("📚 مزامنة شاملة",
+      "هذا الإجراء بـ يعمل التالي:\n\n" +
+      "1. سحب كل الطلبات القديمة من Shopify (آخر سنتين)\n" +
+      "2. تخزينهم في collection منفصل (split per شهر)\n" +
+      "3. إعادة تجميع العملاء من كل الطلبات (الجديدة + الأرشيف)\n\n" +
+      "المدة المتوقعة: 3-7 دقايق حسب عدد الطلبات.\n\nتأكيد؟");
+    if(!yes) return;
+    setBusy(true);
+    try {
+      showToast("📚 الخطوة 1/2: سحب الطلبات القديمة...");
+      const histRes = await shopifySyncHistoricalOrders({}, user);
+      if(!histRes?.ok){
+        showToast("⛔ فشل سحب الطلبات: " + (histRes?.error || ""));
+        return;
+      }
+      showToast(`✅ ${histRes.totalFetched} طلب · ${histRes.archiveDocsWritten} archive doc · جاري تجميع العملاء...`);
+
+      const custRes = await shopifySyncCustomers(user);
+      if(custRes?.ok){
+        const archInfo = custRes.from_archive > 0 ? ` · 📚 ${custRes.from_archive} من الأرشيف` : "";
+        showToast(`✅ مكتمل! ${custRes.total} عميل · ${custRes.with_delivered} اشتروا${archInfo}`);
+      } else {
+        showToast("⛔ فشل تجميع العملاء: " + (custRes?.error || ""));
       }
     } catch(e){ showToast("⛔ " + e.message); }
     finally { setBusy(false); }
@@ -4646,8 +4766,12 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       {/* Toolbar */}
       <Card title="👥 عملاء Shopify" extra={
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <LoadingBtn loading={busy} loadingText="..." onClick={handleFullSync} disabled={!canEdit} small
+            style={{ background: "linear-gradient(135deg,#8B5CF6,#7C3AED)", color: "#fff", fontWeight: 700, border: "none" }}>
+            📚 مزامنة شاملة (عملاء + كل التاريخ)
+          </LoadingBtn>
           <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSync} disabled={!canEdit} small>
-            🔄 تحديث القائمة
+            🔄 تحديث القائمة فقط
           </LoadingBtn>
         </div>
       }>

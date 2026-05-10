@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.1",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "📚 Phase 11g — Archive Viewer + Full Workflow",
+    changes: [
+      { type: "feature", text: "📚 [Archive Viewer في تاب الطلبات] زرار جديد '📚 اعرض الأرشيف' بـ يبدّل بين الـ live (آخر 200 طلب) والـ archive (كل التاريخ من shopifyOrdersArchive). dropdown لاختيار الشهر — كل شهر بـ يعرض عدد الطلبات. الـ shipment + payment status بـ يـ snapshot عند السحب الأرشيفي." },
+      { type: "feature", text: "👥 [العملاء بـ يـ pull من الأرشيف] الـ sync-customers الآن بـ يـ scan shopifyOrdersArchive collection بالإضافة لـ shopifyPendingOrders الـ live. الـ delivered_count + revenue + tier بـ يحتسبوا من كل الطلبات (الجديدة + التاريخية)." },
+      { type: "feature", text: "📚 [زرار 'مزامنة شاملة' في تاب العملاء] one-click workflow بـ يعمل التالي بالترتيب:\n1. POST /api/shopify/sync-historical-orders → سحب كل الطلبات القديمة + split في archive\n2. POST /api/shopify/sync-customers → re-aggregate customers من الـ live + الأرشيف\nالـ user يقدر يضغط مرة واحدة ويستقبل كل العملاء بـ delivered_count دقيق." },
+      { type: "feature", text: "📡 [POST /api/shopify/list-archived-orders] endpoint جديد:\n• يـ list الـ archived orders حسب الشهر\n• filter بـ status (delivered/refused/all)\n• يرجع available_months للـ dropdown\n• max 1000 طلب per response (لتـ prevent payload bloat)" },
+      { type: "improvement", text: "📊 [stats من الأرشيف في الـ toast] لما تضغط 'تحديث القائمة' (Customers) دلوقتي بـ يعرض كم عميل اتـ pull من الأرشيف بشكل منفصل: '📚 N من الأرشيف'." },
+      { type: "improvement", text: "🐛 [Customer aggregator dedup] لو نفس shopify_order_id موجود في الـ live و الـ archive، الـ live يفوز (له last_state mutations زي delivered_at/refused_at اللي مش متوفرة في snapshot الأرشيف)." },
+    ]
+  },
+  {
     version: "V21.9.0",
     date: "2026-05-10",
     types: ["fix", "feature"],

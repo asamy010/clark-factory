@@ -1,20 +1,29 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK — POST /api/shopify/sync-customers (V20.2 Phase 11)
+   CLARK — POST /api/shopify/sync-customers (V20.2 Phase 11
+                                              + V21.9.1 Phase 11g)
    ───────────────────────────────────────────────────────────────
    Aggregate customers from existing shopifyPendingOrders into a
    dedicated customers list (factory/config.shopifyCustomers).
+
+   V21.9.1 (Phase 11g): Now ALSO scans shopifyOrdersArchive collection
+   so customers from historical orders (after sync-historical-orders)
+   get included with full delivered_count, revenue, and tier data.
 
    Why aggregate instead of pulling from Shopify /customers.json?
    • The user only wants customers who actually purchased.
    • Phone-based dedup handles the same-customer-multiple-orders case.
    • Free — no extra Shopify API quota usage.
 
-   Body: {} (no params — full re-aggregation)
+   Body (optional): {
+     skipShopifyDirect?: boolean,    // skip Shopify Customer API fetch
+     skipArchive?: boolean,          // skip scanning shopifyOrdersArchive
+   }
    Auth: admin
 
    Returns: {
      ok, total, with_delivered, vip, at_risk,
-     created (new), updated (existing-merged)
+     created (new), updated (existing-merged),
+     from_orders, from_archive, from_shopify
    }
 
    Idempotent: preserves user-added fields (tags, notes, accepts_marketing,
@@ -26,6 +35,26 @@ import { aggregateCustomersFromOrders, mergeShopifyCustomers } from "./_customer
 import { getShopifyCreds, fetchAllShopifyCustomers } from "./_shopifyAdmin.js";
 
 const CUSTOMERS_CAP = 25000; /* enough for fashion B2C even with mailing-list opt-ins */
+const ARCHIVE_COLLECTION = "shopifyOrdersArchive";
+
+/* V21.9.1: Read all archived orders from shopifyOrdersArchive collection.
+   Each doc holds up to ~600 orders (split per yearmonth). We aggregate
+   everything into a single flat array. */
+async function readArchivedOrders(db){
+  try {
+    const snap = await db.collection(ARCHIVE_COLLECTION).get();
+    const all = [];
+    snap.forEach(d => {
+      const data = d.data() || {};
+      const arr = Array.isArray(data.orders) ? data.orders : [];
+      for(const o of arr) all.push(o);
+    });
+    return all;
+  } catch(e){
+    console.warn("[sync-customers] failed to read archive:", e.message);
+    return [];
+  }
+}
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -40,9 +69,11 @@ export default async function handler(req, res){
   }
 
   /* V20.3: optional body.skipShopifyDirect = true to skip the API call
-     (e.g. if user is offline or wants only order-aggregated). */
+     (e.g. if user is offline or wants only order-aggregated).
+     V21.9.1: optional body.skipArchive = true to skip historical archive scan. */
   const body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {});
   const skipShopifyDirect = body.skipShopifyDirect === true;
+  const skipArchive = body.skipArchive === true;
 
   try {
     /* Step 1: Try to pull from Shopify Customer API (best-effort, outside the tx) */
@@ -62,8 +93,15 @@ export default async function handler(req, res){
       }
     }
 
-    /* Step 2: Aggregate from orders + merge Shopify-direct (inside tx) */
+    /* V21.9.1 Step 1.5: Read archived orders (read-only, outside the tx).
+       Could be 1000s of orders → big payload. We dedup later by shopify_order_id. */
     const db = getDb();
+    let archivedOrders = [];
+    if(!skipArchive){
+      archivedOrders = await readArchivedOrders(db);
+    }
+
+    /* Step 2: Aggregate from orders + merge Shopify-direct (inside tx) */
     const cfgRef = db.collection("factory").doc("config");
     let stats = {
       total: 0, with_delivered: 0,
@@ -71,17 +109,33 @@ export default async function handler(req, res){
       created: 0, updated: 0,
       from_shopify: shopifyCustomers.length,
       from_orders: 0,
+      from_archive: archivedOrders.length,
     };
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
-      const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
+      const liveOrders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
       const existing = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers : [];
 
-      /* Order-aggregated (rich CLARK stats) */
-      const fromOrders = aggregateCustomersFromOrders(orders, existing);
+      /* V21.9.1: Combine live orders + archived orders, dedup by shopify_order_id.
+         Live orders win (they have most-recent CLARK status mutations like
+         delivered_at, refused_at, invoice_id that the archive doesn't have). */
+      const seenIds = new Set();
+      const combinedOrders = [];
+      for(const o of liveOrders){
+        const id = String(o.shopify_order_id || "");
+        if(id && !seenIds.has(id)){ seenIds.add(id); combinedOrders.push(o); }
+      }
+      for(const o of archivedOrders){
+        const id = String(o.shopify_order_id || "");
+        if(id && !seenIds.has(id)){ seenIds.add(id); combinedOrders.push(o); }
+      }
+
+      /* Order-aggregated (rich CLARK stats) — now uses combined dataset */
+      const fromOrders = aggregateCustomersFromOrders(combinedOrders, existing);
       stats.from_orders = fromOrders.length;
+      stats.combined_order_count = combinedOrders.length;
 
       /* Merge with Shopify direct */
       const merged = mergeShopifyCustomers(fromOrders, shopifyCustomers, existing);
@@ -108,6 +162,8 @@ export default async function handler(req, res){
           last_customers_sync_at: new Date().toISOString(),
           last_customers_sync_count: capped.length,
           last_customers_sync_shopify_count: shopifyCustomers.length,
+          last_customers_sync_archive_count: archivedOrders.length,
+          last_customers_sync_combined_orders: stats.combined_order_count || 0,
           last_customers_sync_shopify_error: shopifyFetchError || null,
         },
       }, { merge: true });
@@ -127,6 +183,8 @@ export default async function handler(req, res){
       updated: stats.updated,
       from_shopify: stats.from_shopify,
       from_orders: stats.from_orders,
+      from_archive: stats.from_archive,
+      combined_order_count: stats.combined_order_count || 0,
       shopify_fetch_error: shopifyFetchError,
     });
   } catch(e){
