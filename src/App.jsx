@@ -839,13 +839,30 @@ export default function App(){
         }
       );
 
-      /* ═══ Migration 2: fix incomplete transfers ═══ */
+      /* ═══ Migration 2: fix incomplete transfers ═══
+         V21.9.14: HARD GUARD — only run if the V19.52 split migration has
+         NOT been done. Post-V19.52, treasuryTransfers lives in
+         treasuryTransfersDays/{date} (per-day docs), so `data.treasuryTransfers`
+         comes from the merge in App.jsx and force-flipping every pending
+         transfer to "confirmed" would BLINDLY APPROVE all pending transfers
+         (corrupting the audit trail + creating duplicate treasury legs since
+         the original approve flow already logged them).
+         The original migration was a one-time repair for a pre-V19.52 era
+         when transfer records could be left without their treasury legs.
+         Today that's prevented by the approve flow's own idempotency. */
       runMigration("transfers-repair",d,
-        (data)=>!data._transfersRepaired&&Array.isArray(data.treasuryTransfers),
+        (data)=>!data._transfersRepaired
+              && !data._splitDaysV1952Done
+              && Array.isArray(data.treasuryTransfers)
+              && data.treasuryTransfers.length > 0,
         (data)=>{
           let repaired=false;
           (data.treasuryTransfers||[]).forEach(tf=>{
             if(tf.status==="cancelled")return;
+            /* V21.9.14: also skip pending transfers — they're awaiting admin
+               approval, not "incomplete". The original code would force them
+               to "confirmed" silently. */
+            if(tf.status==="pending")return;
             const entries=(data.treasury||[]).filter(t=>t.transferId===tf.id);
             const hasOut=entries.some(t=>t.type==="out");
             const hasIn=entries.some(t=>t.type==="in");
@@ -2963,6 +2980,40 @@ export default function App(){
           if(!eq(server.empId,pending.empId))return false;
           if(!eq(server.custId,pending.custId))return false;
           if(!eq(server.supplierId,pending.supplierId))return false;
+          /* V21.9.14 ROOT-CAUSE FIX (treasury duplicate + revert-after-approve):
+             Pre-V21.9.14, _stableMatch only compared treasury-row fields
+             (amount/type/category/account/desc/transferId/...). These fields are
+             ALL undefined on a treasuryTransfers record — so for a transfer
+             record, _stableMatch was effectively comparing only id+date+amount,
+             ALL of which stay the same when status flips pending→confirmed.
+
+             Result: after admin clicked تأكيد:
+             1. optimistic state had status="confirmed" + 2 new treasury legs
+             2. before treasuryTransfersDays write committed, the treasuryDays
+                listener fired (the legs landed in their day doc faster)
+             3. rebuild() ran and _stableMatch(serverPending, optimisticConfirmed)
+                returned true (status not checked)
+             4. pendingMap.delete(tfId) cleared the optimistic state PREMATURELY
+             5. UI reverted to "بانتظار الموافقة" (server's stale view)
+             6. user clicked تأكيد AGAIN — idempotency gate saw status="pending"
+                in the now-stale local copy, let it through, added 2 MORE legs
+             7. user saw the 3800 entry duplicated in the ledger
+
+             Fix: compare the fields that actually change between server states,
+             AND the fields specific to treasuryTransfers records (status,
+             from/to accounts, approval metadata, note). status is the
+             load-bearing one — once that's checked, the divergence is
+             detected and pendingMap correctly retains the optimistic state
+             until the real server write lands. */
+          if(!eq(server.status,pending.status))return false;
+          if(!eq(server.fromAccount,pending.fromAccount))return false;
+          if(!eq(server.toAccount,pending.toAccount))return false;
+          if(!eq(server.note,pending.note))return false;
+          if(!eq(server.approvedBy,pending.approvedBy))return false;
+          if(!eq(server.approvedByEmail,pending.approvedByEmail))return false;
+          if(!eq(server.approvedAt,pending.approvedAt))return false;
+          if(!eq(server.rejectedBy,pending.rejectedBy))return false;
+          if(!eq(server.rejectedAt,pending.rejectedAt))return false;
           return true;
         };
         for(const[id,info]of pendingMap){
@@ -3494,6 +3545,17 @@ export default function App(){
               "تعذر حفظ بعض البيانات في وضع التخزين اليومي",
               "خطأ في كتابة documents الـsplit (treasury/audit/hrLog) بعد 3 محاولات. البيانات الأساسية محفوظة في factory/config، لكن الـday docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
             );
+            /* V21.9.14: financial-data writes (treasury, treasuryTransfers,
+               salesInvoices, etc.) MUST surface visibly to the user. Pre-V21.9.14
+               only the soft notice fired — admins missed it among other notifs
+               and assumed the approve had landed. Result: user clicked تأكيد
+               again, producing duplicate ledger entries.
+               Now: when ANY split sync fails after 3 retries, fire a toast
+               that mentions which collection — the user knows to retry. */
+            try {
+              const _detail = (syncErr?.message||String(syncErr)||"").slice(0,80);
+              showToast("⛔ فشل حفظ البيانات على السيرفر — حاول مرة تانية ("+_detail+")");
+            } catch(_){}
           }
         }
         /* V16.75: sync partitioned docs */

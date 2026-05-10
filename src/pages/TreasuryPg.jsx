@@ -293,6 +293,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      auto-matches by name, and creates the missing payment records.
      Idempotent: safe to re-run. Skips if no changes are needed. */
   const partyRecoveryRef=useRef(false);
+  /* V21.9.14: in-flight guard for transfer approve/reject. Stores tfIds that
+     are currently being processed so a fast double-click (or a click before
+     the optimistic update has propagated through the listener loop) doesn't
+     fire approveTransfer twice and produce duplicate treasury legs.
+     Belt-and-suspenders alongside the _stableMatch fix in App.jsx. */
+  const inflightTransferRef=useRef(new Set());
   useEffect(()=>{
     if(partyRecoveryRef.current)return;
     if(!data.treasury||!Array.isArray(data.treasury))return;
@@ -1668,26 +1674,80 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         });
       }else{
         /* Admin: immediate double-entry */
-        d.treasury.unshift({id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()});
-        d.treasury.unshift({id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()});
+        const _outLeg={id:gid(),type:"out",amount:amt,desc:"تحويل إلى "+tfTo+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfFrom,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()};
+        const _inLeg={id:gid(),type:"in",amount:amt,desc:"تحويل من "+tfFrom+(tfNote?" — "+tfNote:""),notes:"",category:"تحويل داخلي",account:tfTo,season:d.activeSeason||"",date:d_,day:dayN,transferId:tfId,by:userName,createdAt:nowISO()};
+        d.treasury.unshift(_outLeg);
+        d.treasury.unshift(_inLeg);
+        /* V21.9.14: stash legs on the function for post-upConfig autoPost */
+        submitTransfer._lastLegs={out:_outLeg,in:_inLeg};
         if(toAcc?.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(amt)+" ج.م من "+tfFrom+(tfNote?" — "+tfNote:""),toEmail:toAcc.ownerEmail,transferId:tfId,read:false,by:userName,createdAt:nowISO()})}
       }
     });
+    /* V21.9.14: post the new legs to the journal (admin auto-confirm path).
+       Same defensive try/catch pattern as approveTransfer + saveTx. */
+    if(!isPending && submitTransfer._lastLegs){
+      const {out:_outLeg,in:_inLeg}=submitTransfer._lastLegs;
+      submitTransfer._lastLegs=null;
+      try{
+        const _r1=autoPost.treasury(data,_outLeg,userName);
+        if(_r1&&typeof _r1.then==="function") _r1.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (out leg) threw:",e?.message||e);}
+      try{
+        const _r2=autoPost.treasury(data,_inLeg,userName);
+        if(_r2&&typeof _r2.then==="function") _r2.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (in leg) threw:",e?.message||e);}
+    }
     setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");
     showToast(isPending?"⏳ تم إرسال الطلب — بانتظار موافقة المدير":"✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
 
-  /* V16.13: Admin approves a pending transfer → creates the double-entry */
-  const approveTransfer=(tfId)=>{if(!isAdmin)return;
+  /* V16.13: Admin approves a pending transfer → creates the double-entry.
+     V21.9.14: in-flight guard prevents the same approve from firing twice.
+     The previous version's idempotency gate (`if(tf.status!=="pending")return`)
+     was insufficient because:
+     • a stale optimistic state could let the second click see status="pending"
+     • the optimistic-state-cleanup bug in App.jsx (_stableMatch missing
+       status check) caused the UI to revert to "pending" so user re-clicked
+     The guard set ensures only one in-flight approval per tfId — the second
+     click is a no-op until the first completes (success or error). */
+  const approveTransfer=(tfId)=>{
+    if(!isAdmin)return;
+    if(inflightTransferRef.current.has(tfId)){
+      showToast("⏳ التأكيد جاري — استنى ثانية");
+      return;
+    }
+    inflightTransferRef.current.add(tfId);
+    let didMutate=false;
+    /* V21.9.14: capture the new legs so we can post them to the journal
+       AFTER upConfig commits. autoPost MUST run outside the upConfig fn
+       because (a) it's async, (b) it writes to a different collection
+       (accountingDays), (c) calling it inside the fn would re-fire on
+       every retry of the upConfig transaction. */
+    let _outLeg=null;
+    let _inLeg=null;
     upConfig(d=>{
       const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
       if(!tf||tf.status!=="pending")return;
+      didMutate=true;
       const dayN=dayName(tf.date);
       const toAcc=(d.treasuryAccounts||[]).find(a=>(typeof a==="string"?a:a.name)===tf.toAccount);
       tf.status="confirmed";
       tf.approvedBy=userName;tf.approvedByEmail=userEmail;tf.approvedAt=nowISO();
       if(!d.treasury)d.treasury=[];
-      d.treasury.unshift({id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()});
-      d.treasury.unshift({id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()});
+      /* V21.9.14: idempotency check at the LEDGER level — if for any reason
+         (network retry, stale local state) two legs with this transferId+type
+         already exist, don't add a third. Defense in depth on top of the
+         in-flight guard. */
+      const existingLegs=(d.treasury||[]).filter(t=>t.transferId===tf.id);
+      const hasOut=existingLegs.some(t=>t.type==="out");
+      const hasIn=existingLegs.some(t=>t.type==="in");
+      if(!hasOut){
+        _outLeg={id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
+        d.treasury.unshift(_outLeg);
+      }
+      if(!hasIn){
+        _inLeg={id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
+        d.treasury.unshift(_inLeg);
+      }
       /* Mark pending notif as read; notify requester of approval */
       (d.notifications||[]).forEach(n=>{if(n.transferId===tf.id&&n.type==="transfer_pending")n.read=true});
       /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden via endedAt */
@@ -1696,13 +1756,51 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
       if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
     });
-    showToast("✅ تم تأكيد التحويل")};
+    /* V21.9.14 (MEDIUM accounting fix): post the two transfer legs to the
+       journal so Trial Balance / Balance Sheet stay in sync. Pre-V21.9.14
+       approveTransfer wrote treasury rows but did NOT call autoPost — the
+       cash account on the journal side stayed stale relative to actual
+       ledger. saveTx (line ~1056) and editTx do call autoPost; the
+       transfer flow was missed.
+       Same defensive try/catch pattern as saveTx — a failed autoPost must
+       NOT leak into the user-visible flow. */
+    if(_outLeg){
+      try{
+        const _r1=autoPost.treasury(data,_outLeg,userName);
+        if(_r1&&typeof _r1.then==="function") _r1.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (out leg) threw:",e?.message||e);}
+    }
+    if(_inLeg){
+      try{
+        const _r2=autoPost.treasury(data,_inLeg,userName);
+        if(_r2&&typeof _r2.then==="function") _r2.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (in leg) threw:",e?.message||e);}
+    }
+    /* Release the guard after a generous delay so the listener round-trip
+       has time to commit before another click is allowed. 2s is enough for
+       Firestore commit + listener fire on typical connections. */
+    setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
+    if(didMutate){
+      showToast("✅ تم تأكيد التحويل");
+    }else{
+      showToast("ℹ️ التحويل ده اتأكد من قبل — تحديث الشاشة");
+    }
+  };
 
-  /* V16.13: Admin rejects a pending transfer → deletes the request */
-  const rejectTransfer=(tfId)=>{if(!isAdmin)return;
+  /* V16.13: Admin rejects a pending transfer → deletes the request.
+     V21.9.14: same in-flight guard pattern as approve. */
+  const rejectTransfer=(tfId)=>{
+    if(!isAdmin)return;
+    if(inflightTransferRef.current.has(tfId)){
+      showToast("⏳ الرفض جاري — استنى ثانية");
+      return;
+    }
+    inflightTransferRef.current.add(tfId);
+    let didMutate=false;
     upConfig(d=>{
       const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
       if(!tf||tf.status!=="pending")return;
+      didMutate=true;
       d.treasuryTransfers=(d.treasuryTransfers||[]).filter(t=>t.id!==tfId);
       (d.notifications||[]).forEach(n=>{if(n.transferId===tfId&&n.type==="transfer_pending")n.read=true});
       /* V18.91: End the greeting-bar chip — `forAdminsOnly` notif is hidden */
@@ -1710,7 +1808,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!d.notifications)d.notifications=[];
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_rejected",msg:"❌ تم رفض طلب التحويل: "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tfId,read:false,by:userName,createdAt:nowISO()})}
     });
-    showToast("✓ تم رفض الطلب")};
+    setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
+    if(didMutate){
+      showToast("✓ تم رفض الطلب");
+    }
+  };
   /* V16.26: Edit a confirmed transfer — updates the transfer record AND
      both treasury legs (out from source, in to target) atomically.
      The desc strings are regenerated from current accounts so they stay
