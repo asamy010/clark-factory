@@ -43,7 +43,7 @@ import {
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
-import { bostaConfigure, bostaTrack } from "../utils/bosta/bostaClient.js";
+import { bostaConfigure, bostaTrack, bostaCreateShipment } from "../utils/bosta/bostaClient.js";
 import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
 import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/customerTiers.js";
 import { fmt } from "../utils/format.js";
@@ -1089,6 +1089,42 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
     }
   };
 
+  /* V21.3 Phase 10d: create Bosta shipment for an order */
+  const handleCreateBostaShipment = async (order) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(order.bosta?.tracking_number){
+      showToast("⚠️ الطلب عنده tracking بالفعل");
+      return;
+    }
+    if(!order.customer_info?.phone){
+      showToast("⚠️ العميل مالوش تليفون");
+      return;
+    }
+    const cfg = data?.shopifyConfig || {};
+    if(!cfg.bosta_api_key){
+      await tell("⚠️ Bosta API key مش معدّ", "روح Settings tab → Bosta section واضبط الـ API key أولاً.");
+      return;
+    }
+    const yes = await ask("📦 إنشاء شحنة Bosta",
+      `هتعمل شحنة Bosta للطلب #${order.shopify_order_number}\n\n` +
+      `العميل: ${order.customer_info?.name || "—"}\n` +
+      `التليفون: ${order.customer_info?.phone}\n` +
+      `العنوان: ${order.customer_info?.address?.line1 || "—"}\n` +
+      `COD: ${fmt(order.total)} ج\n\n` +
+      `بعد الإنشاء، الـ tracking number هـ يـ link تلقائياً والـ webhook هـ يستلم updates.\n\nتأكيد؟`);
+    if(!yes) return;
+    setBusyOrderId(order.shopify_order_id);
+    try {
+      const r = await bostaCreateShipment({ orderId: order.shopify_order_id }, user);
+      if(r?.ok){
+        await tell("✅ تم إنشاء الشحنة", `Tracking: ${r.tracking_number}\n\nالـ Bosta هـ يبعت webhook updates للحالات.`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyOrderId(null); }
+  };
+
   const handleProcessReturn = async (order) => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     const yes = await ask("↩️ معالجة إرجاع",
@@ -1267,6 +1303,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
               onMarkDelivered={() => handleMarkDelivered(order)}
               onMarkRefused={() => handleMarkRefused(order)}
               onProcessReturn={() => handleProcessReturn(order)}
+              onCreateBostaShipment={() => handleCreateBostaShipment(order)}
               onOpenInShopify={() => openInShopify(order)}
             />
           ))}
@@ -1277,7 +1314,7 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
   );
 }
 
-function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onProcessReturn, onOpenInShopify }){
+function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered, onMarkRefused, onProcessReturn, onCreateBostaShipment, onOpenInShopify }){
   const meta = STATUS_META[order.status] || STATUS_META.pending_delivery;
   const customer = order.customer_info || {};
   const addr = customer.address || {};
@@ -1451,6 +1488,17 @@ function OrderCard({ order, reservations, isMob, canEdit, busy, onMarkDelivered,
           <LoadingBtn loading={busy} loadingText="..." onClick={onProcessReturn} disabled={!canEdit} small>
             ↩️ معالجة إرجاع
           </LoadingBtn>
+        )}
+        {/* V21.3 Phase 10d: Bosta shipment button — only show if no tracking yet */}
+        {order.status === "pending_delivery" && !order.bosta?.tracking_number && (
+          <LoadingBtn loading={busy} loadingText="..." onClick={onCreateBostaShipment} disabled={!canEdit} small style={{ background: "#0D948815", color: "#0D9488", border: "1px solid #0D948830" }}>
+            📦 إنشاء شحنة Bosta
+          </LoadingBtn>
+        )}
+        {order.bosta?.tracking_number && (
+          <span style={{ fontSize: FS - 2, padding: "4px 8px", borderRadius: 6, background: "#0D948815", color: "#0D9488", fontWeight: 700 }}>
+            🚚 {order.bosta.tracking_number}
+          </span>
         )}
         <Btn small onClick={onOpenInShopify}>↗ افتح في Shopify</Btn>
       </div>

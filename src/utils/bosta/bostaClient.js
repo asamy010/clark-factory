@@ -52,3 +52,10 @@ export function bostaConfigure(opts, user){
 export function bostaTrack(opts, user){
   return call("POST", "/api/bosta/track", opts, user);
 }
+
+/* V21.3 Phase 10d: Auto-create a Bosta shipment for a Shopify order.
+   { orderId, packageType?, size?, notes? }
+   → { ok, tracking_number, delivery_id } */
+export function bostaCreateShipment(opts, user){
+  return call("POST", "/api/bosta/create-shipment", opts, user);
+}

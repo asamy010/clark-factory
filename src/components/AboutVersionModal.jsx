@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.3.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "📦 Phase 10d — Auto-Create Bosta Shipment",
+    changes: [
+      { type: "feature", text: "📦 [إنشاء شحنة Bosta من CLARK] لما الـ user يستلم طلب جديد من Shopify، يقدر يضغط زرار '📦 إنشاء شحنة Bosta' على الـ order card، CLARK بـ يعمل:\n• POST /api/v0/deliveries لـ Bosta\n• payload محسوب من order: receiver name + phone + email + address، COD = order.total، businessReference = shopify_order_id\n• يحفظ الـ tracking number returned على الـ order.bosta\n• الـ webhook flow الموجود بـ يستلم updates تلقائياً" },
+      { type: "feature", text: "📡 [POST /api/bosta/create-shipment]\n• Idempotent: لو الـ order عنده tracking بالفعل، يرفض (يقترح refresh)\n• Required: order.customer_info.phone\n• Optional body: packageType (default Parcel)، size (default Small)، notes\n• Initial state code = 10 (New) في state_history مع source=auto_create\n• stamp created_via=clark_auto + created_by=admin email" },
+      { type: "feature", text: "🎨 [UI: زرار في الـ Orders tab] على كل order pending بدون tracking:\n• 'إنشاء شحنة Bosta' بـ confirmation dialog شامل (اسم العميل، تليفون، عنوان، COD)\n• بعد الإنشاء: tell() popup بـ tracking number\n• الـ orders اللي عندها tracking بـ يظهر بدلاً من الزرار: '🚚 <tracking>' بادج" },
+      { type: "feature", text: "🔗 [Integration كامل]\n• الـ businessReference بـ يبقى shopify_order_id → الـ webhook بـ يطابق فوراً\n• الـ COD بـ يـ encode من order.payment_method (cod=order.total، online=0)\n• لو فعّلت auto-mark-delivered في Bosta settings، الطلب بـ يـ flow كامل: Bosta delivers → webhook → CLARK marks delivered → invoice generated" },
+    ]
+  },
+  {
     version: "V21.2.0",
     date: "2026-05-10",
     types: ["feature"],
