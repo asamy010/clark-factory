@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.8.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "📦 Phase 10i — Multiple Shipping Providers (FINAL!)",
+    changes: [
+      { type: "feature", text: "🎉 [الـ 9 phases خلصوا في يوم واحد!] Phase 10 (Push) → 10b (Carts) → 10c (Coupons) → 10d (Auto-Bosta) → 10e (Segments) → 10f (Reviews) → 10g (Tags) → 10h (AWB) → 10i (Multi-provider). إجمالي 9 commits + 9 versions في الـ V21 series." },
+      { type: "feature", text: "📦 [Provider Registry] Plugin-style architecture للـ shipping companies:\n• 4 providers في الـ registry: Bosta (active), Aramex (placeholder), Mylerz (placeholder), Manual (no API)\n• كل provider له capabilities: { create, track, awb, webhook }\n• الـ user يختار default provider — هـ يـ default لكل الـ shipments الجديدة\n• الـ creds مخزّنة لكل provider بـ namespaced keys (bosta_api_key, aramex_password, mylerz_api_key)" },
+      { type: "feature", text: "📡 [POST /api/shipping/configure]\n• يحفظ creds + default_provider\n• Sanitized response (مش بـ يرجّع الـ secrets)\n• Status flags: bosta_configured, aramex_configured, mylerz_configured" },
+      { type: "feature", text: "🎨 [ShippingProvidersCard في Settings tab — قبل Bosta]\n• 4 cards للـ providers (icon + label + region + status)\n• الـ default محدد بـ border ملوّن + ✓ افتراضي\n• Status لكل واحد: ● معدّ / ○ غير معدّ / قريباً (للـ inactive)\n• Forms للـ Aramex (3 fields) + Mylerz (2 fields) — تحفظ الـ creds للـ implement مستقبلاً" },
+      { type: "doc", text: "🚀 [التوسعة لاحقاً] الـ pattern:\n1. Create api/<provider>/{create-shipment, track, print-awb}.js مماثلين لـ Bosta\n2. Update _providers.js: مارك provider كـ active\n3. الـ UI تلقائياً هـ يـ enable الـ buttons والـ flows\nالـ webhook المالا الـ provider — خل state code mapping يدوي. الـ buckets الموحدة (pending, in_transit, delivered, إلخ) بـ تخلي الـ UI consistent عبر الـ providers." },
+      { type: "doc", text: "✅ [الـ Shopify Integration كامل دلوقتي]\n• 12 Shopify phase + 5 Bosta phases + Customer + Discount + Reviews\n• ~4000+ lines في ShopifyIntegrationPg.jsx\n• 30+ API endpoints\n• 5 cron jobs\n• 2 modal components\n• 8 sub-tabs functional" },
+    ]
+  },
+  {
     version: "V21.7.0",
     date: "2026-05-10",
     types: ["feature"],

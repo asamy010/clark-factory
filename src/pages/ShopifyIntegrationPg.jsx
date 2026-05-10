@@ -47,6 +47,7 @@ import { bostaConfigure, bostaTrack, bostaCreateShipment, bostaPrintAwb } from "
 import { BOSTA_BUCKETS, getBucketMeta } from "../utils/bosta/states.js";
 import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/customerTiers.js";
 import { judgemeSyncReviews, getProductRating } from "../utils/judgeme/judgemeClient.js";
+import { shippingConfigure, SHIPPING_PROVIDERS } from "../utils/shipping/shippingClient.js";
 import { fmt } from "../utils/format.js";
 
 const SUB_TABS = [
@@ -907,6 +908,9 @@ function SettingsTab({ data, upConfig, canEdit, user, isMob }){
           disabled={!canEdit}
         />
       </Card>
+
+      {/* V21.8 Phase 10i: Multi-provider shipping settings */}
+      <ShippingProvidersCard data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />
 
       {/* V20.1 Phase 9: Bosta integration settings */}
       <BostaSettingsCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
@@ -5087,6 +5091,155 @@ function JudgemeSettingsCard({ data, upConfig, canEdit, user, isMob }){
           آخر sync: {new Date(cfg.last_judgeme_sync_at).toLocaleString("ar-EG")} ({cfg.last_judgeme_sync_count || 0} review)
         </div>
       )}
+    </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.8 Phase 10i — ShippingProvidersCard (multi-provider settings)
+   ═══════════════════════════════════════════════════════════════════════ */
+function ShippingProvidersCard({ data, upConfig, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const defaultProvider = cfg.default_shipping_provider || "bosta";
+  const [busy, setBusy] = useState(false);
+
+  /* Form state for each provider's secrets */
+  const [aramexUser, setAramexUser] = useState("");
+  const [aramexPass, setAramexPass] = useState("");
+  const [aramexAcc, setAramexAcc] = useState("");
+  const [mylerzKey, setMylerzKey] = useState("");
+  const [mylerzUser, setMylerzUser] = useState("");
+
+  const handleSetDefault = async (key) => {
+    if(!canEdit) return;
+    setBusy(true);
+    try {
+      const r = await shippingConfigure({ default_provider: key }, user);
+      if(r?.ok){ showToast("✅ الـ default = " + key); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleSaveAramex = async () => {
+    if(!canEdit) return;
+    setBusy(true);
+    try {
+      const r = await shippingConfigure({
+        aramex: {
+          username: aramexUser,
+          password: aramexPass,
+          account_number: aramexAcc,
+        },
+      }, user);
+      if(r?.ok){ showToast("✅ تم الحفظ (Aramex لسه ما اتـ implement-ـش)"); setAramexPass(""); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleSaveMylerz = async () => {
+    if(!canEdit) return;
+    setBusy(true);
+    try {
+      const r = await shippingConfigure({
+        mylerz: { api_key: mylerzKey, username: mylerzUser },
+      }, user);
+      if(r?.ok){ showToast("✅ تم الحفظ (Mylerz لسه ما اتـ implement-ـش)"); setMylerzKey(""); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  /* Status checks */
+  const bostaConfigured = !!cfg.bosta_api_key;
+  const aramexConfigured = !!(cfg.aramex_username && cfg.aramex_account_number);
+  const mylerzConfigured = !!cfg.mylerz_api_key;
+
+  const labelStyle = { display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 };
+
+  return (
+    <Card title="📦 شركات الشحن (Multi-provider)">
+      <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.7, marginBottom: 12 }}>
+        ℹ️ <b>Bosta</b> هو الـ provider الأساسي (متكامل بالكامل). ممكن تختار default provider لكل الـ shipments الجديدة. الـ Aramex / Mylerz scaffolded — أضف API keys دلوقتي وهـ تـ implement لاحقاً.
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={labelStyle}>الـ Provider الافتراضي</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {SHIPPING_PROVIDERS.map(p => {
+            const isSelected = defaultProvider === p.key;
+            const isConfigured = p.key === "bosta" ? bostaConfigured
+              : p.key === "aramex" ? aramexConfigured
+              : p.key === "mylerz" ? mylerzConfigured
+              : true; /* manual always available */
+            return (
+              <div
+                key={p.key}
+                onClick={() => p.active && canEdit && !busy && handleSetDefault(p.key)}
+                style={{
+                  flex: isMob ? "1 1 calc(50% - 4px)" : "1 1 calc(25% - 6px)",
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "2px solid " + (isSelected ? p.color : T.brd),
+                  background: isSelected ? p.color + "10" : T.cardSolid,
+                  cursor: p.active && canEdit ? "pointer" : "not-allowed",
+                  opacity: p.active ? 1 : 0.6,
+                  textAlign: "center",
+                }}
+                title={p.active ? "" : "غير متاح حالياً"}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>{p.icon}</div>
+                <div style={{ fontWeight: 800, color: isSelected ? p.color : T.text }}>{p.label}</div>
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>{p.region}</div>
+                {isSelected && <div style={{ fontSize: FS - 4, color: p.color, fontWeight: 700, marginTop: 4 }}>✓ افتراضي</div>}
+                {!p.active && <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2 }}>قريباً</div>}
+                {p.active && p.key !== "manual" && (
+                  <div style={{ fontSize: FS - 4, color: isConfigured ? T.ok : T.textMut, fontWeight: 600, marginTop: 2 }}>
+                    {isConfigured ? "● معدّ" : "○ غير معدّ"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Aramex (scaffolded) */}
+      <div style={{ padding: 12, background: T.bg, borderRadius: 8, marginBottom: 10, opacity: 0.7 }}>
+        <div style={{ fontWeight: 800, color: "#F37021", marginBottom: 8 }}>🟠 Aramex (placeholder)</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <Inp value={aramexUser} onChange={setAramexUser} placeholder={cfg.aramex_username ? "محفوظ" : "Username"} />
+          <Inp value={aramexPass} onChange={setAramexPass} placeholder={"Password"} type="password" />
+          <Inp value={aramexAcc} onChange={setAramexAcc} placeholder={cfg.aramex_account_number ? "محفوظ" : "Account #"} />
+        </div>
+        <Btn small onClick={handleSaveAramex} disabled={!canEdit || busy}>💾 حفظ Aramex creds</Btn>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+          ⚠️ الـ creds هـ تتـ store، لكن الـ create/track endpoints لسه ما اتـ implement-ـش لـ Aramex.
+        </div>
+      </div>
+
+      {/* Mylerz (scaffolded) */}
+      <div style={{ padding: 12, background: T.bg, borderRadius: 8, opacity: 0.7 }}>
+        <div style={{ fontWeight: 800, color: "#1E40AF", marginBottom: 8 }}>📦 Mylerz (placeholder)</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <Inp value={mylerzKey} onChange={setMylerzKey} placeholder={cfg.mylerz_api_key ? "محفوظ" : "API Key"} type="password" />
+          <Inp value={mylerzUser} onChange={setMylerzUser} placeholder={cfg.mylerz_username ? "محفوظ" : "Username"} />
+        </div>
+        <Btn small onClick={handleSaveMylerz} disabled={!canEdit || busy}>💾 حفظ Mylerz creds</Btn>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+          ⚠️ نفس Aramex — placeholder للتوسعة المستقبلية.
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14, padding: "10px 12px", background: "#0EA5E910", border: "1px solid #0EA5E925", borderRadius: 8, fontSize: FS - 2, color: T.text }}>
+        💡 <b>للتنفيذ مستقبلاً (Aramex/Mylerz):</b><br/>
+        نفس الـ pattern بتاع Bosta:<br/>
+        • Endpoints: api/aramex/create-shipment، api/aramex/track، api/aramex/print-awb<br/>
+        • Helpers: _aramexAdmin.js، _aramexConstants.js<br/>
+        • UI: نفس الـ ShippingTab بـ filter بالـ provider<br/>
+        كل provider له state codes خاصة بيه — هـ نـ map-هم لنفس الـ buckets الموحدة.
+      </div>
     </Card>
   );
 }
