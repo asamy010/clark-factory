@@ -13,6 +13,10 @@ export function getAdminApp() {
   if (_app) return _app;
   if (admin.apps.length > 0) {
     _app = admin.apps[0];
+    /* V21.9.13: also apply settings on existing apps if first time we're using them */
+    try {
+      _app.firestore().settings({ ignoreUndefinedProperties: true });
+    } catch (_) { /* already configured — ignore */ }
     return _app;
   }
   const raw = process.env.FIREBASE_ADMIN_CREDENTIALS;
@@ -26,6 +30,22 @@ export function getAdminApp() {
   _app = admin.initializeApp({
     credential: admin.credential.cert(creds),
   });
+  /* V21.9.13 ROOT-CAUSE FIX:
+     Pre-V21.9.13 the historical sync (and other server endpoints) crashed with
+       Cannot use "undefined" as a Firestore value (found in field "shopifyPendingOrders.0.bosta")
+     when a merged order had no bosta tracking (legitimate state — bosta is
+     attached lazily). Code like `merged.bosta = prev.bosta || o.bosta;`
+     produces undefined when both sides are undefined, and Firestore's strict
+     mode rejects the whole write.
+     Setting ignoreUndefinedProperties:true makes the Admin SDK silently strip
+     fields whose value is undefined before sending them to Firestore — same
+     behavior as the JSON spec. This is defense in depth: bug-prone object
+     spreads and merges no longer blow up the entire transaction. We DON'T
+     use this to mask data validation issues — we still validate user input
+     at endpoint boundaries; this only handles internal undefined leaks. */
+  try {
+    _app.firestore().settings({ ignoreUndefinedProperties: true });
+  } catch (_) { /* settings can only be applied once — ignore on retry */ }
   return _app;
 }
 

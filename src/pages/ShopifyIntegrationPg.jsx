@@ -5691,42 +5691,20 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     }
   };
 
-  /* V21.9.1 Phase 11g: One-click full workflow — pull all old orders,
-     then re-aggregate customers (which now scans archive too). */
-  const handleFullSync = async () => {
-    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
-    const yes = await ask("📚 مزامنة شاملة",
-      "هذا الإجراء بـ يعمل التالي:\n\n" +
-      "1. سحب كل الطلبات القديمة من Shopify (آخر سنتين)\n" +
-      "2. تخزينهم في collection منفصل (split per شهر)\n" +
-      "3. إعادة تجميع العملاء من كل الطلبات (الجديدة + الأرشيف)\n\n" +
-      "المدة المتوقعة: 3-7 دقايق حسب عدد الطلبات.\n\nتأكيد؟");
-    if(!yes) return;
-    setBusy(true);
-
-    /* Step 1: Historical orders — full overlay */
-    const histRes = await runWithProgress({
-      label: "📚 (1/2) سحب كل الطلبات التاريخية",
-      type: "shopify-sync-historical-orders",
-      fn: (jobId) => shopifySyncHistoricalOrders({ jobId }, user),
-    });
-    if(!histRes?.ok){
-      setBusy(false);
-      showToast("⛔ فشل سحب الطلبات: " + (histRes?.error || ""));
-      return;
-    }
-
-    /* Step 2: Aggregate customers — overlay continues */
-    const custRes = await runWithProgress({
-      label: "👥 (2/2) تجميع كل العملاء",
-      type: "shopify-sync-customers",
-      fn: (jobId) => shopifySyncCustomers({ jobId }, user),
-    });
-    setBusy(false);
-    if(!custRes?.ok){
-      showToast("⛔ فشل تجميع العملاء: " + (custRes?.error || ""));
-    }
-  };
+  /* V21.9.13: handleFullSync ("مزامنة شاملة") was removed.
+     Reason: it combined "سحب كل الطلبات التاريخية" + "تجميع العملاء" into one
+     button, but the historical-orders leg was crashing with
+       "Cannot use 'undefined' as a Firestore value (found in field
+        'shopifyPendingOrders.0.bosta')"
+     because the merge produced `bosta: undefined` for orders without Bosta
+     tracking. The user reported the failure and asked to delete the
+     button — which is the right call: "تحديث القائمة فقط" already does
+     exactly what the user needs (1147 customers / 681 buyers / 11 VIP
+     in their case).
+     The historical-orders sync is still available standalone via the
+     HistoricalSyncCard component on the Dashboard tab.
+     The bosta-undefined bug is fixed independently in _firebase.js by
+     enabling ignoreUndefinedProperties — defense in depth. */
 
   const handleSetTags = async (customer) => {
     if(!canEdit) return;
@@ -6031,14 +6009,12 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       </div>
 
       {/* Toolbar */}
+      {/* V21.9.13: removed "مزامنة شاملة" button (was failing on bosta:undefined
+         + the user confirmed تحديث القائمة فقط does what they need). */}
       <Card title="👥 عملاء Shopify" extra={
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <LoadingBtn loading={busy} loadingText="..." onClick={handleFullSync} disabled={!canEdit} small
-            style={{ background: "linear-gradient(135deg,#8B5CF6,#7C3AED)", color: "#fff", fontWeight: 700, border: "none" }}>
-            📚 مزامنة شاملة (عملاء + كل التاريخ)
-          </LoadingBtn>
           <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSync} disabled={!canEdit} small>
-            🔄 تحديث القائمة فقط
+            🔄 تحديث القائمة
           </LoadingBtn>
         </div>
       }>

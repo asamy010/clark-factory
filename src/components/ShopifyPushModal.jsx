@@ -21,7 +21,7 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
 import { compressImage, dataUrlToBlob } from "../utils/image.js";
-import { shopifyPushProductFromClark } from "../utils/shopify/shopifyClient.js";
+import { shopifyPushProductFromClark, shopifyVerifyProductPushed } from "../utils/shopify/shopifyClient.js";
 /* V21.9.3 fix: resolve sizes from data.sizeSets via order.sizeSetId */
 import { getSizesFromSet } from "../utils/format.js";
 
@@ -126,6 +126,40 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
   const fileInputRef = useRef(null);
   const colorFileInputRef = useRef(null);
   const [pickingColorForUpload, setPickingColorForUpload] = useState(null); /* color name or null */
+  /* V21.9.13: bidirectional verify state. When the modal mounts on an order
+     that's marked as pushed, we ping Shopify to confirm the product still
+     exists. If 404, the verify endpoint clears shopify_meta — the next
+     onSnapshot refresh propagates the clear to the order card. */
+  const [verifyState, setVerifyState] = useState(null); /* null | "checking" | "exists" | "deleted" */
+
+  /* V21.9.13: Bidirectional verify on mount.
+     If this order was pushed previously, ping Shopify to confirm the product
+     still exists. The verify endpoint clears shopify_meta server-side on 404
+     so the order card unmarks itself automatically. We don't block the modal
+     on this — the form is usable in parallel; we just surface the result as
+     a banner so the user knows the badge state is fresh. */
+  useEffect(() => {
+    let cancelled = false;
+    const shopifyId = meta?.shopify_product_id;
+    if(!shopifyId || meta?.push_status === "deleted_on_shopify") return;
+    if(!user) return;
+    setVerifyState("checking");
+    (async () => {
+      try {
+        const r = await shopifyVerifyProductPushed(order.id, user);
+        if(cancelled) return;
+        if(r?.ok && r.exists) setVerifyState("exists");
+        else if(r?.ok && r.cleared) setVerifyState("deleted");
+        else setVerifyState(null);
+      } catch(_) {
+        /* Transient failure — don't change state, leave as "checking" briefly
+           then null. Don't surface a popup; the user can still push. */
+        if(!cancelled) setVerifyState(null);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id, meta?.shopify_product_id]);
 
   /* Detected fabric colors per source */
   const detectedColors = useMemo(() => extractColorsFromFabric(order, colorSource), [order, colorSource]);
@@ -371,6 +405,28 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
         </div>
 
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* V21.9.13: bidirectional verify banner */}
+          {verifyState === "checking" && meta?.shopify_product_id && (
+            <div style={{
+              padding: "10px 14px", borderRadius: 10,
+              background: T.accent + "10", border: "1px solid " + T.accent + "30",
+              color: T.accent, fontSize: FS - 1, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <Spinner size={14} />
+              <span>جاري التحقق من حالة المنتج على Shopify...</span>
+            </div>
+          )}
+          {verifyState === "deleted" && (
+            <div style={{
+              padding: "10px 14px", borderRadius: 10,
+              background: T.warn + "12", border: "1px solid " + T.warn + "40",
+              color: T.warn, fontSize: FS - 1, fontWeight: 700, lineHeight: 1.6,
+            }}>
+              ⚠️ المنتج اتـ delete من Shopify. تم إلغاء حالة "Pushed" — لو محتاج تـ resync اضغط Push تاني.
+            </div>
+          )}
 
           {/* Push result */}
           {pushResult && (

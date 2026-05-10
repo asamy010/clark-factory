@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.13",
+    date: "2026-05-10",
+    types: ["fix", "feature"],
+    title: "🔘 Phase 11s — Push button on cards + bidirectional sync",
+    changes: [
+      { type: "feature", text: "🔘 [زر Push على بطاقة الأوردر]\nكل بطاقة في صفحة التفاصيل بقى عندها زر Push (إنجليزي) مع أيقونة Shopify shopping bag SVG. الـ button في footer البطاقة جنب زر واتساب.\n\n• Push (لون Shopify الأخضر) لو الموديل ما اتـ push-ـش قبل كده\n• Pushed مع علامة ✓ خضرا لو متزامن حالياً\n\nالضغطة بـ تفتح الـ Push modal للموديل ده مباشرة. الـ detail page action row بقى برضه يستخدم نفس الـ icon + English label للـ consistency." },
+      { type: "feature", text: "🔄 [تزامن ثنائي الاتجاه — bidirectional sync]\nأضفت endpoint جديد POST /api/shopify/verify-product-pushed.\n\nلما المستخدم يفتح الـ Push modal لموديل عنده shopify_meta.shopify_product_id:\n1. الـ modal بـ يـ ping Shopify بـ GET /products/{id}.json\n2. لو 200 → المنتج موجود → الـ badge يفضل Pushed\n3. لو 404 → اتـ delete من Shopify → الـ endpoint بـ يـ clear shopify_product_id من الـ shopify_meta + يحط push_status='deleted_on_shopify' + ينقل الـ ID القديم لـ last_known_shopify_product_id (للسجلات)\n\nفي الـ modal بـ يظهر banner: '⚠️ المنتج اتـ delete من Shopify. تم إلغاء حالة Pushed — لو محتاج تـ resync اضغط Push تاني.'\n\nالـ onSnapshot بـ يحدّث البطاقة تلقائياً فالـ badge يختفي من الـ card. التزامن ده lazy (بـ يحصل لما المستخدم يفتح الـ modal، مش continuous polling) عشان نوفر calls على Shopify rate limit." },
+      { type: "fix", text: "🚨 [ROOT CAUSE — مزامنة شاملة فشلت بـ 'Cannot use undefined as a Firestore value']\nلما المستخدم ضغط 'مزامنة شاملة (عملاء + كل التاريخ)'، الـ historical sync فشل بـ:\n  Cannot use \"undefined\" as a Firestore value (found in field \"shopifyPendingOrders.0.bosta\")\n\nالسبب: في merge الـ live orders بعد historical pull، الكود كان بـ يعمل `merged.bosta = prev.bosta || o.bosta;` — لو الاتنين undefined (طلب ما عندوش Bosta tracking أصلاً)، النتيجة undefined → Firestore strict mode رفض الـ write كله.\n\nالحل (طبقتين):\n1. defense in depth — في _firebase.js ضفت `firestore().settings({ ignoreUndefinedProperties: true })` على الـ Admin SDK init. أي undefined في أي write مستقبلاً هـ يـ strip بصمت بدل ما يـ crash.\n2. specific fix — في sync-historical-orders.js غيّرت الـ assignment لـ conditional: `if(bosta) merged.bosta = bosta;` — الـ document بـ يفضل clean بدون undefined fields." },
+      { type: "fix", text: "🗑 [حذف زر 'مزامنة شاملة (عملاء + كل التاريخ)']\nالـ button كان بـ يجمع بين historical-orders sync و customer aggregation في خطوة واحدة، لكن:\n• الـ historical leg كان بـ يفشل (سبب الـ bosta undefined أعلاه)\n• المستخدم أكّد إن 'تحديث القائمة فقط' بـ يعمل المطلوب (1147 عميل / 681 اشتروا / 11 VIP في حالته)\n• وجود الـ button غير الموثوق بـ يلخبط المستخدم\n\nتم حذف الـ button + الـ handleFullSync function. الـ historical-orders sync لسه متاح لوحده عبر HistoricalSyncCard في تاب الـ Dashboard لو محتاج. تـ rename 'تحديث القائمة فقط' لـ 'تحديث القائمة' (مفيش 'فقط' دلوقتي بعد ما الـ alternative انحذف)." },
+      { type: "improvement", text: "🛠 [Smart 404 detection في verify endpoint]\nالـ verify-product-pushed بـ يـ distinguish بين:\n• 404 confirmed (الـ product اتـ delete) → يـ clear الـ meta\n• 401/403 auth error → بـ يرجّع 502 ويسيب الـ meta سليمة\n• 5xx Shopify down → بـ يرجّع 502 transient (مش يـ clear)\n• Network/timeout → بـ يرجّع 502\n\nده مهم: الـ clearing لازم يحصل بس لما الـ deletion confirmed authoritatively. لو الـ endpoint clears على أي error، كل blip في Shopify بـ يضيع الـ pushed state للموديلات كلها." },
+      { type: "doc", text: "📜 [ROOT CAUSE comments]\nكل fix فيه comment تفصيلي عن:\n• كان فيه إيه قبل\n• ليه كان غلط (مع الـ error message الفعلي اللي ظهر)\n• الحل\n• ليه ما يـ regress (defense in depth + targeted fix)\n\nمتطابق مع CLAUDE.md §0 (Principal Engineer protocol)." },
+    ]
+  },
+  {
     version: "V21.9.12",
     date: "2026-05-10",
     types: ["fix", "feature"],

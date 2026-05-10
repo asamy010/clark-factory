@@ -232,8 +232,16 @@ export default async function handler(req, res){
           } else {
             merged.status = o.status || prev.status;
           }
-          /* Bosta state always wins from prev (CLARK-side tracking) */
-          merged.bosta = prev.bosta || o.bosta;
+          /* Bosta state always wins from prev (CLARK-side tracking).
+             V21.9.13: only assign if defined — pre-V21.9.13 this could
+             produce `bosta: undefined` when neither side had tracking,
+             which Firestore strict mode rejected with
+             "Cannot use 'undefined' as a Firestore value". The
+             ignoreUndefinedProperties setting in _firebase.js now strips
+             these globally, but assigning conditionally is cheaper and
+             keeps the document shape clean. */
+          const bosta = prev.bosta || o.bosta;
+          if(bosta) merged.bosta = bosta;
           mergedList.push(merged);
         } else {
           mergedList.push(o);

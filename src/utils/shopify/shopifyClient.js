@@ -213,6 +213,14 @@ export function shopifyPushProductFromClark(opts, user){
   return call("POST", "/api/shopify/push-product-from-clark", opts, user);
 }
 
+/* V21.9.13 Phase 11s: Bidirectional verify — checks if a previously-pushed
+   Shopify product still exists. If 404, clears the "currently pushed"
+   markers on the CLARK order so the card unmarks itself.
+   { orderId } → { ok, exists, cleared, shopify_product_id? } */
+export function shopifyVerifyProductPushed(orderId, user){
+  return call("POST", "/api/shopify/verify-product-pushed", { orderId }, user);
+}
+
 /* V21.1 Phase 10b: Sync abandoned carts.
    { hoursBack? } → { ok, total, withPhone, withEmail, totalValue } */
 export function shopifySyncAbandonedCarts(opts, user){

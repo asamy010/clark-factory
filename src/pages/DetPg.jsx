@@ -31,8 +31,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
   /* V18.90: Review request modal toggle */
   const[showReview,setShowReview]=useState(false);
-  /* V21.0 Phase 10: Shopify push modal */
+  /* V21.0 Phase 10: Shopify push modal (for the detail-page action row) */
   const[showShopifyPush,setShowShopifyPush]=useState(false);
+  /* V21.9.13 Phase 11s: Shopify push modal triggered from a card in the
+     list view. Holds the specific order whose modal should open. */
+  const[pushModalOrder,setPushModalOrder]=useState(null);
   /* V14.50: view mode + smart filters */
   const[detView,setDetView]=useState(()=>{try{return localStorage.getItem("clark_det_view")||"cards"}catch(e){return"cards"}});/* "cards"|"table" */
   const[detWs,setDetWs]=useState("");/* workshop filter */
@@ -505,13 +508,48 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 </div>;
               })()}
 
-              {/* ── Footer: WhatsApp ── */}
-              <div style={{display:"flex",gap:6,marginTop:"auto",paddingTop:4,borderTop:"1px solid "+T.brd}}>
-                <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"6px",borderRadius:8,background:"#25D36608",color:"#25D366",border:"1px solid #25D36620",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36615"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36608"}}>
-                  <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11.5 11.5 0 0 0 12 0a12 12 0 0 0-10.4 18L0 24l6.2-1.6A12 12 0 0 0 12 24c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.5zm-8.5 18.5a10 10 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a10 10 0 1 1 18.4-5.4c0 5.5-4.5 10-10 10zm5.5-7.5c-.3-.2-1.8-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1a8 8 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.3-.4.2-.3.1-.3a.3.3 0 0 0 0-.3l-1-2.2c-.2-.5-.4-.5-.6-.5H8c-.3 0-.6.1-.8.4-.3.4-1 1-1 2.3s1 2.7 1.2 2.9c.1.2 2.1 3.2 5 4.4 2.4 1 2.9.8 3.4.8.6-.1 1.8-.8 2-1.5.3-.8.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z"/></svg>
-                  <span>واتساب</span>
-                </div>
-              </div>
+              {/* ── Footer: WhatsApp + Shopify Push (V21.9.13) ── */}
+              {(()=>{
+                /* V21.9.13: Shopify Push state badge.
+                   `isPushed` = the order is currently linked to a live Shopify
+                   product (we have the ID + push_status hasn't been flipped to
+                   "deleted_on_shopify" by the verify endpoint). When user clicks
+                   the button, the modal mounts and runs a verify-on-open ping —
+                   if the product was deleted on Shopify, the meta is cleared so
+                   the badge disappears on next data snapshot. Card stays in
+                   sync with Shopify state. */
+                const meta = o.shopify_meta || {};
+                const isPushed = !!meta.shopify_product_id && meta.push_status !== "deleted_on_shopify";
+                const SHOPIFY_GREEN = "#96BF48";
+                const greenBg = SHOPIFY_GREEN + "10";
+                const greenBdr = SHOPIFY_GREEN + "30";
+                const pushedBg = SHOPIFY_GREEN + "18";
+                return (
+                  <div style={{display:"flex",gap:6,marginTop:"auto",paddingTop:4,borderTop:"1px solid "+T.brd}}>
+                    <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"6px",borderRadius:8,background:"#25D36608",color:"#25D366",border:"1px solid #25D36620",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36615"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36608"}}>
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11.5 11.5 0 0 0 12 0a12 12 0 0 0-10.4 18L0 24l6.2-1.6A12 12 0 0 0 12 24c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.5zm-8.5 18.5a10 10 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a10 10 0 1 1 18.4-5.4c0 5.5-4.5 10-10 10zm5.5-7.5c-.3-.2-1.8-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1a8 8 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.3-.4.2-.3.1-.3a.3.3 0 0 0 0-.3l-1-2.2c-.2-.5-.4-.5-.6-.5H8c-.3 0-.6.1-.8.4-.3.4-1 1-1 2.3s1 2.7 1.2 2.9c.1.2 2.1 3.2 5 4.4 2.4 1 2.9.8 3.4.8.6-.1 1.8-.8 2-1.5.3-.8.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z"/></svg>
+                      <span>واتساب</span>
+                    </div>
+                    {/* V21.9.13: Push to Shopify */}
+                    <div
+                      onClick={e=>{e.stopPropagation();setPushModalOrder(o)}}
+                      title={isPushed?"محدّث على Shopify — اضغط للتعديل":"Push للـ Shopify"}
+                      style={{flex:1,padding:"6px",borderRadius:8,background:isPushed?pushedBg:greenBg,color:SHOPIFY_GREEN,border:"1px solid "+greenBdr,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s",position:"relative"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background=SHOPIFY_GREEN+"22"}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=isPushed?pushedBg:greenBg}}
+                    >
+                      {/* Shopify shopping-bag icon */}
+                      <svg width={14} height={14} viewBox="0 0 109.5 124.5" fill="currentColor" aria-hidden="true">
+                        <path d="M74.7 14.8c0-.4-.4-.6-.7-.7-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.5-.5-1.5-.4-1.9-.3l-2.6.8C55.5 5 53 1.4 48.5 1.4h-.4c-1.3-1.7-2.9-2.4-4.3-2.4-10.7 0-15.8 13.4-17.4 20.2-4.2 1.3-7.1 2.2-7.5 2.3-2.3.7-2.4.8-2.7 3-.2 1.6-6.4 49.4-6.4 49.4l46.4 8.7 25.1-5.4c.1.1-6.1-62-6.6-62.4zM55 17.6l-3.9 1.2c0-.3 0-.6.1-.9 0-2.7-.4-4.9-1-6.7C52.6 11.5 54.3 14.4 55 17.6zM47.2 11.7c.7 1.7 1.1 4.2 1.1 7.6v.5l-8.1 2.5c1.6-6 4.5-8.9 7-10.6zm-3.1-2.9c.5 0 1 .2 1.4.5-3.5 1.7-7.3 5.8-8.9 14l-6.4 2c1.9-6.2 6.2-16.5 13.9-16.5z"/>
+                        <path d="M74 14.1c-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.2-.2-.5-.3-.8-.4l-3.5 116.4 25.1-5.4S74.8 15.3 74.7 14.8c-.1-.4-.4-.6-.7-.7z" fillOpacity="0.6"/>
+                        <path d="M48.7 39.8l-3.1 9.2s-2.7-1.4-6-1.4c-4.8 0-5.1 3-5.1 3.8 0 4.2 11 5.8 11 15.7 0 7.8-4.9 12.8-11.6 12.8-8 0-12.1-5-12.1-5l2.1-7.1s4.2 3.6 7.7 3.6c2.3 0 3.3-1.8 3.3-3.2 0-5.5-9-5.7-9-14.8 0-7.6 5.5-15 16.5-15 4.3 0 6.3 1.2 6.3 1.2z" fill="#FFFFFE"/>
+                      </svg>
+                      <span>{isPushed?"Pushed":"Push"}</span>
+                      {isPushed&&<span style={{position:"absolute",top:-4,insetInlineEnd:-4,width:14,height:14,borderRadius:"50%",background:T.ok,color:"#fff",fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid "+T.cardSolid}}>✓</span>}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>;
         })}
@@ -618,10 +656,27 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
           {/* V18.90: Request review */}
           <Btn small onClick={()=>setShowReview(true)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="طلب مراجعة">📌</Btn>
-          {/* V21.0 Phase 10: Push to Shopify button */}
-          <Btn small onClick={()=>setShowShopifyPush(true)} style={{background:"#96BF4815",color:"#96BF48",border:"1px solid #96BF4830"}} title={order.shopify_meta?.shopify_product_id?"تحديث في Shopify":"Push للـ Shopify"}>
-            🛍️ {order.shopify_meta?.shopify_product_id?"محدّث":"Push"}
-          </Btn>
+          {/* V21.0 Phase 10 + V21.9.13 polished: Push to Shopify button.
+              English label + Shopify shopping-bag SVG icon + "Pushed" with
+              green check when synced. The same verify-on-open flow keeps the
+              badge in sync with Shopify state (clears if deleted there). */}
+          {(()=>{
+            const meta = order.shopify_meta || {};
+            const isPushed = !!meta.shopify_product_id && meta.push_status !== "deleted_on_shopify";
+            return (
+              <Btn small onClick={()=>setShowShopifyPush(true)}
+                style={{background:isPushed?"#96BF4822":"#96BF4815",color:"#96BF48",border:"1px solid #96BF4840",display:"inline-flex",alignItems:"center",gap:5,fontWeight:800,position:"relative"}}
+                title={isPushed?"محدّث في Shopify — اضغط للتعديل":"Push to Shopify"}>
+                <svg width={13} height={13} viewBox="0 0 109.5 124.5" fill="currentColor" aria-hidden="true">
+                  <path d="M74.7 14.8c0-.4-.4-.6-.7-.7-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.5-.5-1.5-.4-1.9-.3l-2.6.8C55.5 5 53 1.4 48.5 1.4h-.4c-1.3-1.7-2.9-2.4-4.3-2.4-10.7 0-15.8 13.4-17.4 20.2-4.2 1.3-7.1 2.2-7.5 2.3-2.3.7-2.4.8-2.7 3-.2 1.6-6.4 49.4-6.4 49.4l46.4 8.7 25.1-5.4c.1.1-6.1-62-6.6-62.4zM55 17.6l-3.9 1.2c0-.3 0-.6.1-.9 0-2.7-.4-4.9-1-6.7C52.6 11.5 54.3 14.4 55 17.6zM47.2 11.7c.7 1.7 1.1 4.2 1.1 7.6v.5l-8.1 2.5c1.6-6 4.5-8.9 7-10.6zm-3.1-2.9c.5 0 1 .2 1.4.5-3.5 1.7-7.3 5.8-8.9 14l-6.4 2c1.9-6.2 6.2-16.5 13.9-16.5z"/>
+                  <path d="M74 14.1c-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.2-.2-.5-.3-.8-.4l-3.5 116.4 25.1-5.4S74.8 15.3 74.7 14.8c-.1-.4-.4-.6-.7-.7z" fillOpacity="0.6"/>
+                  <path d="M48.7 39.8l-3.1 9.2s-2.7-1.4-6-1.4c-4.8 0-5.1 3-5.1 3.8 0 4.2 11 5.8 11 15.7 0 7.8-4.9 12.8-11.6 12.8-8 0-12.1-5-12.1-5l2.1-7.1s4.2 3.6 7.7 3.6c2.3 0 3.3-1.8 3.3-3.2 0-5.5-9-5.7-9-14.8 0-7.6 5.5-15 16.5-15 4.3 0 6.3 1.2 6.3 1.2z" fill="#FFFFFE"/>
+                </svg>
+                <span>{isPushed?"Pushed":"Push"}</span>
+                {isPushed&&<span style={{position:"absolute",top:-3,insetInlineEnd:-3,width:13,height:13,borderRadius:"50%",background:T.ok,color:"#fff",fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid "+T.cardSolid}}>✓</span>}
+              </Btn>
+            );
+          })()}
           {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
           {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
           {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
@@ -1849,6 +1904,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {/* V21.0 Phase 10: Shopify push modal */}
     {/* V21.9.3 fix: pass `data` so the modal can resolve order.sizeSetId → sizes[] via data.sizeSets */}
     {showShopifyPush&&order&&<ShopifyPushModal order={order} data={data} user={user} isMob={isMob} onClose={()=>setShowShopifyPush(false)}/>}
+    {/* V21.9.13 Phase 11s: Shopify push modal triggered from a card in the
+        list view. The modal verifies on mount whether the Shopify product
+        still exists; if 404, it clears shopify_meta so the badge disappears
+        from the card on the next data refresh. */}
+    {pushModalOrder&&<ShopifyPushModal order={pushModalOrder} data={data} user={user} isMob={isMob} onClose={()=>setPushModalOrder(null)}/>}
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
     {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
