@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.12",
+    date: "2026-05-10",
+    types: ["fix", "feature"],
+    title: "🛍️ Phase 11r — Shopify Push (Image upload + per-color price)",
+    changes: [
+      { type: "fix", text: "🚨 [ROOT CAUSE — صور الـ Push للـ Shopify بـ تطلع 'فشل تحميل']\nlib utils/image.js compressImage() بـ ترجّع dataURL string (canvas.toDataURL) — مش Blob. الكود في ShopifyPushModal و WhatsAppComposer كان بـ يعمل:\n  const blob = compressed instanceof Blob ? compressed : new Blob([compressed]);\nده بـ يـ wrap الـ string نفسها (data:image/jpeg;base64,...) كـ Blob — بـ يخزّن النص نفسه، مش bytes الصورة!\n\nFirebase بـ يقبل الـ upload (Content-Type forced لـ image/jpeg) لكن الـ file اللي اتخزّن فيه نص. لما الـ <img> يحاول يـ render، بـ يفشل (الـ JPEG bytes مش صحيحة) → الـ user يشوف '⚠️ فشل تحميل'. ولما Shopify يحاول fetch الـ URL يلاقي text بدل صورة.\n\nالحل: ضفت dataUrlToBlob() في image.js اللي بـ يستخدم fetch(dataUrl).blob() لتحويل الـ dataURL لـ Blob حقيقي بـ JPEG bytes صح. ShopifyPushModal و WhatsAppComposer دلوقتي بـ يستخدموا الـ helper ده + force content-type 'image/jpeg' + رفض الـ Blobs الفاضية." },
+      { type: "fix", text: "🚨 [ROOT CAUSE — Storage rules بـ تـ block uploads على paths شوبيفاي]\npre-V21.9.11 الـ storage.rules مكنش فيها match clause لـ:\n• shopify-products/** (paths بتاعة الـ Shopify push images)\n• whatsapp-campaigns/** (paths الـ WhatsApp Composer)\n\nالـ catch-all `if false` كان بـ يمنع الكتابة → كل uploads كانت بـ تفشل بـ permission denied (مع الـ dataURL bug، فعلياً بعض الـ uploads كانت بـ تنجح لأن المتصفح بـ يقبل text-as-image في cache مؤقتاً).\n\nالحل: ضفت match clauses:\n• shopify-products/** → manager+ writes (read by all authed)\n• whatsapp-campaigns/** → sales scope writes\nبعد deploy storage.rules، الـ uploads هتشتغل صح." },
+      { type: "feature", text: "💰 [حقل سعر لكل لون في Push Modal]\nقبل V21.9.12 كل الـ variants كانت بـ تاخد نفس السعر (order.sellPrice). دلوقتي تقدر تحدد سعر مختلف لكل لون:\n\n• في تاب 'صورة + سعر لكل لون' في الـ Push modal، تحت كل لون فيه input 'السعر (ج.م)'\n• فاضي = استخدام سعر البيع الافتراضي للموديل\n• لو حطيت رقم > 0 → يـ override السعر لكل الـ variants بـ اللون ده في Shopify\n• الـ colorPrices بـ يـ save في order.shopify_meta.color_prices (يفضل بعد re-sync)\n\nالـ server endpoint /api/shopify/push-product-from-clark بـ يقبل colorPrices في الـ body + يـ sanitize (drops non-positive/non-finite) + يمررها لـ buildVariantMatrix اللي بـ يطبّقها على كل variant.color match.\n\nUse case: ألوان premium بـ سعر أعلى، لون أساسي بـ خصم، إلخ." },
+      { type: "improvement", text: "🛠 [Better error messages في الـ upload pipeline]\nلو compressImage أرجع Blob فاضي (browser bug، corrupt file)، نـ throw error واضح بدل ما يـ upload empty blob للـ Firebase. الـ user يشوف '⛔ فشل رفع الصورة: compression أرجع blob فاضي' بدل ما يفترض الـ upload نجح." },
+      { type: "improvement", text: "📁 [اسم الملف بـ extension .jpg always]\nقبل V21.9.12 كان اسم الـ uploaded file محتوي على extension الأصلي (.png, .heic, إلخ) رغم إن المحتوى JPEG (compressImage بـ يحول كل حاجة لـ JPEG). دلوقتي اسم الـ file بـ يبقى .jpg دايماً للـ consistency مع contentType." },
+      { type: "doc", text: "📜 [ROOT CAUSE comments في كل fix]\nكل bug fix معلق بـ comment يشرح:\n1. كان فيه إيه قبل\n2. ليه الـ behavior كان غلط\n3. الحل التقني\n4. ليه ما يـ regress تاني (storage rules deployed، dataUrlToBlob centralized)\n\nمتطابق مع CLAUDE.md §0 (Principal Engineer protocol) — preventing regression أهم من الـ fix نفسه." },
+    ]
+  },
+  {
     version: "V21.9.11",
     date: "2026-05-10",
     types: ["fix", "architectural"],

@@ -29,7 +29,7 @@ import { Btn, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { showToast } from "../utils/popups.js";
-import { compressImage } from "../utils/image.js";
+import { compressImage, dataUrlToBlob } from "../utils/image.js";
 import { storage } from "../firebase.js";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -118,12 +118,20 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
     }
     setUploading(true);
     try {
-      const compressed = await compressImage(file, 1200, 0.85);
-      const blob = compressed instanceof Blob ? compressed : new Blob([compressed]);
-      const fname = String(file.name || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
+      /* V21.9.11 ROOT-CAUSE FIX: same bug as ShopifyPushModal — `new Blob([compressed])`
+         where `compressed` is a dataURL string stores literal text in Firebase, not
+         JPEG bytes. Use dataUrlToBlob() which converts dataURL → real Blob via
+         fetch(dataUrl).blob(). */
+      const dataUrl = await compressImage(file, 1200, 0.85);
+      const blob = await dataUrlToBlob(dataUrl);
+      if(!blob || blob.size === 0){
+        throw new Error("compression أرجع blob فاضي");
+      }
+      const baseName = String(file.name || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_").replace(/\.[a-zA-Z0-9]+$/, "");
+      const fname = (baseName || "img") + ".jpg";
       const path = "whatsapp-campaigns/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "-" + fname;
       const ref = storageRef(storage, path);
-      await uploadBytes(ref, blob, { contentType: blob.type || "image/jpeg" });
+      await uploadBytes(ref, blob, { contentType: "image/jpeg" });
       const url = await getDownloadURL(ref);
       setImageUrl(url);
       /* Auto-insert image URL at the end with a separator */

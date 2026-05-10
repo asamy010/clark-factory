@@ -29,3 +29,33 @@ export function compressImg43(file,maxW,quality){
     ctx.drawImage(img,sx*scX,sy*scY,cw*scX,ch*scY,0,0,cw,ch);
     resolve(canvas.toDataURL("image/jpeg",quality||0.5))};img.src=e.target.result};reader.readAsDataURL(file)})
 }
+
+/* V21.9.11 ROOT-CAUSE FIX (Shopify image upload "فشل تحميل"):
+   compressImage / compressImg43 return a dataURL STRING (canvas.toDataURL).
+   Pre-V21.9.11 the upload code did `new Blob([dataURLString])` — which
+   stores the literal text "data:image/jpeg;base64,/9j/..." as the file
+   body. Firebase happily accepts the upload (Content-Type forced to
+   image/jpeg) but the file contains TEXT, not JPEG bytes. Result: every
+   <img src=URL> shows broken (the user saw "فشل تحميل") and Shopify's
+   image-by-URL fetch returns garbage too.
+
+   Use this helper to convert a dataURL to a real Blob with proper bytes.
+   Works in all modern browsers via fetch(dataUrl).blob(). */
+export async function dataUrlToBlob(dataUrl){
+  if(!dataUrl) throw new Error("dataUrl is empty");
+  if(typeof dataUrl !== "string"){
+    /* Already a Blob/File — pass through */
+    if(dataUrl instanceof Blob) return dataUrl;
+    throw new Error("dataUrlToBlob: expected dataURL string, got " + typeof dataUrl);
+  }
+  const res = await fetch(dataUrl);
+  return await res.blob();
+}
+
+/* V21.9.11: Compress + return a real Blob. Convenience wrapper that does
+   the right thing in one call — preferred for any storage upload path
+   (Firebase Storage, Shopify image-by-src, etc). */
+export async function compressImageToBlob(file, maxW, quality){
+  const dataUrl = await compressImage(file, maxW, quality);
+  return await dataUrlToBlob(dataUrl);
+}

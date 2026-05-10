@@ -106,6 +106,18 @@ export function resolveOrderSizes(order, sizeSets){
   return parts;
 }
 
+/* V21.9.11: resolve the price for a specific color.
+   colorPrices[color] wins if set + finite + > 0. Else falls back to the
+   global sellPrice. Lets the user charge a different price per color
+   (e.g. premium colors cost more) without forcing them to set every cell. */
+function resolveColorPrice(colorPrices, color, sellPrice){
+  if(!colorPrices || typeof colorPrices !== "object") return sellPrice;
+  const raw = colorPrices[color];
+  const n = Number(raw);
+  if(!Number.isFinite(n) || n <= 0) return sellPrice;
+  return n;
+}
+
 /* Build the full variants payload for Shopify from a CLARK order.
    Args:
      order: a CLARK order object
@@ -113,6 +125,8 @@ export function resolveOrderSizes(order, sizeSets){
        colorSourceFabric: "A" | "B" | ... — which fabric's colors to use
        skuPattern: e.g. "{modelNo}-{color}-{size}"
        sellPrice: per-variant price (defaults to order.sellPrice)
+       colorPrices: optional { [colorName]: number } — overrides sellPrice for
+                    that color. Set per-color in the push modal (V21.9.11).
        stockMatrix: optional pre-computed { [color]: { [size]: qty } }
        sizeSets: optional array of { id, label, pcsPerSeries } from cfg.sizeSets
                  — used to resolve order.sizeSetId → sizes[]
@@ -124,6 +138,8 @@ export function buildVariantMatrix(order, opts = {}){
   /* V21.9.3 fix: resolve sizes via sizeSets, not order.sizes */
   const sizes = resolveOrderSizes(order, opts.sizeSets);
   const sellPrice = Number(opts.sellPrice ?? order.sellPrice) || 0;
+  /* V21.9.11: per-color price overrides */
+  const colorPrices = (opts.colorPrices && typeof opts.colorPrices === "object") ? opts.colorPrices : {};
   const skuPattern = opts.skuPattern || "{modelNo}-{color}-{size}";
   const stockMatrix = opts.stockMatrix || {};
   const garment = order.garmentType || "";
@@ -141,12 +157,13 @@ export function buildVariantMatrix(order, opts = {}){
       { name: "Size",  values: sizes  },
     ];
     for(const color of colors){
+      const price = resolveColorPrice(colorPrices, color, sellPrice);
       for(const size of sizes){
         variants.push({
           option1: color,
           option2: size,
           sku: buildVariantSku(skuPattern, { modelNo, color, size, garment, fabric: colorSourceFabric }),
-          price: String(sellPrice.toFixed(2)),
+          price: String(price.toFixed(2)),
           inventory_quantity: getVariantStock(stockMatrix, color, size),
           inventory_management: "shopify",
         });
@@ -171,13 +188,14 @@ export function buildVariantMatrix(order, opts = {}){
   } else if(colors.length > 0){
     options = [{ name: "Color", values: colors }];
     for(const color of colors){
+      const price = resolveColorPrice(colorPrices, color, sellPrice);
       let qty = 0;
       const byColor = stockMatrix[color] || {};
       for(const s of Object.keys(byColor)) qty += Number(byColor[s]) || 0;
       variants.push({
         option1: color,
         sku: buildVariantSku(skuPattern, { modelNo, color, size: "", garment, fabric: colorSourceFabric }),
-        price: String(sellPrice.toFixed(2)),
+        price: String(price.toFixed(2)),
         inventory_quantity: qty,
         inventory_management: "shopify",
       });

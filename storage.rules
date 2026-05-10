@@ -134,6 +134,28 @@ service firebase.storage {
       allow delete:         if isManagerPlus();
     }
 
+    /* V21.9.11: shopify-products/** — Shopify product push images.
+       Pre-V21.9.11 there was no path match for this prefix → fell through
+       to the deny-all catch-all → all per-color image uploads from
+       ShopifyPushModal failed at the Storage rule layer (in addition to
+       the dataURL Blob bug). manager+ writes only since this is product
+       data with public exposure on the storefront. */
+    match /shopify-products/{allPaths=**} {
+      allow read:           if isAuthed();
+      allow create, update: if isWriteSafe() && isManagerPlus();
+      allow delete:         if isManagerPlus();
+    }
+
+    /* V21.9.11: whatsapp-campaigns/** — campaign image uploads from the
+       Composer modal. Same rationale — pre-V21.9.11 these were silently
+       blocked by the catch-all. Sales scope (matches who can run
+       campaigns). */
+    match /whatsapp-campaigns/{allPaths=**} {
+      allow read:           if isAuthed();
+      allow create, update: if isWriteSafe() && isSalesScope();
+      allow delete:         if isSalesScope();
+    }
+
     /* temp/** — any authed user (auto-cleanup expected) */
     match /temp/{allPaths=**} {
       allow read:           if isAuthed();

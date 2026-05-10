@@ -139,6 +139,15 @@ export default async function handler(req, res){
   /* V21.9.5: per-color images map { [colorName]: { url, alt, color, source } }.
      Merged into images list below if not already there. */
   const colorImages = (body.colorImages && typeof body.colorImages === "object") ? body.colorImages : (meta.color_images || {});
+  /* V21.9.11: per-color price overrides { [colorName]: number }.
+     Sanitize: drop non-positive / non-finite values so the matrix builder's
+     fallback (sellPrice) kicks in for those colors. */
+  const colorPricesRaw = (body.colorPrices && typeof body.colorPrices === "object") ? body.colorPrices : (meta.color_prices || {});
+  const colorPrices = {};
+  for(const k of Object.keys(colorPricesRaw)){
+    const n = Number(colorPricesRaw[k]);
+    if(Number.isFinite(n) && n > 0) colorPrices[k] = n;
+  }
   /* V21.9.5: add CLARK order's main image as fallback if no images supplied */
   if(images.length === 0 && order.image){
     images = [{ url: order.image, alt: order.modelNo || "", position: 1, source: "clark_order_image" }];
@@ -162,11 +171,13 @@ export default async function handler(req, res){
 
   /* ── Build variants matrix ──
      V21.9.3 fix: pass sizeSets so buildVariantMatrix can resolve order.sizeSetId → sizes[].
-     CLARK orders don't have `order.sizes` directly. */
+     CLARK orders don't have `order.sizes` directly.
+     V21.9.11: pass colorPrices so per-color price overrides apply. */
   const matrix = buildVariantMatrix(order, {
     colorSourceFabric,
     skuPattern,
     sellPrice: order.sellPrice,
+    colorPrices,
     stockMatrix,
     sizeSets: Array.isArray(cfg.sizeSets) ? cfg.sizeSets : [],
   });
@@ -301,6 +312,7 @@ export default async function handler(req, res){
           description,
           images,
           color_images: colorImages, /* V21.9.5: per-color image map */
+          color_prices: colorPrices, /* V21.9.11: per-color price overrides */
           color_source_fabric: colorSourceFabric,
           sku_pattern: skuPattern,
           vendor,

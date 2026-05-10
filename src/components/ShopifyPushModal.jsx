@@ -20,7 +20,7 @@ import { Btn, Card, Inp, Sel, LoadingBtn, Spinner } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
-import { compressImage } from "../utils/image.js";
+import { compressImage, dataUrlToBlob } from "../utils/image.js";
 import { shopifyPushProductFromClark } from "../utils/shopify/shopifyClient.js";
 /* V21.9.3 fix: resolve sizes from data.sizeSets via order.sizeSetId */
 import { getSizesFromSet } from "../utils/format.js";
@@ -110,6 +110,15 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
      When pushing, the matrix builder picks the right color image for each
      variant. Falls back to the global `images` list if no per-color image. */
   const [colorImages, setColorImages] = useState(() => meta.color_images || {});
+  /* V21.9.11: per-color price map. Shape: { [colorName]: number }
+     Sent to the server which uses it in buildVariantMatrix when computing
+     variant.price. If unset for a color, falls back to order.sellPrice
+     (existing behavior). Lets the user charge a different price per color
+     (e.g. premium colors cost more). */
+  const [colorPrices, setColorPrices] = useState(() => {
+    const fromMeta = meta.color_prices && typeof meta.color_prices === "object" ? meta.color_prices : {};
+    return { ...fromMeta };
+  });
   const [busy, setBusy] = useState(false);
   const [uploadingIdx, setUploadingIdx] = useState(null);
   const [uploadingColorKey, setUploadingColorKey] = useState(null);
@@ -164,18 +173,29 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
   }, [order, detectedColors, sizes, skuPattern, colorSource]);
 
   /* ── Image upload ──
-     V21.9.5: refactored to handle compressImage that returns a Blob (not File).
-     Some browsers' Blob doesn't have a name property — force one for Firebase. */
+     V21.9.11 ROOT-CAUSE FIX:
+     Pre-V21.9.11 we did `new Blob([compressed])` where `compressed` was the
+     dataURL STRING returned by compressImage(). That wraps the literal
+     text "data:image/jpeg;base64,..." as the file body — Firebase accepted
+     the upload but the stored bytes were TEXT, not JPEG. Result: every
+     <img> showed "فشل تحميل" and Shopify's image-by-URL fetch got garbage.
+     Fix: use dataUrlToBlob() helper that properly converts dataURL → Blob
+     via fetch(dataUrl).blob(). The Blob now has real JPEG bytes + correct
+     content-type. */
   const sanitizeFileName = (n) => String(n || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
 
   const uploadOne = async (file, pathPrefix) => {
-    const compressed = await compressImage(file, 1200, 0.85);
-    /* compressImage may return a Blob — wrap in File for Firebase Storage */
-    const blob = compressed instanceof Blob ? compressed : new Blob([compressed]);
-    const fname = sanitizeFileName(file.name);
+    const dataUrl = await compressImage(file, 1200, 0.85);
+    const blob = await dataUrlToBlob(dataUrl);
+    if(!blob || blob.size === 0){
+      throw new Error("الـ compression أرجع Blob فاضي — راجع الصورة");
+    }
+    /* Force a .jpg extension since compressImage outputs JPEG regardless of input */
+    const baseName = sanitizeFileName(file.name).replace(/\.[a-zA-Z0-9]+$/, "");
+    const fname = (baseName || "img") + ".jpg";
     const path = pathPrefix + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "-" + fname;
     const ref = storageRef(storage, path);
-    await uploadBytes(ref, blob, { contentType: blob.type || "image/jpeg" });
+    await uploadBytes(ref, blob, { contentType: "image/jpeg" });
     return await getDownloadURL(ref);
   };
 
@@ -290,6 +310,7 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
         description,
         images,
         colorImages, /* V21.9.5: per-color image map */
+        colorPrices, /* V21.9.11: per-color price overrides */
         colorSourceFabric: colorSource,
         skuPattern,
         vendor,
@@ -516,11 +537,14 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
           </Card>
 
           {/* Images */}
-          {/* V21.9.5: Per-color image upload — one image per color */}
+          {/* V21.9.5: Per-color image upload — one image per color
+             V21.9.11: + per-color price input (sent to Shopify per variant) */}
           {detectedColors.length > 0 && (
-            <Card title={"🎨 صورة لكل لون (" + Object.keys(colorImages).length + "/" + detectedColors.length + ")"}>
+            <Card title={"🎨 صورة + سعر لكل لون (" + Object.keys(colorImages).length + "/" + detectedColors.length + ")"}>
               <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
-                ℹ️ ارفع صورة منفصلة لكل لون من خامة {colorSource}. الصور هـ تظهر بجنب كل variant في Shopify.
+                ℹ️ ارفع صورة منفصلة لكل لون من خامة {colorSource} + حدّد سعر مخصص (اختياري).
+                <br/>
+                💰 لو سيبت السعر فاضي، هيستخدم سعر البيع الافتراضي للموديل: <b>{Number(order?.sellPrice || 0).toFixed(2)} ج.م</b>
               </div>
               <input
                 ref={colorFileInputRef}
@@ -538,9 +562,11 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
                 {detectedColors.map(colorName => {
                   const ci = colorImages[colorName];
                   const isUploading = uploadingColorKey === colorName;
+                  const cp = colorPrices[colorName];
+                  const priceVal = (cp === "" || cp == null) ? "" : String(cp);
                   return (
                     <div key={colorName} style={{
-                      width: isMob ? 100 : 130,
+                      width: isMob ? 110 : 145,
                       borderRadius: 10,
                       border: "1.5px solid " + (ci ? T.ok : T.brd),
                       background: ci ? T.ok + "08" : T.bg,
@@ -595,6 +621,44 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
                             🗑
                           </Btn>
                         )}
+                      </div>
+                      {/* V21.9.11: per-color price input */}
+                      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 2 }}>
+                        <label style={{ fontSize: FS - 4, color: T.textSec, fontWeight: 700 }}>
+                          💰 السعر (ج.م)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={priceVal}
+                          placeholder={String(Number(order?.sellPrice || 0).toFixed(2))}
+                          onChange={e => {
+                            const v = e.target.value;
+                            setColorPrices(prev => {
+                              const next = { ...prev };
+                              if(v === "" || v == null){
+                                delete next[colorName];
+                              } else {
+                                next[colorName] = Number(v);
+                              }
+                              return next;
+                            });
+                          }}
+                          style={{
+                            width: "100%",
+                            padding: "4px 6px",
+                            borderRadius: 6,
+                            border: "1px solid " + T.brd,
+                            background: T.bg,
+                            color: T.text,
+                            fontSize: FS - 2,
+                            fontFamily: "inherit",
+                            boxSizing: "border-box",
+                            textAlign: "center",
+                            fontWeight: 700,
+                          }}
+                        />
                       </div>
                     </div>
                   );
