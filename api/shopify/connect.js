@@ -52,8 +52,24 @@ export default async function handler(req, res){
     res.status(400).json({ ok:false, error: "صيغة Store URL غير صحيحة. مثال: clarkfashion.myshopify.com" });
     return;
   }
-  if(!accessToken || !isValidAccessToken(accessToken)){
-    res.status(400).json({ ok:false, error: "صيغة الـ Access Token غير صحيحة. لازم يبدأ بـ shpat_ أو shppa_" });
+  if(!accessToken){
+    res.status(400).json({ ok:false, error: "ادخل الـ Admin API Access Token" });
+    return;
+  }
+  /* V19.91.1: more specific error for the common shpss_ confusion.
+     shpss_ is the OAuth Client Secret — it can't authenticate Admin API
+     calls. The user needs the shpat_ token from "Install app" or
+     "Create token" in the API credentials tab. */
+  if(/^shpss_/i.test(accessToken.trim())){
+    res.status(400).json({ ok:false, error: "ده Client Secret مش Access Token! روح API credentials tab واضغط Install app أو Create token عشان تجيب التوكين اللي بيبدأ بـ shpat_" });
+    return;
+  }
+  if(/^shpca_/i.test(accessToken.trim())){
+    res.status(400).json({ ok:false, error: "ده Collaborator token — مش بيشتغل مع الـ Admin API. لازم تجيب shpat_ من Install app أو Create token" });
+    return;
+  }
+  if(!isValidAccessToken(accessToken)){
+    res.status(400).json({ ok:false, error: "صيغة الـ Access Token غير صحيحة. لازم يبدأ بـ shpat_ (الموصى به) أو shppa_ ويكون 30+ حرف" });
     return;
   }
 

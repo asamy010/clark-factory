@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.91.1",
+    date: "2026-05-10",
+    types: ["fix"],
+    title: "🛍️ Shopify Phase 0: تحسين رسائل الخطأ للـ shpss_ vs shpat_",
+    changes: [
+      { type: "fix", text: "🔍 [User report] الـ user جرب يستخدم Client Secret (بـ prefix shpss_…) في خانة Admin API Access Token. الكود رفض التوكين بـ رسالة عامة \"لازم يبدأ بـ shpat_ أو shppa_\" — الـ user مش هـ يفهم لوحده ان الـ shpss_ ده Client Secret مش Access Token." },
+      { type: "fix", text: "💬 [Better error messages] دلوقتي الكود بـ يكشف 4 حالات منفصلة:\n• شـ shpss_ → \"ده Client Secret مش Access Token! روح API credentials tab واضغط Install app...\"\n• shpca_ → \"ده Collaborator token — مش بيشتغل مع الـ Admin API\"\n• prefix غير معروف → \"الصيغة غير صحيحة...\"\n• فاضي → \"ادخل الـ Access Token\"\nكل رسالة بـ توجّه الـ user للحل الصح." },
+      { type: "fix", text: "🛡 [Client-side early validation] قبل ما الـ form يـ submit، الـ UI بـ يتحقق من الـ prefix ويعرض popup tell() واضح. ده بـ يوفر roundtrip للسيرفر + بـ يخلي رسالة الخطأ متاحة على الفور بدون انتظار الـ network." },
+      { type: "improvement", text: "📚 [تحديث الـ setup instructions] في تاب Connection لو الـ user مش متصل، بقى فيه:\n• خطوات أوضح: API credentials tab → Install app → Reveal Admin API access token\n• تنبيه أصفر بـ شرح الفرق بين Client Secret (shpss_) و Admin API Token (shpat_)\nالـ user اللي عنده الـ UI الجديدة (App automation token + Create token) هـ يلاقي الخيارات الإتنين بـ يـ generate نفس الـ shpat_ token." },
+    ]
+  },
+  {
     version: "V19.91.0",
     date: "2026-05-10",
     types: ["feature"],

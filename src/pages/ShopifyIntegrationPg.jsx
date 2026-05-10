@@ -272,6 +272,20 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
       showToast("⚠️ ادخل URL والـ token عشان أعمل test");
       return;
     }
+    /* V19.91.1: catch the common Client-Secret confusion early */
+    const t = token.trim();
+    if(/^shpss_/i.test(t)){
+      await tell("⚠️ ده Client Secret مش Access Token!\n\nالـ shpss_ بيبدأ بيها الـ Client Secret اللي للـ OAuth flow بس — مش بيشتغل مع الـ Admin API.\n\nاللي محتاجه: روح API credentials tab → Install app → Reveal Admin API access token. التوكين الصح بيبدأ بـ shpat_");
+      return;
+    }
+    if(/^shpca_/i.test(t)){
+      await tell("⚠️ ده Collaborator token — مش بيشتغل مع الـ Admin API.\n\nاللي محتاجه: التوكين اللي بيبدأ بـ shpat_ (من Install app أو Create token في API credentials tab).");
+      return;
+    }
+    if(!/^(shpat_|shppa_)/i.test(t)){
+      await tell("⚠️ صيغة الـ Access Token غير معروفة.\n\nالتوكين الصح لازم يبدأ بـ shpat_ (Admin API) أو shppa_ (Partners). شيك إنك ناسخ الـ token الصح من Shopify.");
+      return;
+    }
     setBusy(true);
     try {
       /* Test = same call as connect, but we let the server save creds and
@@ -387,8 +401,24 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
               read_inventory, write_inventory, read_locations,<br/>
               read_fulfillments, read_customers
             </div>
-            <div style={{ marginBottom: 8 }}>4. <b>Install app</b> ثم <b>Reveal Admin API access token</b></div>
-            <div style={{ marginBottom: 4 }}>5. ⚠️ التوكين هيظهر <b>مرة واحدة بس</b> — انسخه فوراً والصقه هنا تحت.</div>
+            <div style={{ marginBottom: 8 }}>4. روح <b>API credentials tab</b> ثم اضغط <b>Install app</b> فوق الصفحة</div>
+            <div style={{ marginBottom: 8 }}>5. هـ يظهر قسم <b>Admin API access token</b> — اضغط <b>Reveal token once</b></div>
+            <div style={{ marginBottom: 4 }}>6. ⚠️ التوكين هيظهر <b>مرة واحدة بس</b> — انسخه فوراً والصقه هنا تحت.</div>
+            <div style={{
+              marginTop: 12,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "#FEF3C7",
+              border: "1px solid #F59E0B40",
+              color: "#92400E",
+              fontSize: FS - 2,
+              fontWeight: 600,
+              lineHeight: 1.7,
+            }}>
+              ⚠️ <b>تنبيه مهم — متخلطش:</b><br/>
+              • الـ <b>Client Secret</b> (بيبدأ بـ <code>shpss_</code>) <b>مش</b> Access Token. ده للـ OAuth handshake بس ومش هيشتغل هنا.<br/>
+              • اللي محتاجه = الـ <b>Admin API Access Token</b> اللي بيبدأ بـ <code>shpat_</code> (بيظهر بعد Install app أو Create token).
+            </div>
           </div>
         </Card>
       )}
