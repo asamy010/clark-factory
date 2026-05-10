@@ -171,3 +171,15 @@ export function shopifyUpdateCustomer(opts, user){
 export function shopifyPushProductFromClark(opts, user){
   return call("POST", "/api/shopify/push-product-from-clark", opts, user);
 }
+
+/* V21.1 Phase 10b: Sync abandoned carts.
+   { hoursBack? } → { ok, total, withPhone, withEmail, totalValue } */
+export function shopifySyncAbandonedCarts(opts, user){
+  return call("POST", "/api/shopify/sync-abandoned-carts", opts || {}, user);
+}
+
+/* V21.1 Phase 10b: Update cart recovery state (bump contact, mark recovered, etc).
+   { cartId | bulkCartIds, bumpContact?, recovered?, do_not_contact?, user_note? } */
+export function shopifyUpdateCartRecovery(opts, user){
+  return call("POST", "/api/shopify/update-cart-recovery", opts, user);
+}

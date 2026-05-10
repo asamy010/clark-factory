@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.1.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Phase 10b — Abandoned Carts re-engagement",
+    changes: [
+      { type: "feature", text: "🛍️ [Abandoned Carts] Sync الـ checkouts المهجورة من Shopify (= عملاء بدأوا الشراء وما خلّصوش). Industry recovery rate ~25-35% — قيمة عالية جداً للـ revenue." },
+      { type: "feature", text: "📡 [2 endpoints]\n• POST /api/shopify/sync-abandoned-carts (admin) — pull من /checkouts.json?status=open، defaults to 30 days back، cap 1000 cart\n• POST /api/shopify/update-cart-recovery (admin) — bumpContact, mark recovered, set notes, do_not_contact" },
+      { type: "feature", text: "🎯 [Smart WhatsApp Recovery] لما تـ click 📱 Recovery على cart:\n• الرسالة بـ تتولّد تلقائياً مع:\n  - اسم العميل\n  - أول 3 منتجات في العربة\n  - الإجمالي\n  - الـ abandoned_checkout_url (يـ pre-fill الـ checkout الأصلي)\n  - اقتراح كوبون BACK10 (10% خصم)\n• WhatsApp بـ يفتح في tab جديد\n• Bulk mode: 📱 WhatsApp Recovery Bulk للـ selected (delay 500ms بين كل واحد)" },
+      { type: "feature", text: "🛍️ [New sub-tab] 'السلال المهجورة' بين الـ Orders والـ Customers بـ:\n• 5 stat cards: total / active / recovered / recovery rate / has phone\n• Filter active vs recovered\n• Bulk select + bulk WhatsApp\n• كل cart row: customer name + status badge + contact count + phone/email + age + items + total\n• 3 actions: 📱 Recovery (WhatsApp) / ↗ Link (open checkout) / ✅ Recovered (manual mark)" },
+      { type: "feature", text: "💾 [Persistent fields per cart]\n• last_contacted_at + contact_count — auto-tracked\n• recovered_at + recovered_by\n• do_not_contact flag\n• user_note (free text)\nالـ sync الجاي بـ يحافظ على كل ده — مفيش loss للـ engagement history." },
+    ]
+  },
+  {
     version: "V21.0.0",
     date: "2026-05-10",
     types: ["feature"],

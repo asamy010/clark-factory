@@ -38,6 +38,7 @@ import {
   shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
   shopifyBulkUpdateProducts, shopifySyncProductsWithFilters, shopifyCreateClarkItem,
   shopifySyncCustomers, shopifyUpdateCustomer,
+  shopifySyncAbandonedCarts, shopifyUpdateCartRecovery,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -51,6 +52,7 @@ const SUB_TABS = [
   { key: "connection",     label: "🔌 الاتصال",         color: "#10B981" },
   { key: "products",       label: "📦 المنتجات",        color: "#F59E0B" },
   { key: "orders",         label: "🛒 الطلبات",         color: "#8B5CF6" },
+  { key: "abandoned",      label: "🛍️ السلال المهجورة", color: "#DB2777" },
   { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
   { key: "shipping",       label: "🚚 الشحن (Bosta)",   color: "#0D9488" },
   { key: "invoices",       label: "🧾 الفواتير",        color: "#06B6D4" },
@@ -177,6 +179,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "customers"      && <CustomersTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "abandoned"      && <AbandonedCartsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "invoices"       && <ShopifyInvoicesTab data={data} isMob={isMob} />}
         {activeTab === "reconciliation" && <ReconciliationTab data={data} canEdit={canEdit} user={user} isMob={isMob} setActiveTab={setActiveTab} />}
@@ -4311,6 +4314,225 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.1 Phase 10b — AbandonedCartsTab
+   ───────────────────────────────────────────────────────────────────────
+   Pulls Shopify abandoned checkouts (people who started buying but
+   didn't complete) and lets the admin send WhatsApp recovery messages
+   with the abandoned_checkout_url.
+   ═══════════════════════════════════════════════════════════════════════ */
+function AbandonedCartsTab({ data, canEdit, user, isMob }){
+  const cfg = data?.shopifyConfig || {};
+  const carts = useMemo(() => Array.isArray(data?.shopifyAbandonedCarts) ? data.shopifyAbandonedCarts : [], [data]);
+  const [filter, setFilter] = useState("active"); /* active | recovered | all */
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+
+  const stats = useMemo(() => {
+    let total = 0, withPhone = 0, recovered = 0, totalValue = 0, recoveredValue = 0;
+    carts.forEach(c => {
+      total++;
+      if(c.phone) withPhone++;
+      if(c.recovered_at){ recovered++; recoveredValue += c.total_price; }
+      else totalValue += c.total_price;
+    });
+    return { total, withPhone, recovered, totalValue, recoveredValue, recoveryRate: total > 0 ? Math.round((recovered/total)*100) : 0 };
+  }, [carts]);
+
+  const filtered = useMemo(() => {
+    let res = carts;
+    if(filter === "active") res = res.filter(c => !c.recovered_at);
+    else if(filter === "recovered") res = res.filter(c => c.recovered_at);
+    const q = search.trim().toLowerCase();
+    if(q) res = res.filter(c =>
+      String(c.customer_name || "").toLowerCase().includes(q) ||
+      String(c.phone || "").toLowerCase().includes(q) ||
+      String(c.email || "").toLowerCase().includes(q) ||
+      String(c.token || "").toLowerCase().includes(q)
+    );
+    return res.slice().sort((a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+  }, [carts, filter, search]);
+
+  const toggleSelect = (id) => setSelected(prev => {
+    const n = new Set(prev);
+    if(n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+
+  const handleSync = async () => {
+    if(!canEdit) return;
+    setBusy(true);
+    try {
+      const r = await shopifySyncAbandonedCarts({ hoursBack: 720 }, user);
+      if(r?.ok){
+        showToast(`✅ ${r.total} سلة مهجورة · ${r.withPhone} لها تليفون · قيمة: ${fmt(r.totalValue)} ج`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  const handleWhatsApp = async (cart) => {
+    if(!cart.phone){ showToast("⚠️ مفيش تليفون"); return; }
+    const items = (cart.line_items || []).slice(0, 3).map(li => `• ${li.quantity}× ${li.title}`).join("\n");
+    const message = `أهلاً ${cart.customer_name || ""} 👋
+
+شفنا إنك بدأت شراء من CLARK Store بس ما خلّصت ✋
+
+العربة بتاعتك:
+${items}
+${cart.line_items.length > 3 ? `(و ${cart.line_items.length - 3} منتج تاني)` : ""}
+
+إجمالي: ${fmt(cart.total_price)} ج
+
+كمل الطلب من هنا 👇
+${cart.abandoned_checkout_url}
+
+🎁 خصم خاص للعميل الراجع: استخدم كوبون BACK10 للحصول على خصم 10%`;
+
+    const url = "https://wa.me/" + cart.phone.replace(/[^0-9]/g, "") + "?text=" + encodeURIComponent(message);
+    window.open(url, "_blank");
+    try {
+      await shopifyUpdateCartRecovery({ cartId: cart.id, bumpContact: true }, user);
+    } catch(_){}
+  };
+
+  const handleMarkRecovered = async (cart) => {
+    if(!canEdit) return;
+    const yes = await ask("✅ تأكيد الاسترداد",
+      `هل العميل ${cart.customer_name || cart.phone} كمل الطلب فعلاً؟\n\nده هـ يـ flag الـ cart كـ recovered للـ tracking.`);
+    if(!yes) return;
+    setBusyId(cart.id);
+    try {
+      await shopifyUpdateCartRecovery({ cartId: cart.id, recovered: true }, user);
+      showToast("✅ تم");
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const handleBulkWhatsApp = async () => {
+    const selectedCarts = carts.filter(c => selected.has(c.id) && c.phone && !c.do_not_contact && !c.recovered_at);
+    if(selectedCarts.length === 0){ showToast("⚠️ مفيش سلال active لها تليفون في الاختيار"); return; }
+    const yes = await ask("📱 WhatsApp Bulk",
+      `هـ يفتح ${selectedCarts.length} tab في WhatsApp Web. كل tab بـ يحتوي رسالة استرداد مخصصة بـ link الـ checkout بتاعها.\n\nتأكيد؟`);
+    if(!yes) return;
+    for(let i = 0; i < selectedCarts.length; i++){
+      handleWhatsApp(selectedCarts[i]);
+      if(i < selectedCarts.length - 1) await new Promise(r => setTimeout(r, 500));
+    }
+    setSelected(new Set());
+  };
+
+  if(!cfg.connected){
+    return <Card title="⚠️ مش متصل"><div style={{ padding: 24, textAlign: "center", color: T.textSec }}>روح تاب 🔌 الاتصال أولاً.</div></Card>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(5, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="🛍️" color="#DB2777" />
+        <MetricCard label="active" value={String(stats.total - stats.recovered)} icon="⏳" color="#F59E0B" sub={fmt(stats.totalValue) + " ج"} />
+        <MetricCard label="recovered" value={String(stats.recovered)} icon="✅" color="#10B981" sub={fmt(stats.recoveredValue) + " ج"} />
+        <MetricCard label="recovery rate" value={stats.recoveryRate + "%"} icon="📈" color="#8B5CF6" />
+        <MetricCard label="بـ تليفون" value={String(stats.withPhone)} icon="📞" color="#0EA5E9" />
+      </div>
+
+      <Card title="🛍️ السلال المهجورة" extra={
+        <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSync} disabled={!canEdit} small>
+          🔄 تحديث
+        </LoadingBtn>
+      }>
+        {cfg.last_abandoned_carts_sync_at && (
+          <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 8 }}>
+            آخر تحديث: {new Date(cfg.last_abandoned_carts_sync_at).toLocaleString("ar-EG")}
+          </div>
+        )}
+
+        <div style={{ padding: "10px 12px", background: "#DB277710", border: "1px solid #DB277725", borderRadius: 8, fontSize: FS - 2, lineHeight: 1.7, marginBottom: 12, color: T.text }}>
+          ℹ️ <b>السلال المهجورة</b> = عملاء بدأوا الـ checkout لكن ما خلّصوش الدفع. WhatsApp recovery campaign بـ يقدر يـ recover ~25-35% منهم. الرسالة بتـ generate تلقائياً مع link الـ checkout الخاص بالعميل + اقتراح كوبون خصم.
+        </div>
+
+        {selected.size > 0 && (
+          <div style={{ padding: "10px 14px", background: "#DB277715", border: "1px solid #DB277740", borderRadius: 10, marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontWeight: 800, color: "#DB2777" }}>{selected.size} محدد</span>
+            <Btn small primary onClick={handleBulkWhatsApp}>📱 WhatsApp Recovery Bulk</Btn>
+            <Btn small ghost onClick={() => setSelected(new Set())}>✕</Btn>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 12 }}>
+          <Sel value={filter} onChange={setFilter}>
+            <option value="active">⏳ Active فقط</option>
+            <option value="recovered">✅ Recovered فقط</option>
+            <option value="all">الكل</option>
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث..." />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
+            <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>🛍️</div>
+            <div>{carts.length === 0 ? "اضغط 'تحديث' للـ sync" : "مفيش سلال تطابق الفلتر"}</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.slice(0, 50).map(cart => (
+              <div key={cart.id} style={{
+                padding: 12,
+                borderRadius: 10,
+                background: cart.recovered_at ? "#10B98108" : T.cardSolid,
+                border: "1px solid " + (cart.recovered_at ? "#10B98140" : T.brd),
+                borderInlineStart: "3px solid " + (cart.recovered_at ? "#10B981" : "#DB2777"),
+              }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <input type="checkbox" checked={selected.has(cart.id)} onChange={() => toggleSelect(cart.id)} disabled={!!cart.recovered_at} style={{ marginTop: 4, width: 18, height: 18 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: FS, color: T.text }}>{cart.customer_name || "(غير معروف)"}</span>
+                      {cart.recovered_at && <span style={{ fontSize: FS - 3, padding: "1px 8px", borderRadius: 6, background: "#10B98115", color: "#10B981", fontWeight: 700 }}>✅ recovered</span>}
+                      {cart.contact_count > 0 && <span style={{ fontSize: FS - 3, color: T.textMut }}>📱 {cart.contact_count}×</span>}
+                    </div>
+                    <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {cart.phone && <span>📞 {cart.phone}</span>}
+                      {cart.email && <span>📧 {cart.email}</span>}
+                      <span style={{ color: T.textMut }}>📅 {cart.created_at && new Date(cart.created_at).toLocaleDateString("ar-EG")}</span>
+                    </div>
+                    <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+                      🛒 {cart.items_count} منتج · 💰 <b style={{ color: T.accent }}>{fmt(cart.total_price)} ج</b>
+                      {(cart.line_items || []).slice(0, 2).map((li, i) => (
+                        <span key={i} style={{ marginInlineStart: 8, padding: "1px 6px", borderRadius: 4, background: T.bg, fontSize: FS - 3 }}>
+                          {li.quantity}× {String(li.title).slice(0, 30)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: isMob ? "row" : "column", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
+                    {!cart.recovered_at && cart.phone && (
+                      <Btn small primary onClick={() => handleWhatsApp(cart)} disabled={!canEdit}>📱 Recovery</Btn>
+                    )}
+                    {cart.abandoned_checkout_url && (
+                      <Btn small onClick={() => window.open(cart.abandoned_checkout_url, "_blank")}>↗ Link</Btn>
+                    )}
+                    {!cart.recovered_at && (
+                      <Btn small ghost onClick={() => handleMarkRecovered(cart)} disabled={!canEdit || busyId === cart.id}>✅ Recovered</Btn>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {filtered.length > 50 && <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>+ {filtered.length - 50} سلة أخرى</div>}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
