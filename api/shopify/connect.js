@@ -84,7 +84,16 @@ export default async function handler(req, res){
       return;
     }
   } catch(e){
-    res.status(400).json({ ok:false, error: e.message || "فشل الاتصال بـ Shopify" });
+    /* V21.9.11: distinguish auth errors (caller-fixable, 401) from upstream
+       failures (Shopify down/network, 502). Pre-V21.9.11 every failure was
+       400 — observability suffered (couldn't tell from logs whether to
+       retry or escalate). CLAUDE.md §9: 400=client, 502=upstream, 500=ours. */
+    const msg = e.message || "فشل الاتصال بـ Shopify";
+    let statusCode = 502; /* default: assume upstream issue */
+    if(/401|unauthorized|invalid.*token|access.*denied|forbidden|403/i.test(msg)){
+      statusCode = 401;
+    }
+    res.status(statusCode).json({ ok:false, error: msg });
     return;
   }
 

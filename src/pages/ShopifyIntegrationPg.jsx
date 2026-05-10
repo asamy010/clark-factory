@@ -931,7 +931,13 @@ function ReturnsTab({ data, canEdit, user, isMob }){
       `هل تريد قبول طلب الارتجاع للعميل ${request.customer?.name || request.customer?.phone}؟\n\n` +
       `سيتم تغيير الحالة لـ "مقبول" + (اختياري) إنشاء طلب استلام Bosta من العميل.\n\n` +
       `تأكيد الإنشاء عبر Bosta؟`);
-    if(yes === null || yes === undefined) return;
+    /* V21.9.11 ROOT-CAUSE FIX: pre-V21.9.11 the check was
+         `if(yes === null || yes === undefined) return;`
+       which let `false` (user clicked "لا") FALL THROUGH and approve the
+       request anyway. Real user-impact bug — pressing Cancel on the dialog
+       still triggered the Bosta pickup. The right check is `!yes` so any
+       falsy value (false / null / undefined) cancels. */
+    if(!yes) return;
     handleAction(request, "approve", { create_bosta_pickup: true });
   };
 
@@ -1398,6 +1404,11 @@ function CampaignsTab({ data, canEdit, user, isMob }){
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [composerState, setComposerState] = useState(null); /* { recipients, message } | null */
+  /* V21.9.11: holds the prepared audience after user clicks Run + confirms.
+     We render a per-row "Send" button instead of a bulk window.open loop —
+     each click is its own user gesture so popup blockers don't drop tabs.
+     CLAUDE.md §7: never call window.open() after `await ask(...)`. */
+  const [runConfirm, setRunConfirm] = useState(null); /* { campaign, summary, audience: [{ wa_url, name, phone }] } */
 
   /* Stats */
   const stats = useMemo(() => {
@@ -1423,24 +1434,18 @@ function CampaignsTab({ data, canEdit, user, isMob }){
         showToast(`ℹ️ مفيش عملاء جدد للإرسال (${summary.skipped} اتـ skip)`);
         return;
       }
-      const yes = await ask(
-        "📤 تشغيل الحملة",
-        `الحملة "${campaign.name}":\n\n` +
-        `• إجمالي الـ audience: ${summary.total}\n` +
-        `• جاهز للإرسال: ${summary.prepared}\n` +
-        `• تم التخطي: ${summary.skipped} (متواصل قبل كده / تليفون مش صح)\n\n` +
-        `هـ يفتح ${summary.prepared} tab في WhatsApp Web. تأكيد؟`
-      );
-      if(!yes) return;
-      /* Open WhatsApp tabs in batches */
-      const list = r.audience || [];
-      let opened = 0;
-      for(let i = 0; i < list.length; i++){
-        window.open(list[i].wa_url, "_blank");
-        opened++;
-        if(i < list.length - 1) await new Promise(rs => setTimeout(rs, 400));
-      }
-      showToast(`📤 اتفتح ${opened} tab — كمّل الإرسال يدوياً من WhatsApp Web`);
+      /* V21.9.11 ROOT-CAUSE FIX (popup blocker):
+         Pre-V21.9.11 we called `await ask(...)` then `window.open(url, "_blank")`
+         in a loop. Browsers consume the user gesture on the first await, so
+         99% of the bulk-opened tabs were silently blocked. CLAUDE.md §10
+         lists this exact anti-pattern.
+
+         Fix: stash the audience and render a modal with one row per
+         recipient — each row's Send button is its own fresh user click,
+         so window.open works synchronously inside the click handler. The
+         user clicks through the list at their own pace; this also matches
+         how WhatsApp Web actually wants to be driven (one chat at a time). */
+      setRunConfirm({ campaign, summary, audience: r.audience || [] });
     } catch(e){ showToast("⛔ " + e.message); }
     finally { setBusyId(null); }
   };
@@ -1558,6 +1563,124 @@ function CampaignsTab({ data, canEdit, user, isMob }){
       {showCreate && (
         <CreateCampaignModal data={data} user={user} isMob={isMob} onClose={() => setShowCreate(false)} />
       )}
+
+      {/* V21.9.11: per-row send list (replaces the broken bulk window.open loop) */}
+      {runConfirm && (
+        <CampaignRunConfirm
+          state={runConfirm}
+          isMob={isMob}
+          onClose={() => setRunConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* V21.9.11: CampaignRunConfirm — renders the prepared audience as a list
+   with one Send button per row. Each click is a fresh user gesture, so
+   `window.open(wa_url, "_blank")` inside the handler is synchronous and
+   not blocked by Chrome/Firefox/Safari popup heuristics.
+
+   Why a modal vs. inline list: the campaign card is already crowded; a
+   focused modal makes the "send through this list" flow obvious and easy
+   to interrupt mid-way. */
+function CampaignRunConfirm({ state, isMob, onClose }){
+  const { campaign, summary, audience } = state;
+  const [sentIds, setSentIds] = useState(() => new Set());
+
+  const handleSend = (item) => {
+    /* SYNCHRONOUS — invoked directly by the click event, gesture is fresh. */
+    const w = window.open(item.wa_url, "_blank");
+    if(!w){
+      showToast("⛔ المتصفح حظر الـ tab — اسمح بالـ popups من إعدادات الـ browser");
+      return;
+    }
+    setSentIds(prev => {
+      const next = new Set(prev);
+      next.add(item.id || item.wa_url);
+      return next;
+    });
+  };
+
+  const sentCount = sentIds.size;
+  const totalCount = audience.length;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 16,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: T.cardSolid || "#fff", color: T.text,
+          borderRadius: 14, padding: isMob ? 14 : 20,
+          maxWidth: 640, width: "100%", maxHeight: "85vh", overflow: "auto",
+          direction: "rtl",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: FS + 2, fontWeight: 800 }}>📤 تشغيل الحملة — {campaign.name}</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+              {summary.prepared} جاهز · {summary.skipped} اتـ skip · أرسلت: {sentCount}/{totalCount}
+            </div>
+          </div>
+          <Btn small onClick={onClose}>✕</Btn>
+        </div>
+
+        <div style={{
+          padding: "10px 12px", background: "#25D36610",
+          border: "1px solid #25D36625", borderRadius: 8,
+          fontSize: FS - 2, lineHeight: 1.7, marginBottom: 12,
+        }}>
+          ℹ️ اضغط على زر "إرسال" جنب كل عميل عشان يفتح WhatsApp Web بالرسالة جاهزة.
+          كل ضغطة بتفتح tab واحد — ده حل لمشكلة الـ popup blocker (المتصفحات بتمنع فتح أكتر من tab مرة واحدة).
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {audience.map((item, i) => {
+            const id = item.id || item.wa_url;
+            const sent = sentIds.has(id);
+            return (
+              <div
+                key={id || i}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 10px",
+                  background: sent ? "#10B98115" : T.glass,
+                  border: "1px solid " + (sent ? "#10B98140" : T.brd),
+                  borderRadius: 8,
+                  opacity: sent ? 0.7 : 1,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: FS - 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {sent ? "✅ " : ""}{item.name || item.phone || item.id}
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>{item.phone || ""}</div>
+                </div>
+                <Btn
+                  small
+                  primary={!sent}
+                  onClick={() => handleSend(item)}
+                  style={sent ? undefined : { background: "#25D366", color: "#fff", border: "none" }}
+                >
+                  {sent ? "اتـبعت" : "📤 إرسال"}
+                </Btn>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Btn onClick={onClose}>تم</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6256,7 +6379,7 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
                 onClick={onWhatsApp}
                 title={
                   customer.contact_count > 0
-                    ? "اتبعت ${customer.contact_count} رسالة قبل كده — اضغط بحذر".replace("${customer.contact_count}", customer.contact_count)
+                    ? `اتبعت ${customer.contact_count} رسالة قبل كده — اضغط بحذر`
                     : "WhatsApp"
                 }
                 style={customer.contact_count >= 3 ? { background: T.err, color: "#fff", borderColor: T.err } : (customer.contact_count > 0 ? { background: "#25D36620", color: "#128C7E", borderColor: "#25D36640" } : undefined)}

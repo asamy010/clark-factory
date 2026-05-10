@@ -77,8 +77,32 @@ export async function createJob(jobId, init){
   let pendingUpdate = null;
   let pendingTimer = null;
   let cancelled = false;
+  /* V21.9.11: track Firestore write failures so persistent connectivity
+     issues surface in logs instead of being completely silent. We don't
+     reject from `update()` (callers shouldn't have to handle progress-write
+     errors), but a flat-line at "بدء العملية..." is the worst UX. */
+  let silentErrCount = 0;
+  const SILENT_ERR_LOG_THRESHOLD = 3;
 
-  /* Throttled update — coalesces multiple updates into 1/sec. */
+  const safeWrite = async (data) => {
+    try {
+      await ref.set(data, { merge: true });
+      if(silentErrCount > 0) silentErrCount = 0; /* recovered */
+    } catch(e){
+      silentErrCount++;
+      if(silentErrCount === SILENT_ERR_LOG_THRESHOLD){
+        console.warn(
+          "[progressTracker] job " + jobId + ": " + silentErrCount +
+          " consecutive update writes failed — overlay may be stale. Last err:",
+          (e && e.message) || e
+        );
+      }
+    }
+  };
+
+  /* Throttled update — coalesces multiple updates into 1/sec.
+     V21.9.11: every write path re-checks `cancelled` so a delayed timer
+     can't fire AFTER `complete()` and overwrite the final state. */
   const update = async (patch) => {
     if(cancelled) return;
     const merged = {
@@ -97,17 +121,21 @@ export async function createJob(jobId, init){
       lastWriteAt = now;
       const data = pendingUpdate;
       pendingUpdate = null;
-      try { await ref.set(data, { merge: true }); } catch(_){ /* non-fatal */ }
+      /* Re-check cancelled — `complete()` may have flipped it during the
+         async micro-tasks above (timestamp construction, percent math). */
+      if(cancelled) return;
+      await safeWrite(data);
     } else {
       /* Schedule a delayed flush */
       if(!pendingTimer){
         pendingTimer = setTimeout(async () => {
           pendingTimer = null;
+          if(cancelled) return; /* race fix: complete() may have flushed already */
           if(!pendingUpdate) return;
           lastWriteAt = Date.now();
           const data = pendingUpdate;
           pendingUpdate = null;
-          try { await ref.set(data, { merge: true }); } catch(_){}
+          await safeWrite(data);
         }, wait);
       }
     }
@@ -119,14 +147,17 @@ export async function createJob(jobId, init){
     if(pendingUpdate){
       const data = pendingUpdate;
       pendingUpdate = null;
-      try { await ref.set(data, { merge: true }); } catch(_){}
+      await safeWrite(data);
     }
   };
 
-  /* Mark complete with success/failure */
+  /* Mark complete with success/failure.
+     V21.9.11: flip `cancelled` BEFORE flushPending so any timer that fires
+     mid-flush sees the flag and bails out. */
   const complete = async (status, payload) => {
     cancelled = true;
-    await flushPending();
+    if(pendingTimer){ clearTimeout(pendingTimer); pendingTimer = null; }
+    pendingUpdate = null; /* drop any queued throttled patch — `final` supersedes */
     const finishedAt = new Date().toISOString();
     const final = {
       status,
@@ -146,7 +177,9 @@ export async function createJob(jobId, init){
     } else {
       final.message = payload?.message || status;
     }
-    try { await ref.set(final, { merge: true }); } catch(_){}
+    try { await ref.set(final, { merge: true }); } catch(e){
+      console.warn("[progressTracker] complete() write failed for job " + jobId + ":", (e && e.message) || e);
+    }
     return final;
   };
 

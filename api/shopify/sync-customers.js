@@ -181,26 +181,45 @@ export default async function handler(req, res){
          goes either to factory/config.shopifyCustomers (legacy) or to
          shopifyCustomersDocs (post-migration). For post-migration we do the
          per-doc writes OUTSIDE the transaction (after it commits) to avoid
-         hitting the 500-write tx limit. */
+         hitting the 500-write tx limit.
+
+         V21.9.11 ROOT-CAUSE FIX:
+         Pre-V21.9.11 we wrote `last_customers_sync_at` + counts INSIDE the
+         transaction, then did the per-doc writes OUTSIDE. If the per-doc
+         loop crashed or timed out partway, the metadata would lie:
+           "last_customers_sync_count: 1500" but only ~700 docs actually
+           landed in shopifyCustomersDocs.
+         Fix: write only `last_customers_sync_started_at` inside the tx; the
+         authoritative `last_customers_sync_at` + counts are written AFTER
+         the per-doc writes succeed (post-tx, below). */
       const baseUpdate = {
         shopifyConfig: {
           ...(cfg.shopifyConfig || {}),
-          last_customers_sync_at: new Date().toISOString(),
-          last_customers_sync_count: capped.length,
-          last_customers_sync_shopify_count: shopifyCustomers.length,
-          last_customers_sync_archive_count: archivedOrders.length,
-          last_customers_sync_combined_orders: stats.combined_order_count || 0,
+          last_customers_sync_started_at: new Date().toISOString(),
           last_customers_sync_shopify_error: shopifyFetchError || null,
         },
       };
       if(!isPartitioned){
-        /* Legacy: keep array in config */
+        /* Legacy: keep array in config — and DO mark sync complete inline,
+           since the array write is itself inside the tx (atomic). */
         baseUpdate.shopifyCustomers = capped;
+        baseUpdate.shopifyConfig.last_customers_sync_at = new Date().toISOString();
+        baseUpdate.shopifyConfig.last_customers_sync_count = capped.length;
+        baseUpdate.shopifyConfig.last_customers_sync_shopify_count = shopifyCustomers.length;
+        baseUpdate.shopifyConfig.last_customers_sync_archive_count = archivedOrders.length;
+        baseUpdate.shopifyConfig.last_customers_sync_combined_orders = stats.combined_order_count || 0;
       }
       tx.set(cfgRef, baseUpdate, { merge: true });
     });
 
-    /* V21.9.2: post-migration, write per-doc OUTSIDE the tx */
+    /* V21.9.2: post-migration, write per-doc OUTSIDE the tx.
+       V21.9.11: only mark sync complete (with authoritative counts) AFTER
+       the per-doc writes succeed. If writeManyShopifyCustomers throws, the
+       outer catch in withProgress fires error status — so the metadata stays
+       at "last_customers_sync_started_at" (caller can detect partial state).
+       Uses dot-path update() so we don't have to re-fetch + re-spread
+       shopifyConfig (which would race with concurrent edits to other
+       shopifyConfig fields like store_url, access_token, etc.). */
     if(isPartitioned && cappedResult){
       await update({
         message: `حفظ ${cappedResult.length} عميل (per-doc)...`,
@@ -208,6 +227,14 @@ export default async function handler(req, res){
         total: cappedResult.length,
       });
       await writeManyShopifyCustomers({ [FLAG_V2192]: true }, cappedResult);
+      /* Now mark sync complete with authoritative counts */
+      await cfgRef.update({
+        "shopifyConfig.last_customers_sync_at": new Date().toISOString(),
+        "shopifyConfig.last_customers_sync_count": cappedResult.length,
+        "shopifyConfig.last_customers_sync_shopify_count": shopifyCustomers.length,
+        "shopifyConfig.last_customers_sync_archive_count": archivedOrders.length,
+        "shopifyConfig.last_customers_sync_combined_orders": stats.combined_order_count || 0,
+      });
     }
 
     return {

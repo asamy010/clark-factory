@@ -20,7 +20,7 @@
    after delivery — usually <2% of orders).
    ═══════════════════════════════════════════════════════════════ */
 
-import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { getDb, setCors, verifyAdminToken, readSplitCollection } from "../_firebase.js";
 
 const CN_PREFIX = "CN";
 
@@ -30,6 +30,14 @@ function newCnId(){
 
 function r2(n){
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/* V21.9.11: dayId helper — matches the YYYY-MM-DD format used by App.jsx
+   for split day-doc keys. */
+function dayIdOf(isoDate){
+  const s = String(isoDate || new Date().toISOString());
+  const d = s.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : new Date().toISOString().slice(0, 10);
 }
 
 /* Reserve next credit-note number from invoiceCounters.creditNotes[year] */
@@ -72,11 +80,38 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
+
+    /* V21.9.11 ROOT-CAUSE FIX:
+       Pre-V21.9.11 the handler read `cfg.salesInvoices` and `cfg.salesCreditNotes`
+       directly. After the V19.50 split (invoices) and V21.9.5 split (credit notes)
+       both arrays are stripped from factory/config — they live in
+       `salesInvoicesDays/{YYYY-MM-DD}` and `salesCreditNotesDays/{YYYY-MM-DD}`.
+       Reading the legacy fields returned [], so:
+         (a) `linkedInvoice` was always null → CN had `items=[]`, `subtotal=0`,
+             `total=0` — silent revenue/return reconciliation breakage.
+         (b) Idempotency check found nothing → repeat clicks duplicated CNs.
+         (c) New CN was written to `cfg.salesCreditNotes` → stripped on next
+             client load → CN LOST.
+       Fix: pre-read all invoices + CNs from split collections; write the new
+       CN into today's day doc within the same tx as the order update. */
+    const splitInvoices = await readSplitCollection("salesInvoicesDays");
+    const splitCNs = await readSplitCollection("salesCreditNotesDays");
+
     let updatedOrder = null;
     let createdCN = null;
     await db.runTransaction(async (tx) => {
+      /* ── ALL READS FIRST ── */
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
+      const invoiceSplitActive = !!cfg._splitDaysV1950Done;
+      const cnSplitActive = !!cfg._splitDaysV2195Done;
+
+      /* Pre-read today's CN day doc — used in the split-active path. */
+      const today = new Date().toISOString().slice(0, 10);
+      const cnDayRef = db.collection("salesCreditNotesDays").doc(today);
+      const cnDaySnap = cnSplitActive ? await tx.get(cnDayRef) : null;
+
+      /* ── LOGIC ── */
       const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
       const idx = orders.findIndex(o => String(o.shopify_order_id) === orderId);
       if(idx < 0){
@@ -87,13 +122,19 @@ export default async function handler(req, res){
         throw new Error("الـ Process Return بـ يشتغل بس على الطلبات اللي تم استلامها فعلاً (status=delivered)");
       }
 
-      /* Find the linked invoice */
-      const invoices = Array.isArray(cfg.salesInvoices) ? cfg.salesInvoices : [];
-      const linkedInvoice = invoices.find(inv => inv.id === order.invoice_id) || null;
+      /* Find the linked invoice — V21.9.11: from split snapshot if active,
+         else from legacy cfg.salesInvoices. */
+      const invoiceList = invoiceSplitActive
+        ? splitInvoices
+        : (Array.isArray(cfg.salesInvoices) ? cfg.salesInvoices : []);
+      const linkedInvoice = invoiceList.find(inv => inv.id === order.invoice_id) || null;
 
-      /* Check for existing credit note (idempotent) */
-      const existingCNs = Array.isArray(cfg.salesCreditNotes) ? cfg.salesCreditNotes : [];
-      const existing = existingCNs.find(cn =>
+      /* Check for existing credit note (idempotent) — V21.9.11: from split
+         snapshot if active, else from legacy cfg.salesCreditNotes. */
+      const cnList = cnSplitActive
+        ? splitCNs
+        : (Array.isArray(cfg.salesCreditNotes) ? cfg.salesCreditNotes : []);
+      const existing = cnList.find(cn =>
         cn.source === "shopify" && String(cn.source_ref) === orderId
       );
       if(existing){
@@ -140,7 +181,7 @@ export default async function handler(req, res){
         creditNoteNo,
         customerId,
         customerName,
-        date: new Date().toISOString().slice(0, 10),
+        date: today,
         linkedInvoiceId: linkedInvoice?.id || null,
         linkedInvoiceNo: linkedInvoice?.invoiceNo || null,
         returnRef: null, /* No CLARK-side return record; this is direct from Shopify */
@@ -163,8 +204,6 @@ export default async function handler(req, res){
         shopify_customer_phone: customer.phone || "",
       };
 
-      const nextCNs = [cn, ...existingCNs];
-
       /* Update the order */
       const next = {
         ...order,
@@ -178,11 +217,32 @@ export default async function handler(req, res){
       const updated = orders.slice();
       updated[idx] = next;
 
-      tx.set(cfgRef, {
+      /* ── WRITES ── */
+      const cfgPatch = {
         shopifyPendingOrders: updated,
-        salesCreditNotes: nextCNs,
         invoiceCounters: updatedCounters,
-      }, { merge: true });
+      };
+      if(!cnSplitActive){
+        /* Legacy mode: write CN to cfg.salesCreditNotes (will be migrated later) */
+        const existingCfgCNs = Array.isArray(cfg.salesCreditNotes) ? cfg.salesCreditNotes : [];
+        cfgPatch.salesCreditNotes = [cn, ...existingCfgCNs];
+      }
+      tx.set(cfgRef, cfgPatch, { merge: true });
+
+      /* V21.9.11: split-active path — append CN to today's day doc atomically. */
+      if(cnSplitActive){
+        const dayEntries = (cnDaySnap && cnDaySnap.exists && Array.isArray(cnDaySnap.data()?.entries))
+          ? cnDaySnap.data().entries
+          : [];
+        const filtered = dayEntries.filter(e => e && e.id !== cn.id);
+        const merged = [cn, ...filtered];
+        tx.set(cnDayRef, {
+          entries: merged,
+          count: merged.length,
+          updatedAt: new Date().toISOString(),
+        }, { merge: false });
+      }
+
       updatedOrder = next;
       createdCN = cn;
     });

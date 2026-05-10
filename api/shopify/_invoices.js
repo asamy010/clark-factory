@@ -134,9 +134,20 @@ export function buildShopifyInvoiceFromOrder(cfg, order, deliveredBy){
 }
 
 /* Find an existing Shopify-sourced invoice for an order id (to avoid
-   creating duplicates if the user clicks Mark Delivered twice). */
-export function findInvoiceByShopifyOrderId(cfg, shopifyOrderId){
-  const list = Array.isArray(cfg.salesInvoices) ? cfg.salesInvoices : [];
+   creating duplicates if the user clicks Mark Delivered twice).
+
+   V21.9.11 ROOT-CAUSE FIX: after the V19.50 split migration, `cfg.salesInvoices`
+   is stripped from factory/config (data lives in `salesInvoicesDays/{YYYY-MM-DD}`
+   collection). Reading `cfg.salesInvoices` returns `undefined` → `[]` → no
+   match → caller always built a fresh invoice → duplicate invoices.
+   Now accepts an optional `fromList` parameter. Callers that pre-read the
+   split collection via `readSplitCollection("salesInvoicesDays")` pass the
+   merged list here. Backwards-compatible: if `fromList` is omitted we fall
+   back to `cfg.salesInvoices` (legacy/pre-migration behavior). */
+export function findInvoiceByShopifyOrderId(cfg, shopifyOrderId, fromList){
+  const list = Array.isArray(fromList)
+    ? fromList
+    : (Array.isArray(cfg.salesInvoices) ? cfg.salesInvoices : []);
   const id = String(shopifyOrderId);
   return list.find(inv => inv.source === "shopify" && String(inv.source_ref) === id) || null;
 }

@@ -206,19 +206,15 @@ export default async function handler(req, res){
       tx.__nextBlacklist = nextBlacklist;
     });
 
-    /* V21.9.2 post-tx: per-doc writes */
+    /* V21.9.2 post-tx: per-doc writes.
+       V21.9.11: track per-id success/failure so partial failures surface to
+       the caller (was previously `.catch(() => {})` — silent). For delete
+       actions, failed deletes mean the blacklist (committed in the tx)
+       doesn't match reality — we report them so the user can re-run. */
+    const deleteFailures = [];
     if(isPartitioned){
-      /* For 'delete_*', we need to delete the affected docs.
-         For 'set_*', we need to update the modified docs. */
-      const removedIds = new Set(productsRead.map(p => String(p.shopify_id || p.id)));
-      /* Recompute the right set: which products survived vs deleted */
-      /* Simpler approach: we already updated/filtered in the tx logic above
-         but didn't persist to the collection. Re-execute the action against
-         the per-doc collection here. */
-      /* For correctness, we re-run the action against the read products. */
       let nextProducts = productsRead.slice();
       const idSet = new Set(ids);
-      const blackSet = new Set(Array.isArray(cfgEarly.shopifyConfig?.deletedProductIds) ? cfgEarly.shopifyConfig.deletedProductIds.map(String) : []);
 
       switch(action){
         case "set_synced":
@@ -245,7 +241,12 @@ export default async function handler(req, res){
           const toDelete = action === "delete_all" ? nextProducts.map(p => String(p.shopify_id)) : ids;
           for(const id of toDelete){
             const safeId = String(id).replace(/\//g, "_");
-            await db.collection(PRODUCTS_COL).doc(safeId).delete().catch(() => {});
+            try {
+              await db.collection(PRODUCTS_COL).doc(safeId).delete();
+            } catch(delErr){
+              deleteFailures.push({ id, error: delErr?.message || String(delErr) });
+              console.warn("[bulk-update-products] delete failed for", id, "—", delErr?.message);
+            }
           }
           /* Filter local copy too so the writeManyShopifyProducts below doesn't re-add */
           nextProducts = nextProducts.filter(p => !toDelete.includes(String(p.shopify_id)));
@@ -267,6 +268,7 @@ export default async function handler(req, res){
       updated,
       deleted,
       blacklistSize,
+      ...(deleteFailures.length ? { deleteFailures } : {}),
     });
   } catch(e){
     res.status(500).json({ ok:false, error: e.message });

@@ -190,26 +190,51 @@ export default async function handler(req, res){
 
       const mergedList = [];
       const seenIds = new Set();
+      /* V21.9.11 ROOT-CAUSE FIX (audit log clobber):
+         Pre-V21.9.11 the merge spread Shopify's freshly-mapped order `o` as
+         the BASE and selectively overwrote with `prev` fields from a hardcoded
+         allowlist. Any local CLARK field outside that allowlist (e.g.
+         `delivered_by`, `refused_by`, `returned_by`, `invoice_no`,
+         `return_credit_note_no`, `return_reason`, `stock_committed`,
+         `bosta_pickup_error`, plus future fields added without updating this
+         list) got OVERWRITTEN with `undefined` from Shopify's mapping —
+         silently wiping the audit trail.
+
+         The correct pattern (already used by sync-orders-now.js) is the
+         reverse: spread `prev` as the base (so all local fields persist),
+         then overwrite ONLY the fields Shopify is the source of truth for
+         (line items, totals, customer info, fulfillment status). */
+      const SHOPIFY_OWNED = [
+        "shopify_order_id", "shopify_order_number", "shopify_name", "shopify_created_at",
+        "shopify_processed_at", "shopify_updated_at", "shopify_financial_status",
+        "shopify_fulfillment_status", "shopify_currency", "shopify_tags",
+        "customer_info", "shipping_address", "billing_address",
+        "line_items", "subtotal", "tax", "total", "shipping_fee", "discount",
+        "payment_method", "note", "source_name", "cancelled_at", "cancel_reason",
+      ];
       for(const o of recentForLive){
         const id = String(o.shopify_order_id);
         if(seenIds.has(id)) continue;
         seenIds.add(id);
         const prev = existingMap.get(id);
         if(prev){
-          /* Preserve local mutations + Bosta tracking */
-          mergedList.push({
-            ...o,
-            status: prev.status || o.status,
-            stock_reserved: prev.stock_reserved,
-            stock_reservations: prev.stock_reservations,
-            invoice_id: prev.invoice_id,
-            delivered_at: prev.delivered_at,
-            refused_at: prev.refused_at,
-            refusal_reason: prev.refusal_reason,
-            returned_at: prev.returned_at,
-            return_credit_note_id: prev.return_credit_note_id,
-            bosta: prev.bosta || o.bosta,
-          });
+          /* Start from prev (preserve ALL local fields), overlay Shopify-owned. */
+          const merged = { ...prev };
+          for(const k of SHOPIFY_OWNED){
+            if(o[k] !== undefined) merged[k] = o[k];
+          }
+          /* Status: keep local if it represents a CLARK-side state Shopify
+             can't know about (delivered/refused/returned). For purely-Shopify
+             states (pending/cancelled), refresh from Shopify. */
+          const localStates = new Set(["delivered", "refused", "returned"]);
+          if(prev.status && localStates.has(prev.status)){
+            merged.status = prev.status;
+          } else {
+            merged.status = o.status || prev.status;
+          }
+          /* Bosta state always wins from prev (CLARK-side tracking) */
+          merged.bosta = prev.bosta || o.bosta;
+          mergedList.push(merged);
         } else {
           mergedList.push(o);
         }

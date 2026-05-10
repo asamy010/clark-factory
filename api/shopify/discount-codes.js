@@ -111,8 +111,14 @@ export default async function handler(req, res){
       if(!code || !Number.isFinite(value) || value <= 0){
         return res.status(400).json({ ok:false, error: "code + value (>0) مطلوبين" });
       }
-      /* Shopify needs negative value for discount */
-      const valueForShopify = type === "percentage" ? -Math.abs(value) : -Math.abs(value);
+      /* V21.9.11: server-side validation for percentage > 100. Pre-V21.9.11 the
+         UI guarded this client-side but the server accepted any positive number
+         and forwarded to Shopify, which returned a cryptic upstream error. */
+      if(type === "percentage" && value > 100){
+        return res.status(400).json({ ok:false, error: "نسبة الخصم لازم ≤ 100%" });
+      }
+      /* Shopify needs negative value for discount (both types use negative). */
+      const valueForShopify = -Math.abs(value);
       const rulePayload = {
         price_rule: {
           title: code,
