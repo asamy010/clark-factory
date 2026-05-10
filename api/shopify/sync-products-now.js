@@ -36,6 +36,7 @@ import { getShopifyCreds, fetchAllProducts } from "./_shopifyAdmin.js";
 import {
   readAllShopifyProducts, writeManyShopifyProducts, FLAG_V2192,
 } from "./_partitioned.js";
+import { withProgress } from "../_progressTracker.js";
 
 const PRODUCTS_CAP = 500; /* same logic as orders cap */
 
@@ -63,14 +64,22 @@ export default async function handler(req, res){
     return;
   }
 
-  /* ── Fetch all Shopify products ── */
-  let shopifyProducts;
-  try {
-    shopifyProducts = await fetchAllProducts(creds);
-  } catch(e){
-    res.status(502).json({ ok:false, error: "فشل سحب المنتجات: " + (e.message || e) });
-    return;
-  }
+  /* V21.9.4: wrap in withProgress for live overlay */
+  return withProgress(req, res, {
+    jobId: body.jobId,
+    type: "shopify-sync-products",
+    label: "سحب منتجات Shopify",
+    by: auth.email || auth.uid,
+  }, async (update) => {
+    await update({ message: "بدء سحب المنتجات من Shopify..." });
+
+    /* ── Fetch all Shopify products ── */
+    const shopifyProducts = await fetchAllProducts(creds);
+    await update({
+      progress: shopifyProducts.length,
+      total: shopifyProducts.length,
+      message: `تم سحب ${shopifyProducts.length} منتج · جاري المطابقة...`,
+    });
 
   /* ── Read current CLARK config ── */
   let cfg = {};
@@ -184,7 +193,8 @@ export default async function handler(req, res){
   /* ── Save ── */
   /* V21.9.2: write per-doc to shopifyProductsDocs collection if migrated,
      else to cfg.shopifyProducts array (legacy). */
-  try {
+  await update({ message: `حفظ ${finalProducts.length} منتج...` });
+  {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
     const now = new Date().toISOString();
@@ -199,13 +209,9 @@ export default async function handler(req, res){
         last_products_sync_filters: filters,
       },
     }, { merge: true });
-  } catch(e){
-    res.status(500).json({ ok:false, error: "فشل حفظ المنتجات: " + (e.message || e) });
-    return;
   }
 
-  res.status(200).json({
-    ok: true,
+  return {
     total: classified.length,
     fetched: shopifyProducts.length,
     afterFilters: filtered.length,
@@ -216,5 +222,7 @@ export default async function handler(req, res){
     replaceMode,
     cap: PRODUCTS_CAP,
     truncated: classified.length > PRODUCTS_CAP,
+    message: `تم! ${classified.length} منتج · ${matched} مطابق · ${missing} مش موجود في CLARK`,
+  };
   });
 }

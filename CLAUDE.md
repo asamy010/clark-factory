@@ -295,7 +295,115 @@ The changelog entry shape:
 
 ---
 
-## 11. Communication style with user
+## 11. Sync/Pull Progress Tracking (mandatory for any long operation)
+
+**As of V21.9.4, EVERY Shopify/Bosta sync or data-pull operation MUST:**
+1. Show a full-screen progress overlay (locks the UI — user can't interact)
+2. Show progress percent + current step message
+3. Handle errors gracefully (show in overlay, never crash)
+4. Auto-dismiss on success, manual on error
+
+### Server-side pattern
+
+Use `withProgress(req, res, init, handler)` from `api/_progressTracker.js`:
+
+```js
+import { withProgress } from "../_progressTracker.js";
+
+export default async function handler(req, res){
+  // ... setCors, auth checks, body parse ...
+  const body = ...;
+
+  return withProgress(req, res, {
+    jobId: body.jobId,           // pass-through from client
+    type: "shopify-sync-foo",     // analytic tag
+    label: "سحب البيانات...",      // shown in overlay header
+    by: auth.email,
+  }, async (update) => {
+    await update({ message: "بدء..." });
+
+    // ... work ...
+    await update({ progress: 50, total: 100, message: "نص الطريق" });
+
+    // Return the result (NOT res.json)
+    return { totalFetched: 100, /* ... */, message: "تم!" };
+  });
+}
+```
+
+The wrapper:
+- Creates `syncJobs/{jobId}` doc with status=running
+- Calls your handler with an `update` function
+- On return, writes status=done + result to the doc
+- On throw, writes status=error + error.message
+- Returns proper HTTP response to client (200 with result, or 500 with error)
+
+The `update()` function is throttled to 1 write per second (Firestore quota).
+Multiple rapid updates coalesce into the latest values.
+
+### Client-side pattern
+
+Use `runWithProgress({ ... })` from `src/utils/syncProgress.js`:
+
+```js
+import { runWithProgress } from "../utils/syncProgress.js";
+
+const r = await runWithProgress({
+  label: "سحب البيانات",          // shown in overlay
+  type: "shopify-sync-foo",         // analytic tag
+  fn: (jobId) => shopifyClientCall({ ...args, jobId }, user),
+});
+
+if(r?.ok){
+  // success — overlay auto-dismisses
+} else {
+  // error — overlay stays open showing the error; user dismisses manually
+  showToast("⛔ " + r.error);
+}
+```
+
+The wrapper:
+- Generates a jobId
+- Mounts the overlay synchronously (instant feedback)
+- Subscribes to `syncJobs/{jobId}` for live progress
+- Calls your fn with the jobId
+- Never throws — always returns `{ ok, ... }` or `{ ok: false, error }`
+
+### When wiring a new endpoint
+
+1. Add `import { withProgress } from "../_progressTracker.js"` (server)
+2. Replace the main body with `return withProgress(req, res, {...}, async (update) => { ... })`
+3. Replace `return res.status(200).json({...})` with `return {...}` (object only)
+4. Replace `return res.status(NNN).json({ ok:false, error })` with `throw new Error(error)` — withProgress handles status codes
+5. Insert `await update({ message: "...", progress, total })` at meaningful checkpoints
+6. Update the client wrapper to accept `jobId` in body
+7. Update the UI button to use `runWithProgress`
+
+### Existing wired endpoints (V21.9.4)
+
+- `POST /api/shopify/sync-orders-now`
+- `POST /api/shopify/sync-products-now`
+- `POST /api/shopify/sync-customers`
+- `POST /api/shopify/sync-historical-orders`
+- `POST /api/bosta/sync-historical`
+
+### Pending wiring (TODO)
+
+- `POST /api/shopify/push-inventory-now`
+- `POST /api/shopify/sync-abandoned-carts`
+- `POST /api/shopify/push-customer-tags`
+- `POST /api/shopify/bulk-update-products`
+- `POST /api/shopify/discount-codes`
+- `POST /api/judgeme/sync-reviews`
+- `POST /api/maintenance/split-shopify-collections`
+- `POST /api/maintenance/split-shopify-orders-daily`
+
+When wiring more endpoints, follow the server-side pattern above and update
+the call site in the UI to use `runWithProgress`.
+
+---
+
+## 12. Communication style with user
 
 - All UI text in Arabic (Egyptian dialect).
 - Confirmation popups via `ask()`, status via `showToast()`, info via `tell()`.

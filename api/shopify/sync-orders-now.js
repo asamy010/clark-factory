@@ -38,6 +38,7 @@
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchOrdersSince } from "./_shopifyAdmin.js";
 import { createReservationsForOrder } from "./_reservations.js";
+import { withProgress } from "../_progressTracker.js";
 
 const ORDERS_CAP = 200;
 const DEFAULT_LOOKBACK_HOURS = 168; /* 7 days */
@@ -69,45 +70,49 @@ export default async function handler(req, res){
   const force = !!body.force;
   const sinceHours = Math.max(1, Math.min(720, Number(body.sinceHours) || DEFAULT_LOOKBACK_HOURS));
 
-  let sinceISO;
-  let lastSyncAt;
-  try {
-    const db = getDb();
-    const cfgRef = db.collection("factory").doc("config");
-    const cfgSnap = await cfgRef.get();
-    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
-    lastSyncAt = cfg.shopifyConfig?.last_orders_sync_at || null;
-    if(force || !lastSyncAt){
-      sinceISO = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
-    } else {
-      /* Subtract 5 minutes from last sync to handle clock skew + missed
-         updates between cron ticks. The merge logic dedups by order id. */
-      sinceISO = new Date(new Date(lastSyncAt).getTime() - 5 * 60 * 1000).toISOString();
-    }
-  } catch(e){
-    res.status(500).json({ ok:false, error: "تعذر قراءة config: " + e.message });
-    return;
-  }
+  /* V21.9.4: wrap in withProgress for live overlay tracking */
+  return withProgress(req, res, {
+    jobId: body.jobId,
+    type: "shopify-sync-orders",
+    label: "سحب الطلبات الجديدة من Shopify",
+    by: auth.email || auth.uid,
+  }, async (update) => {
+    await update({ message: "قراءة آخر sync timestamp..." });
 
-  /* ── Fetch from Shopify ── */
-  let fetchedOrders;
-  try {
-    fetchedOrders = await fetchOrdersSince(creds, {
+    let sinceISO;
+    let lastSyncAt;
+    {
+      const db = getDb();
+      const cfgRef = db.collection("factory").doc("config");
+      const cfgSnap = await cfgRef.get();
+      const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+      lastSyncAt = cfg.shopifyConfig?.last_orders_sync_at || null;
+      if(force || !lastSyncAt){
+        sinceISO = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+      } else {
+        sinceISO = new Date(new Date(lastSyncAt).getTime() - 5 * 60 * 1000).toISOString();
+      }
+    }
+
+    /* ── Fetch from Shopify ── */
+    await update({ message: "سحب الطلبات من Shopify API..." });
+    const fetchedOrders = await fetchOrdersSince(creds, {
       updatedSince: sinceISO,
       limit: 250,
       status: "any",
     });
-  } catch(e){
-    res.status(502).json({ ok:false, error: "فشل سحب الطلبات: " + (e.message || e) });
-    return;
-  }
+    await update({
+      progress: fetchedOrders.length,
+      total: Math.max(fetchedOrders.length, 1),
+      message: `تم سحب ${fetchedOrders.length} طلب · جاري الدمج...`,
+    });
 
-  /* ── Merge into factory/config.shopifyPendingOrders ── */
-  let counts = { count: 0, new: 0, updated: 0, skipped: 0 };
-  try {
-    const db = getDb();
-    const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
+    /* ── Merge into factory/config.shopifyPendingOrders ── */
+    let counts = { count: 0, new: 0, updated: 0, skipped: 0 };
+    {
+      const db = getDb();
+      const cfgRef = db.collection("factory").doc("config");
+      await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
       const existing = Array.isArray(cfg.shopifyPendingOrders)
@@ -201,17 +206,15 @@ export default async function handler(req, res){
         },
       }, { merge: true });
     });
-  } catch(e){
-    res.status(500).json({ ok:false, error: "فشل حفظ الطلبات: " + (e.message || e) });
-    return;
-  }
+    }
 
-  res.status(200).json({
-    ok: true,
-    count: counts.count,
-    new: counts.new,
-    updated: counts.updated,
-    skipped: counts.skipped,
-    lastSyncAt: new Date().toISOString(),
+    return {
+      count: counts.count,
+      new: counts.new,
+      updated: counts.updated,
+      skipped: counts.skipped,
+      lastSyncAt: new Date().toISOString(),
+      message: `تم! ${counts.new} جديد · ${counts.updated} محدّث · ${counts.skipped} skip`,
+    };
   });
 }

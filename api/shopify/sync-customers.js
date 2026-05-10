@@ -36,6 +36,7 @@ import { getShopifyCreds, fetchAllShopifyCustomers } from "./_shopifyAdmin.js";
 import {
   readAllShopifyCustomers, writeManyShopifyCustomers, FLAG_V2192,
 } from "./_partitioned.js";
+import { withProgress } from "../_progressTracker.js";
 
 const CUSTOMERS_CAP = 25000; /* enough for fashion B2C even with mailing-list opt-ins */
 const ARCHIVE_COLLECTION = "shopifyOrdersArchive";
@@ -78,8 +79,15 @@ export default async function handler(req, res){
   const skipShopifyDirect = body.skipShopifyDirect === true;
   const skipArchive = body.skipArchive === true;
 
-  try {
+  /* V21.9.4: wrap in withProgress overlay */
+  return withProgress(req, res, {
+    jobId: body.jobId,
+    type: "shopify-sync-customers",
+    label: "تجميع عملاء Shopify",
+    by: auth.email || auth.uid,
+  }, async (update) => {
     /* Step 1: Try to pull from Shopify Customer API (best-effort, outside the tx) */
+    await update({ message: "سحب العملاء من Shopify Customer API..." });
     let shopifyCustomers = [];
     let shopifyFetchError = null;
     if(!skipShopifyDirect){
@@ -95,6 +103,7 @@ export default async function handler(req, res){
         console.warn("[sync-customers] Shopify direct fetch failed:", e.message);
       }
     }
+    await update({ message: `تم سحب ${shopifyCustomers.length} عميل من Shopify · جاري قراءة الأرشيف...` });
 
     /* V21.9.1 Step 1.5: Read archived orders (read-only, outside the tx).
        Could be 1000s of orders → big payload. We dedup later by shopify_order_id. */
@@ -193,11 +202,15 @@ export default async function handler(req, res){
 
     /* V21.9.2: post-migration, write per-doc OUTSIDE the tx */
     if(isPartitioned && cappedResult){
+      await update({
+        message: `حفظ ${cappedResult.length} عميل (per-doc)...`,
+        progress: 0,
+        total: cappedResult.length,
+      });
       await writeManyShopifyCustomers({ [FLAG_V2192]: true }, cappedResult);
     }
 
-    return res.status(200).json({
-      ok: true,
+    return {
       total: stats.total,
       with_delivered: stats.with_delivered,
       vip: stats.vip,
@@ -213,8 +226,8 @@ export default async function handler(req, res){
       from_archive: stats.from_archive,
       combined_order_count: stats.combined_order_count || 0,
       shopify_fetch_error: shopifyFetchError,
-    });
-  } catch(e){
-    return res.status(500).json({ ok:false, error: e.message });
-  }
+      message: `تم! ${stats.total} عميل · ${stats.with_delivered} اشتروا · 👑 ${stats.vip} VIP`,
+    };
+  });
 }
+

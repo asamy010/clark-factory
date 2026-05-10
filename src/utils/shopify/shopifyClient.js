@@ -151,9 +151,16 @@ export function shopifyCreateClarkItem(opts, user){
 }
 
 /* V20.2 Phase 11: Aggregate customers from existing orders.
-   {} → { ok, total, with_delivered, vip, regular, new, at_risk, ... } */
-export function shopifySyncCustomers(user){
-  return call("POST", "/api/shopify/sync-customers", {}, user);
+   V21.9.4: accept opts.jobId (and any other body params) for progress tracking.
+   Backward-compat: still accepts (user) signature with no opts.
+   { jobId? } → { ok, total, with_delivered, vip, regular, new, at_risk, ... } */
+export function shopifySyncCustomers(optsOrUser, maybeUser){
+  /* Detect legacy call: shopifySyncCustomers(user) */
+  if(optsOrUser && typeof optsOrUser.getIdToken === "function"){
+    return call("POST", "/api/shopify/sync-customers", {}, optsOrUser);
+  }
+  /* New call: shopifySyncCustomers({ jobId }, user) */
+  return call("POST", "/api/shopify/sync-customers", optsOrUser || {}, maybeUser);
 }
 
 /* V20.2 Phase 11: Update a single or many customers.

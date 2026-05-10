@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.4",
+    date: "2026-05-10",
+    types: ["feature", "architectural"],
+    title: "🔄 Phase 11j — Universal Sync Progress Overlay",
+    changes: [
+      { type: "feature", text: "🔄 [Full-screen progress overlay لكل عملية مزامنة] أي sync أو pull من Shopify/Bosta دلوقتي بـ يـ trigger overlay شامل بـ:\n• Progress bar % + رسالة الخطوة الحالية\n• Sub-message (مثلاً: 12/50 منتج)\n• الوقت المستغرق\n• قفل كامل للـ UI — المستخدم ما يقدرش يضغط على أي حاجة\n• زرار Cancel (best-effort)\n• Esc محظور (مش يقدر يهرب)\n• Auto-dismiss عند النجاح، manual عند الخطأ" },
+      { type: "architectural", text: "📡 [Progress Tracker pattern] api/_progressTracker.js:\n• withProgress(req, res, init, handler) wrapper للـ endpoints\n• ينشئ syncJobs/{jobId} Firestore doc\n• update(patch) callback مع throttling (1 write/sec) عشان ما يـ saturate-ـش الـ Firestore quota\n• Auto error trapping — أي throw يـ convert لـ status=error في الـ doc + HTTP 500 للـ client\n• Auto cleanup للـ jobs الأقدم من 24 ساعة" },
+      { type: "architectural", text: "🎨 [SyncProgressOverlay component] src/components/SyncProgressOverlay.jsx:\n• Singleton — mounted في App.jsx مرة واحدة\n• subscribes لـ syncJobs/{jobId} عبر onSnapshot\n• Indeterminate bar لو مفيش total معروف\n• Progress bar مع smooth transitions\n• شاشة done: solid green bar + result preview\n• شاشة error: red banner + error details (monospace, scrollable)\n• Esc محظور أثناء العمل" },
+      { type: "architectural", text: "🛠️ [runWithProgress wrapper] src/utils/syncProgress.js:\n• Generates jobId tلقائياً\n• Shows overlay قبل ما يـ send الـ request (instant feedback)\n• Try/catch شامل — never throws\n• Returns { ok: true, ... } أو { ok: false, error }\n• Network failure detection — يكتب في الـ Firestore لو الـ fetch بنفسه فشل" },
+      { type: "feature", text: "✅ [الـ endpoints المربوطة في V21.9.4]:\n• POST /api/shopify/sync-orders-now (سحب الطلبات الجديدة)\n• POST /api/shopify/sync-products-now (سحب المنتجات)\n• POST /api/shopify/sync-customers (تجميع العملاء)\n• POST /api/shopify/sync-historical-orders (سحب التاريخ كله)\n• POST /api/bosta/sync-historical (Bosta + verification)\n\nالـ UI buttons في Settings + Orders + Customers + Products tabs دلوقتي بـ تـ trigger الـ overlay تلقائياً." },
+      { type: "doc", text: "📜 [CLAUDE.md §11] إضافة قسم كامل في البروتوكول للـ progress tracking pattern. أي endpoint جديد يـ سحب أو يـ sync يـ MUST يستخدم withProgress + runWithProgress من اليوم الأول. لسه عندنا endpoints مش متربطين (push-inventory, sync-abandoned-carts, etc.) — هيتربطوا في phases تالية." },
+      { type: "improvement", text: "🛡️ [No-crash guarantee] الـ user طلب 'مش عاوز يحصل كراش في أي نقطة'. الـ wrapper يضمن:\n1. Network errors → overlay يعرض الخطأ بدل ما الـ button يـ hang\n2. Server errors → عُرض الرسالة من الـ server\n3. Partial completion → الـ overlay يفضل ظاهر مع آخر state معروف\n4. Page reload أثناء العمل → الـ Firestore doc لسه موجود، الـ user يـ refresh ويشوف الـ status النهائي" },
+    ]
+  },
+  {
     version: "V21.9.3",
     date: "2026-05-10",
     types: ["fix", "feature", "doc"],

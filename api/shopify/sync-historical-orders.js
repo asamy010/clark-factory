@@ -33,6 +33,7 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchHistoricalOrders } from "./_shopifyAdmin.js";
+import { withProgress } from "../_progressTracker.js";
 
 /* Cap per archive doc — keep well under Firestore's 1 MB hard limit.
    Empirically each mapped order is ~600B-1.5KB; 5000 × 1KB ≈ 5MB which
@@ -64,12 +65,6 @@ export default async function handler(req, res){
   const maxPages = Math.max(1, Math.min(500, Number(body.maxPages) || 200));
   const status = body.status || "any";
 
-  const startTs = Date.now();
-  const monthlyBuckets = new Map(); /* "2024_03" → [order, order, ...] */
-  let totalFetched = 0;
-  let pagesFetched = 0;
-  let hitMax = false;
-
   const bucketKey = (iso) => {
     if(!iso) return "unknown";
     const d = new Date(iso);
@@ -79,11 +74,23 @@ export default async function handler(req, res){
     return y + "_" + m;
   };
 
-  /* Step 1: Walk all pages, bucket by YYYY_MM in memory.
-     Memory footprint: 50k orders × ~1KB ≈ 50MB. Vercel functions get 1024MB
-     by default for Pro plans, so we're fine. For free-tier (1024MB also),
-     50MB is comfortable. */
-  try {
+  /* V21.9.4: wrap in withProgress to report live progress to the client overlay */
+  return withProgress(req, res, {
+    jobId: body.jobId,
+    type: "shopify-sync-historical-orders",
+    label: "سحب كل طلبات Shopify التاريخية",
+    by: auth.email || auth.uid,
+    total: maxOrders, /* upper bound; updated as we know better */
+  }, async (update) => {
+    await update({ message: "بدء الاتصال بـ Shopify..." });
+
+    const startTs = Date.now();
+    const monthlyBuckets = new Map();
+    let totalFetched = 0;
+    let pagesFetched = 0;
+    let hitMax = false;
+
+    /* Step 1: paginate */
     const r = await fetchHistoricalOrders(creds, {
       createdSince: sinceISO,
       status,
@@ -96,32 +103,39 @@ export default async function handler(req, res){
           if(!monthlyBuckets.has(k)) monthlyBuckets.set(k, []);
           monthlyBuckets.get(k).push(o);
         }
+        await update({
+          progress: totalSoFar,
+          total: maxOrders,
+          message: `سحب الصفحة ${pageNum} — ${totalSoFar} طلب حتى الآن`,
+          sub_message: `${monthlyBuckets.size} شهر مقسّم في الذاكرة`,
+        });
       },
     });
     totalFetched = r.totalFetched;
     pagesFetched = r.pagesFetched;
     hitMax = r.hitMax;
-  } catch(e){
-    return res.status(502).json({ ok:false, error: "فشل سحب الطلبات: " + (e.message || e) });
-  }
 
-  /* Step 2: Write each YYYY_MM bucket to Firestore. Split if a single bucket
-     exceeds MAX_ORDERS_PER_DOC by suffixing _p1, _p2 etc. */
-  let archiveDocsWritten = 0;
-  const monthlyBreakdown = {};
-  try {
+    await update({
+      progress: totalFetched,
+      total: totalFetched, /* 100% for the fetch phase */
+      message: `تم سحب ${totalFetched} طلب · جاري الحفظ في الأرشيف...`,
+      sub_message: `${monthlyBuckets.size} شهر`,
+    });
+
+    /* Step 2: write archive docs */
+    let archiveDocsWritten = 0;
+    const monthlyBreakdown = {};
     const db = getDb();
-    /* We use top-level collection `shopifyOrdersArchive` (not subcollection)
-       to keep query patterns simple. Doc id = "{YYYY_MM}" or "{YYYY_MM}_pN". */
+    const totalBuckets = monthlyBuckets.size;
+    let bucketIdx = 0;
     for(const [bk, orders] of monthlyBuckets.entries()){
+      bucketIdx++;
       monthlyBreakdown[bk] = orders.length;
-      /* Sort newest-first within each bucket (matches user expectation) */
       orders.sort((a, b) => {
         const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
         const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
         return tb - ta;
       });
-      /* Split into chunks of MAX_ORDERS_PER_DOC */
       const chunks = [];
       for(let i = 0; i < orders.length; i += MAX_ORDERS_PER_DOC){
         chunks.push(orders.slice(i, i + MAX_ORDERS_PER_DOC));
@@ -139,8 +153,12 @@ export default async function handler(req, res){
         });
         archiveDocsWritten++;
       }
+      await update({
+        message: `حفظ الأرشيف: ${bucketIdx}/${totalBuckets} شهر`,
+        sub_message: `شهر ${bk.replace("_", "/")} — ${orders.length} طلب`,
+      });
     }
-    /* Save sync metadata */
+    /* metadata */
     await db.collection("factory").doc("config").set({
       shopifyConfig: {
         last_historical_sync_at: new Date().toISOString(),
@@ -150,10 +168,23 @@ export default async function handler(req, res){
         last_historical_sync_archive_docs: archiveDocsWritten,
       },
     }, { merge: true });
-  } catch(e){
-    return res.status(500).json({ ok:false, error: "فشل حفظ الأرشيف: " + (e.message || e) });
-  }
 
+    /* Final result — returned to HTTP + saved to job.result */
+    return {
+      totalFetched,
+      pagesFetched,
+      hitMax,
+      monthlyBreakdown,
+      archiveDocsWritten,
+      durationMs: Date.now() - startTs,
+      sinceISO,
+      message: `تم! ${totalFetched} طلب في ${Object.keys(monthlyBreakdown).length} شهر`,
+    };
+  });
+}
+
+/* legacy unused code path left as fallback if withProgress fails to load */
+async function _oldHandler(req, res, monthlyBreakdown, totalFetched, pagesFetched, hitMax, archiveDocsWritten, sinceISO, startTs){
   return res.status(200).json({
     ok: true,
     totalFetched,

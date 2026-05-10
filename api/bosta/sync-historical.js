@@ -38,6 +38,7 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getBostaStateMeta } from "./_constants.js";
+import { withProgress } from "../_progressTracker.js";
 
 const MAX_DELIVERIES_PER_DOC = 600;
 const ARCHIVE_COLLECTION = "bostaDeliveriesArchive";
@@ -131,11 +132,20 @@ export default async function handler(req, res){
     return res.status(400).json({ ok:false, error: "Bosta API key مش معدّ" });
   }
 
-  /* ── Pull all pages ── */
-  const startTs = Date.now();
-  const allDeliveries = [];
-  let pagesFetched = 0;
-  try {
+  /* V21.9.4: wrap in withProgress for live overlay tracking */
+  return withProgress(req, res, {
+    jobId: body.jobId,
+    type: "bosta-sync-historical",
+    label: "سحب deliveries Bosta + verification",
+    by: auth.email || auth.uid,
+    total: maxDeliveries,
+  }, async (update) => {
+    await update({ message: "بدء الاتصال بـ Bosta API..." });
+
+    /* ── Pull all pages ── */
+    const startTs = Date.now();
+    const allDeliveries = [];
+    let pagesFetched = 0;
     let page = 1;
     while(pagesFetched < maxPages){
       const r = await fetchDeliveriesPage(apiKey, page, sinceISO);
@@ -148,14 +158,21 @@ export default async function handler(req, res){
           break;
         }
       }
+      await update({
+        progress: allDeliveries.length,
+        total: Math.max(maxDeliveries, allDeliveries.length),
+        message: `سحب الصفحة ${pagesFetched} من Bosta — ${allDeliveries.length} delivery`,
+      });
       if(!r.hasMore) break;
       page++;
     }
-  } catch(e){
-    return res.status(502).json({ ok:false, error: "فشل سحب البيانات من Bosta: " + (e.message || e) });
-  }
 
-  /* ── Archive (split per month + 600/doc) ── */
+    /* ── Archive (split per month + 600/doc) ── */
+    await update({
+      progress: allDeliveries.length,
+      total: allDeliveries.length,
+      message: `تم سحب ${allDeliveries.length} delivery · جاري الحفظ...`,
+    });
   const monthlyBuckets = new Map();
   for(const d of allDeliveries){
     const k = bucketKey(d.created_at);
@@ -164,9 +181,12 @@ export default async function handler(req, res){
   }
   let archiveDocsWritten = 0;
   const monthlyBreakdown = {};
-  try {
+  {
     const db = getDb();
+    let bucketIdx = 0;
+    const totalBuckets = monthlyBuckets.size;
     for(const [bk, arr] of monthlyBuckets.entries()){
+      bucketIdx++;
       monthlyBreakdown[bk] = arr.length;
       arr.sort((a, b) => {
         const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -189,10 +209,13 @@ export default async function handler(req, res){
         });
         archiveDocsWritten++;
       }
+      await update({
+        message: `حفظ الأرشيف: ${bucketIdx}/${totalBuckets} شهر`,
+        sub_message: `${bk.replace("_", "/")} — ${arr.length} delivery`,
+      });
     }
-  } catch(e){
-    return res.status(500).json({ ok:false, error: "فشل حفظ الأرشيف: " + (e.message || e) });
   }
+  await update({ message: "🔍 جاري المقارنة بين CLARK و Bosta..." });
 
   /* ── Verification check ── */
   /* Build a tracking_number → bosta delivery map */
@@ -281,14 +304,16 @@ export default async function handler(req, res){
     /* non-fatal */
   }
 
-  return res.status(200).json({
-    ok: true,
-    totalFetched: allDeliveries.length,
-    pagesFetched,
-    monthlyBreakdown,
-    archiveDocsWritten,
-    verification,
-    durationMs: Date.now() - startTs,
-    sinceISO,
+    /* withProgress wrapper expects us to RETURN the result (not res.json) */
+    return {
+      totalFetched: allDeliveries.length,
+      pagesFetched,
+      monthlyBreakdown,
+      archiveDocsWritten,
+      verification,
+      durationMs: Date.now() - startTs,
+      sinceISO,
+      message: `تم! ${allDeliveries.length} delivery · ${verification.matching}/${verification.linked} مطابق`,
+    };
   });
 }

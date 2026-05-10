@@ -47,6 +47,8 @@ import {
   /* V21.9.2 Phase 11h: split-collections migration */
   splitShopifyCollections,
 } from "../utils/shopify/shopifyClient.js";
+/* V21.9.4: full-screen progress wrapper for any sync/pull operation */
+import { runWithProgress } from "../utils/syncProgress.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
 import { bostaConfigure, bostaTrack, bostaCreateShipment, bostaPrintAwb } from "../utils/bosta/bostaClient.js";
@@ -980,16 +982,17 @@ function HistoricalSyncCard({ data, canEdit, user, isMob }){
     if(!yes) return;
     setBusyShopify(true);
     setShopifyResult(null);
-    try {
-      const r = await shopifySyncHistoricalOrders({}, user);
-      setShopifyResult(r);
-      if(r?.ok){
-        showToast(`✅ ${r.totalFetched} طلب · ${r.archiveDocsWritten} archive doc · ${Math.round(r.durationMs/1000)} ث`);
-      } else {
-        showToast("⛔ " + (r?.error || "فشل"));
-      }
-    } catch(e){ showToast("⛔ " + e.message); }
-    finally { setBusyShopify(false); }
+    /* V21.9.4: wrap in full-screen progress overlay */
+    const r = await runWithProgress({
+      label: "سحب كل طلبات Shopify التاريخية",
+      type: "shopify-sync-historical-orders",
+      fn: (jobId) => shopifySyncHistoricalOrders({ jobId }, user),
+    });
+    setBusyShopify(false);
+    setShopifyResult(r);
+    if(!r?.ok){
+      showToast("⛔ " + (r?.error || "فشل"));
+    }
   };
 
   const handleSyncBosta = async () => {
@@ -1001,18 +1004,20 @@ function HistoricalSyncCard({ data, canEdit, user, isMob }){
     if(!yes) return;
     setBusyBosta(true);
     setBostaResult(null);
-    try {
-      const r = await bostaSyncHistorical({}, user);
-      setBostaResult(r);
-      if(r?.ok){
-        const v = r.verification || {};
-        showToast(`✅ ${r.totalFetched} delivery · ${v.matching}/${v.linked} matching · ${v.mismatches?.length || 0} mismatch`);
-        if(v.mismatches?.length > 0) setShowVerification(true);
-      } else {
-        showToast("⛔ " + (r?.error || "فشل"));
-      }
-    } catch(e){ showToast("⛔ " + e.message); }
-    finally { setBusyBosta(false); }
+    /* V21.9.4: wrap in full-screen progress overlay */
+    const r = await runWithProgress({
+      label: "سحب deliveries Bosta + verification",
+      type: "bosta-sync-historical",
+      fn: (jobId) => bostaSyncHistorical({ jobId }, user),
+    });
+    setBusyBosta(false);
+    setBostaResult(r);
+    if(r?.ok){
+      const v = r.verification || {};
+      if(v.mismatches?.length > 0) setShowVerification(true);
+    } else {
+      showToast("⛔ " + (r?.error || "فشل"));
+    }
   };
 
   return (
@@ -1581,17 +1586,15 @@ function OrdersTab({ data, upConfig, canEdit, user, isMob }){
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     if(!connected){ showToast("⚠️ مش متصل بـ Shopify — روح تاب Connection"); return; }
     setBusy(true);
-    try {
-      const r = await shopifySyncOrdersNow({}, user);
-      if(r && r.ok){
-        showToast(`✅ تم سحب ${r.count} طلب — جديد: ${r.new}، محدّث: ${r.updated}`);
-      } else {
-        showToast("⛔ " + (r?.error || "فشل السحب"));
-      }
-    } catch(e){
-      showToast("⛔ " + (e.message || "فشل السحب"));
-    } finally {
-      setBusy(false);
+    /* V21.9.4: full-screen progress overlay */
+    const r = await runWithProgress({
+      label: "سحب الطلبات الجديدة من Shopify",
+      type: "shopify-sync-orders",
+      fn: (jobId) => shopifySyncOrdersNow({ jobId }, user),
+    });
+    setBusy(false);
+    if(!r?.ok){
+      showToast("⛔ " + (r?.error || "فشل السحب"));
     }
   };
 
@@ -2745,24 +2748,22 @@ function ProductsTab({ data, canEdit, user, isMob }){
 
   const connected = !!cfg.connected;
 
-  /* ── Action handlers ── */
+  /* ── Action handlers — V21.9.4: full-screen progress overlay ── */
   const handleSyncProducts = async (useFilters = false) => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     if(!connected){ showToast("⚠️ مش متصل بـ Shopify"); return; }
     setBusy(true);
-    try {
-      const opts = useFilters ? { filters: syncFilters, replaceMode: "merge" } : {};
-      const r = await shopifySyncProductsWithFilters(opts, user);
-      if(r && r.ok){
-        showToast(`✅ تم سحب ${r.afterFilters || r.total} منتج · matched: ${r.matched} · missing: ${r.missing}${r.blacklisted ? ` · skipped from blacklist: ${r.blacklisted}` : ""}`);
-        setShowSyncFilters(false);
-      } else {
-        showToast("⛔ " + (r?.error || "فشل السحب"));
-      }
-    } catch(e){
-      showToast("⛔ " + (e.message || "فشل السحب"));
-    } finally {
-      setBusy(false);
+    const opts = useFilters ? { filters: syncFilters, replaceMode: "merge" } : {};
+    const r = await runWithProgress({
+      label: "سحب منتجات Shopify",
+      type: "shopify-sync-products",
+      fn: (jobId) => shopifySyncProductsWithFilters({ ...opts, jobId }, user),
+    });
+    setBusy(false);
+    if(r?.ok){
+      setShowSyncFilters(false);
+    } else {
+      showToast("⛔ " + (r?.error || "فشل السحب"));
     }
   };
 
@@ -4581,20 +4582,19 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
 
   const connected = !!cfg.connected;
 
-  /* Handlers */
+  /* Handlers — V21.9.4: full-screen progress overlay */
   const handleSync = async () => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     setBusy(true);
-    try {
-      const r = await shopifySyncCustomers(user);
-      if(r?.ok){
-        const archInfo = r.from_archive > 0 ? ` · 📚 ${r.from_archive} من الأرشيف` : "";
-        showToast(`✅ ${r.total} عميل · ${r.with_delivered} اشتروا · 👑 ${r.vip} · 🌟 ${r.regular} · 🆕 ${r.new}${archInfo}`);
-      } else {
-        showToast("⛔ " + (r?.error || "فشل"));
-      }
-    } catch(e){ showToast("⛔ " + e.message); }
-    finally { setBusy(false); }
+    const r = await runWithProgress({
+      label: "تجميع عملاء Shopify",
+      type: "shopify-sync-customers",
+      fn: (jobId) => shopifySyncCustomers({ jobId }, user),
+    });
+    setBusy(false);
+    if(!r?.ok){
+      showToast("⛔ " + (r?.error || "فشل"));
+    }
   };
 
   /* V21.9.1 Phase 11g: One-click full workflow — pull all old orders,
@@ -4609,24 +4609,29 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       "المدة المتوقعة: 3-7 دقايق حسب عدد الطلبات.\n\nتأكيد؟");
     if(!yes) return;
     setBusy(true);
-    try {
-      showToast("📚 الخطوة 1/2: سحب الطلبات القديمة...");
-      const histRes = await shopifySyncHistoricalOrders({}, user);
-      if(!histRes?.ok){
-        showToast("⛔ فشل سحب الطلبات: " + (histRes?.error || ""));
-        return;
-      }
-      showToast(`✅ ${histRes.totalFetched} طلب · ${histRes.archiveDocsWritten} archive doc · جاري تجميع العملاء...`);
 
-      const custRes = await shopifySyncCustomers(user);
-      if(custRes?.ok){
-        const archInfo = custRes.from_archive > 0 ? ` · 📚 ${custRes.from_archive} من الأرشيف` : "";
-        showToast(`✅ مكتمل! ${custRes.total} عميل · ${custRes.with_delivered} اشتروا${archInfo}`);
-      } else {
-        showToast("⛔ فشل تجميع العملاء: " + (custRes?.error || ""));
-      }
-    } catch(e){ showToast("⛔ " + e.message); }
-    finally { setBusy(false); }
+    /* Step 1: Historical orders — full overlay */
+    const histRes = await runWithProgress({
+      label: "📚 (1/2) سحب كل الطلبات التاريخية",
+      type: "shopify-sync-historical-orders",
+      fn: (jobId) => shopifySyncHistoricalOrders({ jobId }, user),
+    });
+    if(!histRes?.ok){
+      setBusy(false);
+      showToast("⛔ فشل سحب الطلبات: " + (histRes?.error || ""));
+      return;
+    }
+
+    /* Step 2: Aggregate customers — overlay continues */
+    const custRes = await runWithProgress({
+      label: "👥 (2/2) تجميع كل العملاء",
+      type: "shopify-sync-customers",
+      fn: (jobId) => shopifySyncCustomers({ jobId }, user),
+    });
+    setBusy(false);
+    if(!custRes?.ok){
+      showToast("⛔ فشل تجميع العملاء: " + (custRes?.error || ""));
+    }
   };
 
   const handleSetTags = async (customer) => {

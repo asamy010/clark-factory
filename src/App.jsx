@@ -117,6 +117,8 @@ console.info("%c[CLARK "+APP_VERSION+"] App module loaded — "+new Date().toISO
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
 import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
+/* V21.9.4: full-screen progress overlay for sync operations */
+import { SyncProgressOverlay } from "./components/SyncProgressOverlay.jsx";
 /* V19.48: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
@@ -6052,6 +6054,10 @@ export default function App(){
     </div>}
     {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
     <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion={APP_VERSION}/>
+    {/* V21.9.4: Global sync-progress overlay — full-screen, locks UI, shows
+        live progress (% + message) for any Shopify/Bosta sync. Triggered by
+        runWithProgress() from utils/syncProgress.js. */}
+    <SyncProgressOverlay/>
     {/* V19.48: Removed <TeamActivityModal/> render — feature retired */}
   </div>
 }
