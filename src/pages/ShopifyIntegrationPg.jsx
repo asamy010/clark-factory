@@ -939,8 +939,15 @@ function SettingsTab({ data, upConfig, canEdit, user, isMob }){
       {/* V21.9 Phase 11c+d: Historical sync — pull ALL old orders */}
       <HistoricalSyncCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
 
-      {/* V21.9 Phase 11e: Smart diagnostics — health + storage monitor */}
-      <DiagnosticsCard data={data} canEdit={canEdit} user={user} isMob={isMob} />
+      {/* V21.9.3: Diagnostics moved to general Settings → Maintenance section.
+          (Was here in V21.9.0-21.9.2 — relocated for site-wide visibility.) */}
+      <Card>
+        <div style={{ padding: 14, textAlign: "center", color: T.textMut, fontSize: FS - 2, lineHeight: 1.7 }}>
+          🩺 <b>أداة الفحص الشامل (Diagnostics)</b> اتنقلت لـ <b>الإعدادات العامة → قسم الصيانة</b>
+          <br/>
+          عشان تشمل كل النظام (مش بس Shopify) — حجم الـ docs، تنبيهات حرجة، Migration tools.
+        </div>
+      </Card>
 
     </div>
   );

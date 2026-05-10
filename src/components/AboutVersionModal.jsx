@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.3",
+    date: "2026-05-10",
+    types: ["fix", "feature", "doc"],
+    title: "🩹 Phase 11i — Push fixes + Diagnostics relocation + Daily-split tool",
+    changes: [
+      { type: "fix", text: "🐛 [المقاسات مش ظاهرة في Push Modal] CLARK orders ما بـ يخزّنوش `order.sizes` مباشرة — بيخزنوا `order.sizeSetId` اللي بـ يـ reference `data.sizeSets[i]`. الكود كان بـ يقرا order.sizes فاضي → مفيش مقاسات في الـ matrix. تم إصلاح: الـ ShopifyPushModal بقى يستخدم `getSizesFromSet(order, data)` من utils/format.js. الـ backend `_productPush.js` بقى يستقبل `sizeSets` من `cfg.sizeSets` ويعمل resolution مماثل." },
+      { type: "fix", text: "🐛 [Push بـ يفشل بـ 'الموديل مش موجود'] orders في CLARK بـ تتخزن في seasons/{activeSeason}/orders/{docId} subcollection، مش في factory/config.orders (اللي كان فاضي). الـ push-product-from-clark بقى يقرا من الـ subcollection الصحيحة، يجرّب الـ active season أول، وإذا مش لاقي يـ scan كل الـ seasons. الـ write-back بـ يـ save على الـ doc الصحيح عبر _docPath المحفوظ." },
+      { type: "feature", text: "🛠️ [Diagnostics اتنقلت لـ الإعدادات العامة] الـ DiagnosticsPanel كانت في تاب Shopify → Settings. اتنقلت لـ الإعدادات العامة → tab 'general' في الأعلى تحت قسم 🛠️ الصيانة. عشان تشمل كل النظام مش بس Shopify. الكارت في تاب Shopify بقى يعرض رسالة بسيطة فيها link." },
+      { type: "feature", text: "📅 [Daily-split tool لـ shopifyPendingOrders] POST /api/maintenance/split-shopify-orders-daily — أداة لـ migrate الـ shopifyPendingOrders array إلى docs يومية في shopifyOrdersDays/{YYYY-MM-DD}. مفيدة لو الـ array كبر بشكل مفاجئ. بتعمل backup أوتوماتيك. ⚠️ ملاحظة: الـ endpoints (sync-orders-now, mark-delivered) لسه بـ تكتب في factory/config.shopifyPendingOrders — تحديث الـ endpoints هـ يجي في phase تالي. حالياً الـ array مـ cap-ـها 200 + monthly archive يكفي." },
+      { type: "doc", text: "📜 [Engineering Protocol — CLAUDE.md] ملف جديد في الـ root بـ يـ document كل الـ conventions الأساسية: Build→Test→Commit→Push→Zip بروتوكول، Document Splitting (daily لـ dated arrays، per-id للـ entities)، Active Season pattern، Fabric+Color storage، Sizes resolution، Phone normalization، WhatsApp popup-blocker safety، Versioning، Server-side conventions، Anti-patterns. هذا هو المرجع لأي شغل جديد." },
+      { type: "improvement", text: "🎯 [الـ split-by-day بقى policy] لكل array جديد بـ يكبر من dated entries (transactions, deliveries, payments, shipments, etc.) لازم يتـ register في SPLIT_COLLECTIONS من اليوم الأول. ده الـ default لأي growing field. الـ alternative للـ entity-based arrays (customers, products) هو PARTITIONED_COLLECTIONS (per-id docs)." },
+    ]
+  },
+  {
     version: "V21.9.2",
     date: "2026-05-10",
     types: ["architectural", "feature"],

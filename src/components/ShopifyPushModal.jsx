@@ -22,6 +22,8 @@ import { FS } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
 import { compressImage } from "../utils/image.js";
 import { shopifyPushProductFromClark } from "../utils/shopify/shopifyClient.js";
+/* V21.9.3 fix: resolve sizes from data.sizeSets via order.sizeSetId */
+import { getSizesFromSet } from "../utils/format.js";
 
 /* Reuse CLARK's existing image upload to Firebase Storage */
 import { storage } from "../firebase.js";
@@ -73,7 +75,7 @@ function buildPreviewSku(pattern, ctx){
     .replace(/-+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-export function ShopifyPushModal({ order, onClose, user, isMob }){
+export function ShopifyPushModal({ order, data, onClose, user, isMob }){
   const meta = order?.shopify_meta || {};
 
   /* Form state — initialized from order.shopify_meta or defaults */
@@ -92,7 +94,14 @@ export function ShopifyPushModal({ order, onClose, user, isMob }){
 
   /* Detected fabric colors per source */
   const detectedColors = useMemo(() => extractColorsFromFabric(order, colorSource), [order, colorSource]);
-  const sizes = useMemo(() => Array.isArray(order?.sizes) ? order.sizes : [], [order]);
+  /* V21.9.3 fix: CLARK orders don't have an `order.sizes` array directly.
+     Sizes are derived from `order.sizeSetId` which references `data.sizeSets[i]`.
+     getSizesFromSet handles label parsing + pcsPerSeries reconciliation. */
+  const sizes = useMemo(() => {
+    if(!data || !order) return [];
+    const r = getSizesFromSet(order, data);
+    return Array.isArray(r?.sizes) ? r.sizes : [];
+  }, [order, data]);
 
   /* List of available fabrics (those that have at least 1 color) */
   const availableFabrics = useMemo(() => {

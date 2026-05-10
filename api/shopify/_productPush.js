@@ -78,6 +78,34 @@ export function getVariantStock(stockMatrix, color, size){
   return Math.max(0, Number(v) || 0);
 }
 
+/* V21.9.3: Resolve sizes from a CLARK order via sizeSets reference.
+   CLARK orders store `sizeSetId` (a number/string), not `sizes` directly.
+   Sizes come from sizeSets[i].label (parsed by `-` or `/` separators) and
+   pcsPerSeries (the source of truth for count).
+   Returns array of size labels, e.g. ["S","M","L","XL"]. */
+export function resolveOrderSizes(order, sizeSets){
+  if(!order) return [];
+  /* If pre-resolved sizes are on the order (legacy), use them. */
+  if(Array.isArray(order.sizes) && order.sizes.length > 0) return order.sizes;
+  if(!Array.isArray(sizeSets)) return [];
+  const ss = sizeSets.find(s => Number(s.id) === Number(order.sizeSetId));
+  const label = ss?.label || order.sizeLabel || "";
+  if(!label) return [];
+  /* Parse label by separators */
+  const parts = String(label)
+    .split(/\s*[-\/،,]\s*/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const expected = Number(ss?.pcsPerSeries) || 0;
+  if(expected > 0 && parts.length !== expected){
+    /* Pad or truncate to match pcsPerSeries (matches getSizesFromSet behavior) */
+    if(parts.length > expected) return parts.slice(0, expected);
+    while(parts.length < expected) parts.push(parts[parts.length - 1] || "?");
+    return parts;
+  }
+  return parts;
+}
+
 /* Build the full variants payload for Shopify from a CLARK order.
    Args:
      order: a CLARK order object
@@ -86,12 +114,15 @@ export function getVariantStock(stockMatrix, color, size){
        skuPattern: e.g. "{modelNo}-{color}-{size}"
        sellPrice: per-variant price (defaults to order.sellPrice)
        stockMatrix: optional pre-computed { [color]: { [size]: qty } }
+       sizeSets: optional array of { id, label, pcsPerSeries } from cfg.sizeSets
+                 — used to resolve order.sizeSetId → sizes[]
    Returns: { options, variants, count }
 */
 export function buildVariantMatrix(order, opts = {}){
   const colorSourceFabric = opts.colorSourceFabric || "A";
   const colors = extractFabricColors(order, colorSourceFabric);
-  const sizes = Array.isArray(order.sizes) ? order.sizes : [];
+  /* V21.9.3 fix: resolve sizes via sizeSets, not order.sizes */
+  const sizes = resolveOrderSizes(order, opts.sizeSets);
   const sellPrice = Number(opts.sellPrice ?? order.sellPrice) || 0;
   const skuPattern = opts.skuPattern || "{modelNo}-{color}-{size}";
   const stockMatrix = opts.stockMatrix || {};

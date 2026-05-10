@@ -74,17 +74,58 @@ export default async function handler(req, res){
     return res.status(400).json({ ok:false, error: "الاتصال بـ Shopify مش معدّ" });
   }
 
-  /* ── Read CLARK order ── */
+  /* ── Read CLARK order ──
+     V21.9.3 fix: orders live in `seasons/{activeSeason}/orders` subcollection,
+     NOT in `factory/config.orders`. The previous code always returned 404
+     because cfg.orders was empty in this schema.
+     We find the order across all seasons (no need to know the active season
+     up front, and orders may be linked across seasons). */
   let order, cfg;
   try {
     const db = getDb();
     const snap = await db.collection("factory").doc("config").get();
     cfg = snap.exists ? (snap.data() || {}) : {};
-    const orders = Array.isArray(cfg.orders) ? cfg.orders : [];
-    order = orders.find(o => String(o.id) === orderId);
-    if(!order){
-      return res.status(404).json({ ok:false, error: "الموديل مش موجود في CLARK orders" });
+
+    /* Strategy:
+       1. Try active season first (most common case)
+       2. If not found, scan all seasons */
+    const activeSeason = cfg.activeSeason || "WS26";
+    /* Try: query by `id == orderId` in active season */
+    let orderSnap = await db.collection("seasons").doc(activeSeason)
+      .collection("orders").where("id", "==", orderId).limit(1).get();
+    if(orderSnap.empty){
+      /* Try numeric id */
+      const numId = Number(orderId);
+      if(Number.isFinite(numId)){
+        orderSnap = await db.collection("seasons").doc(activeSeason)
+          .collection("orders").where("id", "==", numId).limit(1).get();
+      }
     }
+    if(orderSnap.empty){
+      /* Fallback: scan other seasons */
+      const seasonsSnap = await db.collection("seasons").listDocuments();
+      for(const seasonRef of seasonsSnap){
+        if(seasonRef.id === activeSeason) continue;
+        const ss = await seasonRef.collection("orders").where("id", "==", orderId).limit(1).get();
+        if(!ss.empty){ orderSnap = ss; break; }
+        /* Also try numeric */
+        const numId = Number(orderId);
+        if(Number.isFinite(numId)){
+          const ssN = await seasonRef.collection("orders").where("id", "==", numId).limit(1).get();
+          if(!ssN.empty){ orderSnap = ssN; break; }
+        }
+      }
+    }
+    if(orderSnap.empty){
+      return res.status(404).json({
+        ok:false,
+        error: "الموديل مش موجود في CLARK orders. تأكد إن الموديل محفوظ في الموسم النشط.",
+      });
+    }
+    order = orderSnap.docs[0].data();
+    /* Stash docId + season for later write-back */
+    order._docId = orderSnap.docs[0].id;
+    order._docPath = orderSnap.docs[0].ref.path;
   } catch(e){
     return res.status(500).json({ ok:false, error: "Read failed: " + e.message });
   }
@@ -102,16 +143,19 @@ export default async function handler(req, res){
   const stockMatrix = body.stockMatrix || meta.stock_matrix || {};
   const mode = body.mode || "auto";
 
-  /* ── Build variants matrix ── */
+  /* ── Build variants matrix ──
+     V21.9.3 fix: pass sizeSets so buildVariantMatrix can resolve order.sizeSetId → sizes[].
+     CLARK orders don't have `order.sizes` directly. */
   const matrix = buildVariantMatrix(order, {
     colorSourceFabric,
     skuPattern,
     sellPrice: order.sellPrice,
     stockMatrix,
+    sizeSets: Array.isArray(cfg.sizeSets) ? cfg.sizeSets : [],
   });
 
   if(matrix.count === 0){
-    return res.status(400).json({ ok:false, error: "مفيش variants للـ push (مفيش colors ولا sizes)" });
+    return res.status(400).json({ ok:false, error: "مفيش variants للـ push (مفيش colors ولا sizes — راجع خامة الألوان والـ sizeSet)" });
   }
 
   /* ── Build product payload for Shopify ── */
@@ -197,40 +241,45 @@ export default async function handler(req, res){
     errors.push({ stage: "inventory", error: e.message });
   }
 
-  /* ── Save back to CLARK order.shopify_meta ── */
+  /* ── Save back to CLARK order.shopify_meta ──
+     V21.9.3 fix: orders live in seasons/{season}/orders/{docId}, NOT in
+     factory/config.orders. We saved order._docPath above; use it directly. */
   try {
     const db = getDb();
-    const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const orders = Array.isArray(fresh.orders) ? fresh.orders.slice() : [];
-      const idx = orders.findIndex(o => String(o.id) === orderId);
-      if(idx < 0) return;
-      const o = { ...orders[idx] };
-      o.shopify_meta = {
-        ...(o.shopify_meta || {}),
-        shopify_product_id: String(shopifyProduct.id),
-        shopify_handle: shopifyProduct.handle || "",
-        shopify_title: shopifyProduct.title || "",
-        push_status: "synced",
-        last_pushed_at: new Date().toISOString(),
-        last_pushed_by: auth.email || auth.uid,
-        last_push_action: pushResult.action,
-        /* Save the settings used for this push so re-syncs are stable */
-        description,
-        images,
-        color_source_fabric: colorSourceFabric,
-        sku_pattern: skuPattern,
-        vendor,
-        product_type: productType,
-        tags,
-        status,
-        variants_count: matrix.count,
+    if(!order._docPath){
+      throw new Error("order._docPath missing — can't save shopify_meta");
+    }
+    const orderRef = db.doc(order._docPath);
+    const orderSnap = await orderRef.get();
+    if(orderSnap.exists){
+      const fresh = orderSnap.data() || {};
+      const next = {
+        ...fresh,
+        shopify_meta: {
+          ...(fresh.shopify_meta || {}),
+          shopify_product_id: String(shopifyProduct.id),
+          shopify_handle: shopifyProduct.handle || "",
+          shopify_title: shopifyProduct.title || "",
+          push_status: "synced",
+          last_pushed_at: new Date().toISOString(),
+          last_pushed_by: auth.email || auth.uid,
+          last_push_action: pushResult.action,
+          /* Save the settings used for this push so re-syncs are stable */
+          description,
+          images,
+          color_source_fabric: colorSourceFabric,
+          sku_pattern: skuPattern,
+          vendor,
+          product_type: productType,
+          tags,
+          status,
+          variants_count: matrix.count,
+        },
       };
-      orders[idx] = o;
-      tx.set(cfgRef, { orders }, { merge: true });
-    });
+      delete next._docId;
+      delete next._docPath;
+      await orderRef.set(next);
+    }
   } catch(e){
     errors.push({ stage: "save_meta", error: e.message });
   }

@@ -54,6 +54,8 @@ import { analyzeBudgets, getDocTotals, getBudgetSummary, getTopFeatures, fmt as 
 import { hasLegacyImage, legacyImageSize, migrateOrderImage } from "../utils/orderImages.js";
 import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
+/* V21.9.3: smart diagnostics panel — moved from ShopifyIntegrationPg */
+import { DiagnosticsPanel } from "../components/DiagnosticsPanel.jsx";
 import { HelpTip, CardSubtitle, FieldHelp } from "../components/HelpTip.jsx";
 import { StockPg } from "./StockPg.jsx";
 
@@ -3070,6 +3072,21 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
       </div>;
     })()}
     {activeTab==="general" && <>
+    {/* V21.9.3: 🛠️ صيانة — first card in general tab.
+        Smart diagnostics + storage monitor + migration tools.
+        Moved here from ShopifyIntegrationPg for site-wide visibility. */}
+    <div style={{
+      padding: "12px 14px", marginBottom: 14,
+      background: "linear-gradient(135deg," + T.accent + "08," + T.accent + "02)",
+      borderInlineStart: "4px solid " + T.accent,
+      borderRadius: 10,
+    }}>
+      <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.accent }}>🛠️ الصيانة + الفحص الشامل</div>
+      <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>
+        فحص حجم الـ Firestore docs، تنبيهات حرجة، Migration tools (تقسيم الـ collections لو الحجم قارب الحد).
+      </div>
+    </div>
+    <DiagnosticsPanel data={config} canEdit={userRole==="admin"||userRole==="accountant"} user={user} isMob={isMob}/>
     {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
     <StorageNoticesPanel/>
     {/* V16.78: Stock mode picker — يحدد سلوك المخزن مع الأوردرات */}

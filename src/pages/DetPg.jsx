@@ -1847,7 +1847,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {/* V19.0: Stage progress modal — opens when clicking interactive stage badge */}
     {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
     {/* V21.0 Phase 10: Shopify push modal */}
-    {showShopifyPush&&order&&<ShopifyPushModal order={order} user={user} isMob={isMob} onClose={()=>setShowShopifyPush(false)}/>}
+    {/* V21.9.3 fix: pass `data` so the modal can resolve order.sizeSetId → sizes[] via data.sizeSets */}
+    {showShopifyPush&&order&&<ShopifyPushModal order={order} data={data} user={user} isMob={isMob} onClose={()=>setShowShopifyPush(false)}/>}
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
     {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
