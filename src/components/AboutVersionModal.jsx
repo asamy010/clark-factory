@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.6.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🔄 Phase 10g — Bi-directional Customer Tags Sync",
+    changes: [
+      { type: "feature", text: "🔄 [Bi-directional tag sync كامل]\n• Shopify → CLARK: لما sync-customers يجري، الـ shopify_tags بـ تتسحب (موجود من قبل)\n• CLARK → Shopify: الـ user يقدر يدفع الـ tags + notes اللي عملها في CLARK لـ Shopify customer (جديد!)" },
+      { type: "feature", text: "📡 [POST /api/shopify/push-customer-tags]\n• PUT /admin/api/X/customers/{id}.json بـ tags + note\n• Modes:\n  - merge (default): دمج CLARK tags + Shopify tags المحفوظة (case-insensitive dedup)\n  - replace: استبدال كامل\n• Skips للـ customers اللي مش مش-pulled من Customer API (مفيش shopify_customer_id)\n• Bulk mode عبر bulkCustomerIds[]\n• Stamps last_pushed_to_shopify_at للـ tracking" },
+      { type: "feature", text: "🎨 [UI: 2 buttons جديدة]\n• Single: زرار '🔄 Push Tags لـ Shopify' في الـ expanded view لكل عميل (للـ shopify-linked customers فقط)\n• Bulk: زرار '🔄 Push Tags لـ Shopify' في الـ bulk action toolbar — يدفع لكل selected customer دفعة واحدة\nبعد الـ push، الـ user يقدر يفتح Shopify Admin ويشوف الـ tags ظاهرة على الـ customer هناك." },
+      { type: "doc", text: "💡 [Use cases]\n• 'VIP' tag في CLARK يـ push لـ Shopify → بـ يظهر في Shopify customer view + يـ trigger Shopify segments للـ marketing campaigns\n• Notes (private في CLARK) بـ تـ sync كـ Shopify customer note\n• Workflow: حدد customers → 🏷 Tags في CLARK → 🔄 Push → tags ظاهرة في Shopify Admin" },
+    ]
+  },
+  {
     version: "V21.5.0",
     date: "2026-05-10",
     types: ["feature"],

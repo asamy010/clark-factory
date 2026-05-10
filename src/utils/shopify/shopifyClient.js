@@ -189,3 +189,9 @@ export function shopifyUpdateCartRecovery(opts, user){
 export function shopifyDiscountCodes(opts, user){
   return call("POST", "/api/shopify/discount-codes", opts, user);
 }
+
+/* V21.6 Phase 10g: Push CLARK customer tags + notes to Shopify customer.
+   { customerId | bulkCustomerIds, mode? } → { ok, pushed, skipped, errors } */
+export function shopifyPushCustomerTags(opts, user){
+  return call("POST", "/api/shopify/push-customer-tags", opts, user);
+}

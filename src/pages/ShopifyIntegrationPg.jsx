@@ -39,7 +39,7 @@ import {
   shopifyBulkUpdateProducts, shopifySyncProductsWithFilters, shopifyCreateClarkItem,
   shopifySyncCustomers, shopifyUpdateCustomer,
   shopifySyncAbandonedCarts, shopifyUpdateCartRecovery,
-  shopifyDiscountCodes,
+  shopifyDiscountCodes, shopifyPushCustomerTags,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -4075,6 +4075,40 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     }
   };
 
+  /* V21.6 Phase 10g: Push tags to Shopify (single or bulk) */
+  const handlePushTagsToShopify = async (customer) => {
+    if(!canEdit) return;
+    if(!customer.shopify_customer_id){
+      await tell("⚠️ مفيش shopify_customer_id", "العميل ده ما اتـ pull-ـش من Shopify Customer API. اضغط '🔄 تحديث القائمة' الأول عشان يـ link.");
+      return;
+    }
+    const yes = await ask("🔄 Push للـ Shopify",
+      `هتدفع الـ tags + notes للـ Shopify customer.\n\nالـ tags هـ تتـ merge مع الـ Shopify tags الموجودة (دمج، مش استبدال).\n\nتأكيد؟`);
+    if(!yes) return;
+    try {
+      const r = await shopifyPushCustomerTags({ customerId: customer.id, mode: "merge" }, user);
+      if(r?.ok && r.pushed > 0){ showToast("✅ تم الـ push"); }
+      else if(r?.skipped > 0){ showToast("⚠️ skipped: " + r.errors?.[0]?.reason); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleBulkPushTags = async () => {
+    if(selected.size === 0){ showToast("⚠️ اختار عملاء"); return; }
+    const yes = await ask("🔄 Push tags للـ Shopify",
+      `هـ يدفع الـ tags + notes لـ ${selected.size} عميل في Shopify.\n\nالعملاء بدون shopify_customer_id (مش مـ pull-ين من Customer API) هـ يـ skip.\n\nتأكيد؟`);
+    if(!yes) return;
+    try {
+      const r = await shopifyPushCustomerTags({ bulkCustomerIds: Array.from(selected), mode: "merge" }, user);
+      if(r?.ok){
+        await tell("✅ تم", `تم push لـ ${r.pushed} عميل · skipped ${r.skipped} (بدون shopify_id)\n\n${r.errors?.length > 0 ? "أخطاء: " + r.errors.length : ""}`);
+        clearSelection();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
   const handleBulkTag = async () => {
     if(selected.size === 0){ showToast("⚠️ اختار عملاء"); return; }
     const v = await askInput(`🏷 Tags لـ ${selected.size} عميل`, {
@@ -4160,6 +4194,9 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
             </Btn>
             <Btn small onClick={handleBulkTag}>
               🏷 Tags
+            </Btn>
+            <Btn small onClick={handleBulkPushTags}>
+              🔄 Push Tags لـ Shopify
             </Btn>
             <Btn small ghost onClick={clearSelection}>
               ✕ Clear
@@ -4268,6 +4305,7 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
                 onSetTags={() => handleSetTags(c)}
                 onSetNotes={() => handleSetNotes(c)}
                 onToggleDoNotContact={() => handleToggleDoNotContact(c)}
+                onPushToShopify={() => handlePushTagsToShopify(c)}
               />
             ))}
             {filtered.length > 100 && (
@@ -4282,7 +4320,7 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
   );
 }
 
-function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggleSelect, onToggleExpand, onWhatsApp, onSetTags, onSetNotes, onToggleDoNotContact }){
+function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggleSelect, onToggleExpand, onWhatsApp, onSetTags, onSetNotes, onToggleDoNotContact, onPushToShopify }){
   const tier = getTierMeta(customer.tier);
   const dnc = !!customer.do_not_contact;
   const hasPhone = !!customer.phone;
@@ -4469,6 +4507,12 @@ function CustomerRow({ customer, isMob, canEdit, isSelected, isExpanded, onToggl
             <Btn small onClick={onToggleDoNotContact}>
               {dnc ? "🔓 السماح بالتواصل" : "🚫 عدم التواصل"}
             </Btn>
+            {/* V21.6 Phase 10g: Push tags to Shopify */}
+            {customer.shopify_customer_id && (
+              <Btn small onClick={onPushToShopify} disabled={!canEdit}>
+                🔄 Push Tags لـ Shopify
+              </Btn>
+            )}
             {hasPhone && (
               <Btn small ghost onClick={() => window.open("tel:+" + customer.phone)}>
                 📞 اتصال
