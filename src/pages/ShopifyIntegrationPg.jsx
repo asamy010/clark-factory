@@ -180,7 +180,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "dashboard"      && <DashboardTab data={data} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
-        {activeTab === "customers"      && <CustomersTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "customers"      && <CustomersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "abandoned"      && <AbandonedCartsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "discounts"      && <DiscountCodesTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "shipping"       && <ShippingTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
@@ -3803,7 +3803,7 @@ function ShippingRow({ order, isMob, canEdit, isExpanded, busy, onToggleExpand, 
    - Per-customer 📱 WhatsApp button with pre-filled message
    - DO NOT mix with wholesale customers (data.customers) — different array.
    ═══════════════════════════════════════════════════════════════════════ */
-function CustomersTab({ data, canEdit, user, isMob }){
+function CustomersTab({ data, upConfig, canEdit, user, isMob }){
   const cfg = data?.shopifyConfig || {};
   const customers = useMemo(() => Array.isArray(data?.shopifyCustomers) ? data.shopifyCustomers : [], [data]);
 
@@ -3813,6 +3813,69 @@ function CustomersTab({ data, canEdit, user, isMob }){
   const [showDeliveredOnly, setShowDeliveredOnly] = useState(true);
   const [showMarketingOnly, setShowMarketingOnly] = useState(false);
   const [showHasPhone, setShowHasPhone] = useState(true);
+
+  /* V21.4 Phase 10e: Customer Segments (saved filter combos) */
+  const segments = useMemo(() => Array.isArray(data?.shopifyCustomerSegments) ? data.shopifyCustomerSegments : [], [data]);
+  const [activeSegmentId, setActiveSegmentId] = useState(null);
+
+  const applySegment = (seg) => {
+    if(!seg || !seg.filters) return;
+    const f = seg.filters;
+    setTierFilter(f.tierFilter || "all");
+    setSearch(f.search || "");
+    setShowDeliveredOnly(f.showDeliveredOnly !== false);
+    setShowMarketingOnly(!!f.showMarketingOnly);
+    setShowHasPhone(f.showHasPhone !== false);
+    setActiveSegmentId(seg.id);
+    showToast("📂 تم تطبيق: " + seg.name);
+  };
+
+  const handleSaveSegment = async () => {
+    if(!canEdit) return;
+    const v = await askInput("💾 حفظ الـ filters الحالية كـ segment", {
+      label: "اسم الـ segment (مثلاً: VIP من القاهرة، at-risk للحملات، إلخ)",
+      placeholder: "VIP — رمضان 2026",
+      confirmText: "حفظ",
+    });
+    if(v === null || !v.trim()) return;
+    const id = "seg_" + Date.now().toString(36);
+    const seg = {
+      id,
+      name: v.trim(),
+      filters: { tierFilter, search, showDeliveredOnly, showMarketingOnly, showHasPhone },
+      createdAt: new Date().toISOString(),
+      createdBy: user?.email || "",
+    };
+    upConfig(d => {
+      if(!Array.isArray(d.shopifyCustomerSegments)) d.shopifyCustomerSegments = [];
+      d.shopifyCustomerSegments.unshift(seg);
+      /* Cap at 50 segments to avoid bloat */
+      if(d.shopifyCustomerSegments.length > 50) d.shopifyCustomerSegments = d.shopifyCustomerSegments.slice(0, 50);
+    });
+    setActiveSegmentId(id);
+    showToast("💾 تم الحفظ: " + v);
+  };
+
+  const handleDeleteSegment = async (seg) => {
+    if(!canEdit) return;
+    const yes = await ask("🗑 حذف Segment", `هتحذف "${seg.name}"؟`);
+    if(!yes) return;
+    upConfig(d => {
+      if(!Array.isArray(d.shopifyCustomerSegments)) return;
+      d.shopifyCustomerSegments = d.shopifyCustomerSegments.filter(s => s.id !== seg.id);
+    });
+    if(activeSegmentId === seg.id) setActiveSegmentId(null);
+    showToast("🗑 اتحذف");
+  };
+
+  const handleClearFilters = () => {
+    setTierFilter("all");
+    setSearch("");
+    setShowDeliveredOnly(true);
+    setShowMarketingOnly(false);
+    setShowHasPhone(true);
+    setActiveSegmentId(null);
+  };
 
   /* Selection state */
   const [selected, setSelected] = useState(() => new Set());
@@ -4088,6 +4151,42 @@ function CustomersTab({ data, canEdit, user, isMob }){
             <Btn small ghost onClick={clearSelection}>
               ✕ Clear
             </Btn>
+          </div>
+        )}
+
+        {/* V21.4 Phase 10e: Saved Segments chips */}
+        {(segments.length > 0 || canEdit) && (
+          <div style={{ marginBottom: 12, padding: 10, background: T.bg, borderRadius: 8, border: "1px solid " + T.brd }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec }}>📂 Segments:</span>
+              {segments.length === 0 && (
+                <span style={{ fontSize: FS - 2, color: T.textMut, fontStyle: "italic" }}>
+                  (احفظ الـ filters الحالية كـ segment للوصول السريع)
+                </span>
+              )}
+              {segments.map(seg => (
+                <div key={seg.id} style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  padding: "3px 10px", borderRadius: 14,
+                  background: activeSegmentId === seg.id ? T.accent + "20" : T.cardSolid,
+                  border: "1px solid " + (activeSegmentId === seg.id ? T.accent : T.brd),
+                  cursor: "pointer", fontSize: FS - 2, fontWeight: 600,
+                  color: activeSegmentId === seg.id ? T.accent : T.text,
+                }}>
+                  <span onClick={() => applySegment(seg)}>{seg.name}</span>
+                  {canEdit && (
+                    <span onClick={(e) => { e.stopPropagation(); handleDeleteSegment(seg); }}
+                      style={{ fontSize: FS - 4, color: T.textMut, cursor: "pointer", paddingInlineStart: 4 }}
+                      title="حذف">✕</span>
+                  )}
+                </div>
+              ))}
+              <div style={{ flex: 1 }} />
+              <Btn small onClick={handleClearFilters}>🔄 reset</Btn>
+              {canEdit && (
+                <Btn small primary onClick={handleSaveSegment}>💾 حفظ كـ segment</Btn>
+              )}
+            </div>
           </div>
         )}
 

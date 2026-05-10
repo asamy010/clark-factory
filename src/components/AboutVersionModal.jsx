@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.4.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "💾 Phase 10e — Customer Segments (saved filters)",
+    changes: [
+      { type: "feature", text: "💾 [Customer Segments] الـ user يقدر يحفظ filter combo (tier + search + delivered + marketing + has-phone) باسم. مثلاً 'VIP من القاهرة آخر 30 يوم' أو 'at-risk للحملات' أو 'رمضان 2026'. بضغطة على chip بـ يطبق كل الـ filters دفعة واحدة." },
+      { type: "feature", text: "🎨 [Segment chips bar] فوق الـ filters في تاب العملاء:\n• شريط chips بكل الـ segments المحفوظة\n• الـ segment الـ active بـ يبقى highlighted بلون الـ accent\n• اضغط chip → يطبق الـ filters\n• اضغط ✕ على الـ chip → يحذف الـ segment\n• زرار '🔄 reset' لمسح كل الـ filters\n• زرار '💾 حفظ كـ segment' لتحويل الـ filters الحالية لـ segment جديد" },
+      { type: "feature", text: "🗂 [Schema: shopifyCustomerSegments[]]\n• { id, name, filters: { tierFilter, search, showDeliveredOnly, showMarketingOnly, showHasPhone }, createdAt, createdBy }\n• Cap 50 segment لتجنب bloat\n• الـ writes via upConfig (نفس الـ pattern الموجود)\n• مفيش API endpoint جديد — كله client-side state" },
+      { type: "feature", text: "💡 [Workflow examples]\n• 'VIP رمضان' → tier=vip + has phone → bulk WhatsApp مع كوبون VIP25\n• 'at-risk' → tier=at_risk → re-engagement campaign\n• 'جدد محتاجين متابعة' → tier=new → welcome message + ask for review\n• 'بلا تليفون' → has_phone=false → email-only campaigns" },
+    ]
+  },
+  {
     version: "V21.3.0",
     date: "2026-05-10",
     types: ["feature"],
