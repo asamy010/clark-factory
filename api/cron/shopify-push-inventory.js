@@ -75,6 +75,7 @@ export default async function handler(req, res){
   /* Build push list — only products whose desired != current */
   const queue = [];
   for(const p of shopifyProducts){
+    if(p.wholesale_only === true) continue;
     if(p.shopify_synced === false) continue;
     if(p.mapping_status !== "matched") continue;
     const variants = Array.isArray(p.variants) ? p.variants : [];

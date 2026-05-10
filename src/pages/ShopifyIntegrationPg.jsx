@@ -36,6 +36,7 @@ import {
   shopifyConnect, shopifyStatus, shopifyDisconnect, shopifyOAuthInit,
   shopifySyncOrdersNow, shopifyMarkDelivered, shopifyMarkRefused, shopifySyncProductsNow,
   shopifyProcessReturn, shopifyPushInventoryNow, shopifyUpdateProductSettings,
+  shopifyBulkUpdateProducts, shopifySyncProductsWithFilters,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -2025,52 +2026,108 @@ function ReconcileRow({ label, value, secondary, ok, mismatch }){
   );
 }
 
-/* V19.96 Phase 4: ProductsTab — Shopify product catalog + inventory push.
-   Shows all products synced from Shopify, classified as matched/missing/
-   mismatch. Lets the user toggle shopify_synced per product, set safety
-   buffer, and trigger a manual inventory push. */
+/* V19.99 Phase 7: ProductsTab — full product management with bulk select,
+   sync filters, wholesale flag, delete from CLARK, image thumbnails. */
 function ProductsTab({ data, canEdit, user, isMob }){
   const cfg = data?.shopifyConfig || {};
   const products = useMemo(() =>
     Array.isArray(data?.shopifyProducts) ? data.shopifyProducts : [],
     [data?.shopifyProducts]
   );
-  const [filter, setFilter] = useState("all"); /* all|matched|missing|mismatch */
+  const blacklistCount = (cfg.deletedProductIds || []).length;
+
+  /* Filter state */
+  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [showWholesale, setShowWholesale] = useState("all"); /* all|retail|wholesale */
+  const [expandedId, setExpandedId] = useState(null);
+
+  /* Selection state */
+  const [selected, setSelected] = useState(() => new Set());
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if(next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+
+  /* Busy flags */
   const [busy, setBusy] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [lastPushResult, setLastPushResult] = useState(null);
 
+  /* Sync filters modal */
+  const [showSyncFilters, setShowSyncFilters] = useState(false);
+  const [syncFilters, setSyncFilters] = useState({
+    status: "",
+    vendor: "",
+    product_type: "",
+    published_only: false,
+    sku_prefix: "",
+  });
+
+  /* Compute stats */
   const stats = useMemo(() => {
-    const s = { total: products.length, matched: 0, missing: 0, mismatch: 0, synced: 0 };
+    const s = {
+      total: products.length,
+      matched: 0, missing_in_clark: 0, mismatch: 0,
+      synced: 0, paused: 0, wholesale: 0,
+    };
     products.forEach(p => {
       s[p.mapping_status] = (s[p.mapping_status] || 0) + 1;
-      if(p.shopify_synced !== false && p.mapping_status === "matched") s.synced++;
+      if(p.wholesale_only) s.wholesale++;
+      else if(p.shopify_synced === false) s.paused++;
+      else if(p.mapping_status === "matched") s.synced++;
     });
     return s;
   }, [products]);
 
+  /* Vendor list (for filter dropdown) */
+  const vendors = useMemo(() => {
+    const set = new Set();
+    products.forEach(p => { if(p.vendor) set.add(p.vendor); });
+    return Array.from(set).sort();
+  }, [products]);
+
+  /* Filtered list */
   const filtered = useMemo(() => {
     let res = products;
     if(filter !== "all") res = res.filter(p => p.mapping_status === filter);
+    if(vendorFilter) res = res.filter(p => p.vendor === vendorFilter);
+    if(statusFilter) res = res.filter(p => p.status === statusFilter);
+    if(showWholesale === "wholesale") res = res.filter(p => p.wholesale_only === true);
+    else if(showWholesale === "retail") res = res.filter(p => p.wholesale_only !== true);
     const q = search.trim().toLowerCase();
     if(q) res = res.filter(p =>
       String(p.sku || "").toLowerCase().includes(q) ||
-      String(p.title || "").toLowerCase().includes(q)
+      String(p.title || "").toLowerCase().includes(q) ||
+      String(p.vendor || "").toLowerCase().includes(q) ||
+      String(p.product_type || "").toLowerCase().includes(q)
     );
     return res;
-  }, [products, filter, search]);
+  }, [products, filter, search, vendorFilter, statusFilter, showWholesale]);
+
+  /* Visible IDs for select-all */
+  const visibleIds = useMemo(() => filtered.slice(0, 100).map(p => String(p.shopify_id)), [filtered]);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
 
   const connected = !!cfg.connected;
 
-  const handleSyncProducts = async () => {
+  /* ── Action handlers ── */
+  const handleSyncProducts = async (useFilters = false) => {
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     if(!connected){ showToast("⚠️ مش متصل بـ Shopify"); return; }
     setBusy(true);
     try {
-      const r = await shopifySyncProductsNow(user);
+      const opts = useFilters ? { filters: syncFilters, replaceMode: "merge" } : {};
+      const r = await shopifySyncProductsWithFilters(opts, user);
       if(r && r.ok){
-        showToast(`✅ تم سحب ${r.total} منتج · matched: ${r.matched} · missing: ${r.missing}`);
+        showToast(`✅ تم سحب ${r.afterFilters || r.total} منتج · matched: ${r.matched} · missing: ${r.missing}${r.blacklisted ? ` · skipped from blacklist: ${r.blacklisted}` : ""}`);
+        setShowSyncFilters(false);
       } else {
         showToast("⛔ " + (r?.error || "فشل السحب"));
       }
@@ -2085,11 +2142,11 @@ function ProductsTab({ data, canEdit, user, isMob }){
     if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
     if(!connected){ showToast("⚠️ مش متصل"); return; }
     if(stats.synced === 0){
-      showToast("⚠️ مفيش منتجات matched + synced للـ push");
+      showToast("⚠️ مفيش منتجات matched + synced + retail للـ push");
       return;
     }
     if(!dryRun){
-      const yes = await ask("📤 Push المخزون", `هتـ push المخزون لـ ${stats.synced} منتج لـ Shopify. الـ Shopify quantities الحالية هـ يتـ override.\n\nالحساب:\navailable = stock - active reservations - safety buffer\n\nتأكيد؟`);
+      const yes = await ask("📤 Push المخزون", `هتـ push المخزون لـ ${stats.synced} منتج لـ Shopify.\n\nWholesale-only products بـ تتـ skip تلقائياً.\n\nالحساب: available = stock - reservations - buffer\n\nتأكيد؟`);
       if(!yes) return;
     }
     setPushing(true);
@@ -2108,25 +2165,31 @@ function ProductsTab({ data, canEdit, user, isMob }){
     }
   };
 
+  /* Single-product actions */
   const handleToggleSync = async (product) => {
-    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(!canEdit) return;
     try {
       const r = await shopifyUpdateProductSettings({
         shopifyProductId: product.shopify_id,
         settings: { shopify_synced: !(product.shopify_synced !== false) }
       }, user);
-      if(r && r.ok){
-        showToast("✅ تم التعديل");
-      } else {
-        showToast("⛔ " + (r?.error || "فشل التعديل"));
-      }
-    } catch(e){
-      showToast("⛔ " + (e.message || "فشل التعديل"));
-    }
+      if(!r?.ok) showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleToggleWholesale = async (product) => {
+    if(!canEdit) return;
+    try {
+      const r = await shopifyUpdateProductSettings({
+        shopifyProductId: product.shopify_id,
+        settings: { wholesale_only: !product.wholesale_only }
+      }, user);
+      if(!r?.ok) showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
   };
 
   const handleSetBuffer = async (product) => {
-    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    if(!canEdit) return;
     const current = product.safety_buffer != null ? String(product.safety_buffer) : String(cfg.default_safety_buffer || 5);
     const v = await askInput("Safety Buffer للمنتج", {
       defaultValue: current,
@@ -2141,14 +2204,92 @@ function ProductsTab({ data, canEdit, user, isMob }){
         shopifyProductId: product.shopify_id,
         settings: { safety_buffer: v.trim() === "" ? null : Number(v) }
       }, user);
-      if(r && r.ok){
-        showToast("✅ تم");
+      if(!r?.ok) showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleDeleteOne = async (product) => {
+    if(!canEdit) return;
+    const yes = await ask("🗑 حذف من CLARK", `هتشيل المنتج "${product.title || product.sku}" من قائمة CLARK\n\n⚠️ ملاحظات مهمة:\n• المنتج هـ يفضل في Shopify عادي\n• الـ ID بتاعه هـ يضاف لـ blacklist\n• لو عملت sync تاني، مش هـ يرجع تلقائياً\n• تقدر تـ restore من الـ blacklist بعدين\n\nتأكيد؟`);
+    if(!yes) return;
+    try {
+      const r = await shopifyBulkUpdateProducts({
+        productIds: [product.shopify_id],
+        action: "delete_from_clark"
+      }, user);
+      if(r?.ok){ showToast("🗑 اتشال"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  /* Bulk actions */
+  const bulkAction = async (action, payload) => {
+    if(selected.size === 0){ showToast("⚠️ اختار منتجات الأول"); return; }
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    try {
+      const r = await shopifyBulkUpdateProducts({
+        productIds: Array.from(selected),
+        action, payload
+      }, user);
+      if(r?.ok){
+        showToast(`✅ تم · ${r.updated || r.deleted} منتج`);
+        clearSelection();
       } else {
-        showToast("⛔ " + (r?.error || "فشل التعديل"));
+        showToast("⛔ " + (r?.error || "فشل"));
       }
-    } catch(e){
-      showToast("⛔ " + (e.message || "فشل التعديل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleBulkBuffer = async () => {
+    if(selected.size === 0){ showToast("⚠️ اختار منتجات الأول"); return; }
+    const v = await askInput("Safety Buffer للـ " + selected.size + " منتج", {
+      defaultValue: String(cfg.default_safety_buffer || 5),
+      label: "عدد القطع — اسيبه فاضي للرجوع للـ default",
+      type: "number",
+      confirmText: "تطبيق على الكل",
+    });
+    if(v === null) return;
+    bulkAction("set_safety_buffer", { value: v.trim() === "" ? null : Number(v) });
+  };
+
+  const handleBulkDelete = async () => {
+    if(selected.size === 0){ showToast("⚠️ اختار منتجات الأول"); return; }
+    const yes = await ask("🗑 حذف الـ " + selected.size + " منتج",
+      `هتشيل ${selected.size} منتج من قائمة CLARK.\n\n⚠️ ملاحظات:\n• المنتجات هـ تفضل في Shopify عادي\n• الـ IDs هـ تضاف لـ blacklist\n• مش هـ يرجعوا تلقائياً مع sync\n\nتأكيد الحذف؟`);
+    if(!yes) return;
+    bulkAction("delete_from_clark");
+  };
+
+  const handleDeleteAll = async () => {
+    if(!canEdit) return;
+    if(products.length === 0){ showToast("⚠️ مفيش منتجات أصلاً"); return; }
+    const yes = await ask("⚠️ حذف كل المنتجات",
+      `🚨 هتشيل كل الـ ${products.length} منتج من قائمة CLARK.\n\nالمنتجات في Shopify مش هتتأثر.\nالـ IDs كلها هـ تضاف للـ blacklist.\n\nده action لا يمكن التراجع عنه (إلا بـ Clear Blacklist + sync تاني).\n\nمتأكد 100%؟`);
+    if(!yes) return;
+    const reason = await askInput("اكتب \"مسح\" للتأكيد", { placeholder: "مسح" });
+    if(!reason || reason.trim() !== "مسح"){
+      showToast("ℹ️ تم الإلغاء"); return;
     }
+    try {
+      const r = await shopifyBulkUpdateProducts({ productIds: [], action: "delete_all" }, user);
+      if(r?.ok){
+        showToast(`🗑 تم مسح ${r.deleted} منتج`);
+        clearSelection();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const handleClearBlacklist = async () => {
+    if(blacklistCount === 0){ showToast("ℹ️ الـ blacklist فاضي"); return; }
+    const yes = await ask("🔄 مسح الـ blacklist", `هتمسح الـ blacklist (${blacklistCount} منتج).\n\nالـ sync الجاي هـ يجيب المنتجات دي تاني.\n\nتأكيد؟`);
+    if(!yes) return;
+    try {
+      const r = await shopifyBulkUpdateProducts({ productIds: [], action: "clear_blacklist" }, user);
+      if(r?.ok){ showToast("✅ تم مسح الـ blacklist"); }
+      else { showToast("⛔ " + (r?.error || "فشل")); }
+    } catch(e){ showToast("⛔ " + e.message); }
   };
 
   if(!connected){
@@ -2161,18 +2302,25 @@ function ProductsTab({ data, canEdit, user, isMob }){
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
-        <MetricCard label="إجمالي المنتجات" value={String(stats.total)} icon="📦" color="#0EA5E9" />
-        <MetricCard label="matched" value={String(stats.matched)} icon="✅" color="#10B981" />
-        <MetricCard label="missing in CLARK" value={String(stats.missing)} icon="⚠️" color="#F59E0B" />
-        <MetricCard label="synced للـ Shopify" value={String(stats.synced)} icon="🔄" color="#8B5CF6" />
+      {/* Stats banner */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr 1fr" : "repeat(6, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="📦" color="#0EA5E9" />
+        <MetricCard label="✅ matched" value={String(stats.matched)} color="#10B981" />
+        <MetricCard label="⚠️ missing" value={String(stats.missing_in_clark)} color="#F59E0B" />
+        <MetricCard label="🚫 mismatch" value={String(stats.mismatch)} color="#EF4444" />
+        <MetricCard label="🛒 retail synced" value={String(stats.synced)} color="#8B5CF6" />
+        <MetricCard label="🏭 جملة فقط" value={String(stats.wholesale)} color="#0D9488" />
       </div>
 
-      <Card title="📦 المنتجات والمخزون" extra={
+      {/* Top toolbar — sync + push + delete */}
+      <Card title="📦 إدارة المنتجات" extra={
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <LoadingBtn primary loading={busy} loadingText="..." onClick={handleSyncProducts} disabled={!canEdit} small>
-            🔄 سحب المنتجات من Shopify
+          <LoadingBtn primary loading={busy} loadingText="..." onClick={() => handleSyncProducts(false)} disabled={!canEdit} small>
+            🔄 سحب الكل
           </LoadingBtn>
+          <Btn small onClick={() => setShowSyncFilters(s => !s)} disabled={!canEdit}>
+            🎯 سحب بـ filters
+          </Btn>
           <LoadingBtn loading={pushing} loadingText="..." onClick={() => handlePush(true)} disabled={!canEdit} small>
             🔍 Dry Run
           </LoadingBtn>
@@ -2192,20 +2340,126 @@ function ProductsTab({ data, canEdit, user, isMob }){
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 12 }}>
+        {/* Sync filters panel */}
+        {showSyncFilters && (
+          <div style={{ padding: 14, background: T.bg, borderRadius: 10, marginBottom: 12, border: "1px solid " + T.brd }}>
+            <div style={{ fontWeight: 800, fontSize: FS, color: T.text, marginBottom: 10 }}>🎯 Sync Filters — اختر اللي ينزل من Shopify</div>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>Status</label>
+                <Sel value={syncFilters.status} onChange={v => setSyncFilters(s => ({ ...s, status: v }))}>
+                  <option value="">كل الـ statuses</option>
+                  <option value="active">active فقط</option>
+                  <option value="draft">draft فقط</option>
+                  <option value="archived">archived فقط</option>
+                </Sel>
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>Vendor</label>
+                <Inp value={syncFilters.vendor} onChange={v => setSyncFilters(s => ({ ...s, vendor: v }))} placeholder="اسم الـ vendor (اختياري)" />
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>Product Type</label>
+                <Inp value={syncFilters.product_type} onChange={v => setSyncFilters(s => ({ ...s, product_type: v }))} placeholder="مثلاً: jacket" />
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>SKU Prefix</label>
+                <Inp value={syncFilters.sku_prefix} onChange={v => setSyncFilters(s => ({ ...s, sku_prefix: v }))} placeholder="مثلاً: WINTER-" />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", paddingTop: 22 }}>
+                <CheckLine label="published فقط" checked={syncFilters.published_only}
+                  onChange={v => setSyncFilters(s => ({ ...s, published_only: v }))} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <LoadingBtn primary small loading={busy} onClick={() => handleSyncProducts(true)}>
+                🎯 سحب بـ الـ filters دي
+              </LoadingBtn>
+              <Btn small onClick={() => setSyncFilters({ status: "", vendor: "", product_type: "", published_only: false, sku_prefix: "" })}>
+                🔄 reset
+              </Btn>
+              <Btn small onClick={() => setShowSyncFilters(false)}>إغلاق</Btn>
+            </div>
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 8 }}>
+              ℹ️ الـ filters بـ تنطبق وقت السحب فقط. المنتجات الموجودة في CLARK ما بـ تتأثر — flags الـ user (synced, wholesale, buffer) بـ تتـ preserve.
+            </div>
+          </div>
+        )}
+
+        {/* Bulk actions bar — appears when items selected */}
+        {selected.size > 0 && (
+          <div style={{
+            padding: "10px 14px",
+            background: T.accent + "15",
+            border: "1px solid " + T.accent + "40",
+            borderRadius: 10,
+            marginBottom: 12,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}>
+            <span style={{ fontWeight: 800, color: T.accent, fontSize: FS }}>{selected.size} منتج محدد</span>
+            <Btn small onClick={() => bulkAction("set_synced", { value: true })}>🔄 Sync ON</Btn>
+            <Btn small onClick={() => bulkAction("set_synced", { value: false })}>⏸ Sync OFF</Btn>
+            <Btn small onClick={() => bulkAction("set_wholesale_only", { value: true })}>🏭 جعل Wholesale</Btn>
+            <Btn small onClick={() => bulkAction("set_wholesale_only", { value: false })}>🛒 جعل Retail</Btn>
+            <Btn small onClick={handleBulkBuffer}>🛡 Set Buffer</Btn>
+            <Btn small danger onClick={handleBulkDelete}>🗑 احذف من CLARK</Btn>
+            <Btn small ghost onClick={clearSelection}>✕ Clear</Btn>
+          </div>
+        )}
+
+        {/* Filters row */}
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 1fr 2fr", gap: 8, marginBottom: 12 }}>
           <Sel value={filter} onChange={setFilter}>
-            <option value="all">كل المنتجات ({products.length})</option>
-            <option value="matched">✅ matched فقط ({stats.matched})</option>
-            <option value="missing_in_clark">⚠️ missing in CLARK ({stats.missing})</option>
-            <option value="mismatch">❌ mismatch ({stats.mismatch})</option>
+            <option value="all">كل الحالات ({products.length})</option>
+            <option value="matched">✅ matched ({stats.matched})</option>
+            <option value="missing_in_clark">⚠️ missing ({stats.missing_in_clark})</option>
+            <option value="mismatch">🚫 mismatch ({stats.mismatch})</option>
           </Sel>
-          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالـ SKU أو العنوان..." />
+          <Sel value={showWholesale} onChange={setShowWholesale}>
+            <option value="all">retail + wholesale</option>
+            <option value="retail">🛒 retail فقط</option>
+            <option value="wholesale">🏭 wholesale فقط</option>
+          </Sel>
+          {vendors.length > 0 && (
+            <Sel value={vendorFilter} onChange={setVendorFilter}>
+              <option value="">كل الـ vendors</option>
+              {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+            </Sel>
+          )}
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالـ SKU، العنوان، أو vendor..." />
+        </div>
+
+        {/* Select-all + result count */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, padding: "0 4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={() => {
+                if(allVisibleSelected){
+                  setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.delete(id)); return n; });
+                } else {
+                  setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.add(id)); return n; });
+                }
+              }}
+              style={{ cursor: "pointer", width: 18, height: 18 }}
+            />
+            <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>
+              تحديد الكل المعروض ({visibleIds.length})
+            </span>
+          </div>
+          <span style={{ fontSize: FS - 2, color: T.textSec }}>
+            عرض <b>{Math.min(filtered.length, 100)}</b> من <b>{filtered.length}</b>
+          </span>
         </div>
 
         {filtered.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
             <div style={{ fontSize: 36, marginBottom: 8, opacity: 0.5 }}>📭</div>
-            <div>{products.length === 0 ? "اضغط \"سحب المنتجات\" لأول مرة" : "مفيش منتجات تطابق الـ filter"}</div>
+            <div>{products.length === 0 ? "اضغط \"سحب الكل\" لأول مرة" : "مفيش منتجات تطابق الـ filters"}</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2217,17 +2471,48 @@ function ProductsTab({ data, canEdit, user, isMob }){
                 data={data}
                 canEdit={canEdit}
                 isMob={isMob}
+                isSelected={selected.has(String(p.shopify_id))}
+                isExpanded={expandedId === String(p.shopify_id)}
+                onToggleSelect={() => toggleSelect(String(p.shopify_id))}
+                onToggleExpand={() => setExpandedId(expandedId === String(p.shopify_id) ? null : String(p.shopify_id))}
                 onToggleSync={() => handleToggleSync(p)}
+                onToggleWholesale={() => handleToggleWholesale(p)}
                 onSetBuffer={() => handleSetBuffer(p)}
+                onDelete={() => handleDeleteOne(p)}
+                storeUrl={cfg.store_url}
               />
             ))}
             {filtered.length > 100 && (
               <div style={{ textAlign: "center", padding: 6, color: T.textMut, fontSize: FS - 2 }}>
-                + {filtered.length - 100} منتج أخرى — استخدم البحث للوصول إليهم
+                + {filtered.length - 100} منتج أخرى — استخدم البحث/الـ filters للوصول إليهم
               </div>
             )}
           </div>
         )}
+      </Card>
+
+      {/* Danger zone */}
+      <Card title="⚠️ Danger Zone">
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 10 }}>
+          <div style={{ padding: 14, background: "#FEE2E215", border: "1px solid #EF444430", borderRadius: 10 }}>
+            <div style={{ fontWeight: 700, color: "#EF4444", fontSize: FS, marginBottom: 6 }}>🗑 احذف كل المنتجات من CLARK</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10, lineHeight: 1.6 }}>
+              يـ clear الـ shopifyProducts list كله. المنتجات في Shopify مش بتتأثر. كل الـ IDs بـ تضاف لـ blacklist عشان sync تاني ما يجيبهمش.
+            </div>
+            <Btn danger small onClick={handleDeleteAll} disabled={!canEdit || products.length === 0}>
+              🗑 احذف الكل ({products.length})
+            </Btn>
+          </div>
+          <div style={{ padding: 14, background: "#FEF3C715", border: "1px solid #F59E0B30", borderRadius: 10 }}>
+            <div style={{ fontWeight: 700, color: "#92400E", fontSize: FS, marginBottom: 6 }}>🔄 مسح الـ Blacklist ({blacklistCount} منتج)</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10, lineHeight: 1.6 }}>
+              الـ blacklist بـ يمنع المنتجات المحذوفة من الرجوع وقت الـ sync. مسحه يخلي الـ sync الجاي يجيب كل المنتجات تاني.
+            </div>
+            <Btn small onClick={handleClearBlacklist} disabled={!canEdit || blacklistCount === 0}>
+              🔄 مسح الـ Blacklist
+            </Btn>
+          </div>
+        </div>
       </Card>
 
       {/* Last push result */}
@@ -2253,16 +2538,14 @@ function ProductsTab({ data, canEdit, user, isMob }){
               display: "flex",
               justifyContent: "space-between",
               gap: 8,
+              flexWrap: "wrap",
             }}>
-              <span style={{ fontFamily: "monospace" }}>{d.sku}</span>
+              <span style={{ fontFamily: "monospace" }}>{d.sku} <span style={{ color: T.textMut, fontWeight: 400 }}>· {d.status}{d.skip_reason ? ` (${d.skip_reason})` : ""}</span></span>
               <span style={{ color: T.textSec }}>
                 {d.physical != null && (
-                  <>
-                    physical: {d.physical} − reserved: {d.reserved} − buffer: {d.buffer} = <b>{d.available}</b>
-                  </>
+                  <>physical: {d.physical} − reserved: {d.reserved} − buffer: {d.buffer} = <b>{d.available}</b></>
                 )}
                 {d.error && <span style={{ color: T.err, marginInlineStart: 8 }}>· {d.error}</span>}
-                {d.status === "no_change" && <span style={{ color: T.textMut, marginInlineStart: 8 }}>· no change</span>}
               </span>
             </div>
           ))}
@@ -2272,8 +2555,9 @@ function ProductsTab({ data, canEdit, user, isMob }){
   );
 }
 
-function ProductRow({ product, cfg, data, canEdit, isMob, onToggleSync, onSetBuffer }){
+function ProductRow({ product, cfg, data, canEdit, isMob, isSelected, isExpanded, onToggleSelect, onToggleExpand, onToggleSync, onToggleWholesale, onSetBuffer, onDelete, storeUrl }){
   const synced = product.shopify_synced !== false;
+  const wholesale = product.wholesale_only === true;
   const matched = product.mapping_status === "matched";
   const variants = Array.isArray(product.variants) ? product.variants : [];
   const v0 = variants[0] || {};
@@ -2286,60 +2570,217 @@ function ProductRow({ product, cfg, data, canEdit, isMob, onToggleSync, onSetBuf
   const defaultBuffer = Number(cfg.default_safety_buffer) || 0;
   const buffer = product.safety_buffer != null ? Number(product.safety_buffer) : defaultBuffer;
   const available = Math.max(0, physicalStock - reserved - buffer);
-  const shopifyQty = Number(v0.inventory_quantity) || 0;
+  const shopifyQty = Number(product.total_inventory) || Number(v0.inventory_quantity) || 0;
   const inSync = available === shopifyQty;
 
-  const statusMeta = matched ? { c: "#10B981", l: "matched" }
-                  : product.mapping_status === "missing_in_clark" ? { c: "#F59E0B", l: "missing" }
-                  : { c: "#EF4444", l: "mismatch" };
+  /* Status badge */
+  let statusMeta;
+  if(wholesale){
+    statusMeta = { c: "#0D9488", l: "🏭 جملة فقط" };
+  } else if(matched){
+    statusMeta = synced ? { c: "#10B981", l: "🛒 retail · synced" } : { c: "#F59E0B", l: "⏸ paused" };
+  } else if(product.mapping_status === "missing_in_clark"){
+    statusMeta = { c: "#F59E0B", l: "⚠️ missing in CLARK" };
+  } else {
+    statusMeta = { c: "#EF4444", l: "🚫 mismatch" };
+  }
+
+  /* Price label */
+  const priceLabel = product.min_price && product.max_price
+    ? (product.min_price === product.max_price ? `${fmt(product.min_price)} ج` : `${fmt(product.min_price)} - ${fmt(product.max_price)} ج`)
+    : (v0.price ? `${fmt(v0.price)} ج` : "");
+
+  /* Shopify status */
+  const shopifyStatus = product.status === "active" ? "🟢 active" : product.status === "draft" ? "📝 draft" : "📦 archived";
 
   return (
     <div style={{
-      padding: "10px 14px",
+      padding: "10px 12px",
       borderRadius: 10,
-      background: T.cardSolid,
-      border: "1px solid " + T.brd,
+      background: isSelected ? T.accent + "08" : T.cardSolid,
+      border: "1px solid " + (isSelected ? T.accent + "40" : T.brd),
       borderInlineStart: "3px solid " + statusMeta.c,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: FS, color: T.text }}>{product.title || "(no title)"}</span>
+      {/* Main row */}
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        {/* Checkbox */}
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          style={{ cursor: "pointer", width: 18, height: 18, marginTop: 4, flexShrink: 0 }}
+        />
+
+        {/* Image thumbnail */}
+        {product.image_url ? (
+          <img
+            src={product.image_url}
+            alt=""
+            onClick={onToggleExpand}
+            style={{
+              width: isMob ? 50 : 64,
+              height: isMob ? 50 : 64,
+              objectFit: "cover",
+              borderRadius: 8,
+              border: "1px solid " + T.brd,
+              flexShrink: 0,
+              cursor: "pointer",
+            }}
+            loading="lazy"
+            onError={e => { e.target.style.display = "none"; }}
+          />
+        ) : (
+          <div onClick={onToggleExpand} style={{
+            width: isMob ? 50 : 64,
+            height: isMob ? 50 : 64,
+            borderRadius: 8,
+            background: T.bg,
+            border: "1px solid " + T.brd,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 24,
+            flexShrink: 0,
+            cursor: "pointer",
+          }}>📦</div>
+        )}
+
+        {/* Body */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: FS, color: T.text, cursor: "pointer" }} onClick={onToggleExpand}>
+              {product.title || "(no title)"}
+            </span>
             <span style={{
               fontSize: FS - 3, fontWeight: 700, padding: "2px 8px",
               borderRadius: 8, background: statusMeta.c + "20", color: statusMeta.c,
             }}>{statusMeta.l}</span>
           </div>
-          <div style={{ fontSize: FS - 2, color: T.textSec, fontFamily: "monospace", marginTop: 2 }}>
-            SKU: {product.sku || "(none)"} · variants: {variants.length}
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 3, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "monospace" }}>SKU: {product.sku || "(none)"}</span>
+            <span>· variants: {variants.length}</span>
+            {priceLabel && <span>· {priceLabel}</span>}
+            {product.vendor && <span>· {product.vendor}</span>}
+            <span>· {shopifyStatus}</span>
           </div>
-          {matched && (
+          {matched && !isMob && (
             <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 6, lineHeight: 1.6 }}>
-              <span>📦 CLARK stock: <b>{physicalStock}</b></span>
-              <span style={{ marginInlineStart: 10 }}>− Reserved: <b>{reserved}</b></span>
-              <span style={{ marginInlineStart: 10 }}>− Buffer: <b>{buffer}</b></span>
-              <span style={{ marginInlineStart: 10 }}>= <b style={{ color: T.accent }}>{available}</b></span>
-              {!isMob && (
-                <span style={{ marginInlineStart: 12, padding: "1px 8px", borderRadius: 6, background: inSync ? "#10B98115" : "#F59E0B15", color: inSync ? "#10B981" : "#F59E0B", fontWeight: 700 }}>
-                  Shopify: {shopifyQty} {inSync ? "✓" : "(out of sync)"}
-                </span>
-              )}
+              <span>📦 CLARK: <b>{physicalStock}</b></span>
+              <span style={{ marginInlineStart: 8 }}>− <b>{reserved}</b> reserved</span>
+              <span style={{ marginInlineStart: 8 }}>− <b>{buffer}</b> buffer</span>
+              <span style={{ marginInlineStart: 8 }}>= <b style={{ color: T.accent }}>{available}</b></span>
+              <span style={{ marginInlineStart: 12, padding: "1px 8px", borderRadius: 6, background: inSync ? "#10B98115" : "#F59E0B15", color: inSync ? "#10B981" : "#F59E0B", fontWeight: 700 }}>
+                Shopify: {shopifyQty} {inSync ? "✓" : "⚠"}
+              </span>
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+
+        {/* Actions menu (always visible) */}
+        <div style={{ display: "flex", flexDirection: isMob ? "row" : "column", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
           {matched && (
-            <>
+            <Btn small ghost onClick={onToggleSync} disabled={!canEdit} title="Sync ON/OFF">
+              {synced ? "🔄" : "⏸"}
+            </Btn>
+          )}
+          <Btn small ghost onClick={onToggleWholesale} disabled={!canEdit} title={wholesale ? "تحويل لـ retail" : "تحويل لـ wholesale"}>
+            {wholesale ? "🏭" : "🛒"}
+          </Btn>
+          <Btn small ghost onClick={onToggleExpand} title={isExpanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}>
+            {isExpanded ? "▲" : "▼"}
+          </Btn>
+        </div>
+      </div>
+
+      {/* Expanded details */}
+      {isExpanded && (
+        <div style={{
+          marginTop: 12,
+          padding: 12,
+          background: T.bg,
+          borderRadius: 8,
+          border: "1px solid " + T.brd,
+          fontSize: FS - 1,
+        }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📝 معلومات Shopify</div>
+              <div style={{ color: T.textSec, lineHeight: 1.8, fontSize: FS - 2 }}>
+                <div>Shopify ID: <span style={{ fontFamily: "monospace" }}>{product.shopify_id}</span></div>
+                <div>Handle: <span style={{ fontFamily: "monospace" }}>{product.handle || "—"}</span></div>
+                <div>Type: {product.product_type || "—"}</div>
+                <div>Tags: {product.tags || "—"}</div>
+                <div>Total inventory (Shopify): {shopifyQty}</div>
+                {product.published_at && <div>Published: {new Date(product.published_at).toLocaleDateString("ar-EG")}</div>}
+                {product.last_synced_at && <div>Last synced: {new Date(product.last_synced_at).toLocaleString("ar-EG")}</div>}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🔗 ربط CLARK</div>
+              <div style={{ color: T.textSec, lineHeight: 1.8, fontSize: FS - 2 }}>
+                <div>Mapping: <b style={{ color: statusMeta.c }}>{product.mapping_status}</b></div>
+                {inv ? (
+                  <>
+                    <div>CLARK item: <b>{inv.name || inv.id}</b></div>
+                    <div>Stock: {physicalStock}</div>
+                    <div>Buffer: {buffer} {product.safety_buffer != null ? "(custom)" : "(default)"}</div>
+                    <div>Reserved: {reserved}</div>
+                    <div>Available for Shopify: <b style={{ color: T.accent }}>{available}</b></div>
+                  </>
+                ) : (
+                  <div style={{ color: T.warn }}>⚠️ مفيش item في CLARK بـ model_no = "{product.sku}". أضفه في الـ inventory الأول، أو ابقى عرّفه manually.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Variants list */}
+          {variants.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>🎨 الـ Variants ({variants.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {variants.slice(0, 10).map(v => (
+                  <div key={v.variant_id} style={{ padding: "6px 10px", background: T.cardSolid, borderRadius: 6, fontSize: FS - 2, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                    <span>{[v.option1, v.option2, v.option3].filter(Boolean).join(" / ") || "Default"}</span>
+                    <span style={{ color: T.textSec }}>
+                      {v.sku && <span style={{ fontFamily: "monospace" }}>{v.sku} · </span>}
+                      {fmt(v.price)} ج · qty: {v.inventory_quantity || 0}
+                    </span>
+                  </div>
+                ))}
+                {variants.length > 10 && (
+                  <div style={{ fontSize: FS - 3, color: T.textMut, textAlign: "center" }}>+ {variants.length - 10} variant آخر</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {matched && (
               <Btn small onClick={onToggleSync} disabled={!canEdit}>
-                {synced ? "🔄 Synced" : "⏸ Paused"}
+                {synced ? "⏸ Pause sync" : "🔄 Resume sync"}
               </Btn>
+            )}
+            <Btn small onClick={onToggleWholesale} disabled={!canEdit}>
+              {wholesale ? "🛒 تحويل لـ retail" : "🏭 تحويل لـ wholesale"}
+            </Btn>
+            {matched && (
               <Btn small onClick={onSetBuffer} disabled={!canEdit}>
                 🛡 Buffer ({buffer})
               </Btn>
-            </>
-          )}
+            )}
+            {storeUrl && product.handle && (
+              <Btn small onClick={() => window.open(`https://${storeUrl}/admin/products/${product.shopify_id}`, "_blank")}>
+                ↗ افتح في Shopify
+              </Btn>
+            )}
+            <Btn small danger onClick={onDelete} disabled={!canEdit}>
+              🗑 حذف من CLARK
+            </Btn>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

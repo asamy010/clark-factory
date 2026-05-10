@@ -465,12 +465,23 @@ export function mapShopifyProductToCLARK(product){
     sku: v.sku || "",
     title: v.title || "",
     price: Number(v.price) || 0,
+    compare_at_price: Number(v.compare_at_price) || 0,
     inventory_item_id: v.inventory_item_id ? String(v.inventory_item_id) : "",
     inventory_quantity: Number(v.inventory_quantity) || 0,
+    option1: v.option1 || "",
+    option2: v.option2 || "",
+    option3: v.option3 || "",
   }));
   /* Treat the first variant's SKU as the canonical SKU for the product
      (CLARK SKU = model_no = product-level, not variant-level). */
   const primarySku = variants[0]?.sku || "";
+  /* V19.99: Extract primary image + min/max price for better UX */
+  const images = Array.isArray(product.images) ? product.images : [];
+  const primaryImage = product.image?.src || images[0]?.src || "";
+  const prices = variants.map(v => v.price).filter(p => p > 0);
+  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+  const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+  const totalInventory = variants.reduce((s, v) => s + (Number(v.inventory_quantity) || 0), 0);
   return {
     shopify_id: String(product.id),
     title: product.title || "",
@@ -479,6 +490,14 @@ export function mapShopifyProductToCLARK(product){
     product_type: product.product_type || "",
     vendor: product.vendor || "",
     status: product.status || "active",
+    /* V19.99: image + price fields */
+    image_url: primaryImage,
+    image_count: images.length,
+    min_price: minPrice,
+    max_price: maxPrice,
+    total_inventory: totalInventory,
+    tags: product.tags || "",
+    published_at: product.published_at || null,
     variants,
     /* Mapping to CLARK — set later by the sync logic */
     clark_model_no: primarySku, /* assume SKU == model_no per spec */
@@ -486,6 +505,7 @@ export function mapShopifyProductToCLARK(product){
     mapping_status: "pending", /* matched | mismatch | missing_in_clark */
     /* Sync settings — defaulted; user tweaks per-product in Phase 4 */
     shopify_synced: true,
+    wholesale_only: false, /* V19.99: Jumla-only products never push to Shopify */
     safety_buffer: null, /* falls back to global default */
     max_shopify_qty: null,
     auto_disable_at_zero: true,

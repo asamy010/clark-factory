@@ -25,6 +25,25 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.99.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Phase 7 — Pro Product Management",
+    changes: [
+      { type: "feature", text: "🎨 [Image thumbnails + price] كل منتج بقى يعرض:\n• صورة مصغرة من Shopify (lazy-loaded، fallback لـ 📦 emoji)\n• السعر (min-max للـ multi-variant products)\n• الـ vendor + product type + Shopify status (active/draft/archived)\n• كل المعلومات دي بـ تحصل من Shopify response — اتـ extract في mapShopifyProductToCLARK" },
+      { type: "feature", text: "✅ [Bulk Selection + Actions] checkbox لكل منتج + Select All Visible. لما تختار منتجات، toolbar أزرق بـ يظهر فوق:\n• 🔄 Sync ON / ⏸ Sync OFF\n• 🏭 جعل Wholesale / 🛒 جعل Retail\n• 🛡 Set Buffer (يطبق على كل المحدد)\n• 🗑 احذف من CLARK\n• ✕ Clear selection\nالـ actions كلها atomic (Firestore transaction)." },
+      { type: "feature", text: "🏭 [Wholesale-only flag] flag منفصل عن shopify_synced:\n• wholesale_only=true → المنتج NEVER بـ يـ push للـ Shopify\n• الفكرة: منتجات بـ تتباع للجملة بس، مش هـ تظهر online\n• Filter جديد \"retail / wholesale / كل\" لفلترة الـ list\n• Status badge بـ يميز: 🛒 retail synced / 🏭 جملة فقط / ⏸ paused\n• الـ push logic بـ يستثني wholesale_only تلقائياً (مع السبب في dry-run)" },
+      { type: "feature", text: "🎯 [Sync Filters] قبل ما تـ sync products، اضغط \"🎯 سحب بـ filters\" لاختيار:\n• Status (active / draft / archived)\n• Vendor specific\n• Product Type specific\n• SKU prefix (مثلاً \"WINTER-\")\n• Published only checkbox\nبدلاً من سحب كل المنتجات في الـ store، تختار subset. مفيد للـ stores اللي فيها 1000+ products." },
+      { type: "feature", text: "🗑 [Delete from CLARK + Blacklist]\n• Per-product: 🗑 حذف من CLARK (single)\n• Bulk: 🗑 احذف الـ selected\n• Big red button: 🗑 احذف كل المنتجات (مع confirmation مزدوج بـ كتابة كلمة \"مسح\")\nالمحذوف بـ يتـ add لـ blacklist (deletedProductIds في shopifyConfig)، فالـ sync الجاي ما بـ يجيبه. لو غيّرت رأيك:\n• زرار 🔄 Clear Blacklist في Danger Zone\n• الـ sync الجاي بعدها بـ يجيب المنتجات المسحوبة" },
+      { type: "feature", text: "▼ [Expandable details] اضغط على الصورة أو اسم المنتج لفتح تفاصيل كاملة:\n• معلومات Shopify (ID, handle, type, tags, published date, last sync)\n• ربط CLARK (mapping status, الـ inventory item linked, full computation)\n• قائمة الـ variants بـ option1/option2/option3 + price + qty لكل واحد\n• Action buttons في تفاصيل (Sync toggle, Wholesale toggle, Set buffer, Open in Shopify, Delete)\n• إذا الـ SKU مش في CLARK inventoryItems → warning واضح بـ التعليمات" },
+      { type: "feature", text: "🛡 [Preserve user flags on re-sync] الـ sync بقى بـ يحافظ على الـ flags اليدوية:\n• shopify_synced (toggle)\n• wholesale_only (toggle)\n• safety_buffer (per-product)\n• max_shopify_qty\n• clark_inventory_id (manual mapping)\nيعني لو عملت setup لمنتج معين (buffer=15، wholesale=true)، الـ sync الجاي ما بـ يـ reset الـ settings دي. replaceMode='replace' bypass-ing هذا للـ fresh start." },
+      { type: "feature", text: "🆕 [Endpoint جديد: /api/shopify/bulk-update-products] بـ يدعم 8 actions:\n• set_synced (bool)\n• set_wholesale_only (bool)\n• set_safety_buffer (number / null)\n• set_max_qty (number / null)\n• set_auto_disable_at_zero (bool)\n• delete_from_clark (يضيف للـ blacklist)\n• delete_all (clear الـ list)\n• restore_from_blacklist / clear_blacklist\nكل العمليات atomic via Firestore transaction." },
+      { type: "feature", text: "📊 [Stats banner أوسع] 6 metric cards بدل 4:\n• إجمالي / matched / missing / mismatch / retail synced / 🏭 جملة فقط\nبيوضّح بسهولة كم منتج retail vs wholesale في مكان واحد." },
+      { type: "feature", text: "🔍 [Filters متعددة + بحث ذكي] الـ filters bar فيه:\n• Mapping status (4 options)\n• Retail / Wholesale toggle\n• Vendor dropdown (auto-populated من المنتجات)\n• Search box بـ يبحث في SKU + title + vendor + product_type\nالـ select-all بـ يطبق على الـ filtered subset فقط." },
+      { type: "doc", text: "✅ [مفتاح للـ user]\n1. ✓ سحب الكل أول مرة عشان تشوف كل المنتجات\n2. ✓ شوف اللي matched (لها item في CLARK بـ model_no = SKU)\n3. ✓ ضع flag wholesale_only للمنتجات الجملة-فقط\n4. ✓ احذف اللي مش هـ تستخدمه من CLARK (هـ يفضل في Shopify)\n5. ✓ اضبط buffer للمنتجات المهمة\n6. ✓ Dry Run قبل الـ Push\n7. ✓ Push المخزون لما الكل ready" },
+    ]
+  },
+  {
     version: "V19.98.0",
     date: "2026-05-10",
     types: ["feature"],

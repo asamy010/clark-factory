@@ -92,6 +92,12 @@ export default async function handler(req, res){
      variant (same SKU = same model_no in CLARK). */
   const pushTargets = [];
   for(const p of shopifyProducts){
+    /* V19.99: skip wholesale-only products explicitly */
+    if(p.wholesale_only === true){
+      skipped++;
+      details.push({ sku: p.sku || "(no-sku)", skip_reason: "wholesale_only", status: "skip" });
+      continue;
+    }
     /* Only push if the product is shopify_synced (default true) */
     if(p.shopify_synced === false){ skipped++; continue; }
     /* Only push matched products */

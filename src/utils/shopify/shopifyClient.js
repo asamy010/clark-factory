@@ -129,3 +129,15 @@ export function shopifyPushInventoryNow(opts, user){
 export function shopifyUpdateProductSettings({ shopifyProductId, settings }, user){
   return call("POST", "/api/shopify/update-product-settings", { shopifyProductId, settings }, user);
 }
+
+/* V19.99 Phase 7: Bulk update operations on shopifyProducts.
+   { productIds, action, payload? } → { ok, updated, deleted, blacklistSize } */
+export function shopifyBulkUpdateProducts({ productIds, action, payload }, user){
+  return call("POST", "/api/shopify/bulk-update-products", { productIds, action, payload }, user);
+}
+
+/* V19.99: Sync products with optional filters.
+   { filters?, replaceMode? } → { ok, total, fetched, afterFilters, matched, ... } */
+export function shopifySyncProductsWithFilters(opts, user){
+  return call("POST", "/api/shopify/sync-products-now", opts || {}, user);
+}
