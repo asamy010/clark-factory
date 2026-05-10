@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.91.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🛍️ Shopify Integration — Phase 0 (Foundation)",
+    changes: [
+      { type: "feature", text: "🆕 [تاب Shopify جديد] في الشاشة الرئيسية بـ 7 sub-tabs (Dashboard / Connection / Products / Orders / Invoices / Reconciliation / Settings). الـ MVP بـ يفعّل تاب Connection بس؛ الـ 6 الباقيين بـ يعرضوا placeholders بـ Phase numbers لحد ما الـ phases التانية تـ ship. اللون الأخضر #96BF48 = لون Shopify الرسمي." },
+      { type: "feature", text: "🔌 [تاب Connection — شغّال] بـ يدخل Store URL + Admin API Access Token + API Version، يعمل GET /shop.json للتحقق، ويحفظ الـ creds في factory/config.shopifyConfig. الـ token بـ يـ stay server-side فقط — مش بيتـ echo في أي response. زرار قطع الاتصال يمسح الـ creds مع الحفاظ على الإعدادات الـ user-tweaked (intervals، account mappings). فيه ping تلقائي عند الفتح (best-effort) عشان لو الـ user revoke التوكين من Shopify Admin يـ surface الخطأ فوراً." },
+      { type: "feature", text: "🔧 [3 Vercel API routes تحت /api/shopify/]\n• POST /connect — validate + test + save\n• GET /status?fresh=1 — read + optional re-ping\n• POST /disconnect — wipe creds, keep prefs\nالكل محمي بـ verifyAdminToken (admin/manager فقط) + بـ يـ rate-limit (550ms بين الـ calls = ~1.8 req/sec، تحت Shopify Basic's 2/sec). الـ helper _shopifyAdmin.js بـ يعمل creds resolution (Firestore أولاً ثم Vercel env vars كـ fallback)." },
+      { type: "feature", text: "🗄 [Schema migration — V19.91 idempotent] بـ تتعمل مرة واحدة عند تحميل التطبيق:\n• shopifyConfig بـ defaults كاملة (intervals، auto-flags، account mappings، notification prefs)\n• عميل افتراضي \"shopify_default\" (\"Shopify Customer\") بـ isVirtual:true عشان كل طلبات Shopify تـ post على نفس الـ cust_id والـ KASF يفضل نظيف\n• 4 حسابات system في Chart of Accounts:\n  - 4101.02 إيرادات Shopify\n  - 4102.01 إيرادات الشحن (Shopify)\n  - 6201.01 مرتجعات Shopify (contra-revenue)\n  - 1100.05 نقدية Shopify المعلّقة (online-paid orders)\nالـ CoA accounts بـ يتم seed بس لو الـ user أصلاً initialize الـ CoA — مش هـ يـ pollute tree فاضي." },
+      { type: "feature", text: "🔐 [Permissions] الـ shopify tab مضاف لـ PERMISSION_TABS + DEFAULT_PERMS لكل الـ 8 roles:\n• admin / manager / sales_accountant: edit\n• viewer: view\n• purchase_accountant / warehouse_keeper / payroll_*: hide\nالـ runtime linter (validatePermsRegistry) بـ يـ verify إن TABS و PERMISSION_TABS و DEFAULT_PERMS متطابقين." },
+      { type: "feature", text: "📐 [قرارات تصميمية مهمة diverged from spec]\n• الـ inventory_push_interval default: 5 دقايق (مش 1) عشان Shopify Basic limit (2 req/sec). لو 100 منتج، 1 دقيقة معناها 50 ثانية فعلية — buffer ضيق جداً.\n• pending_order_timeout default: 7 أيام (مش 14) — الشحن المصري COD غالباً تحت أسبوع.\n• Webhook signature validation + bulk operations + dead letter queue: مؤجلين لـ Phase 5+\n• Webhooks vs polling: بـ نبدأ بـ polling في Phase 1، الـ webhooks في Phase 5+ للـ near-instant sync.\nكل القرارات دي documented inline في shopifyMigration.js و ShopifyIntegrationPg.jsx + قابلة للتعديل من تاب Settings." },
+      { type: "feature", text: "🚧 [الـ 6 sub-tabs الـ placeholders] كل واحد بـ يعرض:\n• اسم الـ Phase اللي هـ يفعّله\n• وصف للـ functionality المتوقعة\n• تنبيه ملوّن لو الـ Connection لسه ما اتعملش\nده بـ يخلي الـ user يقدر يـ navigate براحة في كل التابات + يـ understand الـ roadmap بدون errors." },
+      { type: "doc", text: "📝 [الـ Phase 0 خلاص] الخطوات التالية للـ user:\n1. يفتح Shopify Admin → Apps → Develop apps → Create app \"CLARK Integration\"\n2. يدّي الـ scopes (read_orders، write_inventory، إلخ)\n3. يـ Reveal الـ Access Token (مرة واحدة)\n4. يفتح CLARK → تاب Shopify → Connection → يـ paste الـ creds → اختبار\n5. الـ shop info هـ تظهر تحت\n\nبعد ما الـ Phase 0 يـ test ويتأكد، Phase 1 (Orders polling) هـ يدخل: cron job + display للـ pending orders." },
+    ]
+  },
+  {
     version: "V19.90.0",
     date: "2026-05-09",
     types: ["fix"],

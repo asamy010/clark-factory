@@ -53,6 +53,8 @@ import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/p
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
 import { ensureCategoriesInit } from "./utils/categories.js";
+/* V19.91: Shopify integration — schema migration on app load (idempotent). */
+import { ensureShopifyInit } from "./utils/shopify/shopifyMigration.js";
 
 /* T, TH, TD, TDB, TDL imported from theme.js (V15.0 phase 2) — mutable module-level objects.
    setActiveTheme() is called when user switches theme to refresh their properties. */
@@ -82,6 +84,10 @@ const AutomationPg = lazyNamed(() => import("./pages/AutomationPg.jsx"), "Automa
    The agent backend itself runs as a separate Node.js project on Contabo VPS
    (clark-ai-agent) and reads its config from this CLARK app via Firestore. */
 const AIAgentPg = lazyNamed(() => import("./pages/AIAgentPg.jsx"), "AIAgentPg");
+/* V19.91: Shopify B2C integration — Two-Stage COD-aware workflow.
+   Phase 0 ships the tab scaffold + Connection (functional) + 6 placeholder
+   sub-tabs. Phase 1+ adds orders polling, stock reservations, invoicing. */
+const ShopifyIntegrationPg = lazyNamed(() => import("./pages/ShopifyIntegrationPg.jsx"), "ShopifyIntegrationPg");
 
 /* V15.1 phase 3: page/component imports */
 /* V15.76: print-extras imports removed — none used in App.jsx (used in pages directly) */
@@ -1032,6 +1038,22 @@ export default function App(){
           ensureCategoriesInit(data);
           data._categoriesInitV1631=true;
           return"seeded "+(data.itemCategories||[]).length+" categories";
+        }
+      );
+
+      /* ═══ Migration: V19.91 — Shopify integration scaffold ═══
+         Idempotent. Seeds factory/config.shopifyConfig defaults, the
+         shopify_default virtual customer, and 4 system CoA accounts
+         (Sales Revenue / Shipping Income / Refunds / Pending Cash).
+         Backwards-compatible: if shopifyConfig already exists, only
+         missing keys are backfilled. CoA accounts only seed if the user
+         has already initialized their Chart of Accounts. */
+      runMigration("init-shopify-v19-91",d,
+        (data)=>!data._shopifyInitV1991,
+        (data)=>{
+          const changed=ensureShopifyInit(data);
+          data._shopifyInitV1991=true;
+          return changed?"seeded shopifyConfig + default customer + CoA accounts":"already initialized";
         }
       );
 
@@ -5053,6 +5075,9 @@ export default function App(){
         {tab==="automation"&&<AutomationPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {/* V19.71: AI Agent control center — personality, FAQs, schedule, logs (Phase A scaffold) */}
         {tab==="aiAgent"&&canViewTab("aiAgent")&&<AIAgentPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("aiAgent")} user={user}/>}
+        {/* V19.91: Shopify B2C integration — Phase 0 ships Tab + Connection,
+            Phase 1+ adds orders polling, stock reservations, invoicing. */}
+        {tab==="shopify"&&canViewTab("shopify")&&<ShopifyIntegrationPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("shopify")} user={user}/>}
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}

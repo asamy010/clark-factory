@@ -78,6 +78,12 @@ export const TABS=[
     <circle cx="9.4" cy="13" r="1.7" fill="white" stroke="none"/>
     <circle cx="14.6" cy="13" r="1.7" fill="white" stroke="none"/>
   </>},
+  /* V19.91: Shopify B2C Integration — Two-Stage COD-aware workflow.
+     Order Stage (reservation) → Delivery Stage (invoice + treasury).
+     Shopify SKU = CLARK model_no, default customer "Shopify Customer".
+     Phase 0 in MVP: only Connection sub-tab is functional; the other 6 sub-tabs
+     show "قيد التطوير" placeholders pending Phase 1+ rollout. */
+  {key:"shopify",label:"Shopify",icon:"🛍️",color:"#96BF48",bg:"#F1F8E5",svg:<><path d="M9 4l-2 2v3a3 3 0 0 1-3 3v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a3 3 0 0 1-3-3V6l-2-2z"/><path d="M9 4c0-1 1-2 3-2s3 1 3 2"/><circle cx="12" cy="14" r="1.5"/></>},
   {key:"audit",label:"سجل التدقيق",icon:"🔍",color:"#DC2626",bg:"#FEE2E2",svg:<><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8v3l2 2"/></>},
   {key:"accounting",label:"محاسبة",icon:"📊",color:"#0891B2",bg:"#CFFAFE",svg:<><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/><circle cx="7" cy="14" r="1.5"/><circle cx="11" cy="10" r="1.5"/><circle cx="15" cy="14" r="1.5"/><circle cx="20" cy="9" r="1.5"/></>},
   {key:"fixedAssets",label:"أصول ثابتة",icon:"🏭",color:"#0EA5E9",bg:"#E0F2FE",svg:<><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/><path d="M5 17l3-3 4 2 7-7"/></>},
