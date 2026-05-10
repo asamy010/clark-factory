@@ -243,3 +243,17 @@ export function shopifyListArchivedOrders(opts, user){
 export function splitShopifyCollections(opts, user){
   return call("POST", "/api/maintenance/split-shopify-collections", opts || {}, user);
 }
+
+/* V21.9.7 Phase 11m: Return Requests CRUD.
+   Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
+   List   — { status?, search?, limit?, offset? }
+   Update — { id, action: "approve"|"reject"|..., notes?, refund_amount?, create_bosta_pickup? } */
+export function returnRequestCreate(opts, user){
+  return call("POST", "/api/shopify/return-request-create", opts, user);
+}
+export function returnRequestsList(opts, user){
+  return call("POST", "/api/shopify/return-requests-list", opts || {}, user);
+}
+export function returnRequestUpdate(opts, user){
+  return call("POST", "/api/shopify/return-request-update", opts, user);
+}

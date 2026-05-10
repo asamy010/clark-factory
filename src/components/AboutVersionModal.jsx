@@ -25,6 +25,23 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.7",
+    date: "2026-05-10",
+    types: ["feature", "architectural"],
+    title: "↩️ Phase 11m — Returns Management + Bosta CRP",
+    changes: [
+      { type: "feature", text: "↩️ [تاب جديد للمرتجعات] sub-tab جديد '↩️ المرتجعات' في الـ Shopify Integration. بـ يعرض كل طلبات الارتجاع مع filters per status:\n• ⏳ بانتظار المراجعة (الـ default badge)\n• ✅ مقبول\n• 🚚 في الطريق (Bosta CRP)\n• 📦 تم الاستلام\n• 💰 تم رد المبلغ\n• ❌ مرفوض / ⚪ ملغي\n7 metric cards على الـ top — counts لكل حالة." },
+      { type: "feature", text: "🔔 [Notification badge] على tab '↩️ المرتجعات' بقى يظهر دائرة حمراء بـ pulsing animation فيها عدد طلبات الارتجاع pending_review. الـ badge بـ يـ refresh تلقائياً مع الـ Firestore listener." },
+      { type: "feature", text: "📡 [3 endpoints جديدة]:\n• POST /api/shopify/return-request-create — إنشاء طلب من order موجود\n• POST /api/shopify/return-requests-list — list مع filters + stats\n• POST /api/shopify/return-request-update — approve/reject/mark_received/mark_refunded/cancel" },
+      { type: "feature", text: "🚚 [Bosta CRP integration] لما الـ admin يضغط '✅ قبول + Bosta':\n• الـ endpoint بـ يقبل الطلب\n• ينادي Bosta API: POST /api/v0/deliveries مع type:25 (Customer Return Pickup)\n• Bosta يـ schedule استلام الباكدج من العميل وردها للورشة\n• الـ tracking_number + delivery_id يتـ stored على الطلب\n• الـ status يتغيّر تلقائياً لـ 'in_pickup'\nإذا Bosta فشل، الطلب يبقى approved + الـ error يظهر." },
+      { type: "feature", text: "🆕 [Create Return Modal] modal بـ يـ:\n• Order picker — يعرض الـ delivered orders فقط\n• Reason dropdown (6 reasons + custom text)\n• Items checklist مع كميات (partial returns مدعومة)\n• Auto-calculate refund amount من الـ selected items\n• Refund method: cash / store_credit / shopify_refund\n• Internal notes" },
+      { type: "feature", text: "⏯ [Status transitions]\nلكل status فيه actions مناسبة:\n• pending_review → ✅ قبول + Bosta · ✅ قبول فقط · ❌ رفض\n• approved → 🚚 في الطريق\n• in_pickup → 📦 تم الاستلام\n• received → 💰 تم رد المبلغ\nأي حالة قبل refunded/rejected يقدر المستخدم يـ cancel." },
+      { type: "architectural", text: "📅 [Daily split V21.9.7] shopifyReturnRequests → shopifyReturnRequestsDays/{YYYY-MM-DD}. تم تسجيل الـ split من اليوم الأول عشان ما نحتاجش migration لاحقاً. الـ migration auto-runs مرة واحدة فقط بعد V21.9.5 بـ no-op لأن الـ array فاضي." },
+      { type: "architectural", text: "🛠 [_returnRequests.js helper] read/write/update functions تعالج dual-mode (legacy array vs daily-split). الـ updateReturnRequest يـ scan الـ recent days للعثور على الطلب → low cost حتى مع آلاف الطلبات." },
+      { type: "doc", text: "📜 [Bosta API note] Bosta type code 25 = CRP (Customer Return Pickup). تم استخدامه مع pickupAddress=customer + receiver=customer. لو Bosta API يحتاج tweaking للـ business config، الـ payload في return-request-update.js معلّق بـ comments واضحة." },
+    ]
+  },
+  {
     version: "V21.9.6",
     date: "2026-05-10",
     types: ["feature"],

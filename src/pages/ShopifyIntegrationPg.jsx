@@ -46,6 +46,8 @@ import {
   shopifyListArchivedOrders,
   /* V21.9.2 Phase 11h: split-collections migration */
   splitShopifyCollections,
+  /* V21.9.7 Phase 11m: return requests */
+  returnRequestCreate, returnRequestsList, returnRequestUpdate,
 } from "../utils/shopify/shopifyClient.js";
 /* V21.9.4: full-screen progress wrapper for any sync/pull operation */
 import { runWithProgress } from "../utils/syncProgress.js";
@@ -63,6 +65,7 @@ const SUB_TABS = [
   { key: "connection",     label: "🔌 الاتصال",         color: "#10B981" },
   { key: "products",       label: "📦 المنتجات",        color: "#F59E0B" },
   { key: "orders",         label: "🛒 الطلبات",         color: "#8B5CF6" },
+  { key: "returns",        label: "↩️ المرتجعات",       color: "#DC2626" }, /* V21.9.7 */
   { key: "abandoned",      label: "🛍️ السلال المهجورة", color: "#DB2777" },
   { key: "discounts",      label: "🎟 الكوبونات",        color: "#F97316" },
   { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
@@ -76,6 +79,13 @@ const SHOPIFY_GREEN = "#96BF48";
 
 export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
   const [activeTab, setActiveTab] = useState("connection");
+
+  /* V21.9.7: count of pending return requests — drives the badge on the
+     'returns' sub-tab + can be exposed to App.jsx for the main nav badge. */
+  const pendingReturnsCount = useMemo(() => {
+    const arr = Array.isArray(data?.shopifyReturnRequests) ? data.shopifyReturnRequests : [];
+    return arr.filter(r => r.status === "pending_review").length;
+  }, [data?.shopifyReturnRequests]);
 
   /* Read live shopifyConfig from factory/config (server is source of truth
      for credentials — UI mirrors via the live data prop, but the token is
@@ -161,11 +171,17 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
       }}>
         {SUB_TABS.map(t => {
           const active = activeTab === t.key;
+          /* V21.9.7: badge for pending counts on specific tabs */
+          let badge = null;
+          if(t.key === "returns" && pendingReturnsCount > 0){
+            badge = pendingReturnsCount;
+          }
           return (
             <div
               key={t.key}
               onClick={() => setActiveTab(t.key)}
               style={{
+                position: "relative",
                 cursor: "pointer",
                 padding: isMob ? "8px 10px" : "9px 14px",
                 borderRadius: 8,
@@ -179,9 +195,38 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
               }}
             >
               {t.label}
+              {badge != null && (
+                <span style={{
+                  position: "absolute",
+                  top: -4,
+                  insetInlineEnd: -4,
+                  minWidth: 18,
+                  height: 18,
+                  padding: "0 5px",
+                  borderRadius: 999,
+                  background: "#DC2626",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "2px solid " + (active ? t.color : T.bg),
+                  boxShadow: "0 1px 3px rgba(220,38,38,0.4)",
+                  animation: "clark-badge-pulse 2s ease-in-out infinite",
+                }}>
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </div>
           );
         })}
+        <style>{`
+          @keyframes clark-badge-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.12); }
+          }
+        `}</style>
       </div>
 
       {/* Tab content */}
@@ -190,6 +235,7 @@ export function ShopifyIntegrationPg({ data, upConfig, isMob, canEdit, user }){
         {activeTab === "dashboard"      && <DashboardTab data={data} isMob={isMob} setActiveTab={setActiveTab} />}
         {activeTab === "products"       && <ProductsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "orders"         && <OrdersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
+        {activeTab === "returns"        && <ReturnsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "customers"      && <CustomersTab data={data} upConfig={upConfig} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "abandoned"      && <AbandonedCartsTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
         {activeTab === "discounts"      && <DiscountCodesTab data={data} canEdit={canEdit} user={user} isMob={isMob} />}
@@ -781,6 +827,528 @@ function PlaceholderTab({ title, phase, desc, shopifyConfig }){
         )}
       </div>
     </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.9.7 — ReturnsTab — طلبات الارتجاع
+   ───────────────────────────────────────────────────────────────────────
+   Lifecycle: pending_review → approved → in_pickup → received → refunded
+   (also: rejected | cancelled).
+   The Bosta CRP pickup is created at "approve" time if the user opts in.
+   Each row exposes the actions that make sense for its current status.
+   ═══════════════════════════════════════════════════════════════════════ */
+const RETURN_STATUS_META = {
+  pending_review: { label: "بانتظار المراجعة", emoji: "⏳", color: "#F59E0B" },
+  approved:       { label: "مقبول",            emoji: "✅", color: "#10B981" },
+  rejected:       { label: "مرفوض",            emoji: "❌", color: "#DC2626" },
+  in_pickup:      { label: "في طريقه للاستلام", emoji: "🚚", color: "#0EA5E9" },
+  received:       { label: "تم الاستلام",      emoji: "📦", color: "#8B5CF6" },
+  refunded:       { label: "تم رد المبلغ",     emoji: "💰", color: "#059669" },
+  cancelled:      { label: "ملغي",             emoji: "⚪", color: "#94A3B8" },
+};
+const RETURN_REASON_LABELS = {
+  size_mismatch: "المقاس مش مظبوط",
+  damaged: "المنتج تالف / به عيب",
+  not_as_described: "مختلف عن الوصف / الصور",
+  wrong_item: "وصلني صنف خطأ",
+  changed_mind: "غيرت رأيي",
+  other: "سبب آخر",
+};
+
+function ReturnsTab({ data, canEdit, user, isMob }){
+  const allRequests = useMemo(() =>
+    Array.isArray(data?.shopifyReturnRequests) ? data.shopifyReturnRequests : [],
+    [data?.shopifyReturnRequests]
+  );
+
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  /* Stats */
+  const stats = useMemo(() => {
+    const s = { total: allRequests.length };
+    for(const k of Object.keys(RETURN_STATUS_META)) s[k] = 0;
+    for(const r of allRequests){
+      if(s[r.status] !== undefined) s[r.status]++;
+    }
+    return s;
+  }, [allRequests]);
+
+  /* Filtered list */
+  const filtered = useMemo(() => {
+    let res = allRequests;
+    if(statusFilter !== "all") res = res.filter(r => r.status === statusFilter);
+    const q = search.trim().toLowerCase();
+    if(q){
+      res = res.filter(r =>
+        String(r.customer?.name || "").toLowerCase().includes(q) ||
+        String(r.customer?.phone || "").toLowerCase().includes(q) ||
+        String(r.shopify_order_number || "").toLowerCase().includes(q) ||
+        String(r.shopify_order_id || "").toLowerCase().includes(q) ||
+        String(r.id).toLowerCase().includes(q)
+      );
+    }
+    return res;
+  }, [allRequests, statusFilter, search]);
+
+  const handleAction = async (request, action, opts = {}) => {
+    if(!canEdit){ showToast("⛔ مفيش صلاحية"); return; }
+    setBusyId(request.id);
+    try {
+      const r = await returnRequestUpdate({
+        id: request.id,
+        action,
+        ...opts,
+      }, user);
+      if(r?.ok){
+        if(r.bosta && r.bosta.ok){
+          showToast(`✅ تم · Bosta tracking: ${r.bosta.pickup?.tracking_number || "—"}`);
+        } else if(r.bosta && !r.bosta.ok){
+          showToast(`⚠️ تم القبول لكن Bosta فشل: ${r.bosta.error}`);
+        } else {
+          showToast("✅ تم");
+        }
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const handleApprove = async (request) => {
+    const yes = await ask("✅ قبول طلب الارتجاع",
+      `هل تريد قبول طلب الارتجاع للعميل ${request.customer?.name || request.customer?.phone}؟\n\n` +
+      `سيتم تغيير الحالة لـ "مقبول" + (اختياري) إنشاء طلب استلام Bosta من العميل.\n\n` +
+      `تأكيد الإنشاء عبر Bosta؟`);
+    if(yes === null || yes === undefined) return;
+    handleAction(request, "approve", { create_bosta_pickup: true });
+  };
+
+  const handleApproveNoBosta = async (request) => {
+    const yes = await ask("✅ قبول بدون Bosta",
+      `هل تريد قبول طلب الارتجاع بدون إنشاء استلام تلقائي على Bosta؟\n\nهتترتب الاستلام يدوياً.`);
+    if(!yes) return;
+    handleAction(request, "approve", { create_bosta_pickup: false });
+  };
+
+  const handleReject = async (request) => {
+    const reason = await askInput("❌ رفض طلب الارتجاع", {
+      label: "سبب الرفض (يُحفظ في السجل):",
+      placeholder: "خارج فترة الارتجاع المسموحة...",
+    });
+    if(reason === null) return;
+    handleAction(request, "reject", { reject_reason: reason });
+  };
+
+  const handleMarkReceived = (request) => {
+    handleAction(request, "mark_received");
+  };
+
+  const handleMarkRefunded = async (request) => {
+    const amount = await askInput("💰 تأكيد رد المبلغ", {
+      label: `العميل ${request.customer?.name || ""} — مبلغ الرد:`,
+      placeholder: String(request.refund_amount || 0),
+      type: "number",
+    });
+    if(amount === null) return;
+    handleAction(request, "mark_refunded", { refund_amount: Number(amount) || 0 });
+  };
+
+  const handleCancel = async (request) => {
+    const yes = await ask("⚪ إلغاء الطلب", "هل أنت متأكد من إلغاء طلب الارتجاع؟");
+    if(!yes) return;
+    handleAction(request, "cancel");
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(3, 1fr)" : "repeat(7, 1fr)", gap: 10 }}>
+        <MetricCard label="إجمالي" value={String(stats.total)} icon="↩️" color="#0EA5E9" />
+        <MetricCard label="بانتظار المراجعة" value={String(stats.pending_review)} icon="⏳" color="#F59E0B" />
+        <MetricCard label="مقبول" value={String(stats.approved)} icon="✅" color="#10B981" />
+        <MetricCard label="في الطريق" value={String(stats.in_pickup)} icon="🚚" color="#0EA5E9" />
+        <MetricCard label="تم الاستلام" value={String(stats.received)} icon="📦" color="#8B5CF6" />
+        <MetricCard label="تم الرد" value={String(stats.refunded)} icon="💰" color="#059669" />
+        <MetricCard label="مرفوض" value={String(stats.rejected)} icon="❌" color="#DC2626" />
+      </div>
+
+      {/* Toolbar */}
+      <Card title="↩️ طلبات الارتجاع" extra={
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Btn small primary onClick={() => setShowCreateModal(true)} disabled={!canEdit}>
+            ➕ طلب ارتجاع جديد
+          </Btn>
+        </div>
+      }>
+        <div style={{ padding: "10px 12px", background: "#DC262610", border: "1px solid #DC262625", borderRadius: 8, fontSize: FS - 2, lineHeight: 1.7, marginBottom: 12, color: T.text }}>
+          ℹ️ <b>المرتجعات (Returns)</b> — إدارة طلبات الارتجاع من العملاء. الـ flow:
+          <br/>
+          <code>بانتظار المراجعة → مقبول → في الطريق (Bosta CRP) → تم الاستلام → تم رد المبلغ</code>
+          <br/>
+          عند القبول، تقدر تختار إنشاء طلب استلام Bosta تلقائياً (CRP type 25).
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 2fr", gap: 8, marginBottom: 12 }}>
+          <Sel value={statusFilter} onChange={setStatusFilter}>
+            <option value="all">كل الحالات ({stats.total})</option>
+            {Object.entries(RETURN_STATUS_META).map(([k, m]) => (
+              <option key={k} value={k}>{m.emoji} {m.label} ({stats[k]})</option>
+            ))}
+          </Sel>
+          <Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالاسم، التليفون، أو رقم الأوردر..." />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ padding: 36, textAlign: "center", color: T.textMut, border: "2px dashed " + T.brd, borderRadius: 10 }}>
+            <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.4 }}>↩️</div>
+            <div style={{ fontWeight: 600 }}>{allRequests.length === 0 ? "مفيش طلبات ارتجاع لسه" : "مفيش طلبات تطابق الفلتر"}</div>
+            {allRequests.length === 0 && (
+              <div style={{ fontSize: FS - 2, marginTop: 6 }}>اضغط <b>➕ طلب ارتجاع جديد</b> لإضافة طلب يدوي</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.slice(0, 100).map(r => {
+              const meta = RETURN_STATUS_META[r.status] || { label: r.status, emoji: "?", color: T.textMut };
+              const isBusy = busyId === r.id;
+              const isExpanded = expandedId === r.id;
+              const reasonLabel = RETURN_REASON_LABELS[r.reason] || r.reason;
+              const itemsTotal = (r.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+              return (
+                <div key={r.id} style={{
+                  padding: 12, borderRadius: 10,
+                  background: T.cardSolid,
+                  border: "1px solid " + (r.status === "pending_review" ? meta.color + "60" : T.brd),
+                  borderInlineStart: "3px solid " + meta.color,
+                  boxShadow: r.status === "pending_review" ? "0 0 0 2px " + meta.color + "15" : "none",
+                }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                          {r.customer?.name || "(غير معروف)"}
+                        </span>
+                        <span style={{
+                          fontSize: FS - 3, fontWeight: 700, padding: "2px 8px", borderRadius: 8,
+                          background: meta.color + "20", color: meta.color,
+                        }}>
+                          {meta.emoji} {meta.label}
+                        </span>
+                        {r.shopify_order_number && (
+                          <span style={{ fontSize: FS - 3, padding: "1px 8px", borderRadius: 6, background: T.bg, color: T.textMut, fontFamily: "monospace" }}>
+                            #{r.shopify_order_number}
+                          </span>
+                        )}
+                        {r.bosta_pickup?.tracking_number && (
+                          <span style={{ fontSize: FS - 4, padding: "1px 6px", borderRadius: 6, background: "#0D948815", color: "#0D9488", fontWeight: 700 }} title="Bosta CRP tracking">
+                            🚚 {r.bosta_pickup.tracking_number}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        {r.customer?.phone && <span>📞 {r.customer.phone}</span>}
+                        <span>📦 {itemsTotal} قطعة</span>
+                        <span>🏷 {reasonLabel}</span>
+                        {r.refund_amount > 0 && <span>💰 {fmt(r.refund_amount)} ج</span>}
+                        <span style={{ color: T.textMut }}>· {new Date(r.created_at).toLocaleString("ar-EG")}</span>
+                      </div>
+                      {r.reason_text && (
+                        <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, fontStyle: "italic" }}>
+                          "{r.reason_text}"
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {/* Actions per status */}
+                      {r.status === "pending_review" && (
+                        <>
+                          <LoadingBtn small primary loading={isBusy} loadingText="..." onClick={() => handleApprove(r)} disabled={!canEdit}>
+                            ✅ قبول + Bosta
+                          </LoadingBtn>
+                          <Btn small onClick={() => handleApproveNoBosta(r)} disabled={!canEdit || isBusy}>
+                            قبول فقط
+                          </Btn>
+                          <Btn small ghost danger onClick={() => handleReject(r)} disabled={!canEdit || isBusy}>
+                            ❌ رفض
+                          </Btn>
+                        </>
+                      )}
+                      {r.status === "approved" && (
+                        <Btn small onClick={() => handleAction(r, "mark_in_pickup")} disabled={!canEdit || isBusy}>
+                          🚚 في الطريق
+                        </Btn>
+                      )}
+                      {r.status === "in_pickup" && (
+                        <Btn small primary onClick={() => handleMarkReceived(r)} disabled={!canEdit || isBusy}>
+                          📦 تم الاستلام
+                        </Btn>
+                      )}
+                      {r.status === "received" && (
+                        <Btn small primary onClick={() => handleMarkRefunded(r)} disabled={!canEdit || isBusy} style={{ background: "#059669", color: "#fff", border: "none" }}>
+                          💰 تم رد المبلغ
+                        </Btn>
+                      )}
+                      {!["refunded", "rejected", "cancelled"].includes(r.status) && (
+                        <Btn small ghost onClick={() => handleCancel(r)} disabled={!canEdit || isBusy}>
+                          إلغاء
+                        </Btn>
+                      )}
+                      <Btn small ghost onClick={() => setExpandedId(isExpanded ? null : r.id)}>
+                        {isExpanded ? "▲" : "▼"}
+                      </Btn>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div style={{ marginTop: 12, padding: 12, background: T.bg, borderRadius: 8, fontSize: FS - 2, lineHeight: 1.7 }}>
+                      <div style={{ fontWeight: 700, color: T.text, marginBottom: 6 }}>📦 العناصر المرتجعة:</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {(r.items || []).map((it, i) => (
+                          <div key={i} style={{ padding: "6px 10px", background: T.cardSolid, borderRadius: 6 }}>
+                            <b>{it.qty}× {it.title || it.sku}</b>
+                            {it.sku && <span style={{ color: T.textMut, fontFamily: "monospace", marginInlineStart: 8 }}>SKU: {it.sku}</span>}
+                            {it.price > 0 && <span style={{ color: T.textMut, marginInlineStart: 8 }}>· {fmt(it.price)} ج</span>}
+                          </div>
+                        ))}
+                      </div>
+                      {r.notes && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>📝 ملاحظات:</div>
+                          <div style={{ color: T.textSec }}>{r.notes}</div>
+                        </div>
+                      )}
+                      {r.reject_reason && (
+                        <div style={{ marginTop: 10, color: T.err }}>
+                          <b>سبب الرفض:</b> {r.reject_reason}
+                        </div>
+                      )}
+                      {r.bosta_pickup && (
+                        <div style={{ marginTop: 10, padding: 8, background: "#0D948810", borderRadius: 6 }}>
+                          <div style={{ fontWeight: 700, color: "#0D9488" }}>🚚 Bosta CRP:</div>
+                          <div>Tracking: <code>{r.bosta_pickup.tracking_number || "—"}</code></div>
+                          <div>Delivery ID: <code>{r.bosta_pickup.delivery_id || "—"}</code></div>
+                          {r.bosta_pickup.created_at && <div>تم الإنشاء: {new Date(r.bosta_pickup.created_at).toLocaleString("ar-EG")}</div>}
+                        </div>
+                      )}
+                      {r.bosta_pickup_error && (
+                        <div style={{ marginTop: 10, padding: 8, background: T.err + "10", color: T.err, borderRadius: 6, fontSize: FS - 3, fontFamily: "monospace" }}>
+                          ⚠️ Bosta error: {r.bosta_pickup_error}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 10, fontSize: FS - 4, color: T.textMut }}>
+                        <code>{r.id}</code> · أنشأه {r.created_by || "—"}
+                        {r.processed_by && <> · معالج بواسطة {r.processed_by}</>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filtered.length > 100 && (
+              <div style={{ textAlign: "center", padding: 10, fontSize: FS - 2, color: T.textMut }}>
+                عرض أول 100 من {filtered.length} طلب — استخدم الفلتر للتضييق
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Create modal */}
+      {showCreateModal && (
+        <CreateReturnRequestModal
+          data={data}
+          user={user}
+          isMob={isMob}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => { setShowCreateModal(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CreateReturnRequestModal — Order picker + reason + items + notes
+   ═══════════════════════════════════════════════════════════════════════ */
+function CreateReturnRequestModal({ data, user, isMob, onClose, onCreated }){
+  const allOrders = useMemo(() => Array.isArray(data?.shopifyPendingOrders) ? data.shopifyPendingOrders : [], [data?.shopifyPendingOrders]);
+  /* Show only delivered orders by default — that's what's eligible to return */
+  const eligibleOrders = useMemo(() =>
+    allOrders.filter(o => o.status === "delivered"),
+    [allOrders]
+  );
+
+  const [orderId, setOrderId] = useState("");
+  const [reason, setReason] = useState("size_mismatch");
+  const [reasonText, setReasonText] = useState("");
+  const [items, setItems] = useState([]); /* [{sku, line_item_id, title, qty, price, selected}] */
+  const [refundAmount, setRefundAmount] = useState(0);
+  const [refundMethod, setRefundMethod] = useState("cash");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const selectedOrder = useMemo(() => allOrders.find(o => String(o.shopify_order_id) === orderId), [allOrders, orderId]);
+
+  /* When order changes, populate items list with checkboxes */
+  useEffect(() => {
+    if(!selectedOrder){ setItems([]); return; }
+    const li = (selectedOrder.line_items || []).map(it => ({
+      sku: it.sku || "",
+      line_item_id: it.product_id || "",
+      title: it.title || "",
+      qty_max: Number(it.quantity) || 1,
+      qty: Number(it.quantity) || 1,
+      price: Number(it.price) || 0,
+      selected: false,
+    }));
+    setItems(li);
+  }, [selectedOrder]);
+
+  /* Auto-update refund amount as items are selected */
+  useEffect(() => {
+    const total = items.filter(i => i.selected).reduce((s, i) => s + i.price * i.qty, 0);
+    setRefundAmount(Math.round(total));
+  }, [items]);
+
+  const toggleItem = (idx) => {
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, selected: !it.selected } : it));
+  };
+  const setItemQty = (idx, qty) => {
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, qty: Math.max(1, Math.min(it.qty_max, Number(qty) || 1)) } : it));
+  };
+
+  const handleSubmit = async () => {
+    const selected = items.filter(i => i.selected);
+    if(!orderId){ showToast("⚠️ اختار طلب أولاً"); return; }
+    if(selected.length === 0){ showToast("⚠️ اختار عنصر واحد على الأقل للإرجاع"); return; }
+    setBusy(true);
+    try {
+      const r = await returnRequestCreate({
+        shopify_order_id: orderId,
+        reason,
+        reason_text: reasonText,
+        items: selected.map(i => ({
+          sku: i.sku, line_item_id: i.line_item_id, title: i.title,
+          qty: i.qty, price: i.price,
+        })),
+        refund_amount: refundAmount,
+        refund_method: refundMethod,
+        notes,
+      }, user);
+      if(r?.ok){
+        showToast("✅ تم إنشاء طلب الارتجاع");
+        if(typeof onCreated === "function") onCreated(r.request);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="pop-overlay" style={{ position: "fixed", inset: 0, zIndex: 99998, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, direction: "rtl" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 700, maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text }}>↩️ طلب ارتجاع جديد</div>
+            <div style={{ fontSize: FS - 2, color: T.textMut, marginTop: 2 }}>
+              اختار الطلب + الأصناف اللي العميل عاوز يرجّعها
+            </div>
+          </div>
+          <Btn small onClick={onClose}>✕</Btn>
+        </div>
+
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الطلب</label>
+            <Sel value={orderId} onChange={setOrderId}>
+              <option value="">— اختار طلب delivered —</option>
+              {eligibleOrders.map(o => (
+                <option key={o.shopify_order_id} value={o.shopify_order_id}>
+                  #{o.shopify_order_number} — {o.customer_info?.name || o.customer_info?.phone || "—"} · {fmt(o.total)} ج
+                </option>
+              ))}
+            </Sel>
+            {eligibleOrders.length === 0 && (
+              <div style={{ fontSize: FS - 3, color: T.warn, marginTop: 4 }}>
+                ⚠️ مفيش طلبات delivered. الـ refunds غالباً للطلبات المسلّمة فقط.
+              </div>
+            )}
+          </div>
+
+          {selectedOrder && (
+            <>
+              <div>
+                <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>سبب الارتجاع</label>
+                <Sel value={reason} onChange={setReason}>
+                  <option value="size_mismatch">المقاس مش مظبوط</option>
+                  <option value="damaged">المنتج تالف / به عيب</option>
+                  <option value="not_as_described">مختلف عن الوصف</option>
+                  <option value="wrong_item">وصلني صنف خطأ</option>
+                  <option value="changed_mind">غيرت رأيي</option>
+                  <option value="other">سبب آخر</option>
+                </Sel>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>تفاصيل من العميل</label>
+                <textarea value={reasonText} onChange={e => setReasonText(e.target.value)} rows={3}
+                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid " + T.brd, background: T.bg, color: T.text, fontSize: FS - 1, boxSizing: "border-box", fontFamily: "'Cairo', sans-serif" }}
+                  placeholder="مثال: المقاس Large طلع small جداً..."
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الأصناف المرتجعة</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, border: "1px solid " + T.brd, borderRadius: 8, padding: 4 }}>
+                  {items.map((it, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 10px", background: it.selected ? T.accent + "10" : T.bg, borderRadius: 6 }}>
+                      <input type="checkbox" checked={it.selected} onChange={() => toggleItem(i)} style={{ width: 18, height: 18 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: FS - 1 }}>{it.title || it.sku}</div>
+                        <div style={{ fontSize: FS - 3, color: T.textMut }}>SKU: {it.sku || "—"} · سعر: {fmt(it.price)} ج · max {it.qty_max}</div>
+                      </div>
+                      {it.selected && (
+                        <Inp type="number" value={String(it.qty)} onChange={(v) => setItemQty(i, v)} sx={{ width: 70 }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>قيمة الرد (ج.م)</label>
+                  <Inp type="number" value={String(refundAmount)} onChange={v => setRefundAmount(Number(v) || 0)} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>طريقة الرد</label>
+                  <Sel value={refundMethod} onChange={setRefundMethod}>
+                    <option value="cash">كاش (يدوي)</option>
+                    <option value="store_credit">رصيد متجر</option>
+                    <option value="shopify_refund">Shopify Refund</option>
+                  </Sel>
+                </div>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: FS - 1, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>ملاحظات داخلية</label>
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                  style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid " + T.brd, background: T.bg, color: T.text, fontSize: FS - 1, boxSizing: "border-box", fontFamily: "'Cairo', sans-serif" }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ position: "sticky", bottom: 0, padding: 12, background: T.cardSolid, borderTop: "1px solid " + T.brd, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn small onClick={onClose}>إلغاء</Btn>
+          <LoadingBtn primary small loading={busy} loadingText="جاري الإنشاء..." onClick={handleSubmit} disabled={!orderId || items.filter(i => i.selected).length === 0}>
+            ↩️ إنشاء طلب الارتجاع
+          </LoadingBtn>
+        </div>
+      </div>
+    </div>
   );
 }
 
