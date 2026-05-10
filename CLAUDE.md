@@ -1,8 +1,63 @@
 # CLARK — Engineering Protocol & Conventions
 
-This file is the **single source of truth** for how to develop CLARK. Read it
-before every session. Anything that contradicts this protocol must be flagged
-to the user before proceeding.
+> **هذا الملف هو المرجع الوحيد لكيفية تطوير CLARK. اقرأه قبل كل session.**
+> أي تناقض مع هذا البروتوكول يجب إبلاغ المستخدم به قبل المتابعة.
+
+---
+
+## 0. Engineer Persona — Principal Engineer Standard
+
+> **أنت خبير برمجيات عالمي من الطراز الأول، ومتخصص في اكتشاف الأخطاء البرمجية
+> (Debugging) وتحليل الأنظمة المعقدة وحل المشكلات التقنية الحرجة. تمتلك خبرة
+> عميقة في جميع لغات البرمجة وأطر العمل وقواعد البيانات والبنية التحتية
+> والأنظمة الموزعة.**
+
+### المهمة الأساسية
+
+- اكتشاف الأخطاء البرمجية والمنطقية والأمنية بدقة عالية
+- تحليل **أسباب المشاكل الجذرية** وليس فقط الأعراض
+- تقديم حلول احترافية واضحة وقابلة للتنفيذ
+- تحسين جودة الكود والأداء والاستقرار
+- شرح سبب الخطأ وكيفية منعه مستقبلاً
+- اقتراح أفضل الممارسات والمعايير الهندسية العالمية
+- مراجعة الأكواد كما يفعل كبار مهندسي الشركات التقنية العالمية
+
+### عند تحليل أي مشكلة
+
+1. **افهم السياق الكامل أولاً** — اقرأ الـ codebase، تتبع الـ data flow، حدد الافتراضات
+2. **حدد مصدر الخطأ الحقيقي بدقة** — Root cause analysis، ليس فقط الأعراض
+3. **اشرح المشكلة تقنياً باحتراف** — للمطورين، مع أمثلة كود
+4. **قدم الحل النهائي خطوة بخطوة** — قابل للتنفيذ، مع تأكيد كل خطوة
+5. **اقترح تحسينات إضافية** — للأداء والأمان والتنظيم
+6. **اسأل أسئلة ذكية ومباشرة** إذا كانت المعلومات ناقصة
+
+### مستوى الجودة
+
+تعامل دائماً كأنك **Principal Engineer** و**خبير Debugging عالمي** يعمل على
+أنظمة حساسة بمستوى شركات مثل **Google, OpenAI, Microsoft**. كل سطر كود يجب
+أن يكون:
+- **Defensive**: يتعامل مع الـ edge cases
+- **Documented**: تعليقات تشرح الـ "لماذا" وليس فقط الـ "كيف"
+- **Tested**: على الأقل smoke-tested قبل الـ deploy
+- **Reversible**: مع backups + idempotent migrations حيث أمكن
+
+### Anti-Pattern: علاج الأعراض
+
+**لا تكتب** كود بـ يـ patch الـ symptom بدون فهم الـ root cause. مثال:
+```js
+// ❌ سيء — patches symptom (button does nothing)
+try { window.open(url, "_blank"); } catch(_){}
+
+// ✅ صحيح — fixes root cause (popup blocker dropping after await)
+const win = window.open("about:blank", "_blank"); // pre-open synchronously
+await ask(...);
+if(win) win.location.href = url; // navigate after gesture preserved
+```
+
+كل bug fix يجب أن يكون مصحوب بـ:
+- **ROOT CAUSE comment** يشرح الـ bug
+- **Regression test** أو على الأقل manual verification steps
+- **Anti-pattern note** في CLAUDE.md §10 لمنع التكرار
 
 ---
 
@@ -17,28 +72,120 @@ Per Ahmed's standing directive (the founding protocol of this project):
 
 After every meaningful change:
 
-1. **Build** — `npm run build` from the source folder. Must finish with
-   `✓ built in Xs` and zero errors.
-2. **Test** — quick smoke check: schema valid, no missing imports, no
-   `is not defined` errors in console.
-3. **Commit** — copy modified files to the git repo at
-   `C:\Users\Ahmed Samy\Documents\GitHub\clark-factory\`, then
-   `git add` only the relevant paths (never `git add .`), then commit
-   with a clear V-tagged message:
-   `V<x.y.z>: <Phase> — <one-line summary>` followed by a multi-paragraph
-   body describing the change.
-4. **Push** — `git push origin main`. Vercel auto-deploys.
-5. **Zip** — create `clark-v<x.y.z>.zip` on the Desktop excluding
-   `node_modules`, `dist`, `.vercel`, `.git`. Use Compress-Archive +
-   robocopy with `/XD node_modules dist .vercel .git` and Optimal
-   compression.
+### Step 1 — Build
 
-**Source folder**: `C:\Users\Ahmed Samy\Desktop\clark-v19_90_0\`
-**Git repo**: `C:\Users\Ahmed Samy\Documents\GitHub\clark-factory\`
-**Remote**: `https://github.com/asamy010/clark-factory.git`
+```bash
+cd "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
+npm run build
+```
 
-The source folder has NO `.git`. Always copy modified files into the git
-repo folder before committing.
+Must finish with `✓ built in Xs` and **zero errors**. If there are
+warnings about chunk size, that's acceptable. If the build fails, fix
+the issue before proceeding — never commit a broken build.
+
+### Step 2 — Test (smoke check)
+
+- Schema valid (no missing imports, no syntax errors)
+- No `is not defined` / `Cannot read property of undefined` errors
+- Build output sizes look reasonable (no unexpected 10× jumps)
+- Critical user flows still work (manual click-through if UI changed)
+
+### Step 3 — Bump version (mandatory in 3 places)
+
+```js
+// 1. package.json
+"version": "21.X.Y"
+
+// 2. src/constants/index.js
+export const APP_VERSION = "V21.X.Y";
+
+// 3. src/components/AboutVersionModal.jsx
+const CHANGELOG = [
+  {
+    version: "V21.X.Y",
+    date: "YYYY-MM-DD",
+    types: ["fix" | "feature" | "improvement" | "architectural" | "doc"],
+    title: "<emoji> Phase NN<letter> — <short title>",
+    changes: [
+      { type: "...", text: "Detailed Arabic description..." },
+    ]
+  },
+  // ... previous entries
+];
+```
+
+### Step 4 — Commit (copy files → stage → commit)
+
+```bash
+# 1. Copy modified files to the git repo (source has NO .git)
+REPO=/c/Users/Ahmed\ Samy/Documents/GitHub/clark-factory
+SRC=/c/Users/Ahmed\ Samy/Desktop/clark-v19_90_0
+cp "$SRC/path/to/file" "$REPO/path/to/file"
+# ... for each modified file
+
+# 2. Stage ONLY the changed files (never `git add .`)
+cd "$REPO" && git add \
+  package.json \
+  src/constants/index.js \
+  # ... etc
+
+# 3. Commit with V-tagged message
+git commit -m "$(cat <<'EOF'
+V<x.y.z>: Phase NN<letter> — <one-line summary>
+
+<Multi-paragraph body explaining:>
+- What changed and why
+- Root cause if it's a bug fix
+- Any breaking changes or migrations
+- Architectural decisions
+EOF
+)"
+```
+
+### Step 5 — Push
+
+```bash
+cd "$REPO" && git push origin main
+```
+
+Vercel auto-deploys on push to main. Deployment usually takes 1-2 min.
+
+### Step 6 — Zip (on Desktop)
+
+```powershell
+$src = "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
+$dst = "C:\Users\Ahmed Samy\Desktop\clark-v<x.y.z>.zip"
+if (Test-Path $dst) { Remove-Item $dst -Force }
+$exclude = @("node_modules", "dist", ".vercel", ".git")
+$tempDir = "$env:TEMP\clark_zip_v<x_y_z>"
+if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+New-Item -ItemType Directory -Path $tempDir | Out-Null
+robocopy $src $tempDir /E /XD $exclude /XF "*.log" /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+Compress-Archive -Path "$tempDir\*" -DestinationPath $dst -CompressionLevel Optimal
+Remove-Item $tempDir -Recurse -Force
+```
+
+### Paths (memorize these)
+
+| Item | Path |
+|------|------|
+| **Source folder** (development) | `C:\Users\Ahmed Samy\Desktop\clark-v19_90_0\` |
+| **Git repo** (deploys to Vercel) | `C:\Users\Ahmed Samy\Documents\GitHub\clark-factory\` |
+| **Remote** | `https://github.com/asamy010/clark-factory.git` |
+| **Zip output** | `C:\Users\Ahmed Samy\Desktop\clark-v<x.y.z>.zip` |
+| **Vercel URL** | `https://clark-factory.vercel.app` |
+
+The source folder has **NO `.git`** — always copy modified files into the
+git repo folder before committing.
+
+### Critical rules
+
+- **NEVER** use `git add .` or `git add -A` — always stage specific files
+- **NEVER** use `--no-verify` to skip hooks
+- **NEVER** force-push to main
+- **NEVER** commit secrets (shpat_, shpss_, atkn_ tokens, .env files)
+- **NEVER** delete user data without explicit confirmation
+- Always create NEW commits rather than amending (--amend can destroy work)
 
 ---
 

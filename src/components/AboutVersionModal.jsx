@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.10",
+    date: "2026-05-10",
+    types: ["doc"],
+    title: "📜 Phase 11p — Documentation Pass",
+    changes: [
+      { type: "doc", text: "📜 [CLAUDE.md §0 — Principal Engineer Persona] إضافة قسم جديد في الـ root للتعليمات بمستوى Google/OpenAI/Microsoft. يحدد الـ standard لكل bug fix:\n• Root cause analysis (مش الأعراض)\n• Defensive + Documented + Tested + Reversible\n• كل bug fix معلّق بـ ROOT CAUSE comment\n• Anti-pattern entry لمنع التكرار" },
+      { type: "doc", text: "📜 [CLAUDE.md §1 expanded] الـ Build → Test → Commit → Push → Zip protocol بـ explicit shell commands كاملة لكل خطوة + paths reference table + critical rules (NEVER git add ., NEVER --no-verify, NEVER force-push)." },
+      { type: "doc", text: "📚 [WORK_LOG.md جديد] توثيق كامل لكل المراحل من V19.91 لـ V21.9.10:\n• Phase 0-11p (35+ phase)\n• Architectural decisions (لماذا الـ split + لماذا الـ partition)\n• Anti-patterns table (12+ pattern)\n• File structure map كامل\n• Endpoints reference table\n• Stats summary" },
+      { type: "doc", text: "🌐 [README.md جديد] project overview بـ:\n• Architecture diagram (ASCII)\n• Key features list (13 sub-tabs)\n• Development guide\n• Environment variables reference\n• Engineering standard (Principal Engineer level)" },
+      { type: "doc", text: "✅ [بروتوكول رسمي] الـ protocol مكتوب بالعربي + الإنجليزي. أي session جديدة تقرا CLAUDE.md + WORK_LOG.md قبل أي شغل. ده بيمنع الـ regressions ويـ ensure الـ standard ثابت." },
+    ]
+  },
+  {
     version: "V21.9.9",
     date: "2026-05-10",
     types: ["fix", "architectural"],
