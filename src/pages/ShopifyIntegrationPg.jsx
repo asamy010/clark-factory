@@ -70,7 +70,7 @@ const SUB_TABS = [
   { key: "products",       label: "📦 المنتجات",        color: "#F59E0B" },
   { key: "orders",         label: "🛒 الطلبات",         color: "#8B5CF6" },
   { key: "returns",        label: "↩️ المرتجعات",       color: "#DC2626" }, /* V21.9.7 */
-  { key: "abandoned",      label: "🛍️ السلال المهجورة", color: "#DB2777" },
+  { key: "abandoned",      label: "🛍️ Abandoned Cart",  color: "#DB2777" },
   { key: "discounts",      label: "🎟 الكوبونات",        color: "#F97316" },
   { key: "customers",      label: "👥 العملاء",         color: "#7C3AED" },
   { key: "campaigns",      label: "📬 الحملات",          color: "#25D366" }, /* V21.9.8 */

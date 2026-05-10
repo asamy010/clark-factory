@@ -37,20 +37,35 @@ import { Btn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 
-/* Module-level state: a queue of active overlays, plus the singleton instance */
+/* V21.9.9: Module-level state for the singleton overlay.
+   Previously a single `_activeJob` allowed job B to overwrite A → A's
+   dismiss-on-done effect would kill B's overlay. Fixed by tagging each
+   call with a unique sequence number; only the LATEST sequence can dismiss. */
 let _activeJob = null;
+let _activeSeq = 0;
 let _setterRef = null;
 
 /* Public API: trigger the overlay from anywhere.
-   `meta` shape: { jobId, label, type, onComplete?, onError?, allowCancel? }
-   Returns nothing — listeners on the job doc handle completion. */
+   Returns the sequence number — pass it to dismissSyncProgress(seq) so we
+   only close THIS instance even if another overlay opened on top.
+   `meta` shape: { jobId, label, type, onComplete?, onError?, allowCancel? } */
 export function startSyncProgress(meta){
-  _activeJob = { ...meta, _started: Date.now() };
+  _activeSeq += 1;
+  const seq = _activeSeq;
+  _activeJob = { ...meta, _started: Date.now(), _seq: seq };
   if(_setterRef) _setterRef(_activeJob);
+  return seq;
 }
 
-/* Public API: dismiss the overlay (called by syncProgress utility on completion). */
-export function dismissSyncProgress(){
+/* Public API: dismiss the overlay.
+   - dismissSyncProgress() — force dismiss (legacy, used by Close buttons)
+   - dismissSyncProgress(seq) — only dismiss if the active job has this seq
+     (prevents job A from killing job B's overlay) */
+export function dismissSyncProgress(seq){
+  if(typeof seq === "number" && _activeJob && _activeJob._seq !== seq){
+    /* Not the active job anymore — leave it alone */
+    return;
+  }
   _activeJob = null;
   if(_setterRef) _setterRef(null);
 }
@@ -104,16 +119,13 @@ export function SyncProgressOverlay(){
     return () => window.removeEventListener("keydown", stop, true);
   }, [job]);
 
-  /* V21.9.5 CRITICAL FIX: this useEffect was AFTER the early return → React
-     Error #310 ("rendered fewer hooks than expected") whenever job toggled
-     null↔value. ALL hooks MUST be called unconditionally before any early
-     return. We compute isDone here and gate inside the effect itself. */
-  const isDoneForDismiss = (snap?.status === "done");
-  useEffect(() => {
-    if(!isDoneForDismiss) return;
-    const t = setTimeout(() => dismissSyncProgress(), 1500);
-    return () => clearTimeout(t);
-  }, [isDoneForDismiss]);
+  /* V21.9.9: removed auto-dismiss-on-success.
+     User reported "popup disappears, no data shows" — the 1.5s auto-close
+     was too fast to see the result preview. Now the overlay STAYS until the
+     user explicitly closes it (or starts another sync). They get to see:
+     • The full result stats (counts, durations, etc.)
+     • Action button to dismiss and continue
+     • Action button to view the synced data (if applicable) */
 
   if(!job) return null;
 
@@ -321,6 +333,19 @@ export function SyncProgressOverlay(){
                 </Btn>
               )}
             </>
+          )}
+          {/* V21.9.9: explicit close button on success — replaces the
+              auto-dismiss that used to make data "disappear" before user
+              could read the result. */}
+          {isDone && (
+            <Btn
+              small
+              primary
+              onClick={() => dismissSyncProgress()}
+              style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 800, padding: "8px 24px" }}
+            >
+              ✓ تمام، إغلاق
+            </Btn>
           )}
           {isError && (
             <>

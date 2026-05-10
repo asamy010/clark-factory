@@ -66,7 +66,10 @@ export async function writeShopifyProduct(cfg, product, opts){
   if(cfg && cfg[FLAG_V2192]){
     const id = product.id || product.shopify_id;
     if(!id) throw new Error("product missing id");
-    await db.collection(PRODUCTS_COL).doc(String(id).replace(/\//g, "_")).set(product, { merge: !!opts?.merge });
+    const safeId = String(id).replace(/\//g, "_");
+    /* V21.9.9: enforce top-level `id` field — see writeManyShopifyProducts */
+    const docToWrite = { ...product, id: safeId };
+    await db.collection(PRODUCTS_COL).doc(safeId).set(docToWrite, { merge: !!opts?.merge });
     return;
   }
   /* Pre-migration: update array inside transaction */
@@ -89,7 +92,10 @@ export async function writeShopifyCustomer(cfg, customer, opts){
   if(cfg && cfg[FLAG_V2192]){
     const id = customer.id || customer.shopify_customer_id;
     if(!id) throw new Error("customer missing id");
-    await db.collection(CUSTOMERS_COL).doc(String(id).replace(/\//g, "_")).set(customer, { merge: !!opts?.merge });
+    const safeId = String(id).replace(/\//g, "_");
+    /* V21.9.9: enforce top-level `id` field for client listener compatibility */
+    const docToWrite = { ...customer, id: safeId };
+    await db.collection(CUSTOMERS_COL).doc(safeId).set(docToWrite, { merge: !!opts?.merge });
     return;
   }
   /* Pre-migration: update array inside transaction */
@@ -107,7 +113,11 @@ export async function writeShopifyCustomer(cfg, customer, opts){
 }
 
 /* Bulk-write many products. Writes per-doc post-migration, single tx pre.
-   Returns count written. */
+   Returns count written.
+   V21.9.9 CRITICAL FIX: ensure each doc has a top-level `id` field equal to
+   shopify_id. The client-side partitioned listener (App.jsx ~3286) only
+   stores docs that have `data.id` — without this, products would be invisible
+   in the UI even though they were stored correctly in Firestore. */
 export async function writeManyShopifyProducts(cfg, products){
   const db = getDb();
   if(cfg && cfg[FLAG_V2192]){
@@ -118,7 +128,10 @@ export async function writeManyShopifyProducts(cfg, products){
       for(const p of products.slice(i, i + BATCH)){
         const id = p.id || p.shopify_id;
         if(!id) continue;
-        batch.set(db.collection(PRODUCTS_COL).doc(String(id).replace(/\//g, "_")), p);
+        const safeId = String(id).replace(/\//g, "_");
+        /* V21.9.9: enforce id field for client-side listener compatibility */
+        const docToWrite = { ...p, id: safeId };
+        batch.set(db.collection(PRODUCTS_COL).doc(safeId), docToWrite);
         count++;
       }
       await batch.commit();
@@ -131,7 +144,8 @@ export async function writeManyShopifyProducts(cfg, products){
   return products.length;
 }
 
-/* Bulk-write many customers. */
+/* Bulk-write many customers.
+   V21.9.9: enforce top-level `id` field for listener compatibility. */
 export async function writeManyShopifyCustomers(cfg, customers){
   const db = getDb();
   if(cfg && cfg[FLAG_V2192]){
@@ -142,7 +156,9 @@ export async function writeManyShopifyCustomers(cfg, customers){
       for(const c of customers.slice(i, i + BATCH)){
         const id = c.id || c.shopify_customer_id;
         if(!id) continue;
-        batch.set(db.collection(CUSTOMERS_COL).doc(String(id).replace(/\//g, "_")), c);
+        const safeId = String(id).replace(/\//g, "_");
+        const docToWrite = { ...c, id: safeId };
+        batch.set(db.collection(CUSTOMERS_COL).doc(safeId), docToWrite);
         count++;
       }
       await batch.commit();

@@ -16,7 +16,29 @@
    ID token (Authorization: Bearer <token>) and verify role server-side.
    ═══════════════════════════════════════════════════════════════════════ */
 
-const API_TIMEOUT_MS = 20000;
+/* V21.9.9 — Per-endpoint timeout map.
+   The previous global API_TIMEOUT_MS=20s caused "signal is aborted without
+   reason" on any historical sync (which can take 60-300s due to Shopify's
+   2 req/sec rate limit + 100s of pages). The fix: long-running operations
+   get their own generous timeout, fast ops keep the 20s default. */
+const DEFAULT_TIMEOUT_MS = 30000; /* 30s default for fast ops */
+const LONG_OPERATIONS = {
+  "/api/shopify/sync-historical-orders": 600000,   /* 10 min */
+  "/api/bosta/sync-historical":           600000,
+  "/api/shopify/sync-products-now":       180000,  /* 3 min — paginated */
+  "/api/shopify/sync-customers":          180000,  /* 3 min — paginated */
+  "/api/shopify/sync-orders-now":         120000,  /* 2 min */
+  "/api/shopify/push-inventory-now":      300000,  /* 5 min — N×550ms calls */
+  "/api/shopify/sync-abandoned-carts":    120000,
+  "/api/shopify/bulk-update-products":    120000,
+  "/api/shopify/push-customer-tags":      300000,
+  "/api/maintenance/split-shopify-collections":  300000,
+  "/api/maintenance/split-shopify-orders-daily": 300000,
+  "/api/shopify/campaign-prepare-run":    180000,
+};
+function getTimeoutForPath(path){
+  return LONG_OPERATIONS[path] || DEFAULT_TIMEOUT_MS;
+}
 
 /* Get a fresh admin ID token from the currently signed-in Firebase user.
    Throws if no user is logged in. The token is short-lived (~1h), so we
@@ -28,12 +50,17 @@ async function getIdToken(user){
   return await user.getIdToken();
 }
 
-/* Generic fetch wrapper with timeout + JSON parsing + error normalization.
-   All endpoints return { ok:bool, ...payload } or { ok:false, error }. */
+/* Generic fetch wrapper with per-endpoint timeout + JSON parsing + error
+   normalization. All endpoints return { ok:bool, ...payload } or { ok:false, error }.
+
+   V21.9.9: timeout is selected per-path so long syncs (historical, etc.)
+   get up to 10 minutes. Fast endpoints (status, configure) keep 30s. */
 async function call(method, path, body, user){
   const idToken = await getIdToken(user);
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
+  const timeoutMs = getTimeoutForPath(path);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const startTs = Date.now();
   try {
     const opts = {
       method,
@@ -52,6 +79,13 @@ async function call(method, path, body, user){
       throw new Error(msg);
     }
     return data;
+  } catch(e){
+    /* V21.9.9: surface a meaningful error for AbortError vs network failure */
+    if(e?.name === "AbortError"){
+      const elapsed = Math.round((Date.now() - startTs) / 1000);
+      throw new Error("العملية أخدت أكتر من " + Math.round(timeoutMs/1000) + " ثانية ("+elapsed+"s elapsed). الـ server ممكن يكون لسه شغّال — راجع الـ logs أو حاول مرة تانية بـ scope أصغر.");
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }

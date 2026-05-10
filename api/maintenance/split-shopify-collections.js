@@ -121,7 +121,11 @@ export default async function handler(req, res){
     /* Step 2: Write per-id docs (batched for performance) */
     let productsMigrated = 0;
     let customersMigrated = 0;
-    /* Firestore batch limit = 500 ops. Use multiple batches if needed. */
+    /* Firestore batch limit = 500 ops. Use multiple batches if needed.
+       V21.9.9 CRITICAL FIX: enforce top-level `id` field on each doc so the
+       client-side partitioned listener (App.jsx ~3286 only keeps docs with
+       data.id) actually picks them up. Without this, products migrated to
+       shopifyProductsDocs were invisible in the UI. */
     const writeBatched = async (collName, items, getId) => {
       let count = 0;
       const BATCH_SIZE = 400; /* leave headroom */
@@ -132,7 +136,8 @@ export default async function handler(req, res){
           const id = getId(item);
           if(!id) continue;
           const safeId = String(id).replace(/[/]/g, "_"); /* Firestore ids can't contain / */
-          batch.set(db.collection(collName).doc(safeId), item);
+          const docToWrite = { ...item, id: safeId };
+          batch.set(db.collection(collName).doc(safeId), docToWrite);
           count++;
         }
         await batch.commit();

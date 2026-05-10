@@ -158,16 +158,94 @@ export default async function handler(req, res){
         sub_message: `شهر ${bk.replace("_", "/")} — ${orders.length} طلب`,
       });
     }
-    /* metadata */
-    await db.collection("factory").doc("config").set({
-      shopifyConfig: {
-        last_historical_sync_at: new Date().toISOString(),
-        last_historical_sync_count: totalFetched,
-        last_historical_sync_since: sinceISO,
-        last_historical_sync_months: Object.keys(monthlyBreakdown).length,
-        last_historical_sync_archive_docs: archiveDocsWritten,
-      },
-    }, { merge: true });
+    /* V21.9.9: ALSO populate factory/config.shopifyPendingOrders with the
+       most-recent orders so they appear in the live Orders tab. Previously
+       the historical sync only wrote to the archive, leaving the live list
+       empty — user reported "الطلبات مظهرتش في القائمة".
+
+       Take the most-recent N=200 orders (matches ORDERS_CAP in sync-orders-now)
+       and merge with existing live orders by shopify_order_id. Existing local
+       state (status, invoice_id, delivered_at) is preserved. */
+    await update({ message: "تحديث قائمة الطلبات الـ live..." });
+    const ORDERS_CAP_LIVE = 200;
+    const allOrdersFlat = [];
+    for(const [, list] of monthlyBuckets.entries()){
+      for(const o of list) allOrdersFlat.push(o);
+    }
+    /* Sort newest first by shopify_created_at */
+    allOrdersFlat.sort((a, b) => {
+      const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
+      const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
+      return tb - ta;
+    });
+    const recentForLive = allOrdersFlat.slice(0, ORDERS_CAP_LIVE);
+
+    /* Merge with existing live (preserve local state mutations) */
+    const cfgRef = db.collection("factory").doc("config");
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(cfgRef);
+      const fresh = snap.exists ? (snap.data() || {}) : {};
+      const existingLive = Array.isArray(fresh.shopifyPendingOrders) ? fresh.shopifyPendingOrders : [];
+      const existingMap = new Map(existingLive.map(o => [String(o.shopify_order_id), o]));
+
+      const mergedList = [];
+      const seenIds = new Set();
+      for(const o of recentForLive){
+        const id = String(o.shopify_order_id);
+        if(seenIds.has(id)) continue;
+        seenIds.add(id);
+        const prev = existingMap.get(id);
+        if(prev){
+          /* Preserve local mutations + Bosta tracking */
+          mergedList.push({
+            ...o,
+            status: prev.status || o.status,
+            stock_reserved: prev.stock_reserved,
+            stock_reservations: prev.stock_reservations,
+            invoice_id: prev.invoice_id,
+            delivered_at: prev.delivered_at,
+            refused_at: prev.refused_at,
+            refusal_reason: prev.refusal_reason,
+            returned_at: prev.returned_at,
+            return_credit_note_id: prev.return_credit_note_id,
+            bosta: prev.bosta || o.bosta,
+          });
+        } else {
+          mergedList.push(o);
+        }
+      }
+      /* Also include any existing live orders that weren't in the historical
+         pull (newer than sinceISO maybe, or edge cases). */
+      for(const o of existingLive){
+        const id = String(o.shopify_order_id);
+        if(!seenIds.has(id)){
+          seenIds.add(id);
+          mergedList.push(o);
+        }
+      }
+
+      /* Sort + cap */
+      mergedList.sort((a, b) => {
+        const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
+        const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
+        return tb - ta;
+      });
+      const final = mergedList.slice(0, ORDERS_CAP_LIVE);
+
+      tx.set(cfgRef, {
+        shopifyPendingOrders: final,
+        shopifyConfig: {
+          ...(fresh.shopifyConfig || {}),
+          last_historical_sync_at: new Date().toISOString(),
+          last_historical_sync_count: totalFetched,
+          last_historical_sync_since: sinceISO,
+          last_historical_sync_months: Object.keys(monthlyBreakdown).length,
+          last_historical_sync_archive_docs: archiveDocsWritten,
+          last_orders_sync_at: new Date().toISOString(),
+          last_orders_sync_count: final.length,
+        },
+      }, { merge: true });
+    });
 
     /* Final result — returned to HTTP + saved to job.result */
     return {

@@ -286,22 +286,61 @@ export default async function handler(req, res){
     if(!clarkByTracking.has(tn)) verification.unlinked_bosta++;
   }
 
-  /* Save verification report */
+  /* V21.9.9: Update live shopifyPendingOrders[].bosta for matching CLARK
+     orders so the Shipping tab actually displays them. Previously the
+     Bosta sync only wrote to archive + verification report — but the live
+     UI reads from shopifyPendingOrders.bosta which was stale/empty. */
+  await update({ message: "تحديث الـ tracking للطلبات الـ live..." });
+  let bostaLiveUpdated = 0;
   try {
     const db = getDb();
-    await db.collection("factory").doc("config").set({
-      shopifyConfig: {
-        last_bosta_historical_sync_at: new Date().toISOString(),
-        last_bosta_historical_sync_count: allDeliveries.length,
-        last_bosta_verification: {
-          ...verification,
-          mismatches: verification.mismatches.slice(0, 50),
-          run_at: new Date().toISOString(),
+    const cfgRef = db.collection("factory").doc("config");
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(cfgRef);
+      const fresh = snap.exists ? (snap.data() || {}) : {};
+      const liveOrders = Array.isArray(fresh.shopifyPendingOrders) ? fresh.shopifyPendingOrders.slice() : [];
+      let touched = 0;
+      for(let i = 0; i < liveOrders.length; i++){
+        const tn = liveOrders[i].bosta?.tracking_number;
+        if(!tn) continue;
+        const d = bostaByTracking.get(tn);
+        if(!d) continue;
+        liveOrders[i] = {
+          ...liveOrders[i],
+          bosta: {
+            ...(liveOrders[i].bosta || {}),
+            tracking_number: tn,
+            state_code: d.state_code,
+            state_value: d.state_value,
+            state_bucket: d.state_bucket,
+            last_state_at: d.updated_at || liveOrders[i].bosta?.last_state_at,
+            last_refresh_at: new Date().toISOString(),
+            cod_amount: d.cod_amount,
+            cod_collected: d.cod_collected,
+            delivered_at: d.delivered_at || liveOrders[i].bosta?.delivered_at,
+          },
+        };
+        touched++;
+      }
+      tx.set(cfgRef, {
+        shopifyPendingOrders: liveOrders,
+        shopifyConfig: {
+          ...(fresh.shopifyConfig || {}),
+          last_bosta_historical_sync_at: new Date().toISOString(),
+          last_bosta_historical_sync_count: allDeliveries.length,
+          last_bosta_live_updated: touched,
+          last_bosta_verification: {
+            ...verification,
+            mismatches: verification.mismatches.slice(0, 50),
+            run_at: new Date().toISOString(),
+          },
         },
-      },
-    }, { merge: true });
+      }, { merge: true });
+      bostaLiveUpdated = touched;
+    });
   } catch(e){
     /* non-fatal */
+    console.warn("[bosta-sync-historical] failed to update live orders:", e.message);
   }
 
     /* withProgress wrapper expects us to RETURN the result (not res.json) */
@@ -311,9 +350,10 @@ export default async function handler(req, res){
       monthlyBreakdown,
       archiveDocsWritten,
       verification,
+      live_orders_updated: bostaLiveUpdated,
       durationMs: Date.now() - startTs,
       sinceISO,
-      message: `تم! ${allDeliveries.length} delivery · ${verification.matching}/${verification.linked} مطابق`,
+      message: `تم! ${allDeliveries.length} delivery · ${verification.matching}/${verification.linked} مطابق · ${bostaLiveUpdated} live updated`,
     };
   });
 }

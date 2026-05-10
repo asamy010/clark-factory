@@ -3283,8 +3283,14 @@ export default function App(){
           const docData=change.doc.data();
           if(change.type==="removed"){
             map.delete(change.doc.id);
-          }else if(docData&&docData.id){
-            map.set(change.doc.id,docData);
+          }else if(docData){
+            /* V21.9.9 BUGFIX: previously this required docData.id which
+               silently dropped any doc missing it (e.g. shopifyProducts
+               migrated by V21.9.2 without an explicit `id` field). Now we
+               fallback to the Firestore doc id, which always exists.
+               This makes the listener robust to schema variations. */
+            const id=docData.id||change.doc.id;
+            map.set(change.doc.id,{...docData,id});
           }
         });
         firstFires[field]=true;

@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.9",
+    date: "2026-05-10",
+    types: ["fix", "architectural"],
+    title: "🩹 Phase 11o — Critical Shopify Audit (Principal Engineer pass)",
+    changes: [
+      { type: "fix", text: "🚨 [ROOT CAUSE — 'signal is aborted without reason']\nAPI_TIMEOUT_MS كان 20s ثابت لكل endpoints. الـ historical syncs بـ تستغرق دقايق (Shopify rate limit = 2 req/sec × 100s of pages). الـ AbortController كان يـ fire بعد 20s، الـ server يفضل شغّال لكن الـ client يعرض 'aborted'.\n\nالحل: per-endpoint timeout map:\n• Default: 30s\n• sync-products / sync-customers: 3 min\n• push-inventory / push-customer-tags: 5 min\n• sync-historical / bosta-historical / split-collections: 10 min\n+ error message ملموس: 'العملية أخدت أكتر من X ثانية — راجع الـ server logs'" },
+      { type: "fix", text: "🚨 [ROOT CAUSE — المنتجات اتسحبت لكن مظهرتش]\nالـ migration V21.9.2 بـ تكتب products في shopifyProductsDocs بـ shopify_id كـ doc id، لكن الـ docs مكنش فيها top-level `id` field. الـ partitioned listener في App.jsx كان فيه شرط `if(docData && docData.id)` بـ يـ skip أي doc بدون id → كل المنتجات invisible في الـ UI رغم إنها متخزّنة صح في Firestore.\n\nالحل (3 طبقات):\n1. Listener fallback: لو docData.id مش موجود، استخدم change.doc.id (دايماً موجود)\n2. writeManyShopifyProducts بقت تـ enforce id = shopify_id\n3. الـ migration بقت تكتب id field على كل doc\nده يعالج مشكلة 'سحبت المنتجات وما ظهرتش' للمستخدمين القدام والجداد." },
+      { type: "fix", text: "🐛 [Auto-dismiss overlay too fast]\nالـ overlay كان يـ auto-close بعد 1.5 ثانية عند النجاح → المستخدم مايقدرش يقرا الـ result preview. كان يحس إن الحاجة 'اختفت'.\n\nالحل: شيلت الـ auto-dismiss، حطيت زرار '✓ تمام، إغلاق' أخضر بارز. الـ overlay يفضل ظاهر مع كل الـ stats حتى يضغط الـ user." },
+      { type: "fix", text: "🐛 [Multi-job overlay race]\nlogic كان يستخدم module-level `_activeJob`. لو بدأت sync A ثم بدأت sync B قبل ما A تخلص، الـ done effect لـ A بـ يعمل dismissSyncProgress() اللي بـ يكنسل overlay B.\n\nالحل: أضفت sequence numbers. dismissSyncProgress(seq) بقى يـ dismiss ONLY لو الـ active job له نفس الـ seq. لو B هو الـ active، A's dismiss is a no-op." },
+      { type: "fix", text: "🐛 [الطلبات والـ Bosta tracking مظهرتش بعد historical sync]\nالـ historical sync كان يكتب الطلبات في shopifyOrdersArchive collection بس، بدون ما يـ refresh الـ live shopifyPendingOrders. الـ live UI ظل فاضي.\n\nالحل: بعد كل historical sync، نـ merge أحدث 200 طلب في الـ live array (مع preserve للـ status/invoice_id/bosta المحلية).\nنفس المعالجة للـ Bosta historical: نـ update bosta tracking على الـ live orders اللي tracking_number بتاعها مطابق." },
+      { type: "improvement", text: "🌐 [Tab name English] '🛍️ السلال المهجورة' → '🛍️ Abandoned Cart' (per user preference for English brand consistency)." },
+      { type: "improvement", text: "🛠 [Debugging UX]\nرسائل الخطأ بقت أوضح:\n• AbortError → 'العملية أخدت أكتر من Xs — راجع الـ server logs'\n• Onboarding وقت الـ historical sync بـ 'تحديث قائمة الطلبات الـ live...' خطوة جديدة عشان الـ user يفهم إن الـ live بـ يتـ refresh\n• Bosta result بـ يعرض live_orders_updated count" },
+      { type: "doc", text: "📜 [Audit summary] هذا الـ phase راجع الـ Shopify section كله بنظرة Principal Engineer:\n• timeout architecture (per-endpoint not global)\n• race conditions in module state\n• schema/listener compatibility (the id field bug)\n• success state UX (don't auto-dismiss)\n• data flow continuity (historical → live)\nكل bug fix معلّق بـ ROOT CAUSE comment للـ regression prevention." },
+    ]
+  },
+  {
     version: "V21.9.8",
     date: "2026-05-10",
     types: ["feature", "architectural"],
