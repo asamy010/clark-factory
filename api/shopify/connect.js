@@ -69,7 +69,7 @@ export default async function handler(req, res){
     return;
   }
   if(!isValidAccessToken(accessToken)){
-    res.status(400).json({ ok:false, error: "صيغة الـ Access Token غير صحيحة. لازم يبدأ بـ shpat_ (الموصى به) أو shppa_ ويكون 30+ حرف" });
+    res.status(400).json({ ok:false, error: "صيغة الـ Access Token غير صحيحة. الصيغ المقبولة: shpat_ (custom app) أو atkn_ (Dev Dashboard) أو shppa_ (Partners). لازم 25+ حرف بعد الـ prefix." });
     return;
   }
 

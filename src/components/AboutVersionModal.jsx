@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V19.91.2",
+    date: "2026-05-10",
+    types: ["fix","feature"],
+    title: "🛍️ Shopify Phase 0: دعم Dev Dashboard atkn_ tokens (Shopify deprecated legacy custom apps)",
+    changes: [
+      { type: "fix", text: "🚨 [Reality check] Shopify شال خاصية إنشاء Legacy Custom Apps من 1 يناير 2026. يعني المسار اللي كنا بنوصّي بيه (Settings → Apps → Develop apps → Create app → shpat_ token) **مبقاش متاح للستورات الجديدة**. الـ user اللي بـ يفتح الستور بعد التاريخ ده لازم يستخدم الـ Dev Dashboard المعقّد." },
+      { type: "feature", text: "🆕 [دعم atkn_ prefix] الـ Dev Dashboard بـ يولّد توكينات بـ صيغة `atkn_…` (App automation token) بدل `shpat_`. التوكين ده 64 hex char بدل 32. الـ regex اتـ extend في 3 أماكن:\n• api/shopify/_shopifyAdmin.js → isValidAccessToken\n• api/shopify/connect.js → server-side validation\n• ShopifyIntegrationPg.jsx → client-side validation\nالـ 3 أماكن دلوقتي بيقبلوا shpat_ (legacy)، shppa_ (Partners)، atkn_ (Dev Dashboard)." },
+      { type: "feature", text: "📚 [إعادة كتابة الـ setup instructions] الـ Connection tab بقى يعرض المسار الجديد:\n1. Shopify Partners → Apps → Create app\n2. Configure scopes + Release version\n3. Install app على CLARK Store\n4. Settings tab → App automation token → Create token\n5. انسخ atkn_ token والصقه\n+ تنبيه أصفر بـ شرح الفرق بين 3 صيغ توكينات (shpss_/atkn_/shpat_)\n+ تنبيه أزرق بـ ملاحظة الـ expiry (عادة 6 شهور — لازم rotate قبل الانتهاء)." },
+      { type: "improvement", text: "⚠ [Open question] الـ atkn_ tokens رسمياً للـ \"app automation\" مش للـ Admin API. ممكن يشتغلوا مع /shop.json (الكود الحالي بـ يبعتهم في X-Shopify-Access-Token header زي الـ shpat_). لو طلع 401/403 من Shopify، الـ user هـ يلاقي رسالة \"صلاحيات غير كافية\" واضحة + هـ نحتاج نضيف OAuth flow في V19.92.0 (Phase 0.5)." },
+    ]
+  },
+  {
     version: "V19.91.1",
     date: "2026-05-10",
     types: ["fix"],

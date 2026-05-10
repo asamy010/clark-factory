@@ -282,8 +282,8 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
       await tell("⚠️ ده Collaborator token — مش بيشتغل مع الـ Admin API.\n\nاللي محتاجه: التوكين اللي بيبدأ بـ shpat_ (من Install app أو Create token في API credentials tab).");
       return;
     }
-    if(!/^(shpat_|shppa_)/i.test(t)){
-      await tell("⚠️ صيغة الـ Access Token غير معروفة.\n\nالتوكين الصح لازم يبدأ بـ shpat_ (Admin API) أو shppa_ (Partners). شيك إنك ناسخ الـ token الصح من Shopify.");
+    if(!/^(shpat_|shppa_|atkn_)/i.test(t)){
+      await tell("⚠️ صيغة الـ Access Token غير معروفة.\n\nالصيغ المقبولة:\n• shpat_ — Custom app Admin API token\n• atkn_ — Dev Dashboard App automation token\n• shppa_ — Shopify Partners token\n\nشيك إنك ناسخ الـ token الصح من Shopify.");
       return;
     }
     setBusy(true);
@@ -393,17 +393,21 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
       {!connected && (
         <Card title="🔐 خطوات الإعداد في Shopify Admin">
           <div style={{ fontSize: FS - 1, lineHeight: 1.9, color: T.textSec }}>
-            <div style={{ marginBottom: 8 }}>1. روح Shopify Admin → <b>Settings → Apps and sales channels → Develop apps</b></div>
-            <div style={{ marginBottom: 8 }}>2. اعمل <b>Create an app</b> باسم "CLARK Integration"</div>
-            <div style={{ marginBottom: 8 }}>3. <b>Configure Admin API scopes</b> ووشّر الـ scopes دي:</div>
+            <div style={{ fontWeight: 800, color: T.text, marginBottom: 8, fontSize: FS }}>
+              📌 المسار الجديد (Dev Dashboard) — مطلوب من 2026
+            </div>
+            <div style={{ marginBottom: 8 }}>1. روح <b>Shopify Partners → Apps → Create app</b> أو من الستور <b>Settings → Apps → Build apps in Dev Dashboard</b></div>
+            <div style={{ marginBottom: 8 }}>2. اعمل app باسم "CLARK Integration"</div>
+            <div style={{ marginBottom: 8 }}>3. اعمل <b>Release</b> للـ version بعد ما تـ configure الـ scopes:</div>
             <div style={{ background: T.bg, padding: 12, borderRadius: 8, marginBottom: 8, fontFamily: "monospace", fontSize: FS - 2 }}>
               read_orders, read_all_orders, read_products, write_products,<br/>
               read_inventory, write_inventory, read_locations,<br/>
               read_fulfillments, read_customers
             </div>
-            <div style={{ marginBottom: 8 }}>4. روح <b>API credentials tab</b> ثم اضغط <b>Install app</b> فوق الصفحة</div>
-            <div style={{ marginBottom: 8 }}>5. هـ يظهر قسم <b>Admin API access token</b> — اضغط <b>Reveal token once</b></div>
-            <div style={{ marginBottom: 4 }}>6. ⚠️ التوكين هيظهر <b>مرة واحدة بس</b> — انسخه فوراً والصقه هنا تحت.</div>
+            <div style={{ marginBottom: 8 }}>4. اضغط <b>Install app</b> واختار CLARK Store</div>
+            <div style={{ marginBottom: 8 }}>5. روح <b>Settings tab</b> في الـ Dev Dashboard</div>
+            <div style={{ marginBottom: 8 }}>6. تحت <b>App automation token</b> اضغط <b>Create token</b></div>
+            <div style={{ marginBottom: 4 }}>7. ⚠️ التوكين هيظهر <b>مرة واحدة بس</b> — انسخه (هيبدأ بـ <code>atkn_</code>) والصقه هنا تحت.</div>
             <div style={{
               marginTop: 12,
               padding: "10px 12px",
@@ -415,9 +419,23 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
               fontWeight: 600,
               lineHeight: 1.7,
             }}>
-              ⚠️ <b>تنبيه مهم — متخلطش:</b><br/>
-              • الـ <b>Client Secret</b> (بيبدأ بـ <code>shpss_</code>) <b>مش</b> Access Token. ده للـ OAuth handshake بس ومش هيشتغل هنا.<br/>
-              • اللي محتاجه = الـ <b>Admin API Access Token</b> اللي بيبدأ بـ <code>shpat_</code> (بيظهر بعد Install app أو Create token).
+              ⚠️ <b>تنبيه — خلي بالك من 3 توكينات مختلفة:</b><br/>
+              • <code>shpss_…</code> = Client <b>S</b>ecret (للـ OAuth) — <b>مش</b> هيشتغل هنا<br/>
+              • <code>atkn_…</code> = App automation <b>t</b>oken (Dev Dashboard) ✅ ده اللي محتاجه<br/>
+              • <code>shpat_…</code> = Admin API token (legacy custom apps — مش متاح للأبس الجديدة من 2026)
+            </div>
+            <div style={{
+              marginTop: 8,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "#DBEAFE",
+              border: "1px solid #3B82F640",
+              color: "#1E40AF",
+              fontSize: FS - 2,
+              fontWeight: 600,
+              lineHeight: 1.7,
+            }}>
+              ℹ️ <b>ملاحظة:</b> الـ <code>atkn_</code> tokens بـ تـ expire (عادة كل 6 شهور). شوف تاريخ الـ Expires في Settings → App automation token وعمل Rotate قبل ما تنتهي.
             </div>
           </div>
         </Card>

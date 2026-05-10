@@ -32,11 +32,18 @@ export function isValidStoreUrl(url){
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(clean);
 }
 
-/* Validate Admin API token format (shpat_… or shppa_… for partner apps). */
+/* Validate Admin API token format.
+   V19.91.2: Added atkn_ prefix for Shopify's new "App automation token"
+   from the Dev Dashboard (replaces legacy custom app shpat_ tokens, since
+   Shopify deprecated legacy custom app creation Jan 1 2026).
+   Accepted prefixes:
+     • shpat_  — legacy custom app Admin API access token
+     • shppa_  — Shopify Partners personal access token
+     • atkn_   — Dev Dashboard App automation token (new flow) */
 export function isValidAccessToken(token){
   if(!token || typeof token !== "string") return false;
   const t = token.trim();
-  return /^(shpat_|shppa_)[A-Za-z0-9_-]{20,}$/.test(t);
+  return /^(shpat_|shppa_|atkn_)[A-Za-z0-9_-]{20,}$/.test(t);
 }
 
 /* ── Credentials reader ──────────────────────────────────────────
