@@ -23,6 +23,7 @@ import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { StageProgressModal } from "../components/StageProgressModal.jsx";
 import { DefaultModelImg } from "../components/DefaultModelImg.jsx";
+import { ShopifyPushModal } from "../components/ShopifyPushModal.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
@@ -30,6 +31,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
   /* V18.90: Review request modal toggle */
   const[showReview,setShowReview]=useState(false);
+  /* V21.0 Phase 10: Shopify push modal */
+  const[showShopifyPush,setShowShopifyPush]=useState(false);
   /* V14.50: view mode + smart filters */
   const[detView,setDetView]=useState(()=>{try{return localStorage.getItem("clark_det_view")||"cards"}catch(e){return"cards"}});/* "cards"|"table" */
   const[detWs,setDetWs]=useState("");/* workshop filter */
@@ -615,6 +618,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <Btn small onClick={()=>setWaPopup({order,t,fromCard:false})} style={{background:"#25D36612",color:"#25D366",border:"1px solid #25D36630"}} title="ارسال واتساب">📱</Btn>
           {/* V18.90: Request review */}
           <Btn small onClick={()=>setShowReview(true)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="طلب مراجعة">📌</Btn>
+          {/* V21.0 Phase 10: Push to Shopify button */}
+          <Btn small onClick={()=>setShowShopifyPush(true)} style={{background:"#96BF4815",color:"#96BF48",border:"1px solid #96BF4830"}} title={order.shopify_meta?.shopify_product_id?"تحديث في Shopify":"Push للـ Shopify"}>
+            🛍️ {order.shopify_meta?.shopify_product_id?"محدّث":"Push"}
+          </Btn>
           {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
           {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
           {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
@@ -1839,6 +1846,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     />}
     {/* V19.0: Stage progress modal — opens when clicking interactive stage badge */}
     {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
+    {/* V21.0 Phase 10: Shopify push modal */}
+    {showShopifyPush&&order&&<ShopifyPushModal order={order} user={user} isMob={isMob} onClose={()=>setShowShopifyPush(false)}/>}
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
     {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>

@@ -163,3 +163,11 @@ export function shopifySyncCustomers(user){
 export function shopifyUpdateCustomer(opts, user){
   return call("POST", "/api/shopify/update-customer", opts, user);
 }
+
+/* V21.0 Phase 10: Push a CLARK order/model to Shopify with matrix
+   variants, multiple images, description.
+   { orderId, description?, images?, colorSourceFabric?, skuPattern?, ... }
+   → { ok, action, shopify_product_id, variants_count, images_uploaded, errors } */
+export function shopifyPushProductFromClark(opts, user){
+  return call("POST", "/api/shopify/push-product-from-clark", opts, user);
+}

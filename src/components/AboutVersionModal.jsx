@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.0.0",
+    date: "2026-05-10",
+    types: ["feature"],
+    title: "🎨 Phase 10 — Push Model من CLARK لـ Shopify (matrix variants)",
+    changes: [
+      { type: "feature", text: "🛍️ [Push CLARK Model → Shopify بالكامل] الـ user دلوقتي يقدر يعمل Shopify product كامل من أي CLARK order:\n• title = modelNo + modelDesc\n• body_html = الوصف (markdown مدعوم)\n• vendor + product_type + tags\n• options = [Color, Size]\n• variants matrix = (ألوان خامة محددة × المقاسات)\n• per-variant SKU بـ pattern قابل للتعديل\n• per-variant inventory من stock matrix\n• multiple images uploaded من Firebase Storage" },
+      { type: "feature", text: "📡 [Backend: 1 endpoint + 1 helper module]\n• POST /api/shopify/push-product-from-clark — يعمل create أو update (idempotent بناء على shopify_meta.shopify_product_id)\n• _productPush.js — pure functions:\n  - buildVariantSku(pattern, ctx) بـ Arabic-safe normalization\n  - extractFabricColors(order, fabricKey) — يـ extract الألوان من خامة محددة\n  - getVariantStock(matrix, color, size) — lookup من CLARK stock\n  - buildVariantMatrix(order, opts) — main builder\n  - descriptionToHtml(md) — markdown → HTML بسيط\n  - pushProductToShopify(creds, payload, existingId) — REST call\n  - uploadProductImageBySrc(creds, productId, img) — POST /products/{id}/images.json\n  - setVariantInventoryLevels(creds, productId, variants, locId) — sets accurate per-variant qty after create" },
+      { type: "feature", text: "🎨 [ShopifyPushModal — UI كامل] component standalone بـ:\n• Form للـ vendor / product_type / tags / status\n• Description editor بـ markdown hint\n• Multiple image upload — drag & drop multi-file، compress تلقائياً (1200px)، upload لـ Firebase Storage، preview gallery 3:4 portrait مع reorder/delete\n• Color source selector — أي خامة (A-H) ألوانها تكون الـ Color variant. الـ dropdown بـ يعرض كل خامة عندها لون مع عدد الألوان وأمثلة\n• SKU pattern editor مع placeholders documented\n• Matrix preview — جدول كامل (Color × Size) مع SKU لكل cell\n• Push button: Create لو جديد، Update لو موجود، disabled لو مفيش variants\n• Result panel بعد الـ push: action، product ID، variants count، images uploaded، الـ Shopify admin URL" },
+      { type: "feature", text: "🔘 [Push button في DetPg] في الـ order detail page، زرار جديد 🛍️ بـ يفتح الـ ShopifyPushModal. الـ button بـ يعرض حالة:\n• \"Push\" لو الموديل ما اتـ push-ـش قبل كده\n• \"محدّث\" لو متزامن (مع badge أخضر ✓ في الـ modal header)" },
+      { type: "feature", text: "💾 [Schema: order.shopify_meta]\n• description, images[], color_source_fabric, sku_pattern\n• vendor, product_type, tags, status\n• shopify_product_id, shopify_handle, shopify_title (after first push)\n• push_status, last_pushed_at, last_pushed_by, last_push_action\n• variants_count\nالـ settings بـ تـ persist عبر الـ pushes — re-sync بـ يستخدم نفس الـ config." },
+      { type: "feature", text: "🛡 [Wholesale-friendly]\n• الـ push بـ يقرأ stock matrix من order (per-variant)\n• الـ wholesale flow الموجود في CLARK ما يتأثر — wholesale بـ يخصم سيري كامل (موجود حالياً)\n• Phase 4 (Inventory Push) الموجود بـ يقدر يـ resync الـ Shopify لو الـ matrix اتغيّر" },
+      { type: "doc", text: "✅ [الـ user workflow الجديد]\n1. اعمل model في OrdForm زي العادة (modelNo, fabrics, sizes, prices, stock matrix)\n2. روح DetPg للموديل\n3. اضغط 🛍️ Push\n4. في الـ modal:\n   - اختار خامة الـ color source (A عادة)\n   - اكتب وصف\n   - ارفع صور (متعددة)\n   - راجع الـ matrix preview\n5. Push للـ Shopify\n6. لو غيّرت stock matrix بعدين، اضغط 🔄 محدّث للـ resync\n\nWholesale (Jumla) بـ يفضل سيري — مفيش تأثير." },
+    ]
+  },
+  {
     version: "V20.3.0",
     date: "2026-05-10",
     types: ["feature"],
