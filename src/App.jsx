@@ -44,6 +44,8 @@ import {
   /* V19.57: master-data groups + flag for selective stripping */
   PARTITIONED_FIELDS_V1675, PARTITIONED_FIELDS_V1957,
   PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957,
+  /* V21.9.2: Shopify products + customers partition */
+  PARTITIONED_FIELDS_V2192, PARTITIONED_FLAG_V2192,
 } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 /* V19.58: Zod-based schema validation in WARN-only mode. Surfaces drift in
@@ -402,6 +404,12 @@ export default function App(){
     }
     if(configDoc[PARTITIONED_FLAG_V1957]){
       for(const f of PARTITIONED_FIELDS_V1957){
+        merged[f]=partitionedData[f]||[];
+      }
+    }
+    /* V21.9.2: Shopify products + customers split — same merge pattern */
+    if(configDoc[PARTITIONED_FLAG_V2192]){
+      for(const f of PARTITIONED_FIELDS_V2192){
         merged[f]=partitionedData[f]||[];
       }
     }

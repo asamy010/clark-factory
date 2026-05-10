@@ -16,6 +16,7 @@ import {
   setInventoryLevel,
   computeAvailableForSku,
 } from "../shopify/_shopifyAdmin.js";
+import { readAllShopifyProducts, FLAG_V2192, PRODUCTS_COL } from "../shopify/_partitioned.js";
 
 const CRON_PUSH_LIMIT = 100; /* per run, to bound cost */
 
@@ -60,7 +61,9 @@ export default async function handler(req, res){
     return;
   }
 
-  const shopifyProducts = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts : [];
+  /* V21.9.2: read products from per-doc collection if migrated */
+  const shopifyProducts = await readAllShopifyProducts(cfg);
+  const isPartitioned = !!cfg[FLAG_V2192];
   if(shopifyProducts.length === 0){
     res.status(200).json({ ok:true, skipped: "no products to push", authBy });
     return;
@@ -114,28 +117,59 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const products = Array.isArray(fresh.shopifyProducts) ? fresh.shopifyProducts : [];
-      const now = new Date().toISOString();
+    const now = new Date().toISOString();
+    if(isPartitioned){
+      /* Per-doc updates */
+      const skuToPushed = new Map();
       for(const d of details){
-        if(d.status !== "pushed") continue;
-        for(const p of products){
-          const v = (p.variants || []).find(vv => vv.sku === d.sku);
-          if(v){ v.inventory_quantity = d.available; p.last_synced_at = now; break; }
+        if(d.status === "pushed") skuToPushed.set(d.sku, d.available);
+      }
+      for(const p of shopifyProducts){
+        const variants = Array.isArray(p.variants) ? p.variants : [];
+        let touched = false;
+        for(const v of variants){
+          if(skuToPushed.has(v.sku)){
+            v.inventory_quantity = skuToPushed.get(v.sku);
+            touched = true;
+          }
+        }
+        if(touched){
+          p.last_synced_at = now;
+          const safeId = String(p.shopify_id || p.id).replace(/\//g, "_");
+          await db.collection(PRODUCTS_COL).doc(safeId).set(p);
         }
       }
-      tx.set(cfgRef, {
-        shopifyProducts: products,
+      await cfgRef.set({
         shopifyConfig: {
-          ...(fresh.shopifyConfig || {}),
+          ...(cfg.shopifyConfig || {}),
           last_inventory_push_at: now,
           last_inventory_push_count: pushed,
           last_inventory_push_by: authBy,
         },
       }, { merge: true });
-    });
+    } else {
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const fresh = snap.exists ? (snap.data() || {}) : {};
+        const products = Array.isArray(fresh.shopifyProducts) ? fresh.shopifyProducts : [];
+        for(const d of details){
+          if(d.status !== "pushed") continue;
+          for(const p of products){
+            const v = (p.variants || []).find(vv => vv.sku === d.sku);
+            if(v){ v.inventory_quantity = d.available; p.last_synced_at = now; break; }
+          }
+        }
+        tx.set(cfgRef, {
+          shopifyProducts: products,
+          shopifyConfig: {
+            ...(fresh.shopifyConfig || {}),
+            last_inventory_push_at: now,
+            last_inventory_push_count: pushed,
+            last_inventory_push_by: authBy,
+          },
+        }, { merge: true });
+      });
+    }
   } catch(_){}
 
   res.status(200).json({

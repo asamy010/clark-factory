@@ -184,17 +184,27 @@ export default async function handler(req, res){
   /* Sort by size descending */
   report.storage.arrays.sort((a, b) => b.est_bytes - a.est_bytes);
 
-  /* ── Archive collections (count only — we don't read all docs to keep cost low) ── */
+  /* ── Archive + partitioned collections (count only — we don't read all docs to keep cost low) ── */
   try {
     const db = getDb();
-    for(const colName of ["shopifyOrdersArchive", "bostaDeliveriesArchive"]){
+    /* V21.9.2: include the new partitioned collections */
+    for(const colName of [
+      "shopifyOrdersArchive",
+      "bostaDeliveriesArchive",
+      "shopifyProductsDocs",
+      "shopifyCustomersDocs",
+    ]){
       const snap = await db.collection(colName).count().get();
       const count = snap.data().count;
+      /* Per-doc collections: ~5KB avg (products) / ~1KB avg (customers).
+         Archive: ~600 docs × 1KB = ~600KB per doc. */
+      const isArchive = colName.endsWith("Archive");
+      const isProducts = colName === "shopifyProductsDocs";
+      const avgBytes = isArchive ? 600 * 1024 : (isProducts ? 5000 : 1000);
       report.storage.archive_collections.push({
         name: colName,
         doc_count: count,
-        /* est = avg 600 orders × 1KB = ~600KB per doc */
-        est_total_bytes: count * 600 * 1024,
+        est_total_bytes: count * avgBytes,
       });
     }
   } catch(e){
@@ -303,8 +313,13 @@ export default async function handler(req, res){
     });
   }
 
-  /* 3. Customers without phone (can't WhatsApp / call them) */
-  const customersNoPhone = (cfg.shopifyCustomers || []).filter(c => !c.phone);
+  /* 3. Customers without phone (can't WhatsApp / call them).
+     V21.9.2: post-migration, customers live in shopifyCustomersDocs collection.
+     We don't read all of them here (cost) — we just check the partitioned flag
+     and either read the array (legacy) or skip the check (post-migration —
+     the user can run sync-customers to refresh stats). */
+  const customersForCheck = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers : [];
+  const customersNoPhone = customersForCheck.filter(c => !c.phone);
   if(customersNoPhone.length > 0){
     report.critical.push({
       kind: "customers_no_phone",

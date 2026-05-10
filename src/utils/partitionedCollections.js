@@ -38,6 +38,9 @@ export const PARTITIONED_COLLECTIONS = {
   generalProducts: "generalProductsDocs",
   fabrics:         "fabricsDocs",
   accessories:     "accessoriesDocs",
+  /* V21.9.2 — Shopify products + customers (were 80% of factory/config doc size) */
+  shopifyProducts:  "shopifyProductsDocs",
+  shopifyCustomers: "shopifyCustomersDocs",
 };
 
 /* مفاتيح الـfields */
@@ -51,9 +54,12 @@ export const PARTITIONED_FIELDS_V1957 = [
   "customers", "suppliers", "workshops", "employees",
   "empDebts", "generalProducts", "fabrics", "accessories",
 ];
+/* V21.9.2 — split Shopify Products + Customers (were 80% of factory/config) */
+export const PARTITIONED_FIELDS_V2192 = ["shopifyProducts", "shopifyCustomers"];
 
 export const PARTITIONED_FLAG_V1675 = "_partitionedV1675Done";
 export const PARTITIONED_FLAG_V1957 = "_partitionedV1957Done";
+export const PARTITIONED_FLAG_V2192 = "_partitionedV2192Done";
 
 /* ════════════════════════════════════════════════════════════════════════
    READ
@@ -181,6 +187,9 @@ export function stripPartitionedArrays(configObj) {
   }
   if (configObj[PARTITIONED_FLAG_V1957]) {
     for (const field of PARTITIONED_FIELDS_V1957) delete stripped[field];
+  }
+  if (configObj[PARTITIONED_FLAG_V2192]) {
+    for (const field of PARTITIONED_FIELDS_V2192) delete stripped[field];
   }
   return stripped;
 }

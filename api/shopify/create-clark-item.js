@@ -33,6 +33,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { readAllShopifyProducts, FLAG_V2192, PRODUCTS_COL } from "./_partitioned.js";
 
 function newItemId(){
   return "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
@@ -111,10 +112,17 @@ export default async function handler(req, res){
     const cfgRef = db.collection("factory").doc("config");
     const result = { created: 0, linked: 0, skipped: 0, items: [], errors: [] };
 
+    /* V21.9.2: read products from per-doc collection if migrated */
+    const cfgPreRead = await cfgRef.get();
+    const cfgEarly = cfgPreRead.exists ? (cfgPreRead.data() || {}) : {};
+    const isPartitioned = !!cfgEarly[FLAG_V2192];
+    const productsRead = await readAllShopifyProducts(cfgEarly);
+    const productsToWriteBack = []; /* collect for post-tx writes */
+
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
-      const shopifyProducts = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts.slice() : [];
+      const shopifyProducts = productsRead.slice();
       const inventoryItems = Array.isArray(cfg.inventoryItems) ? cfg.inventoryItems.slice() : [];
 
       const targetIds = bulkIds ? bulkIds : [productId];
@@ -144,19 +152,30 @@ export default async function handler(req, res){
         }
 
         /* Update Shopify product entry to point to CLARK */
-        shopifyProducts[idx] = {
+        const updated = {
           ...product,
           clark_inventory_id: item.id,
           mapping_status: "matched",
         };
+        shopifyProducts[idx] = updated;
+        productsToWriteBack.push(updated);
         result.items.push({ id: item.id, name: item.name, model_no: item.model_no, sku, was_existing: !!existing });
       }
 
-      tx.set(cfgRef, {
-        shopifyProducts,
-        inventoryItems,
-      }, { merge: true });
+      const update = { inventoryItems };
+      if(!isPartitioned){
+        update.shopifyProducts = shopifyProducts;
+      }
+      tx.set(cfgRef, update, { merge: true });
     });
+
+    /* V21.9.2 post-tx: per-doc writes for the partitioned products */
+    if(isPartitioned){
+      for(const p of productsToWriteBack){
+        const safeId = String(p.shopify_id || p.id).replace(/\//g, "_");
+        await db.collection(PRODUCTS_COL).doc(safeId).set(p);
+      }
+    }
 
     res.status(200).json({
       ok: true,

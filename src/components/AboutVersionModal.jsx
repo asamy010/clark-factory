@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.2",
+    date: "2026-05-10",
+    types: ["architectural", "feature"],
+    title: "✂️ Phase 11h — Split shopifyProducts + shopifyCustomers",
+    changes: [
+      { type: "architectural", text: "✂️ [Document splitting لـ shopifyProducts + shopifyCustomers] الـ factory/config doc كان وصل لـ 66% من الـ 1MB cap (673KB). الـ array-ين دول كانوا 80% من الحجم (277KB + 261KB). دلوقتي كل منتج / عميل = doc منفصل في collection خاص: shopifyProductsDocs/{id} و shopifyCustomersDocs/{id}. الـ factory/config هـ يبقى ثابت الحجم تماماً." },
+      { type: "feature", text: "📡 [POST /api/maintenance/split-shopify-collections] migration endpoint:\n• dryRun: يعطيك preview للـ counts + KB قبل/بعد\n• Execute: backup كامل في backups/pre-split-shopify-v21.9.2-<ts>\n• Atomic: ينقل البيانات في batches (≤400 ops/batch)، يستخدم runTransaction لـ atomic strip-and-flag\n• Idempotent: لو الـ flag موجود بالفعل، يرجّع skipped:true" },
+      { type: "feature", text: "🩺 [Banner تنبيه في Diagnostics] لو حجم الـ doc ≥ 50% من الـ cap والـ migration ما اتعملش، بـ يظهر banner أصفر بـ زرار '✂️ ابدأ التقسيم'. الـ click بـ يـ run dry-run الأول ثم يطلب confirmation، ثم ينفّذ الـ migration الفعلي." },
+      { type: "improvement", text: "🔄 [الـ endpoints بقت dual-mode] كل الـ Shopify endpoints اللي كانت بتقرا أو تكتب في cfg.shopifyProducts / cfg.shopifyCustomers اتعدّلت لتـ branch على الـ flag _partitionedV2192Done:\n• Pre-migration: قراءة/كتابة من factory/config arrays (legacy)\n• Post-migration: قراءة/كتابة per-doc من collections\nالـ endpoints المتأثرة: sync-products-now, sync-customers, update-customer, update-product-settings, bulk-update-products, push-customer-tags, push-inventory-now, create-clark-item, cron/shopify-push-inventory" },
+      { type: "improvement", text: "🎯 [Per-doc updates أسرع وأنحف] قبل كده كل تعديل بسيط على عميل واحد كان يـ rewrite كل الـ 261KB array. دلوقتي يكتب بس الـ 1KB doc بتاع العميل المعني → 260× أقل bandwidth + أسرع 10×." },
+      { type: "improvement", text: "📊 [Diagnostics بـ تـ scan الـ collections الجديدة] shopifyProductsDocs + shopifyCustomersDocs بـ يظهروا في Storage panel مع doc_count + estimated bytes." },
+      { type: "doc", text: "💡 [الـ pattern مماثل لـ V19.57] الـ V19.57 migration نقل master data (customers, suppliers, workshops, etc.) إلى partitioned collections. V21.9.2 بـ يستخدم نفس الـ utility (`syncAllPartitionedChanges` + `stripPartitionedArrays`) — مجرد إضافة 2 fields جديدة للـ map." },
+    ]
+  },
+  {
     version: "V21.9.1",
     date: "2026-05-10",
     types: ["feature"],

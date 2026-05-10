@@ -33,6 +33,9 @@
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { aggregateCustomersFromOrders, mergeShopifyCustomers } from "./_customers.js";
 import { getShopifyCreds, fetchAllShopifyCustomers } from "./_shopifyAdmin.js";
+import {
+  readAllShopifyCustomers, writeManyShopifyCustomers, FLAG_V2192,
+} from "./_partitioned.js";
 
 const CUSTOMERS_CAP = 25000; /* enough for fashion B2C even with mailing-list opt-ins */
 const ARCHIVE_COLLECTION = "shopifyOrdersArchive";
@@ -112,11 +115,20 @@ export default async function handler(req, res){
       from_archive: archivedOrders.length,
     };
 
+    /* V21.9.2: Read existing customers from per-doc collection if migrated.
+       This MUST happen before the transaction because Firestore Admin SDK
+       transactions require all reads to be inside the tx OR passed in. */
+    const cfgSnapForRead = await cfgRef.get();
+    const cfgForRead = cfgSnapForRead.exists ? (cfgSnapForRead.data() || {}) : {};
+    const existingCustomers = await readAllShopifyCustomers(cfgForRead);
+    const isPartitioned = !!cfgForRead[FLAG_V2192];
+
+    let cappedResult = null;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
       const liveOrders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
-      const existing = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers : [];
+      const existing = existingCustomers; /* read above, outside tx */
 
       /* V21.9.1: Combine live orders + archived orders, dedup by shopify_order_id.
          Live orders win (they have most-recent CLARK status mutations like
@@ -140,6 +152,7 @@ export default async function handler(req, res){
       /* Merge with Shopify direct */
       const merged = mergeShopifyCustomers(fromOrders, shopifyCustomers, existing);
       const capped = merged.slice(0, CUSTOMERS_CAP);
+      cappedResult = capped;
 
       const existingIds = new Set(existing.map(c => c.id));
       capped.forEach(c => {
@@ -155,8 +168,12 @@ export default async function handler(req, res){
         else stats.created++;
       });
 
-      tx.set(cfgRef, {
-        shopifyCustomers: capped,
+      /* V21.9.2: write metadata to factory/config; the actual customers array
+         goes either to factory/config.shopifyCustomers (legacy) or to
+         shopifyCustomersDocs (post-migration). For post-migration we do the
+         per-doc writes OUTSIDE the transaction (after it commits) to avoid
+         hitting the 500-write tx limit. */
+      const baseUpdate = {
         shopifyConfig: {
           ...(cfg.shopifyConfig || {}),
           last_customers_sync_at: new Date().toISOString(),
@@ -166,8 +183,18 @@ export default async function handler(req, res){
           last_customers_sync_combined_orders: stats.combined_order_count || 0,
           last_customers_sync_shopify_error: shopifyFetchError || null,
         },
-      }, { merge: true });
+      };
+      if(!isPartitioned){
+        /* Legacy: keep array in config */
+        baseUpdate.shopifyCustomers = capped;
+      }
+      tx.set(cfgRef, baseUpdate, { merge: true });
     });
+
+    /* V21.9.2: post-migration, write per-doc OUTSIDE the tx */
+    if(isPartitioned && cappedResult){
+      await writeManyShopifyCustomers({ [FLAG_V2192]: true }, cappedResult);
+    }
 
     return res.status(200).json({
       ok: true,

@@ -24,6 +24,7 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, shopifyFetch } from "./_shopifyAdmin.js";
+import { readAllShopifyCustomers, FLAG_V2192, CUSTOMERS_COL } from "./_partitioned.js";
 
 async function pushOneCustomer(creds, shopifyId, tagsString, note){
   const r = await shopifyFetch(creds, "/customers/" + shopifyId + ".json", {
@@ -67,7 +68,9 @@ export default async function handler(req, res){
     return res.status(500).json({ ok:false, error: e.message });
   }
 
-  const customers = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers : [];
+  /* V21.9.2: read from per-doc collection if migrated */
+  const customers = await readAllShopifyCustomers(cfg);
+  const isPartitioned = !!cfg[FLAG_V2192];
   const idSet = new Set(ids);
   const targets = customers.filter(c => idSet.has(c.id));
 
@@ -112,18 +115,27 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const list = Array.isArray(fresh.shopifyCustomers) ? fresh.shopifyCustomers.slice() : [];
-      const now = new Date().toISOString();
-      for(let i = 0; i < list.length; i++){
-        if(idSet.has(list[i].id) && list[i].shopify_customer_id){
-          list[i] = { ...list[i], last_pushed_to_shopify_at: now };
-        }
+    const now = new Date().toISOString();
+    if(isPartitioned){
+      /* Per-doc updates */
+      for(const c of targets){
+        if(!c.shopify_customer_id) continue;
+        const safeId = String(c.id).replace(/\//g, "_");
+        await db.collection(CUSTOMERS_COL).doc(safeId).set({ last_pushed_to_shopify_at: now }, { merge: true });
       }
-      tx.set(cfgRef, { shopifyCustomers: list }, { merge: true });
-    });
+    } else {
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const fresh = snap.exists ? (snap.data() || {}) : {};
+        const list = Array.isArray(fresh.shopifyCustomers) ? fresh.shopifyCustomers.slice() : [];
+        for(let i = 0; i < list.length; i++){
+          if(idSet.has(list[i].id) && list[i].shopify_customer_id){
+            list[i] = { ...list[i], last_pushed_to_shopify_at: now };
+          }
+        }
+        tx.set(cfgRef, { shopifyCustomers: list }, { merge: true });
+      });
+    }
   } catch(_){}
 
   return res.status(200).json({ ok: true, pushed, skipped, errors });

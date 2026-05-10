@@ -32,6 +32,9 @@ import {
   setInventoryLevel,
   computeAvailableForSku,
 } from "./_shopifyAdmin.js";
+import {
+  readAllShopifyProducts, writeShopifyProduct, FLAG_V2192, PRODUCTS_COL,
+} from "./_partitioned.js";
 
 const MAX_PUSH_PER_RUN = 250; /* hard cap — protects against runaway loops */
 
@@ -70,7 +73,9 @@ export default async function handler(req, res){
     return;
   }
 
-  const shopifyProducts = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts : [];
+  /* V21.9.2: read products from per-doc collection if migrated */
+  const shopifyProducts = await readAllShopifyProducts(cfg);
+  const isPartitioned = !!cfg[FLAG_V2192];
   if(shopifyProducts.length === 0){
     res.status(400).json({ ok:false, error: "مفيش منتجات Shopify محفوظة. اعمل sync products الأول." });
     return;
@@ -193,35 +198,67 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const now = new Date().toISOString();
-      /* Update inventory_quantity on the product variants we just pushed */
-      let products = Array.isArray(fresh.shopifyProducts) ? fresh.shopifyProducts : [];
-      const productMap = new Map(products.map(p => [String(p.shopify_id), p]));
+    const now = new Date().toISOString();
+
+    if(isPartitioned){
+      /* Per-doc updates: only write the products whose variants we touched. */
+      const skuToPushed = new Map();
       for(const d of details){
         if(d.status !== "pushed") continue;
-        /* Find the product/variant — match on SKU */
-        for(const p of products){
-          const variants = Array.isArray(p.variants) ? p.variants : [];
-          const v = variants.find(vv => vv.sku === d.sku);
-          if(v){
-            v.inventory_quantity = d.available;
-            p.last_synced_at = now;
-            break;
+        skuToPushed.set(d.sku, d.available);
+      }
+      /* For each product touched by SKU, update its variant + last_synced_at */
+      for(const p of shopifyProducts){
+        const variants = Array.isArray(p.variants) ? p.variants : [];
+        let touched = false;
+        for(const v of variants){
+          if(skuToPushed.has(v.sku)){
+            v.inventory_quantity = skuToPushed.get(v.sku);
+            touched = true;
           }
         }
+        if(touched){
+          p.last_synced_at = now;
+          const safeId = String(p.shopify_id || p.id).replace(/\//g, "_");
+          await db.collection(PRODUCTS_COL).doc(safeId).set(p);
+        }
       }
-      tx.set(cfgRef, {
-        shopifyProducts: products,
+      /* metadata only on factory/config */
+      await cfgRef.set({
         shopifyConfig: {
-          ...(fresh.shopifyConfig || {}),
+          ...(cfg.shopifyConfig || {}),
           last_inventory_push_at: now,
           last_inventory_push_count: pushed,
         },
       }, { merge: true });
-    });
+    } else {
+      /* Legacy: array update */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const fresh = snap.exists ? (snap.data() || {}) : {};
+        let products = Array.isArray(fresh.shopifyProducts) ? fresh.shopifyProducts : [];
+        for(const d of details){
+          if(d.status !== "pushed") continue;
+          for(const p of products){
+            const variants = Array.isArray(p.variants) ? p.variants : [];
+            const v = variants.find(vv => vv.sku === d.sku);
+            if(v){
+              v.inventory_quantity = d.available;
+              p.last_synced_at = now;
+              break;
+            }
+          }
+        }
+        tx.set(cfgRef, {
+          shopifyProducts: products,
+          shopifyConfig: {
+            ...(fresh.shopifyConfig || {}),
+            last_inventory_push_at: now,
+            last_inventory_push_count: pushed,
+          },
+        }, { merge: true });
+      });
+    }
   } catch(_){ /* non-fatal */ }
 
   res.status(200).json({

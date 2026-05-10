@@ -18,6 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { FLAG_V2192, PRODUCTS_COL } from "./_partitioned.js";
 
 const ALLOWED_KEYS = new Set([
   "shopify_synced",
@@ -77,21 +78,43 @@ export default async function handler(req, res){
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
     let updatedProduct = null;
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const cfg = snap.exists ? (snap.data() || {}) : {};
-      const products = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts : [];
-      const idx = products.findIndex(p => String(p.shopify_id) === productId);
-      if(idx < 0) throw new Error("المنتج مش موجود");
-      const next = products.slice();
-      next[idx] = { ...products[idx], ...clean };
-      /* Re-classify mapping if clark_inventory_id changed */
+
+    /* V21.9.2: branch on partition flag */
+    const cfgSnap = await cfgRef.get();
+    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+    const isPartitioned = !!cfg[FLAG_V2192];
+
+    if(isPartitioned){
+      /* Per-doc update */
+      const safeId = String(productId).replace(/\//g, "_");
+      const docRef = db.collection(PRODUCTS_COL).doc(safeId);
+      const docSnap = await docRef.get();
+      if(!docSnap.exists) throw new Error("المنتج مش موجود");
+      const next = { ...docSnap.data(), ...clean };
       if("clark_inventory_id" in clean){
-        next[idx].mapping_status = clean.clark_inventory_id ? "matched" : (next[idx].sku ? "missing_in_clark" : "mismatch");
+        next.mapping_status = clean.clark_inventory_id ? "matched" : (next.sku ? "missing_in_clark" : "mismatch");
       }
-      tx.set(cfgRef, { shopifyProducts: next }, { merge: true });
-      updatedProduct = next[idx];
-    });
+      await docRef.set(next);
+      updatedProduct = next;
+    } else {
+      /* Legacy: array update */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const c2 = snap.exists ? (snap.data() || {}) : {};
+        const products = Array.isArray(c2.shopifyProducts) ? c2.shopifyProducts : [];
+        const idx = products.findIndex(p => String(p.shopify_id) === productId);
+        if(idx < 0) throw new Error("المنتج مش موجود");
+        const next = products.slice();
+        next[idx] = { ...products[idx], ...clean };
+        /* Re-classify mapping if clark_inventory_id changed */
+        if("clark_inventory_id" in clean){
+          next[idx].mapping_status = clean.clark_inventory_id ? "matched" : (next[idx].sku ? "missing_in_clark" : "mismatch");
+        }
+        tx.set(cfgRef, { shopifyProducts: next }, { merge: true });
+        updatedProduct = next[idx];
+      });
+    }
+
     res.status(200).json({ ok:true, product: updatedProduct });
   } catch(e){
     res.status(400).json({ ok:false, error: e.message });

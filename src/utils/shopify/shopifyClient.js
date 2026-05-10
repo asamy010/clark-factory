@@ -227,3 +227,12 @@ export function fetchDiagnostics(user){
 export function shopifyListArchivedOrders(opts, user){
   return call("POST", "/api/shopify/list-archived-orders", opts || {}, user);
 }
+
+/* V21.9.2 Phase 11h: Migrate shopifyProducts + shopifyCustomers from
+   factory/config arrays into per-id collections (shopifyProductsDocs,
+   shopifyCustomersDocs). One-shot, idempotent.
+   { dryRun? }
+   → { ok, products_migrated, customers_migrated, freed_kb, ... } */
+export function splitShopifyCollections(opts, user){
+  return call("POST", "/api/maintenance/split-shopify-collections", opts || {}, user);
+}

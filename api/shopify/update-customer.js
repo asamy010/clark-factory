@@ -23,6 +23,9 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import {
+  readAllShopifyCustomers, writeShopifyCustomer, FLAG_V2192, CUSTOMERS_COL,
+} from "./_partitioned.js";
 
 const ALLOWED_FIELDS = new Set([
   "tags", "notes", "accepts_marketing", "do_not_contact",
@@ -74,28 +77,52 @@ export default async function handler(req, res){
     let updated = 0;
     let updatedCustomer = null;
 
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const cfg = snap.exists ? (snap.data() || {}) : {};
-      const customers = Array.isArray(cfg.shopifyCustomers) ? cfg.shopifyCustomers.slice() : [];
-      const ids = bulkIds || [singleId];
-      const idSet = new Set(ids);
-      const now = new Date().toISOString();
+    /* V21.9.2: branch on partition flag */
+    const cfgSnap = await cfgRef.get();
+    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+    const isPartitioned = !!cfg[FLAG_V2192];
+    const ids = bulkIds || [singleId];
+    const now = new Date().toISOString();
 
-      for(let i = 0; i < customers.length; i++){
-        if(!idSet.has(customers[i].id)) continue;
-        const c = { ...customers[i], ...updates, updated_at: now };
+    if(isPartitioned){
+      /* Per-doc updates — fast, no large array rewrite */
+      for(const id of ids){
+        const safeId = String(id).replace(/\//g, "_");
+        const docRef = db.collection(CUSTOMERS_COL).doc(safeId);
+        const docSnap = await docRef.get();
+        if(!docSnap.exists) continue;
+        const c = { ...docSnap.data(), ...updates, updated_at: now };
         if(bumpContact){
           c.last_contacted_at = now;
           c.contact_count = (Number(c.contact_count) || 0) + 1;
         }
-        customers[i] = c;
+        await docRef.set(c);
         updated++;
         if(!bulkIds) updatedCustomer = c;
       }
+    } else {
+      /* Legacy: array update inside tx */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const c2 = snap.exists ? (snap.data() || {}) : {};
+        const customers = Array.isArray(c2.shopifyCustomers) ? c2.shopifyCustomers.slice() : [];
+        const idSet = new Set(ids);
 
-      tx.set(cfgRef, { shopifyCustomers: customers }, { merge: true });
-    });
+        for(let i = 0; i < customers.length; i++){
+          if(!idSet.has(customers[i].id)) continue;
+          const c = { ...customers[i], ...updates, updated_at: now };
+          if(bumpContact){
+            c.last_contacted_at = now;
+            c.contact_count = (Number(c.contact_count) || 0) + 1;
+          }
+          customers[i] = c;
+          updated++;
+          if(!bulkIds) updatedCustomer = c;
+        }
+
+        tx.set(cfgRef, { shopifyCustomers: customers }, { merge: true });
+      });
+    }
 
     return res.status(200).json({
       ok: true,

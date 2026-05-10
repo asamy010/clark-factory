@@ -33,6 +33,9 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchAllProducts } from "./_shopifyAdmin.js";
+import {
+  readAllShopifyProducts, writeManyShopifyProducts, FLAG_V2192,
+} from "./_partitioned.js";
 
 const PRODUCTS_CAP = 500; /* same logic as orders cap */
 
@@ -78,7 +81,9 @@ export default async function handler(req, res){
   } catch(_){ /* non-fatal — proceed with empty config */ }
 
   const inventoryItems = Array.isArray(cfg.inventoryItems) ? cfg.inventoryItems : [];
-  const existingProducts = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts : [];
+  /* V21.9.2: read existing products from per-doc collection if migrated,
+     else from cfg.shopifyProducts array. */
+  const existingProducts = await readAllShopifyProducts(cfg);
   const blacklist = new Set(
     Array.isArray(cfg.shopifyConfig?.deletedProductIds) ? cfg.shopifyConfig.deletedProductIds.map(String) : []
   );
@@ -177,12 +182,16 @@ export default async function handler(req, res){
   }
 
   /* ── Save ── */
+  /* V21.9.2: write per-doc to shopifyProductsDocs collection if migrated,
+     else to cfg.shopifyProducts array (legacy). */
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
     const now = new Date().toISOString();
+    /* Always write data — to either per-doc collection or array */
+    await writeManyShopifyProducts(cfg, finalProducts);
+    /* Always update sync metadata in shopifyConfig (small) */
     await cfgRef.set({
-      shopifyProducts: finalProducts,
       shopifyConfig: {
         ...(cfg.shopifyConfig || {}),
         last_products_sync_at: now,

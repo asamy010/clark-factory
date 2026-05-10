@@ -23,6 +23,9 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import {
+  readAllShopifyProducts, writeManyShopifyProducts, FLAG_V2192, PRODUCTS_COL,
+} from "./_partitioned.js";
 
 const VALID_ACTIONS = new Set([
   "set_synced",
@@ -83,10 +86,19 @@ export default async function handler(req, res){
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
     let updated = 0, deleted = 0, blacklistSize = 0;
+
+    /* V21.9.2: read products from per-doc collection if migrated.
+       Read OUTSIDE the tx since collection reads aren't transaction-safe. */
+    const cfgPreRead = await cfgRef.get();
+    const cfgEarly = cfgPreRead.exists ? (cfgPreRead.data() || {}) : {};
+    const isPartitioned = !!cfgEarly[FLAG_V2192];
+    const productsRead = await readAllShopifyProducts(cfgEarly);
+
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
-      const products = Array.isArray(cfg.shopifyProducts) ? cfg.shopifyProducts.slice() : [];
+      /* Use the products we read above (matches whichever storage the migration is on) */
+      const products = productsRead.slice();
       const blacklist = new Set(
         Array.isArray(cfg.shopifyConfig?.deletedProductIds)
           ? cfg.shopifyConfig.deletedProductIds.map(String) : []
@@ -173,8 +185,7 @@ export default async function handler(req, res){
       }
 
       blacklistSize = nextBlacklist.size;
-      tx.set(cfgRef, {
-        shopifyProducts: nextProducts,
+      const cfgUpdate = {
         shopifyConfig: {
           ...(cfg.shopifyConfig || {}),
           deletedProductIds: Array.from(nextBlacklist),
@@ -182,8 +193,73 @@ export default async function handler(req, res){
           last_bulk_action_by: auth.email || auth.uid,
           last_bulk_action_type: action,
         },
-      }, { merge: true });
+      };
+      /* Pre-migration: write the array. Post-migration: skip array, we'll
+         do per-doc writes after the transaction. */
+      if(!isPartitioned){
+        cfgUpdate.shopifyProducts = nextProducts;
+      }
+      tx.set(cfgRef, cfgUpdate, { merge: true });
+
+      /* Stash for post-tx work */
+      tx.__nextProducts = nextProducts;
+      tx.__nextBlacklist = nextBlacklist;
     });
+
+    /* V21.9.2 post-tx: per-doc writes */
+    if(isPartitioned){
+      /* For 'delete_*', we need to delete the affected docs.
+         For 'set_*', we need to update the modified docs. */
+      const removedIds = new Set(productsRead.map(p => String(p.shopify_id || p.id)));
+      /* Recompute the right set: which products survived vs deleted */
+      /* Simpler approach: we already updated/filtered in the tx logic above
+         but didn't persist to the collection. Re-execute the action against
+         the per-doc collection here. */
+      /* For correctness, we re-run the action against the read products. */
+      let nextProducts = productsRead.slice();
+      const idSet = new Set(ids);
+      const blackSet = new Set(Array.isArray(cfgEarly.shopifyConfig?.deletedProductIds) ? cfgEarly.shopifyConfig.deletedProductIds.map(String) : []);
+
+      switch(action){
+        case "set_synced":
+          for(const p of nextProducts) if(idSet.has(String(p.shopify_id))) p.shopify_synced = !!payload.value;
+          break;
+        case "set_wholesale_only":
+          for(const p of nextProducts) if(idSet.has(String(p.shopify_id))) p.wholesale_only = !!payload.value;
+          break;
+        case "set_safety_buffer": {
+          const v = payload.value === null ? null : Math.max(0, Math.min(99999, Math.floor(Number(payload.value))));
+          for(const p of nextProducts) if(idSet.has(String(p.shopify_id))) p.safety_buffer = v;
+          break;
+        }
+        case "set_max_qty": {
+          const v = payload.value === null ? null : Math.max(0, Math.min(99999, Math.floor(Number(payload.value))));
+          for(const p of nextProducts) if(idSet.has(String(p.shopify_id))) p.max_shopify_qty = v;
+          break;
+        }
+        case "set_auto_disable_at_zero":
+          for(const p of nextProducts) if(idSet.has(String(p.shopify_id))) p.auto_disable_at_zero = !!payload.value;
+          break;
+        case "delete_from_clark":
+        case "delete_all": {
+          const toDelete = action === "delete_all" ? nextProducts.map(p => String(p.shopify_id)) : ids;
+          for(const id of toDelete){
+            const safeId = String(id).replace(/\//g, "_");
+            await db.collection(PRODUCTS_COL).doc(safeId).delete().catch(() => {});
+          }
+          /* Filter local copy too so the writeManyShopifyProducts below doesn't re-add */
+          nextProducts = nextProducts.filter(p => !toDelete.includes(String(p.shopify_id)));
+          break;
+        }
+        /* restore_from_blacklist + clear_blacklist don't touch products */
+      }
+
+      if(action.startsWith("set_")){
+        /* Just write the affected docs, not the whole list */
+        const affected = nextProducts.filter(p => idSet.has(String(p.shopify_id)));
+        await writeManyShopifyProducts({ [FLAG_V2192]: true }, affected);
+      }
+    }
 
     res.status(200).json({
       ok: true,

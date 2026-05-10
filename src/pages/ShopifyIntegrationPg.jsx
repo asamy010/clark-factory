@@ -44,6 +44,8 @@ import {
   shopifySyncHistoricalOrders, bostaSyncHistorical, fetchDiagnostics,
   /* V21.9.1 Phase 11g: archived orders viewer */
   shopifyListArchivedOrders,
+  /* V21.9.2 Phase 11h: split-collections migration */
+  splitShopifyCollections,
 } from "../utils/shopify/shopifyClient.js";
 import { getReservationsForOrder, getReservationsSummary } from "../utils/shopify/stockReservations.js";
 import { buildShopifyDailyReport } from "../utils/shopify/dailyReport.js";
@@ -1111,6 +1113,9 @@ function DiagnosticsCard({ data, canEdit, user, isMob }){
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
+  /* V21.9.2: split-collections migration */
+  const [splitBusy, setSplitBusy] = useState(false);
+  const [splitResult, setSplitResult] = useState(null);
 
   const sevColor = (s) => ({
     ok: T.ok, info: "#0EA5E9", warn: T.warn, error: T.err,
@@ -1133,6 +1138,49 @@ function DiagnosticsCard({ data, canEdit, user, isMob }){
     finally { setBusy(false); }
   };
 
+  /* V21.9.2: trigger split-shopify-collections migration */
+  const runSplitMigration = async () => {
+    if(!canEdit) return;
+    /* Step 1: dry run for preview */
+    setSplitBusy(true);
+    try {
+      const dry = await splitShopifyCollections({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      const yes = await ask(
+        "✂️ تقسيم shopifyProducts + shopifyCustomers",
+        `هـ يـ migrate البيانات من factory/config إلى collections منفصلة:\n\n` +
+        `📦 منتجات: ${dry.products_count} (${dry.products_kb} KB)\n` +
+        `👥 عملاء: ${dry.customers_count} (${dry.customers_kb} KB)\n\n` +
+        `قبل: ${dry.before_kb} KB من حجم config\n` +
+        `بعد: ~${dry.after_kb_estimate} KB ← هـ نوفّر ${dry.will_free_kb} KB\n\n` +
+        `هذا الإجراء آمن — في backup كامل + idempotent. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await splitShopifyCollections({ dryRun: false }, user);
+      setSplitResult(r);
+      if(r?.ok){
+        if(r.skipped){
+          showToast("ℹ️ التقسيم مطبّق بالفعل");
+        } else {
+          showToast(`✅ تم! 📦 ${r.products_migrated} · 👥 ${r.customers_migrated} · وفّرنا ${r.freed_kb} KB (${r.freed_pct}%)`);
+          /* refresh diagnostics report */
+          setTimeout(() => runCheck(), 1500);
+        }
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setSplitBusy(false); }
+  };
+
+  /* Heuristic: show split button prominently when config doc > 50% of cap */
+  const docPct = report?.storage?.config_doc_pct_of_max || 0;
+  const splitDone = !!data?._partitionedV2192Done;
+  const showSplitWarning = docPct >= 50 && !splitDone;
+
   const fmtBytes = (b) => {
     if(b < 1024) return b + " B";
     if(b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
@@ -1148,6 +1196,47 @@ function DiagnosticsCard({ data, canEdit, user, isMob }){
       <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
         ℹ️ بـ يـ check حجم الـ Firestore docs، آخر sync لكل provider، الحجوزات اليتيمة، الطلبات pending قديمة، إلخ. أي حالة <b>error</b> أو <b>critical</b> تحتاج action فوري.
       </div>
+
+      {/* V21.9.2: Split-collections migration banner */}
+      {(showSplitWarning || splitResult?.ok) && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: splitDone ? T.ok + "10" : T.warn + "10",
+          border: "1.5px solid " + (splitDone ? T.ok : T.warn) + "40",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800, color: splitDone ? T.ok : T.warn, fontSize: FS }}>
+                {splitDone ? "✅ تم تقسيم Shopify Products + Customers" : "✂️ ينصح بـ تقسيم البيانات"}
+              </div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                {splitDone
+                  ? "البيانات في collections منفصلة. الـ factory/config doc مش هـ يضرب الحد الأقصى."
+                  : `factory/config = ${docPct}% من الحد. shopifyProducts + shopifyCustomers بـ يأخذوا ~80% من الحجم. التقسيم بـ ينقلهم لـ collections منفصلة (آمن + idempotent + مع backup).`}
+              </div>
+            </div>
+            {!splitDone && (
+              <LoadingBtn loading={splitBusy} loadingText="جاري التقسيم..." onClick={runSplitMigration} disabled={!canEdit} small
+                style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 800 }}>
+                ✂️ ابدأ التقسيم
+              </LoadingBtn>
+            )}
+          </div>
+          {splitResult?.ok && !splitResult.skipped && (
+            <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              📦 منتجات اتنقلوا: <b>{splitResult.products_migrated}</b> · 👥 عملاء: <b>{splitResult.customers_migrated}</b>
+              {" · "}وفّرنا <b style={{ color: T.ok }}>{splitResult.freed_kb} KB</b> ({splitResult.freed_pct}%)
+              {splitResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{splitResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: 10, background: T.err + "10", color: T.err, borderRadius: 8, fontSize: FS - 2 }}>
