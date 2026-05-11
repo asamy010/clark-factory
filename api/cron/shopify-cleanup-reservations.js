@@ -22,10 +22,27 @@
 
    Auth: same dual auth as poll-orders (cron secret OR admin token).
    Schedule: daily 03:00 — see vercel.json.
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.20 ROOT-CAUSE FIX: pre-V21.9.20 this endpoint wrote back
+   `shopifyPendingOrders: nextOrders` to factory/config inside a
+   transaction. Post-migration that array was undefined — but the
+   tx.set with merge:true re-created it (with the orders that were
+   read from… nowhere, since cfg.shopifyPendingOrders was already
+   stripped). The result was either:
+     (a) a partial/incorrect array re-created in cfg, or
+     (b) the array re-created with stale data (because we only
+         touched the ones whose reservations expired).
+
+   Fix: post-migration, update individual day docs via the helper
+   instead of rewriting the whole array on factory/config.
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, verifyAdminToken } from "../_firebase.js";
 import { expireStaleReservations } from "../shopify/_reservations.js";
+import {
+  readAllPendingOrders, upsertPendingOrder, isPendingOrdersSplit,
+} from "../shopify/_pendingOrders.js";
 
 function isAuthorizedCron(req){
   const secret = (process.env.CRON_SECRET || "").trim();
@@ -56,45 +73,87 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const cfg = snap.exists ? (snap.data() || {}) : {};
-      const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
-      const { array: nextReservations, expiredCount } = expireStaleReservations(reservations);
-      result.expiredCount = expiredCount;
-      if(expiredCount === 0){
-        /* No-op: nothing to write */
-        return;
+
+    /* V21.9.20: pre-read config + pending orders OUTSIDE any tx so we can
+       (a) compute expirations, then (b) write the reservation array to
+       cfg in one tx and (c) update affected day-doc orders separately.
+       Pre-migration: orders live in cfg.shopifyPendingOrders (we keep
+       the legacy single-tx path for safety). */
+    const cfgSnap = await cfgRef.get();
+    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+    const splitActive = isPendingOrdersSplit(cfg);
+
+    const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
+    const { array: nextReservations, expiredCount } = expireStaleReservations(reservations);
+    result.expiredCount = expiredCount;
+
+    if(expiredCount === 0){
+      res.status(200).json({ ok:true, authBy, ...result });
+      return;
+    }
+
+    /* Set of order ids whose reservations just expired — we'll flip their
+       stock_reserved flag */
+    const flippedOrderIds = new Set();
+    for(let i = 0; i < reservations.length; i++){
+      const before = reservations[i];
+      const after = nextReservations[i];
+      if(before.status === "active" && after.status === "expired"){
+        flippedOrderIds.add(String(before.source_ref));
       }
-      /* Build set of order ids whose reservations just expired so we can
-         flip the order's stock_reserved flag. */
-      const flippedOrderIds = new Set();
-      for(let i = 0; i < reservations.length; i++){
-        const before = reservations[i];
-        const after = nextReservations[i];
-        if(before.status === "active" && after.status === "expired"){
-          flippedOrderIds.add(String(before.source_ref));
-        }
-      }
-      const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
-      const nextOrders = orders.map(o => {
-        if(flippedOrderIds.has(String(o.shopify_order_id)) && o.status === "pending_delivery"){
-          result.ordersFlipped++;
-          return { ...o, stock_reserved: false };
-        }
-        return o;
+    }
+
+    if(splitActive){
+      /* V21.9.20 split-aware path: update reservations on cfg, then
+         flip stock_reserved on each affected order in its day doc. */
+      const allPending = await readAllPendingOrders(cfg);
+      const ordersToUpdate = allPending.filter(o =>
+        flippedOrderIds.has(String(o.shopify_order_id)) && o.status === "pending_delivery"
+      );
+      result.ordersFlipped = ordersToUpdate.length;
+
+      /* Update reservations on factory/config (still lives there) */
+      await db.runTransaction(async (tx) => {
+        tx.set(cfgRef, {
+          stockReservations: nextReservations,
+          shopifyConfig: {
+            ...(cfg.shopifyConfig || {}),
+            last_reservations_cleanup_at: new Date().toISOString(),
+            last_reservations_cleanup_count: expiredCount,
+            last_reservations_cleanup_by: authBy,
+          },
+        }, { merge: true });
       });
-      tx.set(cfgRef, {
-        stockReservations: nextReservations,
-        shopifyPendingOrders: nextOrders,
-        shopifyConfig: {
-          ...(cfg.shopifyConfig || {}),
-          last_reservations_cleanup_at: new Date().toISOString(),
-          last_reservations_cleanup_count: expiredCount,
-          last_reservations_cleanup_by: authBy,
-        },
-      }, { merge: true });
-    });
+
+      /* Flip stock_reserved on each affected day-doc order */
+      for(const o of ordersToUpdate){
+        await upsertPendingOrder(cfg, { ...o, stock_reserved: false });
+      }
+    } else {
+      /* Legacy single-tx path */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const c = snap.exists ? (snap.data() || {}) : {};
+        const orders = Array.isArray(c.shopifyPendingOrders) ? c.shopifyPendingOrders : [];
+        const nextOrders = orders.map(o => {
+          if(flippedOrderIds.has(String(o.shopify_order_id)) && o.status === "pending_delivery"){
+            result.ordersFlipped++;
+            return { ...o, stock_reserved: false };
+          }
+          return o;
+        });
+        tx.set(cfgRef, {
+          stockReservations: nextReservations,
+          shopifyPendingOrders: nextOrders,
+          shopifyConfig: {
+            ...(c.shopifyConfig || {}),
+            last_reservations_cleanup_at: new Date().toISOString(),
+            last_reservations_cleanup_count: expiredCount,
+            last_reservations_cleanup_by: authBy,
+          },
+        }, { merge: true });
+      });
+    }
   } catch(e){
     res.status(500).json({ ok:false, error: "Cleanup failed: " + (e.message || e) });
     return;

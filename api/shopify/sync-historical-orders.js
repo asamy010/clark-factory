@@ -34,6 +34,12 @@
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchHistoricalOrders } from "./_shopifyAdmin.js";
 import { withProgress } from "../_progressTracker.js";
+/* V21.9.20: split-aware live-orders merge — pre-V21.9.20 this endpoint
+   wrote a 200-order cap directly to cfg.shopifyPendingOrders, re-creating
+   the legacy array post-V21.9.18 migration. */
+import {
+  readAllPendingOrders, upsertManyPendingOrders, isPendingOrdersSplit,
+} from "./_pendingOrders.js";
 
 /* Cap per archive doc — keep well under Firestore's 1 MB hard limit.
    Empirically each mapped order is ~600B-1.5KB; 5000 × 1KB ≈ 5MB which
@@ -158,16 +164,14 @@ export default async function handler(req, res){
         sub_message: `شهر ${bk.replace("_", "/")} — ${orders.length} طلب`,
       });
     }
-    /* V21.9.9: ALSO populate factory/config.shopifyPendingOrders with the
-       most-recent orders so they appear in the live Orders tab. Previously
-       the historical sync only wrote to the archive, leaving the live list
-       empty — user reported "الطلبات مظهرتش في القائمة".
-
-       Take the most-recent N=200 orders (matches ORDERS_CAP in sync-orders-now)
-       and merge with existing live orders by shopify_order_id. Existing local
-       state (status, invoice_id, delivered_at) is preserved. */
+    /* V21.9.9 + V21.9.20: populate the live pending orders too (so they appear
+       in the Orders tab). Pre-V21.9.20 this section wrote a 200-cap array
+       directly to cfg.shopifyPendingOrders — post-V21.9.18 split that
+       re-bloated factory/config. Now: route through _pendingOrders.js so
+       each order lands in its own day doc (no cap needed, no doc-size risk). */
     await update({ message: "تحديث قائمة الطلبات الـ live..." });
-    const ORDERS_CAP_LIVE = 200;
+    const LEGACY_ORDERS_CAP_LIVE = 200; /* applied only in pre-migration mode */
+
     const allOrdersFlat = [];
     for(const [, list] of monthlyBuckets.entries()){
       for(const o of list) allOrdersFlat.push(o);
@@ -178,107 +182,108 @@ export default async function handler(req, res){
       const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
       return tb - ta;
     });
-    const recentForLive = allOrdersFlat.slice(0, ORDERS_CAP_LIVE);
 
-    /* Merge with existing live (preserve local state mutations) */
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const existingLive = Array.isArray(fresh.shopifyPendingOrders) ? fresh.shopifyPendingOrders : [];
-      const existingMap = new Map(existingLive.map(o => [String(o.shopify_order_id), o]));
+    const cfgSnapForMerge = await cfgRef.get();
+    const cfgForMerge = cfgSnapForMerge.exists ? (cfgSnapForMerge.data() || {}) : {};
+    const splitActive = isPendingOrdersSplit(cfgForMerge);
+    const existingLive = await readAllPendingOrders(cfgForMerge);
+    const existingMap = new Map(existingLive.map(o => [String(o.shopify_order_id), o]));
 
-      const mergedList = [];
-      const seenIds = new Set();
-      /* V21.9.11 ROOT-CAUSE FIX (audit log clobber):
-         Pre-V21.9.11 the merge spread Shopify's freshly-mapped order `o` as
-         the BASE and selectively overwrote with `prev` fields from a hardcoded
-         allowlist. Any local CLARK field outside that allowlist (e.g.
-         `delivered_by`, `refused_by`, `returned_by`, `invoice_no`,
-         `return_credit_note_no`, `return_reason`, `stock_committed`,
-         `bosta_pickup_error`, plus future fields added without updating this
-         list) got OVERWRITTEN with `undefined` from Shopify's mapping —
-         silently wiping the audit trail.
+    /* V21.9.11 ROOT-CAUSE FIX (audit log clobber):
+       Pre-V21.9.11 the merge spread Shopify's freshly-mapped order `o` as
+       the BASE and selectively overwrote with `prev` fields from a hardcoded
+       allowlist. Any local CLARK field outside that allowlist got
+       OVERWRITTEN with `undefined`, silently wiping the audit trail.
+       Correct pattern: spread `prev` as the base, overlay Shopify-owned fields. */
+    const SHOPIFY_OWNED = [
+      "shopify_order_id", "shopify_order_number", "shopify_name", "shopify_created_at",
+      "shopify_processed_at", "shopify_updated_at", "shopify_financial_status",
+      "shopify_fulfillment_status", "shopify_currency", "shopify_tags",
+      "customer_info", "shipping_address", "billing_address",
+      "line_items", "subtotal", "tax", "total", "shipping_fee", "discount",
+      "payment_method", "note", "source_name", "cancelled_at", "cancel_reason",
+    ];
+    const localStates = new Set(["delivered", "refused", "returned"]);
 
-         The correct pattern (already used by sync-orders-now.js) is the
-         reverse: spread `prev` as the base (so all local fields persist),
-         then overwrite ONLY the fields Shopify is the source of truth for
-         (line items, totals, customer info, fulfillment status). */
-      const SHOPIFY_OWNED = [
-        "shopify_order_id", "shopify_order_number", "shopify_name", "shopify_created_at",
-        "shopify_processed_at", "shopify_updated_at", "shopify_financial_status",
-        "shopify_fulfillment_status", "shopify_currency", "shopify_tags",
-        "customer_info", "shipping_address", "billing_address",
-        "line_items", "subtotal", "tax", "total", "shipping_fee", "discount",
-        "payment_method", "note", "source_name", "cancelled_at", "cancel_reason",
-      ];
-      for(const o of recentForLive){
-        const id = String(o.shopify_order_id);
-        if(seenIds.has(id)) continue;
-        seenIds.add(id);
-        const prev = existingMap.get(id);
-        if(prev){
-          /* Start from prev (preserve ALL local fields), overlay Shopify-owned. */
-          const merged = { ...prev };
-          for(const k of SHOPIFY_OWNED){
-            if(o[k] !== undefined) merged[k] = o[k];
-          }
-          /* Status: keep local if it represents a CLARK-side state Shopify
-             can't know about (delivered/refused/returned). For purely-Shopify
-             states (pending/cancelled), refresh from Shopify. */
-          const localStates = new Set(["delivered", "refused", "returned"]);
-          if(prev.status && localStates.has(prev.status)){
-            merged.status = prev.status;
-          } else {
-            merged.status = o.status || prev.status;
-          }
-          /* Bosta state always wins from prev (CLARK-side tracking).
-             V21.9.13: only assign if defined — pre-V21.9.13 this could
-             produce `bosta: undefined` when neither side had tracking,
-             which Firestore strict mode rejected with
-             "Cannot use 'undefined' as a Firestore value". The
-             ignoreUndefinedProperties setting in _firebase.js now strips
-             these globally, but assigning conditionally is cheaper and
-             keeps the document shape clean. */
-          const bosta = prev.bosta || o.bosta;
-          if(bosta) merged.bosta = bosta;
-          mergedList.push(merged);
+    const ordersToWrite = [];
+    const seenIds = new Set();
+    /* In split mode we upsert ALL historical orders (each goes to its own
+       day doc — no cap). In legacy mode we cap at 200 for doc-size safety. */
+    const candidates = splitActive ? allOrdersFlat : allOrdersFlat.slice(0, LEGACY_ORDERS_CAP_LIVE);
+
+    for(const o of candidates){
+      const id = String(o.shopify_order_id);
+      if(seenIds.has(id)) continue;
+      seenIds.add(id);
+      const prev = existingMap.get(id);
+      let merged;
+      if(prev){
+        merged = { ...prev };
+        for(const k of SHOPIFY_OWNED){
+          if(o[k] !== undefined) merged[k] = o[k];
+        }
+        if(prev.status && localStates.has(prev.status)){
+          merged.status = prev.status;
         } else {
-          mergedList.push(o);
+          merged.status = o.status || prev.status;
         }
+        /* V21.9.13: only assign bosta if defined (Firestore rejects undefined) */
+        const bosta = prev.bosta || o.bosta;
+        if(bosta) merged.bosta = bosta;
+      } else {
+        merged = o;
       }
-      /* Also include any existing live orders that weren't in the historical
-         pull (newer than sinceISO maybe, or edge cases). */
-      for(const o of existingLive){
-        const id = String(o.shopify_order_id);
-        if(!seenIds.has(id)){
-          seenIds.add(id);
-          mergedList.push(o);
-        }
-      }
+      ordersToWrite.push(merged);
+    }
 
-      /* Sort + cap */
-      mergedList.sort((a, b) => {
-        const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
-        const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
-        return tb - ta;
-      });
-      const final = mergedList.slice(0, ORDERS_CAP_LIVE);
-
-      tx.set(cfgRef, {
-        shopifyPendingOrders: final,
+    if(splitActive){
+      /* V21.9.20: bulk-upsert to day docs */
+      await upsertManyPendingOrders(cfgForMerge, ordersToWrite);
+      /* Write only metadata to factory/config (NEVER write shopifyPendingOrders here) */
+      await cfgRef.set({
         shopifyConfig: {
-          ...(fresh.shopifyConfig || {}),
+          ...(cfgForMerge.shopifyConfig || {}),
           last_historical_sync_at: new Date().toISOString(),
           last_historical_sync_count: totalFetched,
           last_historical_sync_since: sinceISO,
           last_historical_sync_months: Object.keys(monthlyBreakdown).length,
           last_historical_sync_archive_docs: archiveDocsWritten,
           last_orders_sync_at: new Date().toISOString(),
-          last_orders_sync_count: final.length,
+          last_orders_sync_count: ordersToWrite.length,
         },
       }, { merge: true });
-    });
+    } else {
+      /* Legacy mode: same single-tx behavior as before */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const fresh = snap.exists ? (snap.data() || {}) : {};
+        const freshLive = Array.isArray(fresh.shopifyPendingOrders) ? fresh.shopifyPendingOrders : [];
+        const freshMap = new Map(freshLive.map(o => [String(o.shopify_order_id), o]));
+        for(const o of ordersToWrite){
+          freshMap.set(String(o.shopify_order_id), o);
+        }
+        const merged = Array.from(freshMap.values()).sort((a, b) => {
+          const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
+          const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
+          return tb - ta;
+        }).slice(0, LEGACY_ORDERS_CAP_LIVE);
+
+        tx.set(cfgRef, {
+          shopifyPendingOrders: merged,
+          shopifyConfig: {
+            ...(fresh.shopifyConfig || {}),
+            last_historical_sync_at: new Date().toISOString(),
+            last_historical_sync_count: totalFetched,
+            last_historical_sync_since: sinceISO,
+            last_historical_sync_months: Object.keys(monthlyBreakdown).length,
+            last_historical_sync_archive_docs: archiveDocsWritten,
+            last_orders_sync_at: new Date().toISOString(),
+            last_orders_sync_count: merged.length,
+          },
+        }, { merge: true });
+      });
+    }
 
     /* Final result — returned to HTTP + saved to job.result */
     return {

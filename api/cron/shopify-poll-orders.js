@@ -16,13 +16,32 @@
 
    This dual auth lets you trigger manually for debugging without
    waiting for cron.
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.20 ROOT-CAUSE FIX: pre-V21.9.20 this cron re-created the
+   legacy `cfg.shopifyPendingOrders` array EVERY 5 MINUTES, even
+   after V21.9.18 daily-split migration completed. The migration
+   would run, strip the array, set `_splitDaysV2199Done=true` —
+   then this cron would tx.set(cfgRef, { shopifyPendingOrders: ... })
+   and re-bloat factory/config. The user reported "the split
+   didn't happen" because no matter how many times they refreshed,
+   within 5 minutes the array would be back.
+
+   Fix: route through _pendingOrders.js helper. Post-migration it
+   writes to shopifyOrdersDays day docs; pre-migration it writes
+   to the legacy array (back-compat).
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, fetchOrdersSince } from "../shopify/_shopifyAdmin.js";
 import { createReservationsForOrder } from "../shopify/_reservations.js";
+import {
+  readAllPendingOrders, upsertManyPendingOrders, isPendingOrdersSplit,
+} from "../shopify/_pendingOrders.js";
 
-const ORDERS_CAP = 200;
+/* V21.9.18: legacy mode keeps the 200 cap to stay under 1 MB doc limit.
+   Post-migration each day doc is independent — no cap needed. */
+const LEGACY_ORDERS_CAP = 200;
 const DEFAULT_LOOKBACK_HOURS = 168;
 
 function isAuthorizedCron(req){
@@ -67,11 +86,12 @@ export default async function handler(req, res){
 
   /* ── Compute since timestamp ── */
   let sinceISO;
+  let cfgForRead;
   try {
     const db = getDb();
     const cfgSnap = await db.collection("factory").doc("config").get();
-    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
-    const lastSync = cfg.shopifyConfig?.last_orders_sync_at;
+    cfgForRead = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+    const lastSync = cfgForRead.shopifyConfig?.last_orders_sync_at;
     if(lastSync){
       sinceISO = new Date(new Date(lastSync).getTime() - 5 * 60 * 1000).toISOString();
     } else {
@@ -91,83 +111,115 @@ export default async function handler(req, res){
     return;
   }
 
-  /* ── Merge + save (same logic as sync-orders-now) ── */
+  /* ── Merge + save — V21.9.20: split-aware ── */
   let counts = { count: fetched.length, new: 0, updated: 0, skipped: 0 };
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const cfg = snap.exists ? (snap.data() || {}) : {};
-      const existing = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
-      const map = new Map(existing.map(o => [String(o.shopify_order_id), o]));
-      let reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations.slice() : [];
-      const ttlDays = Number(cfg.shopifyConfig?.pending_order_timeout_days) || 7;
-      const autoReserve = cfg.shopifyConfig?.auto_reserve_stock !== false;
-      for(const o of fetched){
-        const id = String(o.shopify_order_id);
-        if(o.currency && o.currency !== "EGP"){ counts.skipped++; continue; }
-        const prev = map.get(id);
-        const willReserve = autoReserve && !prev && o.status === "pending_delivery";
-        if(willReserve){
-          reservations = createReservationsForOrder(cfg, reservations, o, ttlDays);
-        }
-        if(prev){
-          map.set(id, {
-            ...prev,
-            shopify_order_number: o.shopify_order_number || prev.shopify_order_number,
-            shopify_name: o.shopify_name || prev.shopify_name,
-            customer_info: o.customer_info,
-            line_items: o.line_items,
-            subtotal: o.subtotal,
-            shipping_fee: o.shipping_fee,
-            total: o.total,
-            currency: o.currency,
-            payment_method: o.payment_method,
-            shopify_status_synced: o.shopify_status_synced,
-            shopify_updated_at: o.shopify_updated_at,
-            last_synced_at: o.last_synced_at,
-            status: ((prev.status === "pending_delivery") &&
-                     o.shopify_status_synced.fulfillment_status === "fulfilled" &&
-                     o.shopify_status_synced.financial_status === "paid")
-                    ? "delivered"
-                    : prev.status,
-          });
-          counts.updated++;
-        } else {
-          map.set(id, {
-            ...o,
-            stock_reserved: willReserve,
-            stock_reservations: willReserve
-              ? reservations.filter(r => r.source_ref === id && r.status === "active").map(r => r.id)
-              : [],
-          });
-          counts.new++;
-        }
+
+    /* V21.9.20: read existing pending orders via helper — works regardless
+       of whether the daily split is active. */
+    const ordersSplitActive = isPendingOrdersSplit(cfgForRead);
+    const existing = await readAllPendingOrders(cfgForRead);
+    const existingMap = new Map(existing.map(o => [String(o.shopify_order_id), o]));
+
+    let reservations = Array.isArray(cfgForRead.stockReservations)
+      ? cfgForRead.stockReservations.slice() : [];
+    const ttlDays = Number(cfgForRead.shopifyConfig?.pending_order_timeout_days) || 7;
+    const autoReserve = cfgForRead.shopifyConfig?.auto_reserve_stock !== false;
+    const ordersToWrite = [];
+
+    for(const o of fetched){
+      const id = String(o.shopify_order_id);
+      if(o.currency && o.currency !== "EGP"){ counts.skipped++; continue; }
+      const prev = existingMap.get(id);
+      const willReserve = autoReserve && !prev && o.status === "pending_delivery";
+      if(willReserve){
+        reservations = createReservationsForOrder(cfgForRead, reservations, o, ttlDays);
       }
-      const merged = Array.from(map.values())
-        .sort((a, b) => {
-          const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
-          const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
-          return tb - ta;
-        })
-        .slice(0, ORDERS_CAP);
-      const now = new Date().toISOString();
-      tx.set(cfgRef, {
-        shopifyPendingOrders: merged,
-        stockReservations: reservations,
-        shopifyConfig: {
-          ...(cfg.shopifyConfig || {}),
-          last_orders_sync_at: now,
-          last_orders_sync_count: counts.new + counts.updated,
-          last_orders_sync_by: authBy,
-        },
-      }, { merge: true });
-    });
+      if(prev){
+        const merged = {
+          ...prev,
+          shopify_order_number: o.shopify_order_number || prev.shopify_order_number,
+          shopify_name: o.shopify_name || prev.shopify_name,
+          customer_info: o.customer_info,
+          line_items: o.line_items,
+          subtotal: o.subtotal,
+          shipping_fee: o.shipping_fee,
+          total: o.total,
+          currency: o.currency,
+          payment_method: o.payment_method,
+          shopify_status_synced: o.shopify_status_synced,
+          shopify_updated_at: o.shopify_updated_at,
+          last_synced_at: o.last_synced_at,
+          status: ((prev.status === "pending_delivery") &&
+                   o.shopify_status_synced.fulfillment_status === "fulfilled" &&
+                   o.shopify_status_synced.financial_status === "paid")
+                  ? "delivered"
+                  : prev.status,
+        };
+        existingMap.set(id, merged);
+        ordersToWrite.push(merged);
+        counts.updated++;
+      } else {
+        const fresh = {
+          ...o,
+          stock_reserved: willReserve,
+          stock_reservations: willReserve
+            ? reservations.filter(r => r.source_ref === id && r.status === "active").map(r => r.id)
+            : [],
+        };
+        existingMap.set(id, fresh);
+        ordersToWrite.push(fresh);
+        counts.new++;
+      }
+    }
+
+    const now = new Date().toISOString();
+
+    if(ordersSplitActive){
+      /* V21.9.20: write only changed orders to their day docs. The legacy
+         shopifyPendingOrders field stays absent from factory/config. */
+      await upsertManyPendingOrders(cfgForRead, ordersToWrite);
+      /* Commit reservations + sync metadata to factory/config — NEVER touch
+         shopifyPendingOrders here, that's what triggered the bloat regression. */
+      await db.runTransaction(async (tx) => {
+        tx.set(cfgRef, {
+          stockReservations: reservations,
+          shopifyConfig: {
+            ...(cfgForRead.shopifyConfig || {}),
+            last_orders_sync_at: now,
+            last_orders_sync_count: counts.new + counts.updated,
+            last_orders_sync_by: authBy,
+          },
+        }, { merge: true });
+      });
+    } else {
+      /* Legacy mode (pre-migration): same behavior as before — cap at 200. */
+      await db.runTransaction(async (tx) => {
+        const merged = Array.from(existingMap.values())
+          .sort((a, b) => {
+            const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
+            const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
+            return tb - ta;
+          })
+          .slice(0, LEGACY_ORDERS_CAP);
+        tx.set(cfgRef, {
+          shopifyPendingOrders: merged,
+          stockReservations: reservations,
+          shopifyConfig: {
+            ...(cfgForRead.shopifyConfig || {}),
+            last_orders_sync_at: now,
+            last_orders_sync_count: counts.new + counts.updated,
+            last_orders_sync_by: authBy,
+          },
+        }, { merge: true });
+      });
+    }
   } catch(e){
     res.status(500).json({ ok:false, error: "Save failed: " + (e.message || e) });
     return;
   }
 
-  res.status(200).json({ ok:true, authBy, ...counts });
+  res.status(200).json({ ok:true, authBy, splitActive: isPendingOrdersSplit(cfgForRead), ...counts });
 }

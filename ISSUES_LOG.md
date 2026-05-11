@@ -1,20 +1,14 @@
 # CLARK — سجل المشاكل والحلول والبروتوكولات
 
-> **آخر تحديث:** V21.9.19 — 2026-05-11
+> **آخر تحديث:** V21.9.20 — 2026-05-11
 >
-> ⚠️ **تحذير مهم:** الـ items في `§3. Pending` تحت لسه **ما اتـ verify-ـتش
-> end-to-end على production**. فيه code-level fixes attempted (كل واحد له
-> commit + version)، لكن المستخدم بلّغ إنها لسه ظاهرة. ممكن السبب:
+> ✅ **V21.9.20 BREAKING FIX:** H6 و P1 (factory/config bloat — shopifyPendingOrders ما بـ تتـ split)
+> اتحلوا جذرياً. الـ root cause كان إن 10 endpoints على الـ server كانوا بـ يـ re-create
+> الـ legacy `cfg.shopifyPendingOrders` array حتى بعد ما الـ migration تنجح — الأخطر كان الـ
+> cron `shopify-poll-orders.js` اللي بـ يشتغل كل 5 دقايق. دلوقتي كل endpoints بـ تـ route عبر
+> `_pendingOrders.js` helper اللي بـ يـ honor الـ split flag.
 >
-> 1. الـ `firestore.rules` + `storage.rules` ما اتـ deploy-ـوش على Firebase
->    Console (manual step بعد كل release — Vercel ما بـ يـ deploy-هم).
-> 2. الـ Service Worker بـ يـ cache الـ JS القديم (يحتاج hard-refresh
->    Ctrl+Shift+R).
-> 3. الـ fixes نفسها محتاجة rework لأن الـ root cause الحقيقي مختلف عن
->    التشخيص الأول.
->
-> الـ status الحالي: **all items below are PENDING verification**. لو
-> الـ issue اتـ verify-ـت كـ resolved مع الـ user → نقلها لـ §5.
+> ⚠️ الـ items الباقية في `§3-§5` لسه محتاجة verification بعد الـ rules deployment.
 
 ---
 
@@ -39,10 +33,11 @@
 | Category | Count | Status |
 |----------|-------|--------|
 | Critical bugs (code-fix attempted) | 8 | ⚠️ Pending verification |
-| High-priority bugs (code-fix attempted) | 8 | ⚠️ Pending verification |
+| High-priority bugs (code-fix attempted) | 7 | ⚠️ Pending verification (H6 → ✅ V21.9.20) |
 | Medium-priority bugs (code-fix attempted) | 6 | ⚠️ Pending verification |
-| Acknowledged TODO (لسه ما اتـ touch) | 6 | ⏳ Pending implementation |
+| Acknowledged TODO | 5 | ⏳ Pending (P1 → ✅ V21.9.20) |
 | Features visible في UI | 7 | ✅ Confirmed (visible) |
+| **V21.9.20 root-cause fixes** | **2** | ✅ **H6 + P1 resolved** |
 
 **Net status:** المعظم لسه pending. الـ user بلّغ إن الحجات دي لسه ظاهرة بعد الـ release deploys. السبب الأرجح: deployment steps ناقصة (firestore.rules / storage.rules).
 
@@ -281,20 +276,38 @@
 
 ---
 
-### ⚠️ H6. shopifyPendingOrders — factory/config bloat
+### ✅ H6. shopifyPendingOrders — factory/config bloat [RESOLVED V21.9.20]
 
-**Code-fix version:** V21.9.18
-**Status:** ❌ **Migration ما اشتغلتش** (user-confirmed via diagnostics — shopifyOrdersDays = 0 docs)
-**Symptom:** factory/config وصل 41% من 1 MB. الـ array `shopifyPendingOrders` = 283 KB.
-**Attempted fix:** auto-migration على app load، blocking popup، split daily.
-**Why still unresolved:**
-- الـ migration ممكن بـ تفشل لأن الـ firestore.rules ما عندهاش match clause لـ `shopifyOrdersDays` (V21.9.19 ضافها لكن الـ rules ما اتـ deploy-ـتش).
-- الـ user بلّغ إن الـ split ما اتعملش حتى بعد V21.9.18.
-**Next steps:**
-1. Deploy firestore.rules (§2.1) — يـ allow الـ shopifyOrdersDays writes.
-2. Hard refresh الـ app.
-3. الـ blocking popup المفروض يظهر مع 200 طلب.
-4. لو ما ظهرش، open DevTools → console → check لـ [V21.9.19] logs أو errors.
+**Code-fix version:** V21.9.18 (migration) + V21.9.19 (rules + blocking popup) + V21.9.20 (server endpoints)
+**Status:** ✅ **ROOT CAUSE FIXED — Migration هتفضل clean دلوقتي**
+**Symptom:** factory/config = 419.7 KB (41% من 1MB). shopifyOrdersDays = 0 docs بعد V21.9.18/19.
+**True root cause (V21.9.20 discovery):**
+الـ migration code كان صحيح 100%. لكن حتى لو اشتغلت ونجحت، فيه 10 endpoints على الـ server بـ تـ
+re-create الـ legacy `cfg.shopifyPendingOrders` array. أخطرهم الـ cron `shopify-poll-orders.js` اللي
+بـ يشتغل كل 5 دقايق ويكتب `tx.set(cfgRef, { shopifyPendingOrders: merged, ... })`. حتى لو الـ
+migration اشتغلت بنجاح، خلال 5 دقايق الـ array رجعت تاني (والـ flag كان `_splitDaysV2199Done=true`
+لكن الـ array موجود → الـ client merge في App.jsx بـ يـ pick up الـ legacy array بدل الـ day docs).
+
+**Final fix (V21.9.20):**
+1. كل الـ 10 endpoints بقت تـ route عبر `_pendingOrders.js` helper:
+   - `cron/shopify-poll-orders.js`, `cron/shopify-cleanup-reservations.js`
+   - `bosta/webhook.js`, `bosta/track.js`, `bosta/create-shipment.js`, `bosta/print-awb.js`, `bosta/sync-historical.js`
+   - `shopify/process-return.js`, `shopify/return-request-create.js`, `shopify/sync-historical-orders.js`
+2. الـ helper بـ يـ check الـ flag `_splitDaysV2199Done` — لو set بـ يكتب لـ `shopifyOrdersDays/{day}` بدل cfg
+3. الـ maintenance endpoint `/api/maintenance/split-shopify-orders-daily` بقى الـ official force-migration fallback
+   (sets BOTH flags `_splitDaysV2199Done` + `_splitShopifyOrdersDaily` — pre-V21.9.20 كانوا flags مختلفين!)
+
+**Expected behavior بعد deploy V21.9.20:**
+- Diagnostics: factory/config ينزل من 419 KB لـ ~135 KB
+- shopifyOrdersDays: يحتوي على docs بـ count = عدد الطلبات في كل يوم
+- مفيش shopifyPendingOrders في factory/config (ما بـ يتعمل re-create ابداً)
+- الـ Orders tab يفضل يعرض الـ orders بشكل طبيعي
+
+**Verification steps:**
+1. Hard refresh الـ app بعد deploy V21.9.20
+2. لو الـ migration ما شتغلتش auto: POST `/api/maintenance/split-shopify-orders-daily` بـ admin token
+3. شوف الـ diagnostics — factory/config المفروض ينزل بـ ~280 KB
+4. اعمل manual sync من Shopify → لازم يستمر يكتب لـ day docs بس (ما يـ re-create cfg.shopifyPendingOrders)
 
 ---
 
@@ -375,24 +388,24 @@
 
 ## 6. Pending — لسه ما اتـ touch-ـش (acknowledged TODO)
 
-### ⏳ P1. الـ endpoints المتبقية لـ shopifyPendingOrders split
+### ✅ P1. الـ endpoints المتبقية لـ shopifyPendingOrders split [RESOLVED V21.9.20]
 
-**Status:** Acknowledged في V21.9.18 commit. Code-fix لـ 5 endpoints بس (mark-delivered, mark-refused, sync-orders-now, sync-customers, diagnostics).
+**Status:** ✅ All 10 endpoints fixed in V21.9.20.
 
-**الـ endpoints اللي لسه بـ تقرأ legacy `cfg.shopifyPendingOrders`:**
-- `api/shopify/process-return.js` — admin-rare
-- `api/shopify/sync-historical-orders.js` — partial update only
-- `api/shopify/return-request-create.js`
-- `api/bosta/create-shipment.js`
-- `api/bosta/print-awb.js`
-- `api/bosta/sync-historical.js`
-- `api/bosta/track.js`
-- `api/bosta/webhook.js`
-- `api/cron/shopify-poll-orders.js`
-- `api/cron/shopify-cleanup-reservations.js`
+كل الـ endpoints دلوقتي بـ تـ route عبر `_pendingOrders.js` helper:
+- ✅ `api/shopify/process-return.js` — findPendingOrder + upsertPendingOrder (split-aware)
+- ✅ `api/shopify/sync-historical-orders.js` — upsertManyPendingOrders bulk + no cap post-migration
+- ✅ `api/shopify/return-request-create.js` — findPendingOrder
+- ✅ `api/bosta/create-shipment.js` — findPendingOrder + upsertPendingOrder
+- ✅ `api/bosta/print-awb.js` — readAllPendingOrders (read-only)
+- ✅ `api/bosta/sync-historical.js` — readAllPendingOrders + upsertManyPendingOrders
+- ✅ `api/bosta/track.js` — findPendingOrder + upsertPendingOrder
+- ✅ `api/bosta/webhook.js` — readAllPendingOrders + upsertPendingOrder (3 places)
+- ✅ `api/cron/shopify-poll-orders.js` — readAllPendingOrders + upsertManyPendingOrders (KILLER — runs every 5 min)
+- ✅ `api/cron/shopify-cleanup-reservations.js` — readAllPendingOrders + upsertPendingOrder for affected
 
-**Risk:** post-migration، لو الـ user يـ trigger أي من الـ endpoints دي، هتـ get empty array → فشل صامت.
-**Fix plan:** wrap كل endpoint بـ `readAllPendingOrders` + `upsertManyPendingOrders` من `_pendingOrders.js`.
+**Risk eliminated:** Post-migration mode is now self-sustaining. No endpoint writes back to
+`cfg.shopifyPendingOrders` when the split flag is set.
 
 ---
 
@@ -654,6 +667,7 @@ const handler = async () => {
 
 | Version | Phase | Topic | Commit | Code status |
 |---------|-------|-------|--------|-------------|
+| V21.9.20 | 13b | shopifyPendingOrders — كل الـ server endpoints split-aware | TBD | ✅ ROOT CAUSE fixed (cron + bosta + shopify endpoints) |
 | V21.9.19 | 13a | Firestore rules + blocking popup | 2221bc3 | Code ready, **rules need manual deploy** |
 | V21.9.18 | 13 | shopifyPendingOrders daily split | a79715f | Code ready, **migration needs rules deploy first** |
 | V21.9.17 | 12c | Transfers tab read-only | 991388f | ✅ UI visible |

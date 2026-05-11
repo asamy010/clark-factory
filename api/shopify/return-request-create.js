@@ -20,6 +20,9 @@
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { addReturnRequest, genRRId, RETURN_REASONS } from "./_returnRequests.js";
+/* V21.9.20: split-aware order read — pre-V21.9.20 we read cfg.shopifyPendingOrders
+   directly, which returns [] post-V21.9.18 migration. */
+import { findPendingOrder } from "./_pendingOrders.js";
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -51,23 +54,24 @@ export default async function handler(req, res){
     return res.status(400).json({ ok:false, error: "يجب اختيار عنصر واحد على الأقل للإرجاع" });
   }
 
-  /* Read the order to copy customer info */
+  /* Read the order to copy customer info — V21.9.20 split-aware */
   let order, cfg;
   try {
     const db = getDb();
     const cfgSnap = await db.collection("factory").doc("config").get();
     cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
-    /* Look in live array first (most common) */
-    const live = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
-    order = live.find(o => String(o.shopify_order_id) === shopifyOrderId);
+    /* Live lookup via helper (handles both legacy cfg.shopifyPendingOrders
+       and post-V21.9.18 shopifyOrdersDays/{day} day docs transparently). */
+    const found = await findPendingOrder(cfg, shopifyOrderId);
+    order = found.order;
     /* If not found live, try archive (slow but rare) */
     if(!order){
       const archSnap = await db.collection("shopifyOrdersArchive").get();
       for(const d of archSnap.docs){
         const data = d.data() || {};
         const arr = Array.isArray(data.orders) ? data.orders : [];
-        const found = arr.find(o => String(o.shopify_order_id) === shopifyOrderId);
-        if(found){ order = found; break; }
+        const f = arr.find(o => String(o.shopify_order_id) === shopifyOrderId);
+        if(f){ order = f; break; }
       }
     }
   } catch(e){

@@ -19,9 +19,15 @@
      1. POST /api/v0/awb with delivery IDs → returns URL
      2. GET /api/v0/deliveries/{id}/awb
      3. Fallback: Bosta dashboard print URL
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.20 ROOT-CAUSE FIX: route order reads through
+   _pendingOrders.js helper so we don't read empty array
+   post-migration.
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { readAllPendingOrders } from "../shopify/_pendingOrders.js";
 
 async function fetchAwbUrl(apiKey, deliveryIds){
   /* Bosta's bulk AWB endpoint accepts an array of delivery _ids */
@@ -82,7 +88,8 @@ export default async function handler(req, res){
       return res.status(400).json({ ok:false, error: "Bosta API key مش معدّ" });
     }
 
-    const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
+    /* V21.9.20: read via split-aware helper (works both pre- and post-migration) */
+    const orders = await readAllPendingOrders(cfg);
     const idSet = new Set(ids);
     const targets = orders.filter(o => idSet.has(String(o.shopify_order_id)));
 

@@ -20,9 +20,14 @@
    - Sets businessReference = shopify_order_id (for matching)
    - Uses customer info from order
    - COD amount = order.total
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.20 ROOT-CAUSE FIX: route order reads/writes through
+   _pendingOrders.js helper for split-aware storage.
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+import { findPendingOrder, upsertPendingOrder } from "../shopify/_pendingOrders.js";
 
 /* Build the Bosta delivery payload from a Shopify order. */
 function buildPayload(order, opts = {}){
@@ -105,18 +110,18 @@ export default async function handler(req, res){
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    const snap = await cfgRef.get();
-    const cfg = snap.exists ? (snap.data() || {}) : {};
+    const cfgSnap = await cfgRef.get();
+    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
     const apiKey = (cfg.shopifyConfig?.bosta_api_key || "").trim();
     if(!apiKey){
       return res.status(400).json({ ok:false, error: "Bosta API key مش معدّ" });
     }
-    const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders.slice() : [];
-    const idx = orders.findIndex(o => String(o.shopify_order_id) === orderId);
-    if(idx < 0){
+
+    /* V21.9.20: find via split-aware helper */
+    const { order } = await findPendingOrder(cfg, orderId);
+    if(!order){
       return res.status(404).json({ ok:false, error: "الطلب مش موجود" });
     }
-    const order = orders[idx];
 
     /* Idempotent — if order already has tracking, refuse (use refresh instead) */
     if(order.bosta?.tracking_number){
@@ -140,40 +145,33 @@ export default async function handler(req, res){
       throw new Error("Bosta ما رجّعش tracking number");
     }
 
-    /* Save tracking to the order */
-    await db.runTransaction(async (tx) => {
-      const fresh = await tx.get(cfgRef);
-      const c = fresh.exists ? (fresh.data() || {}) : {};
-      const ords = Array.isArray(c.shopifyPendingOrders) ? c.shopifyPendingOrders.slice() : [];
-      const i = ords.findIndex(o => String(o.shopify_order_id) === orderId);
-      if(i < 0) return;
-      ords[i] = {
-        ...ords[i],
-        bosta: {
-          ...(ords[i].bosta || {}),
-          tracking_number: trackingNumber,
-          delivery_id: deliveryId,
-          business_reference: String(orderId),
-          receiver_phone: payload.receiver.phone,
-          state_code: 10, /* New */
-          state_value: "تم الإنشاء",
-          state_bucket: "pending",
-          state_emoji: "🆕",
-          state_color: "#94A3B8",
-          state_history: [{
-            code: 10,
-            value: "تم الإنشاء عبر CLARK",
-            bucket: "pending",
-            at: new Date().toISOString(),
-            source: "auto_create",
-          }, ...(Array.isArray(ords[i].bosta?.state_history) ? ords[i].bosta.state_history : [])].slice(0, 50),
-          last_state_at: new Date().toISOString(),
-          created_via: "clark_auto",
-          created_by: auth.email || auth.uid,
-        },
-      };
-      tx.set(cfgRef, { shopifyPendingOrders: ords }, { merge: true });
-    });
+    /* Save tracking to the order via helper */
+    const updated = {
+      ...order,
+      bosta: {
+        ...(order.bosta || {}),
+        tracking_number: trackingNumber,
+        delivery_id: deliveryId,
+        business_reference: String(orderId),
+        receiver_phone: payload.receiver.phone,
+        state_code: 10, /* New */
+        state_value: "تم الإنشاء",
+        state_bucket: "pending",
+        state_emoji: "🆕",
+        state_color: "#94A3B8",
+        state_history: [{
+          code: 10,
+          value: "تم الإنشاء عبر CLARK",
+          bucket: "pending",
+          at: new Date().toISOString(),
+          source: "auto_create",
+        }, ...(Array.isArray(order.bosta?.state_history) ? order.bosta.state_history : [])].slice(0, 50),
+        last_state_at: new Date().toISOString(),
+        created_via: "clark_auto",
+        created_by: auth.email || auth.uid,
+      },
+    };
+    await upsertPendingOrder(cfg, updated);
 
     return res.status(200).json({
       ok: true,

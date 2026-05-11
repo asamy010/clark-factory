@@ -23,10 +23,22 @@
    but log to a misses array for debugging.
 
    On unauthorized request we return 401.
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.20 ROOT-CAUSE FIX: pre-V21.9.20 this endpoint wrote orders
+   array back to factory/config inside transactions. Post-migration
+   this would re-create the legacy cfg.shopifyPendingOrders array
+   with stale/partial data, undoing the V21.9.18 split.
+
+   Fix: route order reads/writes through _pendingOrders.js helper.
+   Misses log + shopifyConfig metadata stay on factory/config.
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb } from "../_firebase.js";
 import { normalizeBostaWebhook, matchOrderToBostaDelivery, getBostaStateMeta } from "./_constants.js";
+import {
+  readAllPendingOrders, upsertPendingOrder, isPendingOrdersSplit,
+} from "../shopify/_pendingOrders.js";
 
 const MAX_HISTORY_PER_ORDER = 50;
 const MAX_MISSES_LOG = 100;
@@ -76,20 +88,25 @@ export default async function handler(req, res){
     source: "webhook",
   };
 
-  /* ── Match + update inside a transaction ── */
+  /* ── V21.9.20: split-aware match + update ── */
   let result = { matched: false, orderId: null, action: null };
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const cfg = snap.exists ? (snap.data() || {}) : {};
-      const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders.slice() : [];
-      const idx = matchOrderToBostaDelivery(orders, normalized);
 
-      if(idx < 0){
-        /* Unmatched — record in a misses log so the user can investigate */
-        const misses = Array.isArray(cfg.bostaWebhookMisses) ? cfg.bostaWebhookMisses : [];
+    /* Pre-read cfg + all pending orders */
+    const cfgSnap = await cfgRef.get();
+    const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+    const allOrders = await readAllPendingOrders(cfg);
+    const idx = matchOrderToBostaDelivery(allOrders, normalized);
+
+    if(idx < 0){
+      /* Unmatched — record in misses log on cfg (cfg.bostaWebhookMisses is
+         a small bounded array, stays on factory/config). */
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(cfgRef);
+        const c = snap.exists ? (snap.data() || {}) : {};
+        const misses = Array.isArray(c.bostaWebhookMisses) ? c.bostaWebhookMisses.slice() : [];
         misses.unshift({
           at: new Date().toISOString(),
           tracking_number: normalized.trackingNumber,
@@ -101,16 +118,15 @@ export default async function handler(req, res){
         tx.set(cfgRef, {
           bostaWebhookMisses: misses.slice(0, MAX_MISSES_LOG),
           shopifyConfig: {
-            ...(cfg.shopifyConfig || {}),
+            ...(c.shopifyConfig || {}),
             bosta_last_webhook_at: new Date().toISOString(),
             bosta_last_webhook_status: "unmatched",
           },
         }, { merge: true });
-        result = { matched: false, orderId: null, action: "logged_miss" };
-        return;
-      }
-
-      const order = orders[idx];
+      });
+      result = { matched: false, orderId: null, action: "logged_miss" };
+    } else {
+      const order = allOrders[idx];
       const prevBosta = order.bosta || {};
       const prevHistory = Array.isArray(prevBosta.state_history) ? prevBosta.state_history : [];
       /* De-dup: skip if the exact same state arrived again within 60 seconds */
@@ -137,91 +153,80 @@ export default async function handler(req, res){
           last_state_at: normalized.occurredAt,
         },
       };
-      orders[idx] = updatedOrder;
 
-      tx.set(cfgRef, {
-        shopifyPendingOrders: orders,
-        shopifyConfig: {
-          ...(cfg.shopifyConfig || {}),
-          bosta_last_webhook_at: new Date().toISOString(),
-          bosta_last_webhook_status: "matched",
-        },
-      }, { merge: true });
+      /* Write the updated order via helper (routes to day doc when split is
+         active, falls back to legacy cfg array pre-migration). */
+      await upsertPendingOrder(cfg, updatedOrder);
+
+      /* Also update shopifyConfig metadata on factory/config */
+      await db.runTransaction(async (tx) => {
+        tx.set(cfgRef, {
+          shopifyConfig: {
+            ...(cfg.shopifyConfig || {}),
+            bosta_last_webhook_at: new Date().toISOString(),
+            bosta_last_webhook_status: "matched",
+          },
+        }, { merge: true });
+      });
 
       result = { matched: true, orderId: String(order.shopify_order_id), action: "updated" };
 
       /* Auto-actions — flag for follow-up call from the handler. We don't
-         actually call the mark-delivered/mark-refused endpoints inside the
-         transaction (they're separate Firestore writes). The handler below
-         the transaction can do it if configured. */
+         actually call the mark-delivered/mark-refused endpoints inline. */
       result.shouldAutoMarkDelivered = stateMeta.bucket === "delivered" &&
         cfg.shopifyConfig?.bosta_auto_mark_delivered === true &&
         order.status === "pending_delivery";
       result.shouldAutoMarkRefused = stateMeta.bucket === "returned" &&
         cfg.shopifyConfig?.bosta_auto_mark_refused === true &&
         order.status === "pending_delivery";
-    });
+      result._matchedOrder = updatedOrder;
+    }
   } catch(e){
-    console.error("[bosta/webhook] tx failed:", e);
+    console.error("[bosta/webhook] match+update failed:", e);
     return res.status(500).json({ ok:false, error: e.message });
   }
 
-  /* ── Optional auto-actions (after the transaction) ── */
-  if(result.shouldAutoMarkDelivered){
+  /* ── Optional auto-actions (after the match) ── */
+  if(result.shouldAutoMarkDelivered || result.shouldAutoMarkRefused){
     try {
       const db = getDb();
-      await db.runTransaction(async (tx) => {
-        const cfgRef = db.collection("factory").doc("config");
-        const snap = await tx.get(cfgRef);
-        const cfg = snap.exists ? (snap.data() || {}) : {};
-        const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders.slice() : [];
-        const idx = orders.findIndex(o => String(o.shopify_order_id) === result.orderId);
-        if(idx < 0) return;
-        const prev = orders[idx];
-        if(prev.status !== "pending_delivery") return;
-        orders[idx] = {
-          ...prev,
-          status: "delivered",
-          delivered_at: new Date().toISOString(),
-          delivered_by: "bosta_auto",
-        };
-        tx.set(cfgRef, { shopifyPendingOrders: orders }, { merge: true });
-      });
-      result.action = "auto_marked_delivered";
+      const cfgSnap = await db.collection("factory").doc("config").get();
+      const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
+      /* Re-read the order from the live source — protects against the rare
+         race where the user marked it manually between our updates. */
+      const allOrders = await readAllPendingOrders(cfg);
+      const fresh = allOrders.find(o => String(o.shopify_order_id) === result.orderId);
+      if(fresh && fresh.status === "pending_delivery"){
+        if(result.shouldAutoMarkDelivered){
+          await upsertPendingOrder(cfg, {
+            ...fresh,
+            status: "delivered",
+            delivered_at: new Date().toISOString(),
+            delivered_by: "bosta_auto",
+          });
+          result.action = "auto_marked_delivered";
+        } else if(result.shouldAutoMarkRefused){
+          await upsertPendingOrder(cfg, {
+            ...fresh,
+            status: "refused",
+            refused_at: new Date().toISOString(),
+            refused_by: "bosta_auto",
+            refusal_reason: "Bosta state: " + (normalized.stateValue || stateMeta.label),
+          });
+          result.action = "auto_marked_refused";
+        }
+      }
     } catch(e){
-      console.warn("[bosta/webhook] auto mark-delivered failed:", e.message);
-    }
-  } else if(result.shouldAutoMarkRefused){
-    try {
-      const db = getDb();
-      await db.runTransaction(async (tx) => {
-        const cfgRef = db.collection("factory").doc("config");
-        const snap = await tx.get(cfgRef);
-        const cfg = snap.exists ? (snap.data() || {}) : {};
-        const orders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders.slice() : [];
-        const idx = orders.findIndex(o => String(o.shopify_order_id) === result.orderId);
-        if(idx < 0) return;
-        const prev = orders[idx];
-        if(prev.status !== "pending_delivery") return;
-        orders[idx] = {
-          ...prev,
-          status: "refused",
-          refused_at: new Date().toISOString(),
-          refused_by: "bosta_auto",
-          refusal_reason: "Bosta state: " + (normalized.stateValue || stateMeta.label),
-        };
-        tx.set(cfgRef, { shopifyPendingOrders: orders }, { merge: true });
-      });
-      result.action = "auto_marked_refused";
-    } catch(e){
-      console.warn("[bosta/webhook] auto mark-refused failed:", e.message);
+      console.warn("[bosta/webhook] auto status flip failed:", e.message);
     }
   }
 
   /* Always 200 OK so Bosta doesn't retry */
   return res.status(200).json({
     ok: true,
-    ...result,
+    matched: result.matched,
+    orderId: result.orderId,
+    action: result.action,
     state: { code: normalized.stateCode, value: normalized.stateValue, bucket: stateMeta.bucket },
   });
 }

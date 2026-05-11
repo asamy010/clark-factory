@@ -39,6 +39,12 @@
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getBostaStateMeta } from "./_constants.js";
 import { withProgress } from "../_progressTracker.js";
+/* V21.9.20: route order reads/writes through split-aware helper so
+   post-V21.9.18 day-doc storage works (pre-V21.9.20 this endpoint
+   wrote shopifyPendingOrders back to cfg, re-creating the legacy array). */
+import {
+  readAllPendingOrders, upsertManyPendingOrders, isPendingOrdersSplit,
+} from "../shopify/_pendingOrders.js";
 
 const MAX_DELIVERIES_PER_DOC = 600;
 const ARCHIVE_COLLECTION = "bostaDeliveriesArchive";
@@ -117,14 +123,14 @@ export default async function handler(req, res){
   const maxDeliveries = Math.max(1, Math.min(50000, Number(body.maxDeliveries) || 10000));
   const maxPages = Math.max(1, Math.min(1000, Number(body.maxPages) || 200));
 
-  /* ── Get API key ── */
-  let apiKey, clarkOrders;
+  /* ── Get API key + live orders (V21.9.20: split-aware read) ── */
+  let apiKey, clarkOrders, cfgForRead;
   try {
     const db = getDb();
     const snap = await db.collection("factory").doc("config").get();
-    const cfg = snap.exists ? (snap.data() || {}) : {};
-    apiKey = (cfg.shopifyConfig?.bosta_api_key || "").trim();
-    clarkOrders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
+    cfgForRead = snap.exists ? (snap.data() || {}) : {};
+    apiKey = (cfgForRead.shopifyConfig?.bosta_api_key || "").trim();
+    clarkOrders = await readAllPendingOrders(cfgForRead);
   } catch(e){
     return res.status(500).json({ ok:false, error: "تعذر قراءة config: " + e.message });
   }
@@ -286,58 +292,86 @@ export default async function handler(req, res){
     if(!clarkByTracking.has(tn)) verification.unlinked_bosta++;
   }
 
-  /* V21.9.9: Update live shopifyPendingOrders[].bosta for matching CLARK
-     orders so the Shipping tab actually displays them. Previously the
+  /* V21.9.9 + V21.9.20: Update live shopifyPendingOrders[].bosta for matching
+     CLARK orders so the Shipping tab actually displays them. Previously the
      Bosta sync only wrote to archive + verification report — but the live
-     UI reads from shopifyPendingOrders.bosta which was stale/empty. */
+     UI reads from shopifyPendingOrders.bosta which was stale/empty.
+     V21.9.20: route through _pendingOrders.js helper so day-doc storage works
+     post-migration. We collect the touched orders into a list, then bulk-upsert. */
   await update({ message: "تحديث الـ tracking للطلبات الـ live..." });
   let bostaLiveUpdated = 0;
   try {
     const db = getDb();
     const cfgRef = db.collection("factory").doc("config");
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(cfgRef);
-      const fresh = snap.exists ? (snap.data() || {}) : {};
-      const liveOrders = Array.isArray(fresh.shopifyPendingOrders) ? fresh.shopifyPendingOrders.slice() : [];
-      let touched = 0;
-      for(let i = 0; i < liveOrders.length; i++){
-        const tn = liveOrders[i].bosta?.tracking_number;
-        if(!tn) continue;
-        const d = bostaByTracking.get(tn);
-        if(!d) continue;
-        liveOrders[i] = {
-          ...liveOrders[i],
-          bosta: {
-            ...(liveOrders[i].bosta || {}),
-            tracking_number: tn,
-            state_code: d.state_code,
-            state_value: d.state_value,
-            state_bucket: d.state_bucket,
-            last_state_at: d.updated_at || liveOrders[i].bosta?.last_state_at,
-            last_refresh_at: new Date().toISOString(),
-            cod_amount: d.cod_amount,
-            cod_collected: d.cod_collected,
-            delivered_at: d.delivered_at || liveOrders[i].bosta?.delivered_at,
-          },
-        };
-        touched++;
-      }
-      tx.set(cfgRef, {
-        shopifyPendingOrders: liveOrders,
-        shopifyConfig: {
-          ...(fresh.shopifyConfig || {}),
-          last_bosta_historical_sync_at: new Date().toISOString(),
-          last_bosta_historical_sync_count: allDeliveries.length,
-          last_bosta_live_updated: touched,
-          last_bosta_verification: {
-            ...verification,
-            mismatches: verification.mismatches.slice(0, 50),
-            run_at: new Date().toISOString(),
-          },
+
+    /* Re-read fresh state to minimize the race window with concurrent webhooks. */
+    const freshSnap = await cfgRef.get();
+    const fresh = freshSnap.exists ? (freshSnap.data() || {}) : {};
+    const splitActive = isPendingOrdersSplit(fresh);
+    const freshOrders = await readAllPendingOrders(fresh);
+
+    /* Build the touched orders array */
+    const touchedOrders = [];
+    for(const o of freshOrders){
+      const tn = o.bosta?.tracking_number;
+      if(!tn) continue;
+      const d = bostaByTracking.get(tn);
+      if(!d) continue;
+      touchedOrders.push({
+        ...o,
+        bosta: {
+          ...(o.bosta || {}),
+          tracking_number: tn,
+          state_code: d.state_code,
+          state_value: d.state_value,
+          state_bucket: d.state_bucket,
+          last_state_at: d.updated_at || o.bosta?.last_state_at,
+          last_refresh_at: new Date().toISOString(),
+          cod_amount: d.cod_amount,
+          cod_collected: d.cod_collected,
+          delivered_at: d.delivered_at || o.bosta?.delivered_at,
         },
-      }, { merge: true });
-      bostaLiveUpdated = touched;
-    });
+      });
+    }
+
+    if(touchedOrders.length > 0){
+      if(splitActive){
+        /* V21.9.20 split path: write only touched orders to their day docs */
+        await upsertManyPendingOrders(fresh, touchedOrders);
+      } else {
+        /* Legacy path: rebuild the full array with patches applied */
+        await db.runTransaction(async (tx) => {
+          const snap2 = await tx.get(cfgRef);
+          const c = snap2.exists ? (snap2.data() || {}) : {};
+          const arr = Array.isArray(c.shopifyPendingOrders) ? c.shopifyPendingOrders.slice() : [];
+          const patchById = new Map(touchedOrders.map(o => [String(o.shopify_order_id), o]));
+          for(let i = 0; i < arr.length; i++){
+            const id = String(arr[i].shopify_order_id);
+            if(patchById.has(id)){
+              arr[i] = patchById.get(id);
+            }
+          }
+          tx.set(cfgRef, { shopifyPendingOrders: arr }, { merge: true });
+        });
+      }
+    }
+    bostaLiveUpdated = touchedOrders.length;
+
+    /* Always write metadata to factory/config (never write shopifyPendingOrders here
+       in split mode — that's what caused the V21.9.18 regression) */
+    await cfgRef.set({
+      shopifyConfig: {
+        ...(fresh.shopifyConfig || {}),
+        last_bosta_historical_sync_at: new Date().toISOString(),
+        last_bosta_historical_sync_count: allDeliveries.length,
+        last_bosta_live_updated: bostaLiveUpdated,
+        last_bosta_verification: {
+          ...verification,
+          mismatches: verification.mismatches.slice(0, 50),
+          run_at: new Date().toISOString(),
+        },
+      },
+    }, { merge: true });
   } catch(e){
     /* non-fatal */
     console.warn("[bosta-sync-historical] failed to update live orders:", e.message);
