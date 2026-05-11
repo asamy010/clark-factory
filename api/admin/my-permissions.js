@@ -65,35 +65,61 @@ export default async function handler(req, res) {
     const cfgSnap = await db.collection("factory").doc("config").get();
     const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
 
-    /* Determine role using the same logic as verifyAdminToken + Firestore rules */
+    /* V21.9.25 ROOT-CAUSE FIX: pre-V21.9.25 this function short-circuited on
+       the bootstrap check — if auth.uid matched BOOTSTRAP_ADMIN_UID, it
+       returned role=admin + isInUsersList=false WITHOUT also checking
+       cfg.users[uid]. So the panel showed "في cfg.users: ❌ لا" even when
+       the user WAS explicitly listed. The user (Ahmed Samy) reported:
+         "ليه ظاهر كده وانا في الصلاحيات موجود"
+       Fix: compute isInUsersList INDEPENDENTLY from the bootstrap check.
+       Source still reflects bootstrap precedence (since rules grant admin
+       via bootstrap even if cfg.users role is lower), but isInUsersList
+       now accurately reflects whether the user is explicitly registered. */
+
+    /* First: detect if user is registered in cfg.users / cfg.usersList */
+    const directEntry = (cfg.users && cfg.users[auth.uid]) !== undefined
+      ? cfg.users[auth.uid]
+      : null;
+    const listEntry = Array.isArray(cfg.usersList) && auth.email
+      ? cfg.usersList.find(u => u && u.email === auth.email)
+      : null;
+    const isInUsersList = directEntry !== null || !!listEntry;
+
+    /* Extract the explicit role from cfg (regardless of bootstrap) */
+    let explicitRole = null;
+    if (directEntry !== null) {
+      explicitRole = typeof directEntry === "string"
+        ? (directEntry || "viewer")
+        : (directEntry && directEntry.role) || "viewer";
+    } else if (listEntry) {
+      explicitRole = listEntry.role || "viewer";
+    }
+
+    /* Then: determine final role + source.
+       Bootstrap takes precedence for the effective role (because that's
+       what the rules use), but we surface both info in `source`. */
     let role = "viewer";
     let source = "default (viewer)";
     let isBootstrap = false;
-    let isInUsersList = false;
 
     const bootstrapEnv = (process.env.BOOTSTRAP_ADMIN_UID || "").trim();
     if (bootstrapEnv && auth.uid === bootstrapEnv) {
       role = "admin";
-      source = "BOOTSTRAP_ADMIN_UID env var";
       isBootstrap = true;
+      source = explicitRole
+        ? "BOOTSTRAP_ADMIN_UID env var (+ cfg.users[" + explicitRole + "])"
+        : "BOOTSTRAP_ADMIN_UID env var";
     } else if (auth.uid === RULES_BOOTSTRAP_UID) {
       role = "admin";
-      source = "Hardcoded rules bootstrap UID";
       isBootstrap = true;
-    } else if (cfg.users && cfg.users[auth.uid] !== undefined) {
-      const u = cfg.users[auth.uid];
-      role = typeof u === "string"
-        ? (u || "viewer")
-        : (u && u.role) || "viewer";
-      source = "cfg.users[" + auth.uid + "]";
-      isInUsersList = true;
-    } else if (Array.isArray(cfg.usersList) && auth.email) {
-      const byEmail = cfg.usersList.find(u => u && u.email === auth.email);
-      if (byEmail) {
-        role = byEmail.role || "viewer";
-        source = "cfg.usersList (by email)";
-        isInUsersList = true;
-      }
+      source = explicitRole
+        ? "Hardcoded rules bootstrap UID (+ cfg.users[" + explicitRole + "])"
+        : "Hardcoded rules bootstrap UID";
+    } else if (explicitRole) {
+      role = explicitRole;
+      source = directEntry !== null
+        ? "cfg.users[" + auth.uid + "]"
+        : "cfg.usersList (by email)";
     }
 
     /* Effective permissions for this role */

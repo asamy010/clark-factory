@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.25",
+    date: "2026-05-11",
+    types: ["fix"],
+    title: "🔧 Phase 13g — إصلاح short-circuit في my-permissions",
+    changes: [
+      { type: "fix", text: "🔧 [my-permissions كان بـ يـ short-circuit على الـ bootstrap UID]\nالمستخدم بلّغ: 'ليه ظاهر في cfg.users ❌ لا وأنا في الصلاحيات موجود؟'\n\nROOT CAUSE: في api/admin/my-permissions.js، الـ logic كانت:\n```\nif (uid === BOOTSTRAP_UID) {\n  role = 'admin'; source = 'BOOTSTRAP'; isBootstrap = true;\n  // ← ينتهي هنا\n} else if (cfg.users[uid]) {\n  isInUsersList = true; // ← مفيش وصول لهنا\n}\n```\n\nلو الـ UID match الـ bootstrap، الـ كود ما بـ يـ check cfg.users خالص → الـ flag isInUsersList بـ يفضل false **حتى لو الـ user موجود فعلاً** في cfg.users. ده misleading: الـ Users Management panel بـ يـ list-ـه (لأن handleList بـ يـ scan cfg.users فعلاً)، لكن الـ My Permissions panel بـ يقول 'مش موجود'.\n\nFIX: قسمت الـ logic لـ 2 steps independent:\n1. Compute `isInUsersList` بـ يـ check cfg.users + cfg.usersList دايماً (regardless of bootstrap)\n2. Compute `role` + `source` — لو bootstrap match، الـ role admin؛ لكن الـ source بـ يـ surface إنه موجود في cfg.users كمان (مثلاً: 'BOOTSTRAP_ADMIN_UID env var (+ cfg.users[admin])')\n\nالنتيجة: الـ panel دلوقتي بـ يعرض الحقيقة الكاملة — انت admin via bootstrap، AND انت explicitly listed في cfg.users." },
+    ]
+  },
+  {
     version: "V21.9.24",
     date: "2026-05-11",
     types: ["fix", "feature", "architectural"],
