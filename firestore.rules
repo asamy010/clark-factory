@@ -65,11 +65,17 @@ service cloud.firestore {
     function isAdmin()        { return hasRole(['admin']); }
     function isManagerPlus()  { return hasRole(['admin', 'manager']); }
     function isSalesScope()   { return hasRole(['admin','manager','sales_accountant']); }
-    function isPurchaseScope(){ return hasRole(['admin','manager','purchase_accountant']); }
+    /* V21.9.26: warehouse_keeper added to purchase scope — warehouse ops
+       (receiving, stock counts, purchase receipts) are under purchase scope */
+    function isPurchaseScope(){ return hasRole(['admin','manager','purchase_accountant','warehouse_keeper']); }
+    /* V21.9.26: warehouse-specific scope (no treasury access) — warehouse_keeper
+       only writes warehouse + stock + purchase receipts, NOT invoices/treasury */
+    function isWarehouseScope(){ return hasRole(['admin','manager','purchase_accountant','warehouse_keeper']); }
     function isAnyAccountant(){ return hasRole(['admin','manager','sales_accountant','purchase_accountant','payroll_accountant']); }
     function isHRRole()       { return hasRole(['admin','manager','payroll_accountant','payroll_verifier']); }
     function isHRWriter()     { return hasRole(['admin','manager','payroll_accountant']); }/* V19.64: verifier excluded */
-    function isAnyUser()      { return isAuthed() && (isBootstrapAdmin() || getRole() in ['admin','manager','sales_accountant','purchase_accountant','payroll_accountant','payroll_verifier','viewer']); }
+    /* V21.9.26: warehouse_keeper added to isAnyUser */
+    function isAnyUser()      { return isAuthed() && (isBootstrapAdmin() || getRole() in ['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant','payroll_verifier','viewer']); }
 
     /* V19.64: detect sensitive-field changes on factory/config.
        Only admin can change role assignments / permissions / custom roles. */

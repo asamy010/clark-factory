@@ -50,6 +50,12 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [addUid, setAddUid] = useState("");
   const [addEmail, setAddEmail] = useState("");
   const [addRole, setAddRole] = useState("manager");
+  /* V21.9.26: Users sync audit (cfg.users ↔ cfg.usersList) */
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [syncApplyBusy, setSyncApplyBusy] = useState(false);
+  /* Per-row role override for the sync table */
+  const [syncOverrides, setSyncOverrides] = useState({});
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -399,6 +405,59 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9.26: Users sync audit + apply */
+  const runUsersSyncAudit = async () => {
+    if(!canEdit) return;
+    setSyncBusy(true);
+    setSyncOverrides({});
+    try {
+      const r = await usersPermissions({ action: "sync_audit" }, user);
+      if(r?.ok) setSyncResult(r);
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setSyncBusy(false); }
+  };
+
+  const applyUsersSync = async () => {
+    if(!syncResult || !canEdit) return;
+    /* Build the changes list using overrides or recommended */
+    const changes = (syncResult.users || [])
+      .filter(u => u.will_change || syncOverrides[u.uid || u.email])
+      .map(u => ({
+        uid: u.uid,
+        email: u.email,
+        role: syncOverrides[u.uid || u.email] || u.recommended_role,
+      }))
+      .filter(c => c.uid || c.email);
+
+    if(changes.length === 0){
+      showToast("✨ مفيش تغييرات للتطبيق");
+      return;
+    }
+
+    const yes = await ask(
+      "🔧 تطبيق الـ users sync",
+      `هـ يتـ sync ${changes.length} user:\n\n` +
+      changes.slice(0, 10).map(c => "• " + (c.email || c.uid) + " → " + c.role).join("\n") +
+      (changes.length > 10 ? `\n... و ${changes.length - 10} آخرين` : "") +
+      `\n\nالتغييرات بـ تتـ write على cfg.users AND cfg.usersList بـ نفس القيم.\nBackup كامل قبل أي write.\nتأكيد؟`
+    );
+    if(!yes) return;
+
+    setSyncApplyBusy(true);
+    try {
+      const r = await usersPermissions({ action: "sync_apply", changes }, user);
+      if(r?.ok){
+        showToast(`✅ تم! sync ${r.applied} user`);
+        await runUsersSyncAudit(); /* refresh */
+        setTimeout(() => {
+          tell("✨ تم بنجاح", "اطلب من المستخدمين يعملوا Ctrl+Shift+R في الـ apps بتاعتهم — الصلاحيات بـ تتفعّل فوراً بعد الـ refresh.");
+        }, 500);
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setSyncApplyBusy(false); }
+  };
+
   const addUserManually = async () => {
     if(!addUid.trim() && !addEmail.trim()){
       showToast("⛔ ادخل UID أو email");
@@ -636,6 +695,154 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
           {auditResult.suggestions?.length > 0 && !auditResult.mismatches?.any && (
             <div style={{ marginTop: 6, fontSize: FS - 2, color: T.textSec }}>
               {auditResult.suggestions.map((s, i) => <div key={i}>• {s}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.26: Users Sync Audit (cfg.users ↔ cfg.usersList mismatch detection) */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                🔄 Users Sync — كشف عدم تطابق Settings ↔ Rules
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                CLARK عنده مصدرين للـ users: <code>cfg.usersList</code> (الـ Settings page بـ يـ display) و <code>cfg.users</code> (الـ Firestore rules بـ تستخدم). لو الاتنين مش متطابقين، الـ user بـ يـ شوف صلاحياتها لكن مش يقدر يـ save (الـ rules بـ تـ deny). كمان الـ roles ممكن تكون مكتوبة بـ Arabic ("محاسب مشتريات") في usersList بدل English ("purchase_accountant") في users.
+              </div>
+            </div>
+            <LoadingBtn loading={syncBusy} loadingText="..." onClick={runUsersSyncAudit} small
+              style={{ background: "#8B5CF6", color: "#fff", border: "none", fontWeight: 700 }}>
+              🔍 افحص الـ Sync
+            </LoadingBtn>
+          </div>
+
+          {syncResult && syncResult.ok && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                padding: 10, marginBottom: 10,
+                background: (syncResult.total_issues > 0 ? "#DC2626" + "10" : T.ok + "10"),
+                border: "1.5px solid " + (syncResult.total_issues > 0 ? "#DC2626" : T.ok) + "40",
+                borderRadius: 8,
+              }}>
+                <div style={{ fontWeight: 800, fontSize: FS - 1, color: syncResult.total_issues > 0 ? "#DC2626" : T.ok }}>
+                  {syncResult.total_issues > 0
+                    ? `🚨 لقينا ${syncResult.total_issues} مشكلة في ${syncResult.users.length} user`
+                    : `✅ كل الـ users متطابقين`}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(5, 1fr)", gap: 6, marginTop: 8 }}>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>
+                    Role mismatches: <b style={{ color: T.warn }}>{syncResult.summary.role_mismatches}</b>
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>
+                    مش في cfg.users: <b style={{ color: "#DC2626" }}>{syncResult.summary.missing_from_users}</b>
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>
+                    مش في usersList: <b style={{ color: T.warn }}>{syncResult.summary.missing_from_userslist}</b>
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>
+                    Unknown labels: <b style={{ color: T.warn }}>{syncResult.summary.unknown_labels}</b>
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec }}>
+                    مفيش UID: <b style={{ color: T.err }}>{syncResult.summary.missing_uid}</b>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ maxHeight: 400, overflow: "auto", borderRadius: 8, border: "1px solid " + T.brd, marginBottom: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
+                  <thead style={{ background: T.cardSolid, position: "sticky", top: 0 }}>
+                    <tr>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd }}>User</th>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd }}>usersList (Arabic)</th>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd }}>users (English)</th>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd }}>Issues</th>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd }}>الـ Role النهائي</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(syncResult.users || []).map((u, i) => {
+                      const key = u.uid || u.email || ("row_" + i);
+                      const overrideVal = syncOverrides[key];
+                      const finalRole = overrideVal || u.recommended_role;
+                      const hasIssues = u.issues && u.issues.length > 0;
+                      return (
+                        <tr key={key} style={{
+                          background: hasIssues ? "#DC2626" + "06" : "transparent",
+                          borderBottom: "1px solid " + T.brd,
+                        }}>
+                          <td style={{ padding: "6px", verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 700 }}>{u.display_name || u.email || u.uid}</div>
+                            <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
+                              {u.email}{u.uid ? " · " + u.uid.slice(0, 12) + "…" : ""}
+                            </div>
+                          </td>
+                          <td style={{ padding: "6px", verticalAlign: "top" }}>
+                            {u.userslist_raw ? (
+                              <div>
+                                <code style={{ background: T.cardSolid, padding: "2px 6px", borderRadius: 4 }}>{u.userslist_raw}</code>
+                                {u.userslist_normalized !== u.userslist_raw && (
+                                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>
+                                    → {u.userslist_normalized}
+                                  </div>
+                                )}
+                              </div>
+                            ) : <span style={{ color: T.textMut }}>—</span>}
+                          </td>
+                          <td style={{ padding: "6px", verticalAlign: "top" }}>
+                            {u.users_raw ? (
+                              <code style={{ background: T.cardSolid, padding: "2px 6px", borderRadius: 4, color: u.users_normalized !== u.userslist_normalized && u.userslist_normalized ? "#DC2626" : T.text }}>
+                                {u.users_raw}
+                              </code>
+                            ) : <span style={{ color: "#DC2626", fontWeight: 700 }}>❌ مش موجود</span>}
+                          </td>
+                          <td style={{ padding: "6px", verticalAlign: "top" }}>
+                            {hasIssues ? (
+                              u.issues.map((iss, j) => (
+                                <span key={j} style={{
+                                  display: "inline-block", padding: "1px 6px", margin: "1px",
+                                  background: "#DC2626" + "20", color: "#DC2626",
+                                  fontSize: FS - 4, borderRadius: 4, fontFamily: "monospace",
+                                }}>{iss}</span>
+                              ))
+                            ) : <span style={{ color: T.ok }}>✅</span>}
+                          </td>
+                          <td style={{ padding: "6px", verticalAlign: "top" }}>
+                            <select
+                              value={finalRole}
+                              onChange={(e) => setSyncOverrides({ ...syncOverrides, [key]: e.target.value })}
+                              style={{ padding: "4px 6px", border: "1px solid " + T.brd, borderRadius: 4, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                            >
+                              {(syncResult.valid_roles || []).map(r => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                              {(syncResult.custom_roles || []).map(r => (
+                                <option key={r} value={r}>{r} (custom)</option>
+                              ))}
+                            </select>
+                            {u.recommended_reason && (
+                              <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2 }}>
+                                {u.recommended_reason}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {syncResult.total_issues > 0 && (
+                <LoadingBtn loading={syncApplyBusy} loadingText="جاري التطبيق..." onClick={applyUsersSync}
+                  style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 800 }}>
+                  🔧 طبّق الـ Sync على كل الـ users
+                </LoadingBtn>
+              )}
             </div>
           )}
         </div>
