@@ -330,6 +330,122 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
+       V21.9.19 — ROOT-CAUSE FIX: missing match clauses for
+       collections introduced in V21.9.2+, V21.9.5+, V21.9.7+,
+       V21.9.8+, and V21.9.18.
+
+       Pre-V21.9.19 these collections fell through to the
+       `match /{document=**} { allow read, write: if false; }`
+       catch-all at the bottom of this file. Server endpoints
+       (firebase-admin) bypass rules so writes succeeded, but
+       CLIENT-side listeners and migrations were silently DENIED:
+
+       Symptom 1: User syncs customers → server writes 1147 docs
+         to shopifyCustomersDocs (admin SDK, bypasses rules).
+         Client listener fails to subscribe → partitionedData
+         stays empty → UI shows "no customers". User syncs
+         again, sees toast "1147 customers", but list is still
+         empty after refresh. They re-sync every time.
+
+       Symptom 2: V21.9.18 migration writes orders to
+         shopifyOrdersDays from the client (App.jsx auto-run).
+         Rule denies → write fails → migration never completes
+         → factory/config bloat stays.
+
+       Fix: explicit match clauses for ALL Shopify, Bosta,
+       AI Agent, sync-jobs, and recent-split collections.
+       Read scoped to sales-or-admin (Shopify data is sales).
+       Write scoped to admin/manager+ for safety.
+       ────────────────────────────────────────────────────────── */
+
+    /* V21.9.2 — Shopify per-doc collections (products + customers) */
+    match /shopifyProductsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+    match /shopifyCustomersDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isSalesScope();
+    }
+
+    /* V21.9.18 — Shopify pending orders, split daily */
+    match /shopifyOrdersDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isSalesScope();
+    }
+
+    /* V21.9.1 — historical orders archive (per yearmonth) */
+    match /shopifyOrdersArchive/{month} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* V21.9 — Bosta deliveries archive */
+    match /bostaDeliveriesArchive/{month} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* V21.9.5 — credit / debit notes (إشعارات الدائنة / المدينة) */
+    match /salesCreditNotesDays/{day} {
+      allow read:  if isSalesScope();
+      allow write: if isSalesScope();
+    }
+    match /purchaseDebitNotesDays/{day} {
+      allow read:  if isPurchaseScope();
+      allow write: if isPurchaseScope();
+    }
+
+    /* V21.9.7 — Shopify return requests (طلبات الارتجاع) */
+    match /shopifyReturnRequestsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isSalesScope();
+    }
+
+    /* V21.9.8 — WhatsApp campaigns (templates + per-customer run logs) */
+    match /whatsappCampaignsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isSalesScope();
+    }
+    match /whatsappCampaignRunsDays/{day} {
+      allow read:  if isAnyUser();
+      allow write: if isSalesScope();
+    }
+
+    /* V21.9.4 — progress-tracker job docs.
+       Each sync/pull operation creates a job doc and the CLIENT
+       subscribes to its updates via onSnapshot. Without this rule
+       the overlay would hang at "بدء العملية..." forever. */
+    match /syncJobs/{jobId} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* V19.71+ — AI Agent collections.
+       Phase A scaffold — even if not actively used yet, declaring
+       the rules prevents future "why is the AI panel empty" surprises. */
+    match /aiAgentConversations/{id} {
+      allow read:  if isManagerPlus();
+      allow write: if isManagerPlus();
+    }
+    match /aiAgentEscalations/{id} {
+      allow read:  if isManagerPlus();
+      allow write: if isManagerPlus();
+    }
+    match /aiAgentSalesNotifications/{id} {
+      allow read:  if isSalesScope();
+      allow write: if isManagerPlus();
+    }
+    match /aiAgentSuggestions/{id} {
+      allow read:  if isManagerPlus();
+      allow write: if isManagerPlus();
+    }
+    match /aiAgentAnalytics/{id} {
+      allow read:  if isManagerPlus();
+      allow write: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
     match /{document=**} {

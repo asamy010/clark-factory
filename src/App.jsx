@@ -2261,22 +2261,35 @@ export default function App(){
      endpoints (sync-orders-now, mark-delivered, mark-refused,
      process-return, etc.) have been updated to read/write day docs.
      ═══════════════════════════════════════════════════════════════════ */
+  /* V21.9.18 + V21.9.19 hardening: V2199 migration is now INDEPENDENT of
+     other split migrations. Pre-V21.9.19 it required _splitDaysV2198Done
+     (WhatsApp campaigns), creating a fragile chain — if V2198 hadn't been
+     stamped for any reason (network blip, paused before write, prior
+     install before V21.9.8 deployment), V2199 would never run. The user
+     reported the migration "didn't happen" — V2198 was almost certainly the
+     stuck link. The fix decouples them: V2199 only cares about its own
+     state + the migration flags listed in SPLIT_COLLECTIONS / SPLIT_FIELDS.
+
+     V21.9.19: also the success state no longer auto-dismisses — the user
+     explicitly clicks "تم، أكمل" so they SEE that the migration ran. */
   const splitDaysV2199MigrationRef=useRef(false);
   useEffect(()=>{
     if(!user||splitDaysV2199MigrationRef.current)return;
     if(!configDoc||!configDoc.accessories)return;
-    if(!configDoc._splitDaysV2198Done)return;/* V21.9.8 must run first */
     if(configDoc._splitDaysV2199Done)return;/* already migrated */
     if(!splitLoaded)return;
 
     const legacyOrders=Array.isArray(configDoc.shopifyPendingOrders)?configDoc.shopifyPendingOrders:[];
 
     splitDaysV2199MigrationRef.current=true;
+    console.log("[V21.9.19] Starting shopifyPendingOrders daily-split migration. Orders to move:",legacyOrders.length);
 
     (async()=>{
       try{
         if(legacyOrders.length===0){
-          /* No data to move — just stamp the flag and exit. */
+          /* No data to move — just stamp the flag and exit silently
+             (no popup since there's nothing to migrate). */
+          console.log("[V21.9.19] No legacy orders — stamping flag only.");
           await runTransaction(db,async(tx)=>{
             const ref=doc(db,"factory","config");
             const snap=await tx.get(ref);
@@ -2287,10 +2300,15 @@ export default function App(){
           });
           return;
         }
+
+        /* V21.9.19: blocking popup that doesn't auto-dismiss until success
+           is confirmed by user click. Step labels are explicit so the user
+           knows progress. ⚠️ message warns against refresh. */
         setMigrationStatus({
           label:"تحديث: تقسيم طلبات Shopify (V21.9.18)",
           message:"الرجاء عدم إغلاق البرنامج. هذا التحديث يحرر مساحة كبيرة في قاعدة البيانات (مرة واحدة فقط).",
           progress:5,
+          blocking:true,/* V21.9.19: forces the overlay to require user dismiss */
         });
 
         /* Step 1: full backup before any modification — same pattern as
@@ -2308,21 +2326,23 @@ export default function App(){
           /* Full snapshot of the orders array (the rest of config is huge — just save the array) */
           shopifyPendingOrders:legacyOrders,
         });
+        console.log("[V21.9.19] Backup saved:",legacyOrders.length,"orders");
 
         /* Step 2: distribute to day docs via the generic helper.
            syncAllSplitChanges iterates SPLIT_FIELDS — shopifyPendingOrders is
            now in there, so passing oldArr=[] makes the helper treat every
            order as "added" and route it to its day doc via _getEntryDate. */
-        setMigrationStatus(s=>({...s,message:"نقل "+legacyOrders.length+" طلب إلى مستندات يومية...",progress:55}));
+        setMigrationStatus(s=>({...s,message:"نقل "+legacyOrders.length+" طلب إلى مستندات يومية...",progress:55,blocking:true}));
         await syncAllSplitChanges(
           {shopifyPendingOrders:[]},
           {shopifyPendingOrders:legacyOrders},
         );
+        console.log("[V21.9.19] Day-docs written.");
 
         /* Step 3: atomic strip + set flag. After this, the next read of
            factory/config from the listener won't include shopifyPendingOrders.
            Client merge picks it up from splitData (gated on the flag). */
-        setMigrationStatus(s=>({...s,message:"تنظيف factory/config...",progress:90}));
+        setMigrationStatus(s=>({...s,message:"تنظيف factory/config...",progress:90,blocking:true}));
         await runTransaction(db,async(tx)=>{
           const ref=doc(db,"factory","config");
           const snap=await tx.get(ref);
@@ -2334,6 +2354,7 @@ export default function App(){
           const next=stripSplitArrays(flagged);
           tx.set(ref,next);
         });
+        console.log("[V21.9.19] Strip + flag set. Migration complete.");
 
         try{
           await setDoc(doc(db,"migrationLog","shopify-orders-daily-v21.9.18-"+Date.now()),{
@@ -2344,13 +2365,31 @@ export default function App(){
             at:new Date().toISOString(),
           });
         }catch(_){}
-        setMigrationStatus({label:"تم بنجاح",message:"تم تحرير "+Math.round(JSON.stringify(legacyOrders).length/1024)+" KB من factory/config.",progress:100});
-        setTimeout(()=>setMigrationStatus(null),2000);
+
+        /* V21.9.19: success state requires manual dismissal (blocking=true,
+           no auto-timeout). The user clicks "تم" to acknowledge. This was
+           the user's specific request: لا يجب أن يُغلق تلقائياً. */
+        setMigrationStatus({
+          label:"✅ تم بنجاح",
+          message:"تم نقل "+legacyOrders.length+" طلب من factory/config إلى مستندات يومية منفصلة. حُرّر "+Math.round(JSON.stringify(legacyOrders).length/1024)+" KB. اضغط 'تم' للمتابعة.",
+          progress:100,
+          blocking:true,
+          dismissable:true,/* V21.9.19: user must click to dismiss */
+        });
       }catch(err){
-        console.error("[V21.9.18] shopifyPendingOrders migration failed:",err);
+        console.error("[V21.9.19] shopifyPendingOrders migration failed:",err);
         /* Reset the ref so the migration can retry on next mount. */
         splitDaysV2199MigrationRef.current=false;
-        setMigrationStatus(null);
+        /* V21.9.19: surface the error in a blocking dialog so the user knows
+           the migration didn't complete and can retry by reopening the app. */
+        setMigrationStatus({
+          label:"⛔ فشل التقسيم",
+          message:"فشل تقسيم طلبات Shopify. التفاصيل: "+(err?.message||String(err)).slice(0,200)+"\n\nالبيانات الأصلية محفوظة في factory/config — مفيش data lost. اعمل refresh للبرنامج وحاول تاني، أو اعمل screenshot للرسالة دي.",
+          progress:0,
+          blocking:true,
+          dismissable:true,
+          error:true,
+        });
       }
     })();
   },[user,configDoc,splitLoaded]);
@@ -6490,29 +6529,37 @@ export default function App(){
         This prevents users from adding data during the unsafe window between
         step 2 (sync day docs) and step 3 (config write). */}
     {migrationStatus && (
-      <div style={{
-        position:"fixed",inset:0,zIndex:99998,
-        background:"rgba(0,0,0,0.75)",backdropFilter:"blur(4px)",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        padding:16,
-      }}>
+      <div
+        /* V21.9.19: ALWAYS block backdrop click (no onClick handler).
+           User explicitly requested "ممنوع الغلق" (cannot be closed) during
+           the migration. Even outside dismissable state, clicking outside
+           the dialog does nothing. */
+        style={{
+          position:"fixed",inset:0,zIndex:99998,
+          background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          padding:16,
+        }}
+      >
         <div style={{
           background:T.cardSolid,borderRadius:16,padding:32,
           maxWidth:480,width:"100%",
           textAlign:"center",
-          boxShadow:"0 20px 60px rgba(0,0,0,0.4)",
-          border:"2px solid "+T.accent+"40",
+          boxShadow:"0 20px 60px rgba(0,0,0,0.5)",
+          border:"2px solid "+(migrationStatus.error?"#DC2626":T.accent)+"40",
         }}>
-          <div style={{fontSize:48,marginBottom:16}}>⚙️</div>
-          <div style={{fontSize:FS+4,fontWeight:800,color:T.accent,marginBottom:8}}>
+          <div style={{fontSize:48,marginBottom:16}}>
+            {migrationStatus.error?"⛔":(migrationStatus.progress===100?"✅":"⚙️")}
+          </div>
+          <div style={{fontSize:FS+4,fontWeight:800,color:migrationStatus.error?"#DC2626":T.accent,marginBottom:8}}>
             {migrationStatus.label}
           </div>
           {migrationStatus.message && (
-            <div style={{fontSize:FS,color:T.textSec,marginBottom:20,lineHeight:1.7}}>
+            <div style={{fontSize:FS,color:T.textSec,marginBottom:20,lineHeight:1.7,whiteSpace:"pre-line"}}>
               {migrationStatus.message}
             </div>
           )}
-          {typeof migrationStatus.progress==="number" && (
+          {typeof migrationStatus.progress==="number" && !migrationStatus.error && (
             <div style={{
               width:"100%",height:8,
               background:T.brd,borderRadius:4,overflow:"hidden",
@@ -6525,14 +6572,32 @@ export default function App(){
               }}/>
             </div>
           )}
-          {typeof migrationStatus.progress==="number" && (
+          {typeof migrationStatus.progress==="number" && !migrationStatus.error && (
             <div style={{fontSize:FS-2,color:T.textMut,fontFamily:"monospace"}}>
               {migrationStatus.progress}%
             </div>
           )}
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:18,lineHeight:1.6}}>
-            ⚠️ لا تغلق البرنامج أو تعمل refresh أثناء التحديث
-          </div>
+          {/* V21.9.19: dismiss button only shown when migration is in a terminal
+              state (success or error). During progress, no button — user can't
+              close the dialog by mistake. */}
+          {migrationStatus.dismissable && (
+            <button
+              onClick={()=>setMigrationStatus(null)}
+              style={{
+                marginTop:18,padding:"10px 28px",
+                background:migrationStatus.error?"#DC2626":T.ok,
+                color:"#fff",border:"none",borderRadius:10,
+                fontWeight:800,fontSize:FS,cursor:"pointer",fontFamily:"inherit",
+              }}
+            >
+              {migrationStatus.error?"تم — أعد فتح البرنامج":"تم، أكمل"}
+            </button>
+          )}
+          {!migrationStatus.dismissable && (
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:18,lineHeight:1.6}}>
+              ⚠️ لا تغلق البرنامج أو تعمل refresh أثناء التحديث
+            </div>
+          )}
         </div>
       </div>
     )}
