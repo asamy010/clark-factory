@@ -343,6 +343,12 @@ export function migrationLog(opts, user){
   return call("POST", "/api/admin/migration-log", opts || {}, user);
 }
 
+/* V21.9.30 — Audit permissions: detect cfg.permissions vs firestore.rules mismatches.
+   action="audit"|"autofix" */
+export function auditPermissions(opts, user){
+  return call("POST", "/api/admin/audit-permissions", opts || {}, user);
+}
+
 /* V21.9.7 Phase 11m: Return Requests CRUD.
    Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
    List   — { status?, search?, limit?, offset? }

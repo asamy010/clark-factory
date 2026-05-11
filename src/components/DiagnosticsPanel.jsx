@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -66,6 +66,11 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [logFilter, setLogFilter] = useState("");
   const [expandedLogEntry, setExpandedLogEntry] = useState(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
+  /* V21.9.30: Permissions audit (rules vs matrix) */
+  const [permAuditBusy, setPermAuditBusy] = useState(false);
+  const [permAuditResult, setPermAuditResult] = useState(null);
+  const [permFixBusy, setPermFixBusy] = useState(false);
+  const [permRoleFilter, setPermRoleFilter] = useState("");
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -415,6 +420,49 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9.30: Permissions audit */
+  const runPermissionsAudit = async () => {
+    setPermAuditBusy(true);
+    try {
+      const r = await auditPermissions({ action: "audit" }, user);
+      if(r?.ok) setPermAuditResult(r);
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setPermAuditBusy(false); }
+  };
+
+  const autofixPermissions = async () => {
+    if(!canEdit) return;
+    setPermFixBusy(true);
+    try {
+      const dry = await auditPermissions({ action: "autofix", dryRun: true }, user);
+      if(!dry?.ok){ showToast("⛔ " + (dry?.error || "فشل dry-run")); return; }
+      if((dry.changes || []).length === 0){
+        showToast("✨ مفيش conflicts للـ fix");
+        return;
+      }
+      const yes = await ask(
+        "🔧 إصلاح الـ permissions matrix",
+        `هـ يتـ تعديل ${dry.changes.length} cell في cfg.permissions:\n\n` +
+        dry.changes.slice(0, 10).map(c => `• ${c.role}.${c.tab}: ${c.from} → ${c.to}`).join("\n") +
+        (dry.changes.length > 10 ? `\n... و ${dry.changes.length - 10} آخرين` : "") +
+        `\n\nده هـ يـ align الـ UI مع الـ Firestore rules. Backup كامل قبل أي تعديل. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await auditPermissions({ action: "autofix" }, user);
+      if(r?.ok){
+        showToast(`✅ تم! ${r.changes_applied} conflict اتـ fix`);
+        await runPermissionsAudit();
+        setTimeout(() => {
+          tell("✨ تم!", "اطلب من كل الموظفين يعملوا Ctrl+Shift+R في الـ apps بتاعتهم — الـ tabs بـ تـ refresh مع الـ permissions الجديدة.");
+        }, 500);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setPermFixBusy(false); }
+  };
+
   /* V21.9.28: Migration Log inspector + restore */
   const loadMigrationLog = async () => {
     setLogBusy(true);
@@ -711,6 +759,116 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                   style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700, marginTop: 6 }}>
                   🆘 Bootstrap me as admin
                 </LoadingBtn>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.30: Permissions Audit — rules vs cfg.permissions cross-check */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                🛡 Permissions Audit — Rules vs UI Matrix
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                المشكلة الأكثر شيوعاً: cfg.permissions[role][tab] = "view" لكن firestore.rules بـ تـ deny الـ read للـ role دي. النتيجة: الـ user يشوف الـ tab لكن الـ data جاية صفر. الـ audit بـ يـ scan كل role × كل tab × الـ rules + الـ matrix ويعرضك الـ mismatches.
+              </div>
+            </div>
+            <LoadingBtn loading={permAuditBusy} loadingText="..." onClick={runPermissionsAudit} small
+              style={{ background: "#8B5CF6", color: "#fff", border: "none", fontWeight: 700 }}>
+              🛡 افحص الـ Permissions
+            </LoadingBtn>
+          </div>
+
+          {permAuditResult && permAuditResult.ok && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                padding: 10, marginBottom: 10,
+                background: (permAuditResult.summary.critical_conflicts > 0 ? "#DC2626" + "10" : T.ok + "10"),
+                border: "1.5px solid " + (permAuditResult.summary.critical_conflicts > 0 ? "#DC2626" : T.ok) + "40",
+                borderRadius: 8,
+              }}>
+                <div style={{ fontWeight: 800, fontSize: FS - 1, color: permAuditResult.summary.critical_conflicts > 0 ? "#DC2626" : T.ok, marginBottom: 6 }}>
+                  {permAuditResult.summary.critical_conflicts > 0
+                    ? `🚨 ${permAuditResult.summary.critical_conflicts} conflicts حرجة + ${permAuditResult.summary.total_conflicts - permAuditResult.summary.critical_conflicts} تحذيرات`
+                    : "✅ Permissions matrix متطابق مع firestore.rules"}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 6 }}>
+                  {(permAuditResult.roles || []).map(role => {
+                    const stats = permAuditResult.summary.by_role[role] || { total: 0, critical: 0 };
+                    if(stats.total === 0) return null;
+                    return (
+                      <div key={role} style={{ fontSize: FS - 3, color: T.textSec, padding: "4px 8px", background: T.cardSolid, borderRadius: 4 }}>
+                        <code>{role}</code>:{" "}
+                        <b style={{ color: stats.critical > 0 ? "#DC2626" : T.warn }}>{stats.total}</b>
+                        {stats.critical > 0 && <span style={{ color: "#DC2626" }}> ({stats.critical} حرج)</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {permAuditResult.summary.critical_conflicts > 0 && (
+                <>
+                  <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <select
+                      value={permRoleFilter}
+                      onChange={(e) => setPermRoleFilter(e.target.value)}
+                      style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                    >
+                      <option value="">All roles</option>
+                      {(permAuditResult.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <LoadingBtn loading={permFixBusy} loadingText="..." onClick={autofixPermissions} small
+                      style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 800 }}>
+                      🔧 Auto-fix الكل
+                    </LoadingBtn>
+                  </div>
+                  <div style={{ borderRadius: 6, border: "1px solid " + T.brd, overflow: "hidden", maxHeight: 450, overflowY: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
+                      <thead style={{ background: T.cardSolid, position: "sticky", top: 0 }}>
+                        <tr>
+                          <th style={{ padding: "6px", textAlign: "start" }}>Role</th>
+                          <th style={{ padding: "6px", textAlign: "start" }}>Tab</th>
+                          <th style={{ padding: "6px", textAlign: "start" }}>Matrix</th>
+                          <th style={{ padding: "6px", textAlign: "start" }}>Rules</th>
+                          <th style={{ padding: "6px", textAlign: "start" }}>المشكلة</th>
+                          <th style={{ padding: "6px", textAlign: "start" }}>التصحيح</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(permAuditResult.conflicts || [])
+                          .filter(c => !permRoleFilter || c.role === permRoleFilter)
+                          .map((c, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid " + T.brd, background: "#DC2626" + "06" }}>
+                              <td style={{ padding: "6px", fontWeight: 700 }}>{c.role}</td>
+                              <td style={{ padding: "6px" }}><code>{c.tab}</code></td>
+                              <td style={{ padding: "6px" }}>
+                                <code style={{ background: T.cardSolid, padding: "1px 6px", borderRadius: 4 }}>{c.matrix || "—"}</code>
+                              </td>
+                              <td style={{ padding: "6px", fontSize: FS - 3 }}>
+                                {c.can_read ? "✅ read" : "❌ deny read"} · {c.can_write ? "✅ write" : "❌ deny write"}
+                              </td>
+                              <td style={{ padding: "6px", fontSize: FS - 3, color: T.err }}>
+                                {c.conflict === "matrix_says_view_but_rules_deny_read" && "tab تظهر فاضية"}
+                                {c.conflict === "matrix_says_edit_but_rules_deny_write" && "مش يقدر يحفظ"}
+                                {c.conflict === "matrix_says_edit_but_rules_only_allow_read" && "edit مش بـ يشتغل"}
+                              </td>
+                              <td style={{ padding: "6px" }}>
+                                {c.matrix} → <b style={{ color: T.ok }}>{c.recommended}</b>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           )}
