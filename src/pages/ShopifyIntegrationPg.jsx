@@ -5886,8 +5886,10 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     setComposerOpen(true);
   };
 
-  /* Called by the composer when "Send" is clicked */
-  const handleComposerSend = async (message, imageUrl) => {
+  /* Called by the composer when "Send" is clicked.
+     V21.9.31: now supports sendMode = "bridge" | "manual". The composer
+     decides which mode based on the bridgeUrl prop + user's radio choice. */
+  const handleComposerSend = async (message, imageUrl, sendMode) => {
     const targets = composerTargets;
     if(!targets || targets.length === 0){
       setComposerOpen(false);
@@ -5895,20 +5897,57 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
     }
     setComposerBusy(true);
     try {
-      let opened = 0;
-      for(let i = 0; i < targets.length; i++){
-        const c = targets[i];
-        /* Use shared variable substitution helper for consistency with campaigns */
-        const text = renderMessageWithVariables(message, c);
-        const url = buildWhatsAppLink(c.phone, text);
-        window.open(url, "_blank");
-        opened++;
-        if(i < targets.length - 1){
-          await new Promise(r => setTimeout(r, 400));
-        }
-      }
-      showToast(`📱 اتفتح ${opened} tab`);
+      const bridgeUrl = data?.campaignBridge?.url || "";
+      const bridgeToken = data?.campaignBridge?.token || "";
+      const useBridge = sendMode === "bridge" && bridgeUrl;
 
+      if(useBridge){
+        /* V21.9.31: send via WA bridge — single HTTP POST with messages
+           array. The bridge handles the actual WhatsApp Web automation
+           in the background — no tabs open in the browser. */
+        const messages = targets.map(c => ({
+          phone: c.phone,
+          body: renderMessageWithVariables(message, c),
+          images: imageUrl ? [imageUrl] : [],
+        }));
+        try {
+          const base = bridgeUrl.replace(/\/+$/, "");
+          const headers = { "Content-Type": "application/json" };
+          if(bridgeToken) headers["Authorization"] = "Bearer " + bridgeToken;
+          const r = await fetch(base + "/send", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ messages }),
+          });
+          if(!r.ok){
+            const text = await r.text();
+            throw new Error("Bridge HTTP " + r.status + ": " + text.slice(0, 200));
+          }
+          const result = await r.json();
+          if(!result.ok) throw new Error(result.error || "Bridge rejected");
+          showToast(`🌉 تم إرسال ${result.added || messages.length} رسالة عبر Bridge`);
+        } catch(e){
+          showToast("⛔ Bridge فشل: " + e.message);
+          console.error("[handleComposerSend] bridge error:", e);
+          return; /* don't bump contact_count if send failed */
+        }
+      } else {
+        /* Manual mode — open WhatsApp Web tabs (existing behavior) */
+        let opened = 0;
+        for(let i = 0; i < targets.length; i++){
+          const c = targets[i];
+          const text = renderMessageWithVariables(message, c);
+          const url = buildWhatsAppLink(c.phone, text);
+          window.open(url, "_blank");
+          opened++;
+          if(i < targets.length - 1){
+            await new Promise(r => setTimeout(r, 400));
+          }
+        }
+        showToast(`📱 اتفتح ${opened} tab`);
+      }
+
+      /* Bump contact_count on the customers (both modes) */
       try {
         await shopifyUpdateCustomer({
           bulkCustomerIds: targets.map(c => c.id),
@@ -6208,7 +6247,9 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
         )}
       </Card>
 
-      {/* V21.9.8: Professional WhatsApp composer modal */}
+      {/* V21.9.8: Professional WhatsApp composer modal.
+          V21.9.31: pass bridge config so the composer can show a
+          Manual/Bridge mode picker. */}
       <WhatsAppComposer
         open={composerOpen}
         recipients={composerTargets}
@@ -6216,6 +6257,8 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
         onClose={() => !composerBusy && setComposerOpen(false)}
         onSend={handleComposerSend}
         busy={composerBusy}
+        bridgeUrl={data?.campaignBridge?.url || ""}
+        bridgeToken={data?.campaignBridge?.token || ""}
       />
     </div>
   );

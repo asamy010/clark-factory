@@ -73,10 +73,14 @@ const TEMPLATES = [
   },
 ];
 
-export function WhatsAppComposer({ open, recipients, initialMessage, onClose, onSend, busy }){
+export function WhatsAppComposer({ open, recipients, initialMessage, onClose, onSend, busy, bridgeUrl, bridgeToken }){
   const [message, setMessage] = useState(initialMessage || "");
   const [imageUrl, setImageUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  /* V21.9.31: send mode — manual opens WhatsApp Web tabs, bridge sends via
+     local WA bridge node service (clark-wa-bridge). Defaults to bridge if
+     configured (preferred) — manual as fallback. */
+  const [sendMode, setSendMode] = useState(bridgeUrl ? "bridge" : "manual");
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -85,8 +89,9 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
     if(open){
       setMessage(initialMessage || "");
       setImageUrl("");
+      setSendMode(bridgeUrl ? "bridge" : "manual");
     }
-  }, [open, initialMessage]);
+  }, [open, initialMessage, bridgeUrl]);
 
   if(!open) return null;
 
@@ -178,7 +183,8 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
       showToast("⚠️ الرسالة طويلة جداً (الحد الأقصى " + charLimit + " حرف)");
       return;
     }
-    onSend(message, imageUrl);
+    /* V21.9.31: pass the selected sendMode through to the caller */
+    onSend(message, imageUrl, sendMode);
   };
 
   return (
@@ -426,6 +432,42 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
           </div>
         </div>
 
+        {/* V21.9.31: Send mode picker — shown only if bridge is configured */}
+        {bridgeUrl && recipientCount > 0 && (
+          <div style={{
+            padding: "10px 20px",
+            background: T.bg,
+            borderTop: "1px solid " + T.brd,
+            display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+          }}>
+            <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.text }}>
+              🔀 طريقة الإرسال:
+            </div>
+            <label style={{
+              display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+              padding: "6px 12px", borderRadius: 8,
+              background: sendMode === "bridge" ? "#25D36620" : T.cardSolid,
+              border: "1.5px solid " + (sendMode === "bridge" ? "#25D366" : T.brd),
+              fontSize: FS - 2, fontWeight: sendMode === "bridge" ? 700 : 500,
+            }}>
+              <input type="radio" checked={sendMode === "bridge"} onChange={() => setSendMode("bridge")} />
+              🌉 Bridge (تلقائي)
+              <span style={{ fontSize: FS - 4, color: T.textMut }}>— يبعت من نفسه</span>
+            </label>
+            <label style={{
+              display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+              padding: "6px 12px", borderRadius: 8,
+              background: sendMode === "manual" ? T.warn + "20" : T.cardSolid,
+              border: "1.5px solid " + (sendMode === "manual" ? T.warn : T.brd),
+              fontSize: FS - 2, fontWeight: sendMode === "manual" ? 700 : 500,
+            }}>
+              <input type="radio" checked={sendMode === "manual"} onChange={() => setSendMode("manual")} />
+              📱 يدوي (Tabs)
+              <span style={{ fontSize: FS - 4, color: T.textMut }}>— يفتح WhatsApp Web</span>
+            </label>
+          </div>
+        )}
+
         {/* Footer actions */}
         <div style={{
           position: "sticky", bottom: 0,
@@ -435,7 +477,9 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
           display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap",
         }}>
           <div style={{ fontSize: FS - 3, color: T.textMut }}>
-            💡 الـ WhatsApp Web هـ يفتح tab لكل عميل — تأكد من الـ login قبل الإرسال
+            {sendMode === "bridge"
+              ? "🌉 الـ Bridge هـ يبعت الرسائل في الـ background — مفيش حاجة هتظهر لك"
+              : "💡 الـ WhatsApp Web هـ يفتح tab لكل عميل — تأكد من الـ login قبل الإرسال"}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn small onClick={onClose}>إلغاء</Btn>
@@ -445,9 +489,13 @@ export function WhatsAppComposer({ open, recipients, initialMessage, onClose, on
               loadingText="جاري الإرسال..."
               onClick={handleSubmit}
               disabled={!message.trim() || charCount > charLimit}
-              style={{ background: "#25D366", color: "#fff", border: "none", fontWeight: 800, padding: "8px 18px" }}
+              style={{
+                background: sendMode === "bridge" ? "#25D366" : T.warn,
+                color: "#fff", border: "none", fontWeight: 800, padding: "8px 18px",
+              }}
             >
-              📤 إرسال {recipientCount > 0 ? `(${recipientCount})` : ""}
+              {sendMode === "bridge" ? "🌉 إرسال عبر Bridge" : "📱 إرسال يدوي"}
+              {recipientCount > 0 ? ` (${recipientCount})` : ""}
             </LoadingBtn>
           </div>
         </div>

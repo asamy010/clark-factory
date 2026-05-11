@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.31",
+    date: "2026-05-11",
+    types: ["feature", "improvement"],
+    title: "🌉 Phase 13m — WhatsApp Bridge integration للـ Shopify Customers Bulk",
+    changes: [
+      { type: "fix", text: "🚨 [الـ user بلّغ: 'WhatsApp Bulk شغال اليدوي مش البريدج']\nفي Shopify Integration → tab العملاء، الـ user كان يـ select عملاء ويضغط '📱 WhatsApp Bulk'. الـ composer كان بـ يفتح، لكن لما يضغط 'إرسال' كانت بـ تفتح N tab في WhatsApp Web (يدوي). الـ user عاوز يستخدم الـ WhatsApp Bridge اللي عنده مـ configured في الـ Campaigns إعدادات (clark-wa-bridge) — بـ يبعت تلقائياً من غير ما يفتح أي tabs." },
+      { type: "feature", text: "🌉 [Send Mode picker في الـ WhatsAppComposer]\nالـ composer modal دلوقتي بـ يـ accept 2 props جدد:\n• bridgeUrl — من data.campaignBridge.url\n• bridgeToken — من data.campaignBridge.token\n\nلو bridgeUrl موجود، الـ composer بـ يعرض **section جديد في الفوتر**: '🔀 طريقة الإرسال' بـ 2 radio buttons:\n• **🌉 Bridge (تلقائي)** — يبعت من نفسه، مفيش tabs (default)\n• **📱 يدوي (Tabs)** — يفتح WhatsApp Web tab لكل عميل\n\nالـ default = Bridge لما يكون configured. الـ user يقدر يـ override لـ manual لو احتاج (مثلاً لو الـ bridge offline).\n\nالـ زر '📤 إرسال' بقى يـ change الـ label + اللون حسب الـ mode:\n• Bridge mode → '🌉 إرسال عبر Bridge' (أخضر #25D366)\n• Manual mode → '📱 إرسال يدوي' (أصفر)\n\nالـ tip text تحت يـ change كمان: 'الـ Bridge هـ يبعت في الـ background' vs 'الـ WhatsApp Web هـ يفتح tab'." },
+      { type: "feature", text: "🌉 [handleComposerSend يـ route عبر bridge.send لو mode=bridge]\nقبل V21.9.31 الـ handleComposerSend كان دايماً يـ:\n```\nfor each customer:\n  window.open(buildWhatsAppLink(phone, text), '_blank');\n```\n\nبعد V21.9.31:\n```\nif (sendMode === 'bridge' && bridgeUrl) {\n  // Build messages array: [{phone, body, images}]\n  POST {bridgeUrl}/send بـ Bearer token\n  Toast: '🌉 تم إرسال N رسالة عبر Bridge'\n} else {\n  // Same as before — open WhatsApp Web tabs\n}\n```\n\nالـ HTTP request للـ bridge:\n• URL: `{bridgeUrl}/send`\n• Method: POST\n• Headers: `Content-Type: application/json` + `Authorization: Bearer {token}`\n• Body: `{ messages: [{phone, body, images: [url] | []}] }`\n\nلو فشل: toast 'Bridge فشل: ...' + console.error. الـ contact_count مش بـ يـ bump في الـ failure case (عشان الـ user يقدر يحاول تاني)." },
+      { type: "doc", text: "📋 [How to use]\n1. Settings → CampaignsPg → Bridge Settings — تأكد إن الـ URL + Token معاهم\n2. Shopify Integration → tab العملاء\n3. اختار عملاء (checkbox)\n4. اضغط '📱 WhatsApp Bulk'\n5. الـ composer يفتح — اكتب الرسالة، ضيف صورة لو محتاج\n6. في الفوتر، طريقة الإرسال:\n   • 🌉 Bridge (default إذا configured) — يبعت في الـ background\n   • 📱 يدوي — يفتح tabs\n7. اضغط '🌉 إرسال عبر Bridge'\n8. Toast 'تم إرسال N رسالة' — كل العملاء يحصلوا الرسالة من نفس واتساب الـ bridge\n\nالـ تطبيق ده مماثل للـ CampaignsPg → BridgeSendScreen workflow. نفس endpoint (/send) ونفس message format ونفس Bearer auth." },
+    ]
+  },
+  {
     version: "V21.9.30",
     date: "2026-05-11",
     types: ["fix", "feature", "architectural"],
