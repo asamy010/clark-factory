@@ -286,6 +286,23 @@ export function splitShopifyCollections(opts, user){
   return call("POST", "/api/maintenance/split-shopify-collections", opts || {}, user);
 }
 
+/* V21.9.22 — Force-migration fallback for shopifyPendingOrders → daily docs.
+   Use when the client auto-migration (V21.9.18/19) didn't run for any reason
+   (network blip on app open, service-worker stale, etc.).
+   { dryRun?, force? } — force=true re-runs even if flag is already set
+   → { ok, total_migrated, days_created, freed_kb, ... } */
+export function splitShopifyOrdersDaily(opts, user){
+  return call("POST", "/api/maintenance/split-shopify-orders-daily", opts || {}, user);
+}
+
+/* V21.9.21 — Treasury duplicate cleanup (from pre-V21.9.14 race condition).
+   Scans treasuryDays for duplicate (transferId,type) pairs, keeps oldest.
+   { dryRun? }
+   → { ok, duplicates_found, entries_removed, backup_doc_id, ... } */
+export function dedupeTreasuryTransfers(opts, user){
+  return call("POST", "/api/maintenance/dedupe-treasury-transfers", opts || {}, user);
+}
+
 /* V21.9.7 Phase 11m: Return Requests CRUD.
    Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
    List   — { status?, search?, limit?, offset? }

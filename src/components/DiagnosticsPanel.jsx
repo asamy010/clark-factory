@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers } from "../utils/shopify/shopifyClient.js";
 
 export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [busy, setBusy] = useState(false);
@@ -26,6 +26,11 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [error, setError] = useState(null);
   const [splitBusy, setSplitBusy] = useState(false);
   const [splitResult, setSplitResult] = useState(null);
+  /* V21.9.22: Force-split for shopifyPendingOrders + treasury dedupe */
+  const [ordersBusy, setOrdersBusy] = useState(false);
+  const [ordersResult, setOrdersResult] = useState(null);
+  const [dedupeBusy, setDedupeBusy] = useState(false);
+  const [dedupeResult, setDedupeResult] = useState(null);
 
   const sevColor = (s) => ({
     ok: T.ok, info: "#0EA5E9", warn: T.warn, error: T.err,
@@ -83,9 +88,87 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     finally { setSplitBusy(false); }
   };
 
+  /* V21.9.22: Force-split for shopifyPendingOrders → shopifyOrdersDays daily */
+  const runOrdersSplitMigration = async () => {
+    if(!canEdit) return;
+    setOrdersBusy(true);
+    try {
+      const dry = await splitShopifyOrdersDaily({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      const yes = await ask(
+        "✂️ تقسيم طلبات Shopify (V21.9.18 force-migration)",
+        `هـ يـ migrate الطلبات من factory/config.shopifyPendingOrders إلى docs يومية:\n\n` +
+        `📦 طلبات: ${dry.total_orders} طلب\n` +
+        `📅 أيام: ${dry.days_count}\n` +
+        `📊 الحجم اللي هـ نوفّره: ~${dry.will_free_kb} KB من factory/config\n\n` +
+        `الـ migration الـ auto كان المفروض تشتغل من V21.9.18 لكن لو ما اشتغلتش لأي سبب (rules مش deploy، service worker قديم، إلخ) ده الـ fallback الـ official.\n\n` +
+        `آمن — backup كامل + idempotent. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await splitShopifyOrdersDaily({}, user);
+      setOrdersResult(r);
+      if(r?.ok){
+        if(r.skipped){
+          showToast("ℹ️ التقسيم مطبّق بالفعل");
+        } else {
+          showToast(`✅ تم! نقلنا ${r.total_migrated} طلب على ${r.days_created} يوم · وفّرنا ${r.freed_kb} KB`);
+          setTimeout(() => runCheck(), 1500);
+        }
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setOrdersBusy(false); }
+  };
+
+  /* V21.9.22: Treasury duplicate cleanup (from pre-V21.9.14 race) */
+  const runTreasuryDedupe = async () => {
+    if(!canEdit) return;
+    setDedupeBusy(true);
+    try {
+      const dry = await dedupeTreasuryTransfers({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      if(dry.duplicates_found === 0){
+        showToast("✨ مفيش duplicates في Treasury — كله نظيف");
+        setDedupeResult({ ok: true, dryRun: true, duplicates_found: 0, entries_removed: 0 });
+        return;
+      }
+      const yes = await ask(
+        "🧹 تنظيف duplicates في Treasury",
+        `لقينا duplicates ناتجين من race condition قديم (قبل V21.9.14):\n\n` +
+        `🔍 entries مكررة: ${dry.entries_to_remove}\n` +
+        `📋 transfers متأثرة: ${dry.duplicates_found}\n` +
+        `📅 أيام بـ تحتاج تعديل: ${dry.days_affected.length}\n\n` +
+        `الـ cleanup هـ يحتفظ بالـ entry الأقدم (oldest createdAt) ويحذف الباقي.\n\n` +
+        `آمن — backup كامل قبل أي حذف. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await dedupeTreasuryTransfers({}, user);
+      setDedupeResult(r);
+      if(r?.ok){
+        showToast(`✅ تم! حذفنا ${r.entries_removed} entry مكرر من ${r.duplicates_found} transfer`);
+        setTimeout(() => runCheck(), 1500);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setDedupeBusy(false); }
+  };
+
   const docPct = report?.storage?.config_doc_pct_of_max || 0;
   const splitDone = !!data?._partitionedV2192Done;
   const showSplitWarning = docPct >= 50 && !splitDone;
+  /* V21.9.22: detect if shopifyPendingOrders force-migration is needed.
+     Show button whenever the legacy array still has entries (regardless of doc%). */
+  const ordersSplitDone = !!data?._splitDaysV2199Done;
+  const pendingOrdersArrSize = (report?.storage?.arrays || []).find(a => a.name === "shopifyPendingOrders");
+  const showOrdersForceButton = pendingOrdersArrSize && pendingOrdersArrSize.count > 0;
 
   const fmtBytes = (b) => {
     if(b < 1024) return b + " B";
@@ -136,6 +219,76 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
               {splitResult.backup_doc_id && (
                 <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
                   Backup: <code>{splitResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.22: Force-split for shopifyPendingOrders (V21.9.18 fallback) */}
+      {(showOrdersForceButton || ordersResult?.ok) && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: ordersResult?.ok ? T.ok + "10" : "#DC2626" + "12",
+          border: "1.5px solid " + (ordersResult?.ok ? T.ok : "#DC2626") + "60",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, color: ordersResult?.ok ? T.ok : "#DC2626", fontSize: FS }}>
+                {ordersResult?.ok ? "✅ تم تقسيم طلبات Shopify" : "🚨 تقسيم طلبات Shopify لسه ما اشتغلش"}
+              </div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                {ordersResult?.ok
+                  ? `الطلبات اتنقلوا لـ shopifyOrdersDays/{date} docs منفصلة. الـ factory/config ما هـ يضرب الحد الأقصى تاني.`
+                  : `الـ array \`shopifyPendingOrders\` لسه فيه ${pendingOrdersArrSize?.count || 0} طلب على factory/config. الـ migration الـ auto كان المفروض تشتغل من V21.9.18 — اضغط الزر ده لتشغيلها يدوياً (force-migration). آمن + idempotent + مع backup كامل.`}
+              </div>
+            </div>
+            {!ordersResult?.ok && (
+              <LoadingBtn loading={ordersBusy} loadingText="جاري التقسيم..." onClick={runOrdersSplitMigration} disabled={!canEdit} small
+                style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 800 }}>
+                ✂️ شغّل التقسيم الآن
+              </LoadingBtn>
+            )}
+          </div>
+          {ordersResult?.ok && ordersResult.total_migrated > 0 && (
+            <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              📦 طلبات اتنقلوا: <b>{ordersResult.total_migrated}</b> · 📅 أيام: <b>{ordersResult.days_created}</b>
+              {" · "}وفّرنا <b style={{ color: T.ok }}>{ordersResult.freed_kb} KB</b>
+              {ordersResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{ordersResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.22: Treasury duplicate cleanup banner — always available as a tool */}
+      {dedupeResult && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: T.ok + "10",
+          border: "1.5px solid " + T.ok + "40",
+          borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 800, color: T.ok, fontSize: FS }}>
+            ✅ Treasury Cleanup
+          </div>
+          {dedupeResult.duplicates_found === 0 ? (
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+              مفيش duplicates. الـ ledger نظيف ✨
+            </div>
+          ) : (
+            <div style={{ marginTop: 6, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              🧹 entries اتحذفت: <b>{dedupeResult.entries_removed}</b> · transfers متأثرة: <b>{dedupeResult.duplicates_found}</b>
+              {dedupeResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{dedupeResult.backup_doc_id}</code>
                 </div>
               )}
             </div>
@@ -280,6 +433,41 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* V21.9.22: Maintenance tools section — always available for admin */}
+          {canEdit && (
+            <div>
+              <div style={{ fontWeight: 800, marginBottom: 8, fontSize: FS, color: T.text }}>🛠 أدوات الصيانة</div>
+              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+                <div style={{ padding: 10, background: T.bg, borderRadius: 8, border: "1px solid " + T.brd }}>
+                  <div style={{ fontWeight: 700, fontSize: FS - 1, marginBottom: 4 }}>
+                    🧹 تنظيف Treasury Duplicates
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textSec, marginBottom: 8, lineHeight: 1.6 }}>
+                    لو عندك تحويلات قديمة من قبل V21.9.14 ممكن تكون مكررة بسبب race condition قديم. الأداة بـ تـ scan + تحذف الـ duplicates مع backup.
+                  </div>
+                  <LoadingBtn loading={dedupeBusy} loadingText="جاري الفحص..." onClick={runTreasuryDedupe} small
+                    style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 700, width: "100%" }}>
+                    🧹 فحص + تنظيف
+                  </LoadingBtn>
+                </div>
+                {!ordersSplitDone && (
+                  <div style={{ padding: 10, background: T.bg, borderRadius: 8, border: "1px solid " + T.brd }}>
+                    <div style={{ fontWeight: 700, fontSize: FS - 1, marginBottom: 4 }}>
+                      ✂️ Force-Split Shopify Orders
+                    </div>
+                    <div style={{ fontSize: FS - 3, color: T.textSec, marginBottom: 8, lineHeight: 1.6 }}>
+                      لو الـ V21.9.18 auto-migration ما اشتغلتش، اضغط هنا لتشغيلها يدوياً. هـ ينقل الـ shopifyPendingOrders لـ shopifyOrdersDays/{"{date}"} منفصلة.
+                    </div>
+                    <LoadingBtn loading={ordersBusy} loadingText="جاري التقسيم..." onClick={runOrdersSplitMigration} small
+                      style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 700, width: "100%" }}>
+                      ✂️ شغّل Migration
+                    </LoadingBtn>
+                  </div>
+                )}
               </div>
             </div>
           )}

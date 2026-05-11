@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.22",
+    date: "2026-05-11",
+    types: ["improvement", "feature"],
+    title: "🖱 Phase 13d — أزرار صيانة في DiagnosticsPanel (مفيش POST requests يدوية)",
+    changes: [
+      { type: "feature", text: "🛠 [أدوات الصيانة في DiagnosticsPanel — مفيش curl/Postman]\nالـ user سأل: 'مش فاهم POST request يعني إيه'. الـ V21.9.21 أضاف 2 maintenance endpoints لكن لازم admin يـ trigger-ـهم عبر HTTP request. مش مناسب لـ workflow الـ admin الـ غير-تقني.\n\nالـ V21.9.22 أضاف الزرين دول مباشرة في الـ DiagnosticsPanel (SettingsPg → general tab → 'فحص الصحة + المخزن'):\n\n1. **🚨 Banner لـ Force-Split Shopify Orders** — بـ يظهر تلقائياً لو الـ diagnostics لقى shopifyPendingOrders فيه data + الـ flag _splitDaysV2199Done ما اتـ stamp-ـش. زر أحمر '✂️ شغّل التقسيم الآن' بـ يفتح confirmation popup بـ count الطلبات + المساحة المتوقع تحريرها.\n\n2. **🛠 Section 'أدوات الصيانة'** — في تحت كل الـ diagnostics report، فيه grid بـ 2 أزرار:\n   • 🧹 'تنظيف Treasury Duplicates' — اللي بـ يحذف الـ duplicates من قبل V21.9.14\n   • ✂️ 'Force-Split Shopify Orders' — fallback لو الـ auto-migration ما اشتغلتش\n\nكل زر بـ يعمل 2 calls تلقائياً:\n  أ) dry-run الأول → preview الأرقام (كم entry، كم day، إلخ)\n  ب) confirm popup يعرض الـ summary + يـ ask تأكيد\n  ج) actual run لو الـ user وافق\n  د) success toast + auto-refresh الـ diagnostics بعد 1.5 ثانية\n\nمفيش admin token manual، مفيش HTTP request، مفيش Postman. كل حاجة الـ admin محتاج يعرفها = wسة الزرار الأحمر." },
+      { type: "improvement", text: "📚 [Helper functions في shopifyClient.js]\nأضفنا 2 functions في `src/utils/shopify/shopifyClient.js`:\n• `splitShopifyOrdersDaily(opts, user)` — wraps POST /api/maintenance/split-shopify-orders-daily\n• `dedupeTreasuryTransfers(opts, user)` — wraps POST /api/maintenance/dedupe-treasury-transfers\n\nنفس الـ pattern بتاع `splitShopifyCollections` (V21.9.2) — auth header تلقائي، error handling، الـ user يحصل على dry-run قبل أي destructive action.\n\nالـ DiagnosticsPanel استخدم الـ functions دي بدل ما يـ call الـ raw API endpoints. ده بـ يخلي الـ tests + الـ refactoring أسهل في المستقبل." },
+      { type: "doc", text: "📋 [استخدام الأزرار]\nبعد deploy V21.9.22:\n\n1. **شغّل التقسيم بسرعة** (لو الـ migration الـ auto ما اشتغلتش):\n   • روح Settings → 'فحص الصحة + المخزن'\n   • اضغط '🔍 شغّل فحص شامل'\n   • هـ يظهر banner أحمر '🚨 تقسيم طلبات Shopify لسه ما اشتغلش' لو الـ array لسه فيه طلبات\n   • اضغط '✂️ شغّل التقسيم الآن' → confirmation → تم!\n\n2. **تنظيف Treasury duplicates**:\n   • نفس المكان، تحت بـ 'أدوات الصيانة'\n   • اضغط '🧹 فحص + تنظيف'\n   • هـ يـ scan الأول، يعرضك كم duplicate لقى، تأكيد، تم!\n   • Backup كامل بـ يـ saved قبل أي حذف.\n\nأي تنفيذ بـ يستغرق ثواني ويـ refresh الـ diagnostics تلقائياً عشان تشوف النتيجة." },
+    ]
+  },
+  {
     version: "V21.9.21",
     date: "2026-05-11",
     types: ["architectural", "improvement", "fix"],
