@@ -337,6 +337,12 @@ export function recoverLegacyData(opts, user){
   return call("POST", "/api/maintenance/recover-legacy-data", opts || {}, user);
 }
 
+/* V21.9.28 — Migration Log inspector + backup restore.
+   action="list"|"get_backup"|"restore_backup" */
+export function migrationLog(opts, user){
+  return call("POST", "/api/admin/migration-log", opts || {}, user);
+}
+
 /* V21.9.7 Phase 11m: Return Requests CRUD.
    Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
    List   — { status?, search?, limit?, offset? }

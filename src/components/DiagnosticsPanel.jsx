@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -60,6 +60,12 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [recoverBusy, setRecoverBusy] = useState(false);
   const [recoverScan, setRecoverScan] = useState(null);
   const [migrateBusy, setMigrateBusy] = useState({});
+  /* V21.9.28: Migration log inspector */
+  const [logBusy, setLogBusy] = useState(false);
+  const [logEntries, setLogEntries] = useState(null);
+  const [logFilter, setLogFilter] = useState("");
+  const [expandedLogEntry, setExpandedLogEntry] = useState(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -409,6 +415,45 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9.28: Migration Log inspector + restore */
+  const loadMigrationLog = async () => {
+    setLogBusy(true);
+    try {
+      const opts = { action: "list", limit: 50 };
+      if(logFilter) opts.filterType = logFilter;
+      const r = await migrationLog(opts, user);
+      if(r?.ok) setLogEntries(r.entries);
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setLogBusy(false); }
+  };
+
+  const restoreFromBackup = async (backupDocId, fields) => {
+    if(!canEdit) return;
+    const yes = await ask(
+      "♻️ Restore من backup",
+      `هـ يتـ restore الـ fields دي من backup ${backupDocId.slice(0,40)}…:\n\n` +
+      fields.map(f => "• " + f).join("\n") + "\n\n" +
+      `الـ current state بـ يـ saved في backup جديد قبل الـ restore.\nتأكيد؟`
+    );
+    if(!yes) return;
+    setRestoreBusy(true);
+    try {
+      const r = await migrationLog({
+        action: "restore_backup",
+        backup_doc_id: backupDocId,
+        fields_to_restore: fields,
+      }, user);
+      if(r?.ok){
+        showToast(`✅ تم! استرجعنا ${r.fields_count} field`);
+        await loadMigrationLog();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setRestoreBusy(false); }
+  };
+
   /* V21.9.27: Recover legacy data */
   const runRecoverScan = async () => {
     setRecoverBusy(true);
@@ -666,6 +711,131 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                   style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700, marginTop: 6 }}>
                   🆘 Bootstrap me as admin
                 </LoadingBtn>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.28: Migration Log inspector — see what every button did */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                📋 Migration Log — سجل العمليات
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                كل زر في الـ Diagnostics بـ يـ log إيه عمله (flags set, fields stripped, items migrated, إلخ). دي طريقة الـ debugging الأساسية لو data ضاعت بشكل غير متوقع. لكل entry فيها backup_doc_id، تقدر تـ restore منها بـ click.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                value={logFilter}
+                onChange={(e) => setLogFilter(e.target.value)}
+                placeholder="filter by type..."
+                style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2, width: 160 }}
+              />
+              <LoadingBtn loading={logBusy} loadingText="..." onClick={loadMigrationLog} small
+                style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 700 }}>
+                📋 جلب الـ Log
+              </LoadingBtn>
+            </div>
+          </div>
+
+          {logEntries && (
+            <div style={{ borderRadius: 8, border: "1px solid " + T.brd, overflow: "hidden" }}>
+              {logEntries.length === 0 ? (
+                <div style={{ padding: 14, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>
+                  مفيش entries
+                </div>
+              ) : (
+                <div style={{ maxHeight: 450, overflow: "auto" }}>
+                  {logEntries.map((e, i) => {
+                    const isExpanded = expandedLogEntry === e.id;
+                    const isDangerous = !!(e.fields_stripped && e.fields_stripped.length > 0);
+                    const isRecovery = (e.type || "").includes("recover") || (e.type || "").includes("restore");
+                    const bgColor = isDangerous ? "#DC2626" + "08" :
+                                    isRecovery ? T.ok + "08" : "transparent";
+                    return (
+                      <div key={e.id} style={{
+                        padding: "8px 10px",
+                        borderBottom: i < logEntries.length - 1 ? "1px solid " + T.brd : "none",
+                        background: bgColor,
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{
+                                fontFamily: "monospace", fontSize: FS - 2, fontWeight: 700,
+                                color: isDangerous ? "#DC2626" : (isRecovery ? T.ok : T.text),
+                              }}>
+                                {isDangerous ? "⚠️ " : (isRecovery ? "♻️ " : "▸ ")}
+                                {e.type || "(unknown)"}
+                              </span>
+                              {e.status && (
+                                <span style={{
+                                  fontSize: FS - 4, padding: "1px 6px", borderRadius: 4,
+                                  background: e.status === "success" ? T.ok + "20" : T.err + "20",
+                                  color: e.status === "success" ? T.ok : T.err,
+                                }}>
+                                  {e.status}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>
+                              {e.at ? new Date(e.at).toLocaleString("ar-EG") : "—"} · {e.by || "—"}
+                            </div>
+                            {/* Surface key fields per entry type */}
+                            {e.fields_stripped && e.fields_stripped.length > 0 && (
+                              <div style={{ fontSize: FS - 3, color: "#DC2626", marginTop: 2, fontFamily: "monospace" }}>
+                                🗑 stripped: {e.fields_stripped.join(", ")}
+                              </div>
+                            )}
+                            {e.flags_set && e.flags_set.length > 0 && (
+                              <div style={{ fontSize: FS - 3, color: T.warn, marginTop: 2, fontFamily: "monospace" }}>
+                                🏳 flags set: {e.flags_set.join(", ")}
+                              </div>
+                            )}
+                            {e.items_migrated && (
+                              <div style={{ fontSize: FS - 3, color: T.ok, marginTop: 2 }}>
+                                ✓ {e.items_migrated} item processed
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button
+                              onClick={() => setExpandedLogEntry(isExpanded ? null : e.id)}
+                              style={{
+                                padding: "4px 10px", background: T.bg, color: T.text,
+                                border: "1px solid " + T.brd, borderRadius: 4, cursor: "pointer",
+                                fontSize: FS - 3, fontFamily: "inherit",
+                              }}>
+                              {isExpanded ? "▲ إخفاء" : "▼ تفاصيل"}
+                            </button>
+                            {e.backup_doc_id && e.fields_stripped && e.fields_stripped.length > 0 && (
+                              <LoadingBtn loading={restoreBusy} loadingText="..."
+                                onClick={() => restoreFromBackup(e.backup_doc_id, e.fields_stripped)} small
+                                style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 700, fontSize: FS - 3 }}>
+                                ♻️ Restore
+                              </LoadingBtn>
+                            )}
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <pre style={{
+                            marginTop: 8, padding: 8, background: T.cardSolid, borderRadius: 4,
+                            fontSize: FS - 4, overflow: "auto", maxHeight: 280,
+                            fontFamily: "monospace", direction: "ltr", textAlign: "left",
+                          }}>{JSON.stringify(e.raw, null, 2)}</pre>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}

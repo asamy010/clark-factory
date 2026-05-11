@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.28",
+    date: "2026-05-11",
+    types: ["feature", "architectural"],
+    title: "📋 Phase 13j — Migration Log Inspector + Backup Restore (forensic + recovery)",
+    changes: [
+      { type: "feature", text: "📋 [Migration Log Panel — كل عملية اتعملت ظاهرة في الـ UI]\nالـ user بلّغ: 'لما ضغطت كل الأزرار في الإعدادات اختفت الأوردرات والمنتجات والعملاء كمان'. عشان نـ debug إيه اللي حصل بالظبط، احتجنا تـ surface الـ migrationLog في الـ UI.\n\nالـ endpoint الجديد POST /api/admin/migration-log بـ يـ support 3 actions:\n1. **action='list'** — last 50 entries sorted by .at DESC. Body: { limit?, sinceISO?, filterType? }\n2. **action='get_backup'** — يعرض contents الـ backup doc بـ counts (مش الـ full data)\n3. **action='restore_backup'** — يـ restore cfg fields من backup قديم\n\nالـ UI Panel '📋 Migration Log — سجل العمليات' في DiagnosticsPanel:\n• زر '📋 جلب الـ Log' — يعرض آخر 50 entry\n• Filter input لـ filter by type (مثلاً 'fix-flags' أو 'recover')\n• كل entry بـ يعرض:\n  - النوع (مع icon: ⚠️ destructive، ♻️ recovery، ▸ normal)\n  - الـ status + الـ timestamp + الـ user\n  - 🗑 stripped fields (لو فيه) بـ لون أحمر\n  - 🏳 flags set (لو فيه)\n  - ✓ items processed\n  - زر '▼ تفاصيل' لـ expand الـ raw JSON\n  - زر '♻️ Restore' لو الـ entry strip-ـ fields (يـ restore منها)" },
+      { type: "feature", text: "♻️ [Restore from Backup — click واحد لاسترجاع الـ data]\nلكل entry في الـ log فيها `backup_doc_id` + `fields_stripped`، الـ admin يقدر يضغط '♻️ Restore' ويـ trigger restore_backup action:\n\n1. الـ endpoint بـ يقرا الـ backup doc\n2. يـ verify إن الـ fields الـ requested موجودة في الـ backup\n3. يعمل pre-restore backup للـ current state (في حالة undo)\n4. يكتب الـ fields من الـ backup إلى factory/config (merge: true)\n5. يـ log الـ restore في migrationLog\n6. يرجع stats (إيه اللي اتـ restored بكام item)\n\nالـ data بترجع مباشرة بعد F5. مفيش manual export/import." },
+      { type: "feature", text: "🔍 [Detection: dangerous entries highlighted]\nالـ UI بـ يـ highlight الـ entries الـ خطيرة بـ لون أحمر:\n• fix-flags entries مع fields_stripped\n• recover-* entries (in green)\n• restore-* entries (in green)\n\nده يخلي الـ admin يـ scan الـ log بسرعة ويلاقي الـ destructive actions اللي عمل المشكلة." },
+      { type: "doc", text: "📋 [استخدام الـ Migration Log الجديد]\n1. روح Settings → 'فحص الصحة + المخزن'\n2. اضغط '📋 جلب الـ Log' في panel 'Migration Log'\n3. شوف آخر العمليات (newest first)\n4. لو لقيت entry بـ ⚠️ + fields_stripped فيها 'shopifyCustomers' أو 'shopifyProducts':\n   → اضغط '♻️ Restore' لـ استرجاع الـ data من الـ backup الـ associated\n5. ولو الـ backup مش متاح → سجل re-sync من Shopify\n\n**Filter examples للـ debugging:**\n• filter 'fix-flags' → كل العمليات اللي عملها fix-flags\n• filter 'recover' → recoveries اللي تمت\n• filter 'split-shopify' → migrations لـ Shopify\n• filter 'sync' → user-sync operations" },
+    ]
+  },
+  {
     version: "V21.9.27",
     date: "2026-05-11",
     types: ["fix", "architectural"],
