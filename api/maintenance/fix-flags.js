@@ -115,40 +115,78 @@ export default async function handler(req, res) {
     /* Detect mismatches */
     const flagsToSet = new Set();
     const fieldsToStrip = new Set();
+    const dataLossWarnings = []; /* V21.9.27: warnings when legacy has data but partitioned is empty */
     const detected = []; /* {field, collection, count, flag, action} */
 
     for (const { field, collection, flag } of PARTITIONED_MAP) {
       const docCount = await countDocs(db, collection);
       const flagValue = !!cfg[flag];
+      const legacyCount = Array.isArray(cfg[field]) ? cfg[field].length : 0;
+
+      /* CASE A: data in collection but flag missing → set the flag */
       if (docCount > 0 && !flagValue) {
         flagsToSet.add(flag);
         detected.push({ kind: "partitioned", field, collection, doc_count: docCount, flag, action: "SET FLAG" });
       }
-      /* Also strip the legacy field if flag is (now) set */
-      if ((flagValue || flagsToSet.has(flag)) && Array.isArray(cfg[field]) && cfg[field].length > 0) {
+
+      /* V21.9.27 CRITICAL FIX:
+         Pre-V21.9.27 the strip logic was: "if flag set AND legacy has data → strip".
+         BUG: this stripped legacy data even when the partitioned collection was EMPTY
+         (e.g. flag was prematurely set by a failed migration), causing DATA LOSS.
+
+         Fixed logic:
+         - Strip legacy ONLY if partitioned collection HAS data AND legacy has data
+           (true post-migration state where partitioned is the source of truth)
+         - If flag is true but partitioned is EMPTY and legacy HAS data → DATA LOSS
+           RISK. We don't strip. Instead, we emit a warning so the admin can either:
+             a) Re-sync (which will populate the partitioned collection), OR
+             b) Migrate the legacy data via the proper V21.9.2 migration endpoint */
+      const willHaveFlagSet = flagValue || flagsToSet.has(flag);
+      if (willHaveFlagSet && legacyCount > 0 && docCount > 0) {
         fieldsToStrip.add(field);
+      } else if (flagValue && legacyCount > 0 && docCount === 0) {
+        /* DANGER: flag claims migration done, but partitioned is empty AND legacy
+           has data. Don't touch legacy — warn the admin. */
+        dataLossWarnings.push({
+          field, collection, flag,
+          legacy_count: legacyCount,
+          partitioned_count: 0,
+          message: `⚠️ DANGER: ${flag} = true لكن ${collection} فاضي و cfg.${field} فيها ${legacyCount} item. مش هـ نـ strip — re-sync الـ data أو شغل الـ migration الصحيحة.`,
+        });
       }
     }
 
     for (const { field, collection, flag } of SPLIT_MAP) {
       const totalEntries = await countSplitTotalEntries(db, collection);
       const flagValue = !!cfg[flag];
+      const legacyCount = Array.isArray(cfg[field]) ? cfg[field].length : 0;
+
       if (totalEntries > 0 && !flagValue) {
         flagsToSet.add(flag);
         detected.push({ kind: "split", field, collection, total_entries: totalEntries, flag, action: "SET FLAG" });
       }
-      if ((flagValue || flagsToSet.has(flag)) && Array.isArray(cfg[field]) && cfg[field].length > 0) {
+      /* V21.9.27 same fix for split collections */
+      const willHaveFlagSet = flagValue || flagsToSet.has(flag);
+      if (willHaveFlagSet && legacyCount > 0 && totalEntries > 0) {
         fieldsToStrip.add(field);
+      } else if (flagValue && legacyCount > 0 && totalEntries === 0) {
+        dataLossWarnings.push({
+          field, collection, flag,
+          legacy_count: legacyCount,
+          partitioned_count: 0,
+          message: `⚠️ DANGER: ${flag} = true لكن ${collection} فاضي و cfg.${field} فيها ${legacyCount} entry. مش هـ نـ strip.`,
+        });
       }
     }
 
-    if (flagsToSet.size === 0 && fieldsToStrip.size === 0) {
+    if (flagsToSet.size === 0 && fieldsToStrip.size === 0 && dataLossWarnings.length === 0) {
       return res.status(200).json({
         ok: true,
         dryRun,
         flags_set: [],
         fields_stripped: [],
         detected: [],
+        warnings: [],
         message: "✨ مفيش mismatches — كل الـ flags صح",
       });
     }
@@ -160,6 +198,7 @@ export default async function handler(req, res) {
         flags_to_set: Array.from(flagsToSet),
         fields_to_strip: Array.from(fieldsToStrip),
         detected,
+        warnings: dataLossWarnings,
         durationMs: Date.now() - startTs,
       });
     }
@@ -217,9 +256,14 @@ export default async function handler(req, res) {
       flags_set: Array.from(flagsToSet),
       fields_stripped: Array.from(fieldsToStrip),
       detected,
+      warnings: dataLossWarnings,
       backup_doc_id: backupId,
       durationMs: Date.now() - startTs,
-      message: `✅ تم! ${flagsToSet.size} flag set + ${fieldsToStrip.size} legacy field stripped. اعمل refresh للـ app — الـ data هـ تظهر دلوقتي.`,
+      message: `✅ تم! ${flagsToSet.size} flag set + ${fieldsToStrip.size} legacy field stripped.` +
+               (dataLossWarnings.length > 0
+                 ? ` ⚠️ ${dataLossWarnings.length} حقل لم يتم strip-ـه لتجنب data loss.`
+                 : "") +
+               ` اعمل refresh للـ app.`,
     });
   } catch (e) {
     console.error("[V21.9.24 fix-flags] failed:", e);

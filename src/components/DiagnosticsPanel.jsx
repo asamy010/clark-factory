@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -56,6 +56,10 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [syncApplyBusy, setSyncApplyBusy] = useState(false);
   /* Per-row role override for the sync table */
   const [syncOverrides, setSyncOverrides] = useState({});
+  /* V21.9.27: Recover legacy data (fix-flags data loss) */
+  const [recoverBusy, setRecoverBusy] = useState(false);
+  const [recoverScan, setRecoverScan] = useState(null);
+  const [migrateBusy, setMigrateBusy] = useState({});
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -405,6 +409,39 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9.27: Recover legacy data */
+  const runRecoverScan = async () => {
+    setRecoverBusy(true);
+    try {
+      const r = await recoverLegacyData({ action: "scan_legacy" }, user);
+      if(r?.ok) setRecoverScan(r);
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setRecoverBusy(false); }
+  };
+
+  const migrateLegacyField = async (field, legacyCount) => {
+    if(!canEdit) return;
+    const yes = await ask(
+      "🆘 Recover " + field,
+      `هـ يتـ migrate ${legacyCount} item من cfg.${field} إلى الـ partitioned collection.\n\n` +
+      `Backup كامل بـ يـ saved قبل الـ migration.\n` +
+      `Idempotent + آمن. تأكيد؟`
+    );
+    if(!yes) return;
+    setMigrateBusy({ ...migrateBusy, [field]: true });
+    try {
+      const r = await recoverLegacyData({ action: "migrate_legacy", field }, user);
+      if(r?.ok){
+        showToast(`✅ تم! نقلنا ${r.items_written} item`);
+        await runRecoverScan();
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setMigrateBusy({ ...migrateBusy, [field]: false }); }
+  };
+
   /* V21.9.26: Users sync audit + apply */
   const runUsersSyncAudit = async () => {
     if(!canEdit) return;
@@ -630,6 +667,104 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                   🆘 Bootstrap me as admin
                 </LoadingBtn>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.27: Data Recovery — legacy fields that got orphaned */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                🆘 Data Recovery — استرجاع البيانات الـ legacy
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                لو الـ V21.9.24 fix-flags strip-ـ الـ cfg fields بطريقة الخطأ (الـ flag كان set لكن الـ collection فاضية)، الـ data ممكن تكون موجودة في cfg لسه. الزر ده بـ يـ scan ويـ migrate الـ data للـ partitioned collections الصحيحة.
+              </div>
+            </div>
+            <LoadingBtn loading={recoverBusy} loadingText="..." onClick={runRecoverScan} small
+              style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 700 }}>
+              🔍 افحص الـ legacy data
+            </LoadingBtn>
+          </div>
+
+          {recoverScan && recoverScan.ok && (
+            <div style={{ marginTop: 8 }}>
+              {recoverScan.recoverable_count > 0 ? (
+                <div style={{
+                  padding: 10, marginBottom: 10,
+                  background: "#DC2626" + "10",
+                  border: "1.5px solid " + "#DC2626" + "60",
+                  borderRadius: 8,
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: FS - 1, color: "#DC2626", marginBottom: 6 }}>
+                    🚨 لقينا {recoverScan.recoverable_count} حقل قابل للاسترجاع ({recoverScan.total_legacy_items} item)
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: 10, marginBottom: 10,
+                  background: T.ok + "10",
+                  border: "1.5px solid " + T.ok + "40",
+                  borderRadius: 8,
+                }}>
+                  <div style={{ fontWeight: 700, color: T.ok, fontSize: FS - 1 }}>
+                    ✅ مفيش data في cfg legacy fields محتاجة recovery
+                  </div>
+                </div>
+              )}
+              <div style={{ borderRadius: 8, border: "1px solid " + T.brd, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
+                  <thead style={{ background: T.cardSolid }}>
+                    <tr>
+                      <th style={{ padding: "6px", textAlign: "start" }}>Field</th>
+                      <th style={{ padding: "6px", textAlign: "start" }}>cfg legacy</th>
+                      <th style={{ padding: "6px", textAlign: "start" }}>Partitioned</th>
+                      <th style={{ padding: "6px", textAlign: "start" }}>Flag</th>
+                      <th style={{ padding: "6px", textAlign: "start" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(recoverScan.fields || []).map(f => (
+                      <tr key={f.field} style={{ borderBottom: "1px solid " + T.brd, background: f.can_recover ? "#DC2626" + "06" : "transparent" }}>
+                        <td style={{ padding: "6px" }}>
+                          <code>{f.field}</code>
+                          <div style={{ fontSize: FS - 4, color: T.textMut }}>{f.collection}</div>
+                        </td>
+                        <td style={{ padding: "6px", fontWeight: f.legacy_count > 0 ? 700 : 400, color: f.legacy_count > 0 ? T.warn : T.textMut }}>
+                          {f.legacy_count}
+                        </td>
+                        <td style={{ padding: "6px", fontWeight: f.partitioned_count > 0 ? 700 : 400, color: f.partitioned_count > 0 ? T.ok : "#DC2626" }}>
+                          {f.partitioned_count}
+                        </td>
+                        <td style={{ padding: "6px" }}>
+                          <span style={{ fontSize: FS - 3, color: f.flag_value ? T.ok : T.textMut }}>
+                            {f.flag_value ? "✅" : "—"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px" }}>
+                          {f.can_recover ? (
+                            <LoadingBtn loading={migrateBusy[f.field]} loadingText="..."
+                              onClick={() => migrateLegacyField(f.field, f.legacy_count)} small
+                              style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700, fontSize: FS - 3 }}>
+                              🆘 استرجع
+                            </LoadingBtn>
+                          ) : f.severity === "duplicate" ? (
+                            <span style={{ fontSize: FS - 3, color: T.warn }}>⚠️ duplicate</span>
+                          ) : (
+                            <span style={{ fontSize: FS - 3, color: T.ok }}>✅ ok</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

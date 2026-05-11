@@ -324,10 +324,17 @@ export function myPermissions(user){
   return call("GET", "/api/admin/my-permissions", null, user);
 }
 
-/* V21.9.24 — Admin users management. action="list"|"set"|"remove"|"auth_search"|"bootstrap_self".
+/* V21.9.24 — Admin users management. action="list"|"set"|"remove"|"auth_search"|"bootstrap_self"
+   | "sync_audit"|"sync_apply" (V21.9.26).
    See api/admin/users-permissions.js for action details. */
 export function usersPermissions(opts, user){
   return call("POST", "/api/admin/users-permissions", opts || {}, user);
+}
+
+/* V21.9.27 — Recover legacy data when fix-flags bug caused data loss.
+   action="scan_legacy"|"scan_backups"|"migrate_legacy"|"restore_from_backup" */
+export function recoverLegacyData(opts, user){
+  return call("POST", "/api/maintenance/recover-legacy-data", opts || {}, user);
 }
 
 /* V21.9.7 Phase 11m: Return Requests CRUD.
