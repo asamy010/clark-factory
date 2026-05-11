@@ -36,6 +36,17 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   /* V21.9.13 Phase 11s: Shopify push modal triggered from a card in the
      list view. Holds the specific order whose modal should open. */
   const[pushModalOrder,setPushModalOrder]=useState(null);
+  /* V21.9.15: prefetched WhatsApp image blob.
+     navigator.share() requires transient user activation. The previous code
+     did `await fetch(wo.image)` inside the click handler — by the time
+     navigator.share was called, the user activation was lost, so newer
+     browsers (Chrome Android 2026+) silently rejected the share with files.
+     Result: image used to attach, now doesn't. Fix: prefetch the blob the
+     moment the WA popup opens (popup itself was opened by a user click —
+     fresh activation, fetch can run async without blocking). Then when the
+     user clicks "تفاصيل" / "تفاصيل + تايم لاين", navigator.share is called
+     WITHOUT a preceding await — user activation preserved → share works. */
+  const[waImageBlob,setWaImageBlob]=useState(null);
   /* V14.50: view mode + smart filters */
   const[detView,setDetView]=useState(()=>{try{return localStorage.getItem("clark_det_view")||"cards"}catch(e){return"cards"}});/* "cards"|"table" */
   const[detWs,setDetWs]=useState("");/* workshop filter */
@@ -44,6 +55,40 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[detVis,setDetVis]=useState(25);
   /* Reset to 25 whenever filters/search/sort change so the user starts fresh after each filter tweak */
   useEffect(()=>{setDetVis(25)},[detQ,detSt,detWs,detSort]);
+
+  /* V21.9.15: prefetch the order image as a Blob when the WhatsApp popup
+     opens. See the state declaration above for the full rationale — the
+     short version is: navigator.share with files requires that no async
+     awaits occur between the user's click and the .share() call, so we
+     ready the blob in advance. */
+  useEffect(()=>{
+    const imgUrl=waPopup?.order?.image;
+    if(!imgUrl){setWaImageBlob(null);return}
+    let cancelled=false;
+    setWaImageBlob(null);
+    (async()=>{
+      try{
+        /* Bare base64 strings (legacy pre-V19.36 format) — synthesize a Blob
+           directly. fetch() on a bare base64 would try to GET a relative URL
+           and 404. */
+        if(!/^https?:/i.test(imgUrl)&&!/^data:/i.test(imgUrl)){
+          const bin=atob(imgUrl);
+          const arr=new Uint8Array(bin.length);
+          for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+          if(!cancelled)setWaImageBlob(new Blob([arr],{type:"image/jpeg"}));
+          return;
+        }
+        const res=await fetch(imgUrl);
+        if(!res.ok)throw new Error("HTTP "+res.status);
+        const blob=await res.blob();
+        if(!cancelled)setWaImageBlob(blob);
+      }catch(e){
+        console.warn("[V21.9.15] WA image prefetch failed:",e?.message||e);
+        if(!cancelled)setWaImageBlob(null);
+      }
+    })();
+    return()=>{cancelled=true};
+  },[waPopup?.order?.image]);
   /* V14.51: expandable workshop timelines + print dropdown */
   const[wsExpand,setWsExpand]=useState({});/* {wsKey: bool} - auto-open for incomplete */
   const[showPrintMenu,setShowPrintMenu]=useState(false);
@@ -575,9 +620,45 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       </div>}
 
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
-      const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
-        if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
-        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+      /* V21.9.15 ROOT-CAUSE FIX (WhatsApp image attachment regression on mobile):
+         Pre-V21.9.15 sendWa() did `await fetch(wo.image)` BEFORE calling
+         navigator.share(). navigator.share with files requires transient
+         user activation — once you await, activation is gone, so newer
+         Chrome/Safari silently reject the share. The fallback openWA() sends
+         text-only, and the image silently never attached. User reported it
+         "used to work, doesn't anymore" — exactly the kind of regression
+         that happens when browsers tighten activation rules over time.
+         Fix: waImageBlob is prefetched the moment the popup opens (see the
+         useEffect that watches waPopup?.order?.image), so by the time the
+         user clicks an option we have the Blob synchronously ready.
+         navigator.share is the FIRST async call in this handler — user
+         activation is preserved. */
+      const sendWa=async(withTimeline)=>{
+        let text=getOrderDetails(wo,wt);
+        if(withTimeline&&timeline)text+=timeline;
+        if(wo.image&&waImageBlob&&navigator.canShare){
+          try{
+            const file=new File([waImageBlob],wo.modelNo+".jpg",{type:waImageBlob.type||"image/jpeg"});
+            if(navigator.canShare({files:[file]})){
+              /* SYNCHRONOUS PATH — no awaits between click and share. */
+              await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});
+              setWaSent(p=>({...p,[wo.id]:Date.now()}));
+              setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);
+              setWaPopup(null);
+              return;
+            }
+          }catch(e){
+            /* user cancelled (AbortError) → just close the popup. Any other
+               share failure → fall through to text-only fallback. */
+            if(e?.name==="AbortError"){setWaPopup(null);return}
+            console.warn("[V21.9.15] navigator.share failed:",e?.message||e);
+          }
+        }
+        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");
+        setWaSent(p=>({...p,[wo.id]:Date.now()}));
+        setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);
+        setWaPopup(null);
+      };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:20,marginBottom:4}}>📱</div><div style={{fontSize:FS+1,fontWeight:800,color:"#25D366"}}>ارسال واتساب</div><div style={{fontSize:FS-1,color:T.textSec}}>{wo.modelNo+" — "+wo.modelDesc}</div></div>
@@ -595,6 +676,17 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         the card flipped to the detail branch where the modal *was* mounted,
         causing both the modal and the detail view to open at once. */}
     {stageProgressOrder&&<StageProgressModal order={stageProgressOrder} onClose={()=>setStageProgressOrder(null)}/>}
+    {/* V21.9.15 ROOT-CAUSE FIX (same class of bug as V19.16 above):
+        the Push button on each card calls setPushModalOrder(o), but pre-V21.9.15
+        the <ShopifyPushModal pushModalOrder ... /> renderer was ONLY mounted
+        in the order-detail branch (line ~1911). Result: clicking Push from
+        the list view set the state but rendered nothing — the user saw no
+        popup. Clicking the card itself (which fires setSel) navigated to
+        the detail branch, where the modal renderer FINALLY ran with the
+        stale pushModalOrder state, so the user saw "the popup opened inside
+        the card" (actually: the detail page rendered + the modal opened).
+        Fix: mount the modal here in the list-view branch too. */}
+    {pushModalOrder&&<ShopifyPushModal order={pushModalOrder} data={data} user={user} isMob={isMob} onClose={()=>setPushModalOrder(null)}/>}
     </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -1527,9 +1619,45 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     </div>
     {/* WhatsApp Choice Popup */}
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
-      const sendWa=async(withTimeline)=>{let text=getOrderDetails(wo,wt);if(withTimeline&&timeline)text+=timeline;
-        if(wo.image&&navigator.canShare){try{const res=await fetch(wo.image);const blob=await res.blob();const file=new File([blob],wo.modelNo+".jpg",{type:blob.type||"image/jpeg"});if(navigator.canShare({files:[file]})){await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null);return}}catch(e){}}
-        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");setWaSent(p=>({...p,[wo.id]:Date.now()}));setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);setWaPopup(null)};
+      /* V21.9.15 ROOT-CAUSE FIX (WhatsApp image attachment regression on mobile):
+         Pre-V21.9.15 sendWa() did `await fetch(wo.image)` BEFORE calling
+         navigator.share(). navigator.share with files requires transient
+         user activation — once you await, activation is gone, so newer
+         Chrome/Safari silently reject the share. The fallback openWA() sends
+         text-only, and the image silently never attached. User reported it
+         "used to work, doesn't anymore" — exactly the kind of regression
+         that happens when browsers tighten activation rules over time.
+         Fix: waImageBlob is prefetched the moment the popup opens (see the
+         useEffect that watches waPopup?.order?.image), so by the time the
+         user clicks an option we have the Blob synchronously ready.
+         navigator.share is the FIRST async call in this handler — user
+         activation is preserved. */
+      const sendWa=async(withTimeline)=>{
+        let text=getOrderDetails(wo,wt);
+        if(withTimeline&&timeline)text+=timeline;
+        if(wo.image&&waImageBlob&&navigator.canShare){
+          try{
+            const file=new File([waImageBlob],wo.modelNo+".jpg",{type:waImageBlob.type||"image/jpeg"});
+            if(navigator.canShare({files:[file]})){
+              /* SYNCHRONOUS PATH — no awaits between click and share. */
+              await navigator.share({title:"CLARK — "+wo.modelNo,text,files:[file]});
+              setWaSent(p=>({...p,[wo.id]:Date.now()}));
+              setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);
+              setWaPopup(null);
+              return;
+            }
+          }catch(e){
+            /* user cancelled (AbortError) → just close the popup. Any other
+               share failure → fall through to text-only fallback. */
+            if(e?.name==="AbortError"){setWaPopup(null);return}
+            console.warn("[V21.9.15] navigator.share failed:",e?.message||e);
+          }
+        }
+        openWA("https://wa.me/?text="+encodeURIComponent(text),"_blank");
+        setWaSent(p=>({...p,[wo.id]:Date.now()}));
+        setTimeout(()=>setWaSent(p=>{const n={...p};delete n[wo.id];return n}),60000);
+        setWaPopup(null);
+      };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWaPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{textAlign:"center",marginBottom:16}}>

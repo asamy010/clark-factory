@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.15",
+    date: "2026-05-10",
+    types: ["fix"],
+    title: "🔘 Phase 12a — Push button works from card + WhatsApp image attaches",
+    changes: [
+      { type: "fix", text: "🚨 [ROOT CAUSE — زرار Push على البطاقة ما بـ يفتح الـ popup]\nالمستخدم بلّغ: ضغطت Push على البطاقة، الـ popup ما اتفتحش. ضغطت البطاقة نفسها، وجدت الـ popup مفتوح جواها.\n\nالـ root cause: DetPg.jsx فيه branch مختلف للـ list view (لما مفيش order محدد) و الـ detail view (لما order محدد). الـ <ShopifyPushModal pushModalOrder /> renderer كان متحط فقط في الـ detail-view branch.\n\nالـ sequence: ضغطت Push → setPushModalOrder(o) → الـ state اتـ set لكن الـ list-view branch ما عندوش الـ modal renderer → مفيش حاجة بـ تظهر → ضغطت البطاقة → setSel(o.id) → الـ detail-view branch بـ يـ render → الـ modal renderer جوّاه بـ يـ render مع الـ state القديم → يبان كأنه فتح 'جوّا البطاقة'.\n\nده نفس الـ pattern اللي اتصلح قبل كده في V19.16 مع StageProgressModal — أنا لـ نسيت أطبّقه على الـ ShopifyPushModal الجديدة. الحل: mount الـ modal renderer في الـ list-view branch كمان." },
+      { type: "fix", text: "🚨 [ROOT CAUSE — صورة الأوردر مش بـ تتأشّد مع الواتساب من الموبيل]\nالمستخدم بلّغ: 'كان بيبعت الصورة مع الرسالة لما كنت ببعت من الموبيل، دلوقتي مش بيبعت.'\n\nالـ regression حصلت من غير ما الكود اتغيّر — الـ navigator.share() API بـ يـ require transient user activation (نفس قاعدة window.open اللي معلّقة في CLAUDE.md §7). أول ما تـ await أي حاجة، الـ user activation بـ يضيع.\n\nالكود كان بـ يعمل:\n```js\nawait fetch(wo.image)      // ← await بـ يستهلك الـ activation\nawait res.blob()           // ← await تاني\nawait navigator.share(...) // ← الـ activation راحت → silent reject في Chrome الحديثة\n```\n\nالمتصفحات بـ تشدّد القاعدة دي مع الوقت. كان شغّال زمان، بقى مرفوض دلوقتي. الـ catch بـ يـ swallow الـ error والـ fallback openWA() بـ يبعت text-only من غير صورة.\n\nالحل (نفس استراتيجية CLAUDE.md §7 لكن للـ navigator.share):\n1. Prefetch الـ image Blob بـ useEffect لما الـ WhatsApp popup يفتح (الـ popup نفسه اتفتح بـ click → الـ fetch بـ يجري في الخلفية)\n2. لما المستخدم يضغط 'تفاصيل' أو 'تفاصيل + تايم لاين'، الـ Blob جاهز → بـ نـ create الـ File synchronously → نـ call navigator.share() على طول من غير await قبلها → الـ user activation محفوظة → الصورة تتـ attach صح.\n\nبالإضافة: لـ handle الـ legacy base64 strings (pre-V19.36 format) — لو الـ image مش URL ولا data: URL، نـ synthesize Blob من الـ base64 مباشرة بدل ما نعمل fetch() على string مش صالحة.\n\nالـ AbortError (لما المستخدم يـ cancel الـ share sheet) بقى يتعامل صح: يـ close الـ popup من غير fallback للـ wa.me." },
+      { type: "doc", text: "📜 [Pattern — anti-pattern register]\nالـ navigator.share() مع files بـ يـ require نفس حماية الـ user activation زي window.open(). أي API بـ يـ open browser window/sheet لازم يـ called قبل أي await في الـ handler. لو محتاج async data للـ share/open، prefetch-ها قبل ما الـ user يضغط (في useEffect أو فور فتح الـ popup الـ parent).\n\nنفس الـ class of bug في CLAUDE.md §7 (window.open after await) و §10 (anti-patterns list). إضافة navigator.share للـ list محتمل." },
+    ]
+  },
+  {
     version: "V21.9.14",
     date: "2026-05-10",
     types: ["fix", "architectural"],
