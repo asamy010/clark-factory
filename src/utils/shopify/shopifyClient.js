@@ -303,6 +303,33 @@ export function dedupeTreasuryTransfers(opts, user){
   return call("POST", "/api/maintenance/dedupe-treasury-transfers", opts || {}, user);
 }
 
+/* V21.9.24 — Full state audit: detects flag/data mismatches that cause
+   "data exists but UI shows 0" bugs. → { ok, flags, partitioned, split,
+   mismatches: {partitioned, split, any}, suggestions, ... } */
+export function auditState(user){
+  return call("POST", "/api/maintenance/audit-state", {}, user);
+}
+
+/* V21.9.24 — Fix missing migration flags. Sets _partitionedV2192Done etc.
+   when the underlying collection has docs but the flag is unset.
+   { dryRun? } → { ok, flags_set, fields_stripped, detected, ... } */
+export function fixFlags(opts, user){
+  return call("POST", "/api/maintenance/fix-flags", opts || {}, user);
+}
+
+/* V21.9.24 — Get current user's effective role + permissions + warnings.
+   Any authenticated user can call (not admin-only).
+   → { ok, uid, email, role, source, permissions, warnings, can, ... } */
+export function myPermissions(user){
+  return call("GET", "/api/admin/my-permissions", null, user);
+}
+
+/* V21.9.24 — Admin users management. action="list"|"set"|"remove"|"auth_search"|"bootstrap_self".
+   See api/admin/users-permissions.js for action details. */
+export function usersPermissions(opts, user){
+  return call("POST", "/api/admin/users-permissions", opts || {}, user);
+}
+
 /* V21.9.7 Phase 11m: Return Requests CRUD.
    Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
    List   — { status?, search?, limit?, offset? }

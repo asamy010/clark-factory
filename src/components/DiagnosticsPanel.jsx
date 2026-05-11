@@ -17,8 +17,8 @@ import { useState, useEffect } from "react";
 import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { ask, showToast } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers } from "../utils/shopify/shopifyClient.js";
+import { ask, showToast, tell } from "../utils/popups.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -39,6 +39,17 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [rulesBusy, setRulesBusy] = useState(false);
   const [rulesResult, setRulesResult] = useState(null);
   const [autoListenerErrors, setAutoListenerErrors] = useState({});
+  /* V21.9.24: State audit + permissions diagnostics */
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [auditResult, setAuditResult] = useState(null);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [myPermsBusy, setMyPermsBusy] = useState(false);
+  const [myPerms, setMyPerms] = useState(null);
+  const [usersBusy, setUsersBusy] = useState(false);
+  const [usersList, setUsersList] = useState(null);
+  const [addUid, setAddUid] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [addRole, setAddRole] = useState("manager");
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -260,6 +271,165 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   }));
   const autoCriticalErrors = autoErrorList.filter(e => e.isDenied);
 
+  /* V21.9.24: State audit + auto-fix flags */
+  const runStateAudit = async () => {
+    setAuditBusy(true);
+    try {
+      const r = await auditState(user);
+      setAuditResult(r);
+      if(!r?.ok){
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setAuditBusy(false); }
+  };
+
+  const runFixFlags = async () => {
+    if(!canEdit) return;
+    setFixBusy(true);
+    try {
+      const dry = await fixFlags({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      if((dry.flags_to_set || []).length === 0 && (dry.fields_to_strip || []).length === 0){
+        showToast("✨ مفيش mismatches — كله صح");
+        setAuditResult(null);
+        runStateAudit();
+        return;
+      }
+      const yes = await ask(
+        "🔧 إصلاح الـ migration flags",
+        `هـ يتـ set الـ flags دي:\n${(dry.flags_to_set||[]).map(f=>"• "+f).join("\n")}\n\n` +
+        (dry.fields_to_strip?.length ? `وهـ يـ strip الـ legacy fields:\n${dry.fields_to_strip.map(f=>"• "+f).join("\n")}\n\n` : "") +
+        `هذا الإجراء آمن (backup كامل + idempotent). تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await fixFlags({}, user);
+      if(r?.ok){
+        showToast(`✅ تم! ${(r.flags_set||[]).length} flags set + ${(r.fields_stripped||[]).length} fields stripped`);
+        await runStateAudit();
+        setTimeout(() => {
+          tell("✨ تم بنجاح", "الـ flags اتـ fix-ت. اعمل refresh (F5) للصفحة عشان الـ data تظهر دلوقتي.");
+        }, 500);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setFixBusy(false); }
+  };
+
+  /* V21.9.24: My Permissions (auto-load on mount + on canEdit changes) */
+  const loadMyPerms = async () => {
+    setMyPermsBusy(true);
+    try {
+      const r = await myPermissions(user);
+      setMyPerms(r);
+    } catch(e){
+      setMyPerms({ ok: false, error: e.message });
+    }
+    finally { setMyPermsBusy(false); }
+  };
+
+  useEffect(() => {
+    if(user) loadMyPerms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
+  /* V21.9.24: Users management — admin only */
+  const loadUsersList = async () => {
+    setUsersBusy(true);
+    try {
+      const r = await usersPermissions({ action: "list" }, user);
+      if(r?.ok) setUsersList(r);
+      else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setUsersBusy(false); }
+  };
+
+  const setUserRole = async (uid, email, role) => {
+    if(!canEdit) return;
+    const yes = await ask(
+      "🛡 تعيين role",
+      `هـ يتـ set الـ role '${role}' للـ user ${email || uid}.\nتأكيد؟`
+    );
+    if(!yes) return;
+    setUsersBusy(true);
+    try {
+      const r = await usersPermissions({ action: "set", uid, email, role }, user);
+      if(r?.ok){
+        showToast("✅ " + r.message);
+        await loadUsersList();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setUsersBusy(false); }
+  };
+
+  const removeUser = async (uid, email) => {
+    if(!canEdit) return;
+    const yes = await ask(
+      "🗑 حذف user",
+      `هـ يتـ remove ${email || uid} من cfg.users. هـ يـ default لـ 'viewer' في الـ rules.\nتأكيد؟`
+    );
+    if(!yes) return;
+    setUsersBusy(true);
+    try {
+      const r = await usersPermissions({ action: "remove", uid }, user);
+      if(r?.ok){
+        showToast("✅ تم الحذف");
+        await loadUsersList();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setUsersBusy(false); }
+  };
+
+  const bootstrapMe = async () => {
+    const yes = await ask(
+      "🆘 Bootstrap admin",
+      `هـ يضيفك (${myPerms?.email || myPerms?.uid}) كـ admin في cfg.users.\n\nهذا الزر بـ يشتغل فقط في حالة:\n• مفيش admin معمول حالياً\n• أو الـ UID بتاعك = bootstrap UID المعرّف في rules\n\nتأكيد؟`
+    );
+    if(!yes) return;
+    try {
+      const r = await usersPermissions({ action: "bootstrap_self" }, user);
+      if(r?.ok){
+        showToast("✅ " + r.message);
+        await loadMyPerms();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+  };
+
+  const addUserManually = async () => {
+    if(!addUid.trim() && !addEmail.trim()){
+      showToast("⛔ ادخل UID أو email");
+      return;
+    }
+    setUsersBusy(true);
+    try {
+      let uidToUse = addUid.trim();
+      let emailToUse = addEmail.trim();
+
+      /* If only email given, look up the UID from Firebase Auth */
+      if(!uidToUse && emailToUse){
+        const search = await usersPermissions({ action: "auth_search", email: emailToUse }, user);
+        if(search?.ok && search.user?.uid){
+          uidToUse = search.user.uid;
+        } else {
+          showToast("⛔ الـ email مش موجود في Firebase Auth");
+          return;
+        }
+      }
+
+      const r = await usersPermissions({ action: "set", uid: uidToUse, email: emailToUse, role: addRole }, user);
+      if(r?.ok){
+        showToast("✅ تم إضافة الـ user");
+        setAddUid(""); setAddEmail(""); setAddRole("manager");
+        await loadUsersList();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setUsersBusy(false); }
+  };
+
   const fmtBytes = (b) => {
     if(b < 1024) return b + " B";
     if(b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
@@ -362,6 +532,219 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
             <div style={{ marginTop: 10, padding: 10, background: T.bg, borderRadius: 6, fontSize: FS - 2, lineHeight: 1.8 }}>
               <b>الحل:</b> افتح <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" style={{ color: T.accent, fontWeight: 700 }}>Firebase Console</a> → Build → Firestore Database → Rules tab → الصق <code>firestore.rules</code> من الـ repo → Publish.
             </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.24: My Permissions Panel (auto-loads) */}
+      {myPerms && myPerms.ok && (
+        <div style={{
+          padding: 12, marginBottom: 12,
+          background: (myPerms.warnings?.length > 0 ? T.warn + "10" : T.ok + "10"),
+          border: "1.5px solid " + (myPerms.warnings?.length > 0 ? T.warn : T.ok) + "40",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ fontWeight: 800, color: myPerms.warnings?.length > 0 ? T.warn : T.ok, fontSize: FS }}>
+              🛡 صلاحياتي
+            </div>
+            <LoadingBtn loading={myPermsBusy} loadingText="..." onClick={loadMyPerms} small>
+              🔄 إعادة فحص
+            </LoadingBtn>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 6, fontSize: FS - 2 }}>
+            <div><b>UID:</b> <code style={{ fontSize: FS - 3 }}>{myPerms.uid}</code></div>
+            <div><b>Email:</b> {myPerms.email || "—"}</div>
+            <div><b>Role:</b> <span style={{ color: myPerms.role === "admin" ? T.ok : (myPerms.role === "viewer" ? T.err : T.warn), fontWeight: 800 }}>{myPerms.role}</span></div>
+            <div><b>Source:</b> <span style={{ fontSize: FS - 3, color: T.textSec }}>{myPerms.source}</span></div>
+            <div><b>Bootstrap:</b> {myPerms.isBootstrap ? "✅ نعم" : "✗ لأ"}</div>
+            <div><b>في cfg.users:</b> {myPerms.isInUsersList ? "✅ نعم" : "❌ لأ"}</div>
+          </div>
+          {myPerms.warnings?.length > 0 && (
+            <div style={{ marginTop: 10, padding: 8, background: T.warn + "10", borderRadius: 6 }}>
+              {myPerms.warnings.map((w, i) => (
+                <div key={i} style={{ fontSize: FS - 2, color: T.warn, marginBottom: 4 }}>{w}</div>
+              ))}
+              {!myPerms.isInUsersList && myPerms.admin_count === 0 && (
+                <LoadingBtn small onClick={bootstrapMe}
+                  style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700, marginTop: 6 }}>
+                  🆘 Bootstrap me as admin
+                </LoadingBtn>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.24: State Audit + Fix Flags (admin-only) */}
+      {canEdit && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+          display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
+        }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 700, fontSize: FS - 1, marginBottom: 2 }}>
+              🔍 State Audit — كشف flag/data mismatches
+            </div>
+            <div style={{ fontSize: FS - 3, color: T.textSec, lineHeight: 1.6 }}>
+              لو الـ data موجودة في Firestore لكن الـ UI بـ يـ show 0، السبب على الأرجح إن الـ migration flag مش set. الزر ده بـ يـ scan كل الـ collections + flags ويعرضك المشاكل + يـ fix-ها بزرّ واحد.
+            </div>
+          </div>
+          <LoadingBtn loading={auditBusy} loadingText="..." onClick={runStateAudit} small
+            style={{ background: T.purple, color: "#fff", border: "none", fontWeight: 700 }}>
+            🔍 افحص الـ state
+          </LoadingBtn>
+        </div>
+      )}
+
+      {auditResult && auditResult.ok && (
+        <div style={{
+          padding: 12, marginBottom: 12,
+          background: (auditResult.mismatches?.any ? "#DC2626" + "10" : T.ok + "10"),
+          border: "1.5px solid " + (auditResult.mismatches?.any ? "#DC2626" : T.ok) + "40",
+          borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 800, color: auditResult.mismatches?.any ? "#DC2626" : T.ok, fontSize: FS, marginBottom: 8 }}>
+            {auditResult.mismatches?.any
+              ? `🚨 لقينا ${(auditResult.mismatches.partitioned?.length||0) + (auditResult.mismatches.split?.length||0)} mismatch`
+              : "✅ كل الـ flags و collections متسقين"}
+          </div>
+          {auditResult.mismatches?.any && (
+            <>
+              <div style={{ fontSize: FS - 2, marginBottom: 8, color: T.text, lineHeight: 1.7 }}>
+                <b>المشكلة:</b> فيه data موجودة في collections لكن الـ migration flag في factory/config مش set. الـ client merge بـ يستخدم الـ legacy field الفاضي → UI بـ يـ show 0.
+              </div>
+              <div style={{ background: T.cardSolid, padding: 8, borderRadius: 6, marginBottom: 8, maxHeight: 200, overflow: "auto" }}>
+                {auditResult.mismatches.partitioned?.map(m => (
+                  <div key={m.collection} style={{ fontSize: FS - 2, fontFamily: "monospace", marginBottom: 3 }}>
+                    🔧 <code>{m.collection}</code>: {m.doc_count} doc لكن <code>{m.flag}</code> = false
+                  </div>
+                ))}
+                {auditResult.mismatches.split?.map(m => (
+                  <div key={m.collection} style={{ fontSize: FS - 2, fontFamily: "monospace", marginBottom: 3 }}>
+                    🔧 <code>{m.collection}</code>: {m.total_entries} entries في {m.day_doc_count} day docs لكن <code>{m.flag}</code> = false
+                  </div>
+                ))}
+              </div>
+              <LoadingBtn loading={fixBusy} loadingText="جاري الإصلاح..." onClick={runFixFlags}
+                style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 800 }}>
+                🔧 اصلح الـ Flags دلوقتي
+              </LoadingBtn>
+            </>
+          )}
+          {auditResult.suggestions?.length > 0 && !auditResult.mismatches?.any && (
+            <div style={{ marginTop: 6, fontSize: FS - 2, color: T.textSec }}>
+              {auditResult.suggestions.map((s, i) => <div key={i}>• {s}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.24: Users & Permissions admin panel */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: FS - 1 }}>
+              👥 إدارة المستخدمين والصلاحيات
+            </div>
+            <LoadingBtn loading={usersBusy} loadingText="..." onClick={loadUsersList} small
+              style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 700 }}>
+              {usersList ? "🔄 تحديث" : "📋 جلب القائمة"}
+            </LoadingBtn>
+          </div>
+          <div style={{ fontSize: FS - 3, color: T.textSec, lineHeight: 1.6, marginBottom: 8 }}>
+            الناس اللي بتشتغل على البرنامج لازم يكون عندهم role في cfg.users، غير كده الـ Firestore بـ يـ default لـ 'viewer' وما يقدروش يـ save أي حاجة.
+          </div>
+
+          {usersList && (
+            <>
+              <div style={{ padding: 10, background: T.cardSolid, borderRadius: 6, marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6, fontSize: FS - 2 }}>
+                  ➕ إضافة user جديد
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr 130px 100px", gap: 6, alignItems: "center" }}>
+                  <input
+                    value={addEmail}
+                    onChange={(e) => setAddEmail(e.target.value)}
+                    placeholder="Email (نبحث عن UID تلقائياً)"
+                    style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                  />
+                  <input
+                    value={addUid}
+                    onChange={(e) => setAddUid(e.target.value)}
+                    placeholder="UID (لو معروف — اختياري)"
+                    style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                  />
+                  <select
+                    value={addRole}
+                    onChange={(e) => setAddRole(e.target.value)}
+                    style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                  >
+                    {(usersList.valid_roles || []).map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <LoadingBtn loading={usersBusy} loadingText="..." onClick={addUserManually} small
+                    style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 700 }}>
+                    ➕ إضافة
+                  </LoadingBtn>
+                </div>
+              </div>
+
+              <div style={{ maxHeight: 320, overflow: "auto", borderRadius: 6, border: "1px solid " + T.brd }}>
+                {(usersList.users || []).length === 0 ? (
+                  <div style={{ padding: 14, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>
+                    مفيش users في cfg.users — أضف أول user من الفورم فوق.
+                  </div>
+                ) : (
+                  (usersList.users || []).map((u, i) => (
+                    <div key={u.uid || i} style={{
+                      padding: 8, fontSize: FS - 2,
+                      borderBottom: i < usersList.users.length - 1 ? "1px solid " + T.brd : "none",
+                      display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 130px 80px",
+                      gap: 6, alignItems: "center",
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>
+                          {u.auth_info?.displayName || u.email || u.uid}
+                          {u.uid === myPerms?.uid && <span style={{ marginInlineStart: 6, color: T.accent }}>(أنت)</span>}
+                        </div>
+                        <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
+                          {u.email}{u.email && u.uid ? " · " : ""}{u.uid && u.uid.slice(0, 18) + "..."}
+                        </div>
+                        {u.auth_info?.lastSignInTime && (
+                          <div style={{ fontSize: FS - 3, color: T.textMut }}>
+                            آخر دخول: {new Date(u.auth_info.lastSignInTime).toLocaleString("ar-EG")}
+                          </div>
+                        )}
+                      </div>
+                      <select
+                        value={u.role || "viewer"}
+                        onChange={(e) => setUserRole(u.uid, u.email, e.target.value)}
+                        disabled={u.uid === myPerms?.uid}
+                        style={{ padding: "6px 10px", border: "1px solid " + T.brd, borderRadius: 6, background: T.inputBg, color: T.text, fontSize: FS - 2 }}
+                      >
+                        {(usersList.valid_roles || []).map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                      <LoadingBtn loading={usersBusy} loadingText="..." onClick={() => removeUser(u.uid, u.email)} small
+                        disabled={u.uid === myPerms?.uid}
+                        style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700 }}>
+                        🗑 حذف
+                      </LoadingBtn>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div style={{ marginTop: 6, fontSize: FS - 3, color: T.textMut }}>
+                إجمالي: {usersList.total} user · بـ role admin: {(usersList.users || []).filter(u => u.role === "admin").length}
+              </div>
+            </>
           )}
         </div>
       )}
