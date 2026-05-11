@@ -319,24 +319,48 @@ function ConnectionTab({ data, upConfig, canEdit, user, isMob }){
   } : null);
 
   /* On mount: if connected, try a fresh ping to surface any token issues
-     (e.g. user revoked the app in Shopify admin). Silent if it fails. */
+     (e.g. user revoked the app in Shopify admin). Silent if it fails.
+
+     V21.9.23 ROOT-CAUSE FIX: pre-V21.9.23 if shopifyStatus() never resolved
+     (network hang, server timeout >2min, etc.), pingBusy stayed true forever
+     and the button was stuck on "جاري التحقق" with no way to recover.
+     User reported: 'جاري التحقق دايماً بتعمل تحقق'.
+
+     Fix: wrap shopifyStatus in Promise.race with an 8-second timeout. If the
+     network is slow or the server hangs, the button resets to idle and the
+     user can retry manually via "🔄 اختبار الاتصال". The connected badge at
+     the top of the page still shows the cached state, so the user knows the
+     app is fundamentally connected. */
   useEffect(() => {
     if(!connected) return;
     let cancelled = false;
+    let timer = null;
     (async () => {
       setPingBusy(true);
       try {
-        const r = await shopifyStatus(user);
+        const result = await Promise.race([
+          shopifyStatus(user),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error("PING_TIMEOUT")), 8000);
+          }),
+        ]);
         if(cancelled) return;
-        if(r && r.store) setStoreInfo(r.store);
-        if(r && r.pingError) setPingError(r.pingError);
-      } catch(_){
-        /* swallow — initial ping is best-effort */
+        if(result && result.store) setStoreInfo(result.store);
+        if(result && result.pingError) setPingError(result.pingError);
+      } catch(err){
+        /* swallow — initial ping is best-effort. Log timeout for debugging. */
+        if(err?.message === "PING_TIMEOUT"){
+          try { console.warn("[V21.9.23] Shopify status ping timed out after 8s — UI reset"); } catch(_){}
+        }
       } finally {
+        if(timer) clearTimeout(timer);
         if(!cancelled) setPingBusy(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if(timer) clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 

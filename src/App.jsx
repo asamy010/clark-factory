@@ -3241,6 +3241,18 @@ export default function App(){
            reconnect automatically on the next Firestore retry; if a real boot
            hang happens, the loaded flag's only effect is gating writes (which is
            desirable — don't write before successfully reading). */
+        /* V21.9.23: expose error to DiagnosticsPanel for clear UX */
+        try {
+          if(typeof window!=="undefined"){
+            window.__clarkListenerErrors = window.__clarkListenerErrors || {};
+            window.__clarkListenerErrors[collName] = {
+              code: err?.code || "unknown",
+              message: err?.message || String(err),
+              at: new Date().toISOString(),
+              field,
+            };
+          }
+        } catch(_){}
       });
       unsubs.push(unsub);
     };
@@ -3526,6 +3538,21 @@ export default function App(){
            error pulse on customersDocs listener, which then wiped the cache.
            Now the error is logged but state stays intact; the SDK retries the
            subscription automatically. */
+        /* V21.9.23: also expose the error on a global window key so the
+           DiagnosticsPanel can detect "rules not deployed" and show a clear
+           actionable banner. Pre-V21.9.23 these errors were console-only —
+           the user only saw "0 customers" after refresh with no explanation. */
+        try {
+          if(typeof window!=="undefined"){
+            window.__clarkListenerErrors = window.__clarkListenerErrors || {};
+            window.__clarkListenerErrors[collName] = {
+              code: err?.code || "unknown",
+              message: err?.message || String(err),
+              at: new Date().toISOString(),
+              field,
+            };
+          }
+        } catch(_){}
       });
       unsubs.push(unsub);
     };

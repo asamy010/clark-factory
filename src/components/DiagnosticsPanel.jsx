@@ -13,12 +13,14 @@
    of the Firestore 1MB cap).
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast } from "../utils/popups.js";
 import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers } from "../utils/shopify/shopifyClient.js";
+import { collection, getDocs, query, limit } from "firebase/firestore";
+import { db } from "../firebase.js";
 
 export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [busy, setBusy] = useState(false);
@@ -31,6 +33,28 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [ordersResult, setOrdersResult] = useState(null);
   const [dedupeBusy, setDedupeBusy] = useState(false);
   const [dedupeResult, setDedupeResult] = useState(null);
+  /* V21.9.23: Firestore rules deployment test — detects "rules not published"
+     bug where partitioned collections (customersDocs / productsDocs / etc.)
+     get permission-denied on the client even though they exist on server. */
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const [rulesResult, setRulesResult] = useState(null);
+  const [autoListenerErrors, setAutoListenerErrors] = useState({});
+
+  /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
+     App.jsx listener-error callback. Surfaces the "permission-denied" cases
+     that previously only showed in DevTools console. */
+  useEffect(() => {
+    const tick = () => {
+      try {
+        if(typeof window !== "undefined" && window.__clarkListenerErrors){
+          setAutoListenerErrors({ ...window.__clarkListenerErrors });
+        }
+      } catch(_){}
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, []);
 
   const sevColor = (s) => ({
     ok: T.ok, info: "#0EA5E9", warn: T.warn, error: T.err,
@@ -170,6 +194,72 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const pendingOrdersArrSize = (report?.storage?.arrays || []).find(a => a.name === "shopifyPendingOrders");
   const showOrdersForceButton = pendingOrdersArrSize && pendingOrdersArrSize.count > 0;
 
+  /* V21.9.23: Test Firestore rules deployment by attempting to read 1 doc
+     from each critical collection. The server (admin SDK) bypasses rules so
+     the data is written successfully, but client-side reads need the rules
+     to be PUBLISHED on Firebase Console. Pre-V21.9.23 the user only saw
+     "0 customers / 0 products" with no hint that the rules weren't published.
+
+     This helper attempts a getDocs(query(collection, limit(1))) on each
+     partitioned collection and classifies the result:
+       ok          = read succeeded (rules OK)
+       denied      = permission-denied (rules NOT published)
+       empty       = succeeded but collection has 0 docs (not necessarily bad)
+       error       = other Firestore error (network, etc.) */
+  const COLLECTIONS_TO_TEST = [
+    { col: "shopifyCustomersDocs", label: "عملاء Shopify", critical: true },
+    { col: "shopifyProductsDocs",  label: "منتجات Shopify", critical: true },
+    { col: "shopifyOrdersDays",    label: "طلبات Shopify (يومي)", critical: false },
+    { col: "shopifyOrdersArchive", label: "أرشيف الطلبات", critical: false },
+    { col: "bostaDeliveriesArchive", label: "أرشيف Bosta", critical: false },
+    { col: "salesCreditNotesDays", label: "إشعارات دائنة (يومي)", critical: false },
+    { col: "syncJobs",             label: "Sync jobs progress", critical: false },
+  ];
+
+  const runRulesTest = async () => {
+    setRulesBusy(true);
+    const results = [];
+    for(const { col, label, critical } of COLLECTIONS_TO_TEST){
+      try {
+        const snap = await getDocs(query(collection(db, col), limit(1)));
+        if(snap.size === 0){
+          results.push({ col, label, critical, status: "empty", emoji: "○", msg: "تجريباً 0 doc — اللي ينفع لو الـ collection فعلاً فاضي" });
+        } else {
+          results.push({ col, label, critical, status: "ok", emoji: "✅", msg: "OK — الـ rule بـ يـ allow الـ read" });
+        }
+      } catch(err){
+        const code = err?.code || "";
+        if(code === "permission-denied"){
+          results.push({ col, label, critical, status: "denied", emoji: "🚨", msg: "permission-denied — الـ rule مش publish-ـة أو مش بـ تـ allow read" });
+        } else {
+          results.push({ col, label, critical, status: "error", emoji: "❌", msg: (err?.message || "error").slice(0, 80) });
+        }
+      }
+    }
+    const deniedCritical = results.filter(r => r.status === "denied" && r.critical);
+    const deniedAny = results.filter(r => r.status === "denied");
+    setRulesResult({
+      results,
+      anyDenied: deniedAny.length > 0,
+      criticalDenied: deniedCritical.length > 0,
+      ranAt: new Date().toISOString(),
+    });
+    setRulesBusy(false);
+    if(deniedCritical.length > 0){
+      showToast("🚨 " + deniedCritical.length + " collection denied — لازم تـ deploy firestore.rules");
+    } else if(deniedAny.length > 0){
+      showToast("⚠️ " + deniedAny.length + " collection denied — راجع التفاصيل");
+    } else {
+      showToast("✅ كل الـ rules شغّالة");
+    }
+  };
+
+  /* Auto-listener errors from window.__clarkListenerErrors */
+  const autoErrorList = Object.entries(autoListenerErrors).map(([col, info]) => ({
+    col, ...info, isDenied: info.code === "permission-denied",
+  }));
+  const autoCriticalErrors = autoErrorList.filter(e => e.isDenied);
+
   const fmtBytes = (b) => {
     if(b < 1024) return b + " B";
     if(b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
@@ -185,6 +275,96 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
       <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 12, lineHeight: 1.7 }}>
         ℹ️ بـ يـ check حجم الـ Firestore docs، آخر sync لكل provider، الحجوزات اليتيمة، الطلبات pending قديمة، إلخ. أي حالة <b>error</b> أو <b>critical</b> تحتاج action فوري.
       </div>
+
+      {/* V21.9.23: Auto-detected listener errors (permission-denied) — shows
+          the moment App.jsx detects a denied subscription. Most actionable signal
+          for the "data disappears after refresh" bug. */}
+      {autoCriticalErrors.length > 0 && (
+        <div style={{
+          padding: 14, marginBottom: 12,
+          background: "#DC2626" + "12",
+          border: "2px solid " + "#DC2626" + "60",
+          borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 800, color: "#DC2626", fontSize: FS + 1, marginBottom: 6 }}>
+            🚨 firestore.rules مش publish-ـة على Firebase Console!
+          </div>
+          <div style={{ fontSize: FS - 2, color: T.text, lineHeight: 1.8, marginBottom: 10 }}>
+            الـ client بـ يحاول يقرأ من collections دي وبيتـ <b>deny</b> — ده السبب إن المنتجات والعملاء بـ يظهروا 0 بعد كل refresh:
+            <div style={{ marginTop: 6, padding: 8, background: "#DC2626" + "08", borderRadius: 6 }}>
+              {autoCriticalErrors.map(e => (
+                <div key={e.col} style={{ fontSize: FS - 2, fontFamily: "monospace" }}>
+                  ❌ <code>{e.col}</code> ({e.field || "—"}) — <b style={{ color: "#DC2626" }}>permission-denied</b>
+                </div>
+              ))}
+            </div>
+          </div>
+          <details style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.7 }}>
+            <summary style={{ cursor: "pointer", color: T.accent, fontWeight: 700, padding: "6px 0" }}>
+              📖 كيفية الحل (3 خطوات — دقيقتين)
+            </summary>
+            <ol style={{ marginInlineStart: 20, marginTop: 8 }}>
+              <li>افتح <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" style={{ color: T.accent, fontWeight: 700 }}>Firebase Console</a> واختار الـ project</li>
+              <li>روح: <b>Build → Firestore Database → Rules tab</b></li>
+              <li>افتح ملف <code>firestore.rules</code> من الـ GitHub repo، انسخ <b>كل المحتوى</b>، الصقه في الـ Console editor، واضغط <b>Publish</b></li>
+            </ol>
+            <div style={{ marginTop: 6, padding: 8, background: T.accent + "10", borderRadius: 6 }}>
+              💡 لو Setup GitHub Actions (V21.9.21 workflow) معمول، الـ deploy بـ يحصل تلقائياً على كل push. شوف <code>.github/workflows/deploy-firebase-rules.yml</code> للتفاصيل.
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* V21.9.23: Manual rules-test button banner */}
+      <div style={{
+        padding: 10, marginBottom: 12,
+        background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
+      }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontWeight: 700, fontSize: FS - 1, marginBottom: 2 }}>
+            🔐 Test Firestore Rules Deployment
+          </div>
+          <div style={{ fontSize: FS - 3, color: T.textSec, lineHeight: 1.6 }}>
+            بـ يحاول read من كل collection حساسة. لو في permission-denied، الـ rules مش publish-ـة على Firebase. ضروري بعد كل تعديل لـ <code>firestore.rules</code>.
+          </div>
+        </div>
+        <LoadingBtn loading={rulesBusy} loadingText="جاري الفحص..." onClick={runRulesTest} small
+          style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 700 }}>
+          🔐 اختبر القواعد
+        </LoadingBtn>
+      </div>
+
+      {/* V21.9.23: Rules test results */}
+      {rulesResult && (
+        <div style={{
+          padding: 12, marginBottom: 12,
+          background: rulesResult.criticalDenied ? "#DC2626" + "10" : (rulesResult.anyDenied ? T.warn + "10" : T.ok + "10"),
+          border: "1.5px solid " + (rulesResult.criticalDenied ? "#DC2626" : (rulesResult.anyDenied ? T.warn : T.ok)) + "40",
+          borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 800, color: rulesResult.criticalDenied ? "#DC2626" : (rulesResult.anyDenied ? T.warn : T.ok), fontSize: FS, marginBottom: 6 }}>
+            {rulesResult.criticalDenied
+              ? "🚨 Rules ناقصة — لازم Publish يدوي"
+              : (rulesResult.anyDenied ? "⚠️ بعض الـ collections denied (مش حرجة)" : "✅ كل الـ rules شغّالة")}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {rulesResult.results.map(r => (
+              <div key={r.col} style={{
+                padding: "4px 8px", fontSize: FS - 2, fontFamily: "monospace",
+                background: T.cardSolid + "80", borderRadius: 5,
+              }}>
+                {r.emoji} <code>{r.col}</code> {r.critical && <span style={{ color: T.err, fontWeight: 700 }}>(حرج)</span>} — {r.msg}
+              </div>
+            ))}
+          </div>
+          {rulesResult.criticalDenied && (
+            <div style={{ marginTop: 10, padding: 10, background: T.bg, borderRadius: 6, fontSize: FS - 2, lineHeight: 1.8 }}>
+              <b>الحل:</b> افتح <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" style={{ color: T.accent, fontWeight: 700 }}>Firebase Console</a> → Build → Firestore Database → Rules tab → الصق <code>firestore.rules</code> من الـ repo → Publish.
+            </div>
+          )}
+        </div>
+      )}
 
       {(showSplitWarning || splitResult?.ok) && (
         <div style={{
