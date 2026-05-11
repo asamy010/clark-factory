@@ -36,6 +36,7 @@ import { getShopifyCreds, fetchAllShopifyCustomers } from "./_shopifyAdmin.js";
 import {
   readAllShopifyCustomers, writeManyShopifyCustomers, FLAG_V2192,
 } from "./_partitioned.js";
+import { readAllPendingOrders } from "./_pendingOrders.js";
 import { withProgress } from "../_progressTracker.js";
 
 const CUSTOMERS_CAP = 25000; /* enough for fashion B2C even with mailing-list opt-ins */
@@ -132,11 +133,17 @@ export default async function handler(req, res){
     const existingCustomers = await readAllShopifyCustomers(cfgForRead);
     const isPartitioned = !!cfgForRead[FLAG_V2192];
 
+    /* V21.9.18: pre-tx read live orders via the split-aware helper.
+       Pre-V21.9.18 we read `cfg.shopifyPendingOrders` directly inside the
+       transaction. After the V21.9.18 split migration that array is
+       stripped from factory/config — entries live in shopifyOrdersDays/*.
+       The helper returns the flat array regardless of split state. */
+    const liveOrders = await readAllPendingOrders(cfgForRead);
+
     let cappedResult = null;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(cfgRef);
       const cfg = snap.exists ? (snap.data() || {}) : {};
-      const liveOrders = Array.isArray(cfg.shopifyPendingOrders) ? cfg.shopifyPendingOrders : [];
       const existing = existingCustomers; /* read above, outside tx */
 
       /* V21.9.1: Combine live orders + archived orders, dedup by shopify_order_id.

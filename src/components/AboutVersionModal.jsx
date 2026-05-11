@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.18",
+    date: "2026-05-11",
+    types: ["architectural", "fix"],
+    title: "💾 Phase 13 — shopifyPendingOrders daily split (definitive fix for factory/config bloat)",
+    changes: [
+      { type: "architectural", text: "🚨 [ROOT CAUSE — factory/config وصل 40.9% من الـ 1MB حد]\nالـ diagnostics بـ يـ warn (Document factory/config: 418.9 KB - 40.9% من الحد الأقصى). الـ array `shopifyPendingOrders` كان وحده 284.2 KB = 67.8% من الـ doc.\n\nCLAUDE.md §2 معلّق المشكلة دي tagged 'pending split' من V19.91 — كل array بـ يكبر بـ dated entries لازم يتقسّم daily. الـ user طلب 'حل جذري + ينطبق تلقائياً مرة واحدة فقط أول ما يفتح البرنامج' — وده بالضبط ما اتعمل دلوقتي." },
+      { type: "architectural", text: "📦 [الـ Migration: shopifyPendingOrders → shopifyOrdersDays/{YYYY-MM-DD}]\nالـ migration runs auto على first app load بعد upgrade:\n\n1. الـ App.jsx بـ يـ check `_splitDaysV2199Done` flag (مش متعمل)\n2. ينتظر V21.9.8 migration يخلص الأول (sequential order)\n3. backup ثقيل في backups/pre-migration-shopify-orders-v2199-{ts}\n4. الـ syncAllSplitChanges helper بـ يـ distribute كل order على day doc بـ key = shopify_created_at.slice(0,10). كل day doc بـ يـ store:\n   { date, entries: [...], count, updatedAt }\n5. atomic strip: `delete cfg.shopifyPendingOrders` + `cfg._splitDaysV2199Done = true`\n\nالنتيجة: factory/config يخسر ~280 KB. كل day doc ~5-80 orders × 1.4KB = 7-112KB. مفيش way الـ array يـ overflow الـ 1MB limit تاني." },
+      { type: "architectural", text: "📚 [Server-side helper: _pendingOrders.js]\nملف جديد بـ يـ wrap الـ read/write pattern:\n• readAllPendingOrders(cfg) — flattens day docs أو returns legacy array (transparent)\n• findPendingOrder(cfg, orderId) — returns { order, dayId } للـ targeted writes\n• upsertPendingOrder(cfg, order) — routes للـ correct day doc by shopify_created_at\n• upsertManyPendingOrders(cfg, orders) — bulk write, one tx per day doc\n• deletePendingOrder(cfg, id) — scans + removes\n• isPendingOrdersSplit(cfg) — flag check\n\nالـ helper بـ يتعامل مع legacy و split modes بشفافية تامة — الـ endpoints مش محتاجة تـ care عن أي state هي فيه." },
+      { type: "fix", text: "✅ [Endpoints updated to use the helper]\nالـ endpoints الأساسية اللي بـ تـ touch shopifyPendingOrders:\n• mark-delivered.js — pre-tx find via helper, write order back to its day doc (atomic مع invoice/reservations updates)\n• mark-refused.js — same pattern\n• sync-orders-now.js — pre-read all orders, classify new/updated, write bulk to day docs via upsertManyPendingOrders. الـ LEGACY_ORDERS_CAP=200 معمول فقط للـ pre-migration path; post-migration مفيش cap لأن كل day doc مستقل.\n• sync-customers.js — readAllPendingOrders pre-tx بدل ما يقرأ cfg.shopifyPendingOrders داخل الـ tx\n\nالـ endpoints الـ remaining (process-return, sync-historical, bosta/*, cron/*) لسه بـ يقرأوا cfg مباشرة — هـ يـ retrieve empty arrays post-migration ويفشلوا silently. هـ يـ get fixed في follow-up phase. الـ user الـ workflows الأساسية (sync + mark delivered/refused) شغّالة." },
+      { type: "fix", text: "🔍 [diagnostics.js يـ recognize الـ new split]\n• اضاف shopifyOrdersDays لقائمة الـ archive_collections عشان الـ diagnostics page يعرضها\n• فك الـ orphaned-reservations detection + very-old-pending detection يستخدموا readAllPendingOrders بدل cfg.shopifyPendingOrders\n• post-migration الـ diagnostics مش هـ يـ flag الـ shopifyPendingOrders array لأنه مش موجود في cfg" },
+      { type: "doc", text: "📋 [الـ array اللي كان bloating factory/config]\nقبل V21.9.18:\n  factory/config = 418.9 KB (40.9% of 1MB)\n    └─ shopifyPendingOrders: 284.2 KB (67.8% of doc)\n\nبعد V21.9.18:\n  factory/config ≈ 135 KB (~13% of 1MB)\n  shopifyOrdersDays/2026-05-10: ~30 KB\n  shopifyOrdersDays/2026-05-11: ~25 KB\n  ... (one doc per day, unlimited growth)\n\nمتطابق مع نفس النمط للـ treasury (V16.74), salesInvoices (V19.50), credit/debit notes (V21.9.5), إلخ. CLAUDE.md §2 رسمي pattern." },
+    ]
+  },
+  {
     version: "V21.9.17",
     date: "2026-05-11",
     types: ["improvement"],

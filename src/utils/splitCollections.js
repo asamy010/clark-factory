@@ -50,6 +50,11 @@ export const SPLIT_FIELDS_V2195 = ["salesCreditNotes", "purchaseDebitNotes"];
 export const SPLIT_FIELDS_V2197 = ["shopifyReturnRequests"];
 /* V21.9.8 — WhatsApp campaigns (الحملات + الـ run logs) — daily split. */
 export const SPLIT_FIELDS_V2198 = ["whatsappCampaigns", "whatsappCampaignRuns"];
+/* V21.9.18 — shopifyPendingOrders — daily split by shopify_created_at.
+   Was the single biggest contributor to factory/config size (~280KB / 67.8%
+   of the doc at 200 orders cap). CLAUDE.md §2 has flagged this as TODO since
+   V19.91. Migration runs auto on app open, just like every other split. */
+export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -59,6 +64,7 @@ export const SPLIT_FLAG_V1953 = "_splitDaysV1953Done";
 export const SPLIT_FLAG_V2195 = "_splitDaysV2195Done";
 export const SPLIT_FLAG_V2197 = "_splitDaysV2197Done";
 export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
+export const SPLIT_FLAG_V2199 = "_splitDaysV2199Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -90,6 +96,10 @@ export const SPLIT_COLLECTIONS = {
   /* V21.9.8 — WhatsApp campaigns (templates) + run logs (per-customer dispatch) */
   whatsappCampaigns:    "whatsappCampaignsDays",
   whatsappCampaignRuns: "whatsappCampaignRunsDays",
+  /* V21.9.18 — Shopify pending orders. Day key = shopify_created_at.slice(0,10).
+     Existing maintenance endpoint name was "shopifyOrdersDays" — we keep that
+     so the V21.9.3 manual migration tool's output is compatible. */
+  shopifyPendingOrders: "shopifyOrdersDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -170,6 +180,16 @@ function _getEntryDate(entry, allowFallback = false) {
   /* treasury: t.date موجود مباشرة */
   if (entry.date && /^\d{4}-\d{2}-\d{2}/.test(entry.date)) {
     return entry.date.slice(0, 10);
+  }
+  /* V21.9.18: shopifyPendingOrders entries use shopify_created_at (ISO 8601
+     from Shopify's API). Day-bucket by the date portion. We check this BEFORE
+     auditLog's ts because order entries DO have a `ts` field on some legacy
+     records too — but shopify_created_at is the authoritative one for routing. */
+  if (entry.shopify_created_at) {
+    try {
+      const d = new Date(entry.shopify_created_at).toISOString().slice(0, 10);
+      if (d && d !== "Invalid Date") return d;
+    } catch (e) { /* fall through */ }
   }
   /* auditLog: a.ts ISO timestamp */
   if (entry.ts) {
@@ -446,6 +466,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V2198]) {
     for (const field of SPLIT_FIELDS_V2198) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V2199]) {
+    for (const field of SPLIT_FIELDS_V2199) delete stripped[field];
   }
   return stripped;
 }

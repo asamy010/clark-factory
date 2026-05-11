@@ -111,10 +111,19 @@ export default async function handler(req, res){
   };
 
   let cfg = {};
+  /* V21.9.18: in addition to cfg, we read the live pending orders from
+     shopifyOrdersDays/* when the split flag is set. The diagnostics
+     downstream (orphaned reservations, very-old-pending detection) need
+     the actual list — pre-V21.9.18 it lived in cfg.shopifyPendingOrders,
+     post-V21.9.18 it lives in the daily collection. */
+  let livePendingOrders = [];
   try {
     const db = getDb();
     const snap = await db.collection("factory").doc("config").get();
     cfg = snap.exists ? (snap.data() || {}) : {};
+    /* Lazy-import to avoid circular dependencies. */
+    const { readAllPendingOrders } = await import("./shopify/_pendingOrders.js");
+    livePendingOrders = await readAllPendingOrders(cfg);
   } catch(e){
     return res.status(500).json({ ok:false, error: "تعذر قراءة config: " + e.message });
   }
@@ -187,20 +196,25 @@ export default async function handler(req, res){
   /* ── Archive + partitioned collections (count only — we don't read all docs to keep cost low) ── */
   try {
     const db = getDb();
-    /* V21.9.2: include the new partitioned collections */
+    /* V21.9.2: include the new partitioned collections.
+       V21.9.18: also include shopifyOrdersDays (the new daily split for
+       pending orders — replaces the live array in factory/config). */
     for(const colName of [
       "shopifyOrdersArchive",
       "bostaDeliveriesArchive",
       "shopifyProductsDocs",
       "shopifyCustomersDocs",
+      "shopifyOrdersDays",
     ]){
       const snap = await db.collection(colName).count().get();
       const count = snap.data().count;
       /* Per-doc collections: ~5KB avg (products) / ~1KB avg (customers).
-         Archive: ~600 docs × 1KB = ~600KB per doc. */
+         Archive: ~600 docs × 1KB = ~600KB per doc.
+         shopifyOrdersDays: ~30 orders/day × 1.4KB = ~42KB per day doc. */
       const isArchive = colName.endsWith("Archive");
       const isProducts = colName === "shopifyProductsDocs";
-      const avgBytes = isArchive ? 600 * 1024 : (isProducts ? 5000 : 1000);
+      const isOrdersDays = colName === "shopifyOrdersDays";
+      const avgBytes = isArchive ? 600 * 1024 : (isProducts ? 5000 : (isOrdersDays ? 42 * 1024 : 1000));
       report.storage.archive_collections.push({
         name: colName,
         doc_count: count,
@@ -279,7 +293,10 @@ export default async function handler(req, res){
   /* ── Critical data issues ── */
   /* 1. Orphaned reservations (status=active but source order is gone) */
   const reservations = Array.isArray(cfg.stockReservations) ? cfg.stockReservations : [];
-  const orderIds = new Set((cfg.shopifyPendingOrders || []).map(o => String(o.shopify_order_id)));
+  /* V21.9.18: use livePendingOrders (read above via the split-aware helper)
+     instead of cfg.shopifyPendingOrders directly, since post-migration the
+     latter is undefined. */
+  const orderIds = new Set(livePendingOrders.map(o => String(o.shopify_order_id)));
   const orphans = reservations.filter(r =>
     r.status === "active" &&
     r.source_type === "shopify" &&
@@ -297,7 +314,8 @@ export default async function handler(req, res){
   }
 
   /* 2. Pending orders > 14 days old (should have been refused or delivered) */
-  const veryOldPending = (cfg.shopifyPendingOrders || []).filter(o => {
+  /* V21.9.18: same source switch as above — use livePendingOrders. */
+  const veryOldPending = livePendingOrders.filter(o => {
     if(o.status !== "pending_delivery") return false;
     const ts = o.shopify_created_at;
     if(!ts) return false;
