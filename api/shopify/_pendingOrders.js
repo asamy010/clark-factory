@@ -50,6 +50,60 @@ export function isPendingOrdersSplit(cfg) {
   return !!(cfg && cfg[SHOPIFY_ORDERS_SPLIT_FLAG]);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   V21.9.21 — Defense-in-depth: assertSplitMode write guard
+   ───────────────────────────────────────────────────────────────
+   The fixes in V21.9.20 routed all 10 known endpoints through this
+   helper. BUT — any new endpoint added in the future, OR any direct
+   `tx.set(cfgRef, { shopifyPendingOrders: ... })` slipping in via
+   merge conflict / refactor mistake, would silently re-bloat
+   factory/config and re-trigger the regression.
+
+   This helper is the canary: every code path that writes to cfg
+   should call assertNoLegacyOrdersWrite(cfg, patch) BEFORE the
+   write. If post-migration and the patch touches shopifyPendingOrders,
+   it throws — surfacing the bug at the source instead of letting
+   it bury silently in the bloat metric.
+
+   Usage in any endpoint that writes to factory/config:
+
+     const patch = { stockReservations: ..., shopifyConfig: ... };
+     assertNoLegacyOrdersWrite(cfg, patch);  // throws if violation
+     tx.set(cfgRef, patch, { merge: true });
+
+   The check is cheap (one prop lookup) and runs server-side only,
+   so it has no client perf impact.
+   ═══════════════════════════════════════════════════════════════ */
+export function assertNoLegacyOrdersWrite(cfg, patch, opts = {}) {
+  if (!isPendingOrdersSplit(cfg)) return; /* legacy mode — writes allowed */
+  if (!patch || typeof patch !== "object") return;
+  if (!Object.prototype.hasOwnProperty.call(patch, "shopifyPendingOrders")) return;
+  const allowDelete = opts.allowDelete === true;
+  const val = patch.shopifyPendingOrders;
+  if (allowDelete && (val === undefined || val === null)) return;
+  const caller = opts.caller || "(unknown caller)";
+  throw new Error(
+    "[V21.9.21 GUARD] Refusing to write `shopifyPendingOrders` to factory/config " +
+    "post-V21.9.18 migration. The orders live in `shopifyOrdersDays/{day}` doc " +
+    "collection now — use upsertPendingOrder / upsertManyPendingOrders helpers " +
+    "from api/shopify/_pendingOrders.js. Caller: " + caller
+  );
+}
+
+/* Sister helper: assertSplitMode — throws if the split is NOT active.
+   Use this when a code path REQUIRES the migration to have completed
+   (e.g. maintenance endpoint that expects day docs to exist). */
+export function assertSplitMode(cfg, opts = {}) {
+  if (isPendingOrdersSplit(cfg)) return;
+  const caller = opts.caller || "(unknown caller)";
+  throw new Error(
+    "[V21.9.21 GUARD] This operation requires the V21.9.18 daily-split migration " +
+    "to have completed. Flag `_splitDaysV2199Done` is not set on factory/config. " +
+    "Run the migration first (POST /api/maintenance/split-shopify-orders-daily). " +
+    "Caller: " + caller
+  );
+}
+
 /* Read ALL pending orders. Post-migration: flatten every day doc.
    Pre-migration: legacy cfg.shopifyPendingOrders array. */
 export async function readAllPendingOrders(cfg) {

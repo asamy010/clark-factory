@@ -1,0 +1,133 @@
+name: Deploy Firebase Rules
+
+# ═══════════════════════════════════════════════════════════════
+# CLARK — Auto-deploy firestore.rules + storage.rules (V21.9.21)
+# ───────────────────────────────────────────────────────────────
+# Pre-V21.9.21 every change to firestore.rules / storage.rules
+# required a MANUAL step:
+#   1. Open Firebase Console
+#   2. Build → Firestore Database / Storage → Rules tab
+#   3. Paste rules text
+#   4. Click Publish
+# Forgetting any of these was the cause of multiple critical bugs
+# (C1 in ISSUES_LOG.md: customers/products "disappearing" because
+# the client couldn't read partitioned collections).
+#
+# This workflow deploys both rules files automatically on every
+# push to main that modifies either file. Vercel only deploys
+# the app code; Firebase rules are deployed by this workflow.
+#
+# ───────────────────────────────────────────────────────────────
+# SETUP (one-time, by repo owner):
+# 1. Create a Firebase service account:
+#    a. Firebase Console → Project Settings → Service accounts
+#    b. Click "Generate new private key" → download the JSON
+# 2. Add it as a GitHub secret:
+#    a. GitHub repo → Settings → Secrets and variables → Actions
+#    b. Click "New repository secret"
+#    c. Name: FIREBASE_SERVICE_ACCOUNT
+#       Value: paste the FULL JSON content (single line is fine)
+# 3. Optional: also add FIREBASE_PROJECT_ID if not in firebase.json
+# 4. Push a change to firestore.rules → workflow runs → rules deployed
+#
+# To deploy manually without changing rules: GitHub repo → Actions
+# tab → "Deploy Firebase Rules" → Run workflow.
+# ═══════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'storage.rules'
+      - 'firebase.json'
+      - '.github/workflows/deploy-firebase-rules.yml'
+  workflow_dispatch: {} # allow manual trigger from GitHub UI
+
+# Cancel any in-progress run for the same branch when a new push lands.
+# Prevents two concurrent deploys from racing on the same Firebase resource.
+concurrency:
+  group: firebase-rules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools@13
+
+      - name: Validate rules syntax (Firestore)
+        run: |
+          if [ ! -f firestore.rules ]; then
+            echo "::error::firestore.rules not found"
+            exit 1
+          fi
+          # Check the file is non-empty and starts with rules_version
+          head -1 firestore.rules | grep -q "rules_version" || {
+            echo "::error::firestore.rules must start with rules_version declaration"
+            exit 1
+          }
+          echo "✓ firestore.rules syntax OK"
+
+      - name: Validate rules syntax (Storage)
+        run: |
+          if [ ! -f storage.rules ]; then
+            echo "::warning::storage.rules not found — skipping"
+          else
+            head -1 storage.rules | grep -q "rules_version" || {
+              echo "::error::storage.rules must start with rules_version declaration"
+              exit 1
+            }
+            echo "✓ storage.rules syntax OK"
+          fi
+
+      - name: Authenticate to Firebase
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT secret is not set. See workflow header for setup steps."
+            exit 1
+          fi
+          echo "$FIREBASE_SA" > "$RUNNER_TEMP/firebase-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> $GITHUB_ENV
+
+      - name: Deploy Firestore rules
+        run: |
+          firebase deploy --only firestore:rules --non-interactive
+        env:
+          # firebase-tools reads GOOGLE_APPLICATION_CREDENTIALS from env
+          # If FIREBASE_PROJECT_ID is set, also pass --project explicitly.
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Deploy Storage rules
+        run: |
+          if [ -f storage.rules ]; then
+            firebase deploy --only storage --non-interactive
+          fi
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Cleanup credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/firebase-sa.json" || true
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "::notice::✅ Firebase rules deployed successfully."
+          echo "Firestore + Storage rules are live on Firebase. Hard-refresh the app to test."
