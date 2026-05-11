@@ -2798,46 +2798,53 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </Card>
     </div>}
 
-    {/* ══ TRANSFERS VIEW ══ */}
+    {/* ══ TRANSFERS VIEW ══
+        V21.9.17: per user request, this view is now READ-ONLY for confirmed
+        transfers.
+        • Removed "+ تحويل جديد" button — transfers are created from inside
+          the main treasury movements (the form there has a "تحويل" option).
+        • Removed per-row "تعديل" / "حذف" buttons on confirmed transfers —
+          edits/deletes flow through the main treasury entries (each transfer
+          has two linked treasury rows; editing either side keeps the books
+          balanced).
+        • Kept the approve / reject buttons for PENDING transfers since
+          that's a workflow action, not an edit.
+        • Tighter row layout (padding 8px instead of 14px, smaller fonts,
+          single-line per row when possible) for a more professional density. */}
     {view==="transfers"&&<div>
-      {canEdit&&accountsData.length>=2&&<div style={{marginBottom:14}}><Btn onClick={()=>{setTfDate(cairoDateStr());setShowTransfer(true)}} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}}>+ تحويل جديد</Btn></div>}
-      {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut}}>لا يوجد تحويلات بعد — اضغط "+ تحويل جديد"</div></Card>
-      :<Card title={"🔄 سجل التحويلات ("+transfers.length+")"}>
+      {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut,fontSize:FS-1,lineHeight:1.7}}>لا يوجد تحويلات بعد<br/><span style={{fontSize:FS-3,color:T.textMut}}>التحويلات بـ تتعمل من حركات الخزنة (اختار نوع 'تحويل')</span></div></Card>
+      :<Card title={"🔄 سجل التحويلات ("+transfers.length+") — للقراءة فقط"} extra={<span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>للتعديل: من حركات الخزنة</span>}>
         {(()=>{
           /* V16.13: pending first, then confirmed — both sorted newest-first within group */
           const pending=transfers.filter(t=>t.status==="pending");
           const confirmed=transfers.filter(t=>t.status!=="pending");
           const ordered=[...pending,...confirmed];
-          return<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {pending.length>0&&isAdmin&&<div style={{padding:"8px 12px",borderRadius:8,background:"#F59E0B15",border:"1px solid #F59E0B40",fontSize:FS-1,color:"#92400E",fontWeight:700}}>⏳ {pending.length} طلب{pending.length>1?"ات":""} تحويل بانتظار موافقتك</div>}
+          return<div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {pending.length>0&&isAdmin&&<div style={{padding:"6px 10px",borderRadius:6,background:"#F59E0B15",border:"1px solid #F59E0B40",fontSize:FS-2,color:"#92400E",fontWeight:700,marginBottom:2}}>⏳ {pending.length} طلب{pending.length>1?"ات":""} تحويل بانتظار موافقتك</div>}
           {ordered.map(tf=>{
             const isPending=tf.status==="pending";
-            const borderColor=isPending?"#F59E0B":"#8B5CF630";
-            const bgColor=isPending?"#FEF3C7":"#8B5CF606";
-            return<div key={tf.id} id={"transfer-row-"+tf.id} style={{padding:14,borderRadius:12,border:"2px solid "+borderColor,background:bgColor}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                    {isPending&&<span style={{fontSize:FS-2,fontWeight:800,color:"#92400E",padding:"2px 8px",borderRadius:6,background:"#F59E0B25",border:"1px solid #F59E0B"}}>⏳ بانتظار الموافقة</span>}
-                    <span style={{fontSize:FS,fontWeight:800,color:T.err}}>{tf.fromAccount}</span>
-                    <span style={{fontSize:18,color:"#8B5CF6"}}>→</span>
-                    <span style={{fontSize:FS,fontWeight:800,color:T.ok}}>{tf.toAccount}</span>
-                  </div>
-                  {tf.note&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:4}}>💬 {tf.note}</div>}
-                  <div style={{fontSize:FS-3,color:T.textMut}}>{"📅 "+tf.date+" • طلبه: "+tf.sentBy}{tf.approvedBy?" • وافق: "+tf.approvedBy:""}</div>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-                  <span style={{fontSize:FS+4,fontWeight:800,color:isPending?"#92400E":"#8B5CF6"}}>{fmt(tf.amount)}</span>
-                  {isPending&&isAdmin&&<div style={{display:"flex",gap:6}}>
-                    <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.ok,fontWeight:700}}>✓ تأكيد</span>
-                    <span onClick={()=>openConfirm({title:"رفض الطلب",message:"سيتم حذف طلب التحويل نهائياً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>rejectTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:"#fff",padding:"4px 10px",borderRadius:6,background:T.err,fontWeight:700}}>✗ رفض</span>
-                  </div>}
-                  {!isPending&&canEdit&&<div style={{display:"flex",gap:6}}>
-                    <span onClick={()=>setEditTf({id:tf.id,fromAccount:tf.fromAccount,toAccount:tf.toAccount,amount:String(tf.amount),note:tf.note||"",date:tf.date})} style={{cursor:"pointer",fontSize:11,color:"#8B5CF6",padding:"2px 8px",borderRadius:6,border:"1px solid #8B5CF640",background:"#8B5CF608"}}>✏️ تعديل</span>
-                    <span onClick={()=>openConfirm({title:"حذف التحويل",message:"سيتم حذف التحويل وحركاته في السجلين معاً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>deleteTransfer(tf.id)})} style={{cursor:"pointer",fontSize:11,color:T.err,padding:"2px 8px",borderRadius:6,border:"1px solid "+T.err+"30",background:T.err+"08"}}>🗑️ حذف</span>
-                  </div>}
-                </div>
+            const borderColor=isPending?"#F59E0B":T.brd;
+            const bgColor=isPending?"#FEF3C7":T.cardSolid;
+            return<div key={tf.id} id={"transfer-row-"+tf.id} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+borderColor,background:bgColor,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              {/* Amount — leftmost in RTL (visually prominent) */}
+              <span style={{fontSize:FS+1,fontWeight:800,color:isPending?"#92400E":"#8B5CF6",minWidth:80,fontVariantNumeric:"tabular-nums"}}>{fmt(tf.amount)}</span>
+              {/* From → To */}
+              <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0,flex:1}}>
+                {isPending&&<span style={{fontSize:FS-3,fontWeight:800,color:"#92400E",padding:"1px 6px",borderRadius:4,background:"#F59E0B25",border:"1px solid #F59E0B"}}>⏳</span>}
+                <span style={{fontSize:FS-1,fontWeight:700,color:T.err,whiteSpace:"nowrap"}}>{tf.fromAccount}</span>
+                <span style={{fontSize:14,color:"#8B5CF6"}}>→</span>
+                <span style={{fontSize:FS-1,fontWeight:700,color:T.ok,whiteSpace:"nowrap"}}>{tf.toAccount}</span>
+                {tf.note&&<span style={{fontSize:FS-3,color:T.textMut,marginInlineStart:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>• {tf.note}</span>}
               </div>
+              {/* Meta — date + actor */}
+              <div style={{fontSize:FS-3,color:T.textMut,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>
+                {tf.date}{tf.sentBy?" · "+tf.sentBy:""}{tf.approvedBy?" · ✓ "+tf.approvedBy:""}
+              </div>
+              {/* Pending actions only (approve/reject) — confirmed transfers are read-only here */}
+              {isPending&&isAdmin&&<div style={{display:"flex",gap:4}}>
+                <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransfer(tf.id)})} style={{cursor:"pointer",fontSize:FS-3,color:"#fff",padding:"3px 8px",borderRadius:5,background:T.ok,fontWeight:700,whiteSpace:"nowrap"}}>✓ تأكيد</span>
+                <span onClick={()=>openConfirm({title:"رفض الطلب",message:"سيتم حذف طلب التحويل نهائياً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>rejectTransfer(tf.id)})} style={{cursor:"pointer",fontSize:FS-3,color:"#fff",padding:"3px 8px",borderRadius:5,background:T.err,fontWeight:700,whiteSpace:"nowrap"}}>✗ رفض</span>
+              </div>}
             </div>})}
         </div>;})()}
       </Card>}

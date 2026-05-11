@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.17",
+    date: "2026-05-11",
+    types: ["improvement"],
+    title: "📋 Phase 12c — Transfers tab: read-only + compact rows",
+    changes: [
+      { type: "improvement", text: "🔒 [Transfers tab صار read-only]\nبناءً على طلب المستخدم: 'السجل ده للقراءة فقط لاغير. التعديل فقط من داخل حركات الخزنة'.\n\nالتغييرات:\n• حذف زر '+ تحويل جديد' من تاب التحويلات — الإنشاء بقى من تاب 'حركات الخزنة' (هناك زر '🔄 تحويل بين الخزن' في الـ toolbar الأساسي).\n• حذف زر '✏️ تعديل' من كل صف confirmed transfer.\n• حذف زر '🗑️ حذف' من كل صف confirmed transfer.\n• الـ approve / reject buttons للـ pending transfers محفوظة (دي workflow actions، مش edits).\n\nأي تعديل/حذف للتحويل بـ يحصل من حركات الخزنة (كل تحويل عنده 2 treasury rows لينكة بـ transferId — تعديل أي طرف بـ يحافظ على الـ double-entry consistency)." },
+      { type: "improvement", text: "📏 [ارتفاع صفوف التحويلات بقى compact + احترافي]\nقبل V21.9.17: كل صف ~90px (padding 14، 3 سطور: from/to، note، meta).\nبعد V21.9.17: كل صف ~36px في سطر واحد بـ:\n• Amount (يسار، 80px min-width، tabular-nums)\n• From → To (وسط)\n• Note inline لو موجودة\n• Date + actor (يمين)\n• Approve/Reject buttons (للـ pending فقط)\n\nالـ padding اتقلل من 14 لـ 8px، الـ border من 2px لـ 1px، الـ font-sizes أصغر. الـ list density بقى مطابق لـ شاشات الـ banking apps." },
+      { type: "improvement", text: "💬 [Empty state أوضح]\nقبل V21.9.17: 'لا يوجد تحويلات بعد — اضغط \"+ تحويل جديد\"' (لكن الزر انحذف).\nبعد V21.9.17: 'لا يوجد تحويلات بعد' + hint صغير 'التحويلات بـ تتعمل من حركات الخزنة (اختار نوع تحويل)'.\n\nالـ Card title بقى يقول '🔄 سجل التحويلات (N) — للقراءة فقط' مع badge صغير 'للتعديل: من حركات الخزنة' عشان الـ context واضح." },
+    ]
+  },
+  {
     version: "V21.9.16",
     date: "2026-05-11",
     types: ["fix", "architectural"],
