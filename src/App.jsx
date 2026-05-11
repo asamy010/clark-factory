@@ -268,6 +268,14 @@ export default function App(){
      cache / sign out). Without this, users got stuck on the loading spinner with
      no recourse — exactly the V19.48-reported incident. */
   const[loadingStallDetected,setLoadingStallDetected]=useState(false);
+  /* V21.9.16 SAFETY: when the user clicks "متابعة على مسؤوليتي" with config NOT
+     loaded, we force-bypass the loading gate but mark this session as read-only.
+     Pre-V21.9.16 the bypass set configLoaded=true and any subsequent save would
+     write `configDoc` (which is INIT_CONFIG at that point — empty defaults) on
+     top of factory/config, WIPING all customers/suppliers/workshops/etc.
+     Now: forcedBypass=true blocks all upConfig writes until a real listener
+     fire updates configDoc. Reads still work — user can VIEW data but not SAVE. */
+  const[forcedBypass,setForcedBypass]=useState(false);
   /* Tracks which listeners have fired at least once — populated by the listeners
      themselves. Used by the stall panel to show "config: ✓ / sales: ✗" status. */
   const[listenerStatus,setListenerStatus]=useState({config:false,sales:false,tasks:false,orders:false,lastError:null});
@@ -812,6 +820,9 @@ export default function App(){
       setConfigLoaded(true);
       /* V19.48: Track that the config listener has fired (for stall diagnostic). */
       setListenerStatus(s => ({...s, config: true}));
+      /* V21.9.16: real listener finally fired — clear the forced-bypass
+         read-only mode. The user can now save again. */
+      setForcedBypass(false);
       /* Clear any prior error since we have valid data now */
       setConfigError(null);
       /* ⛔ Skip ALL migrations if data is from local cache or has pending writes.
@@ -3673,6 +3684,15 @@ export default function App(){
       showToast("⏳ البيانات لسه بتتحمّل من السيرفر — استنى ثانيتين وحاول تاني");
       return;
     }
+    /* V21.9.16 CRITICAL SAFETY: refuse all writes when the user bypassed the
+       loading gate with config STILL missing. configDoc is INIT_CONFIG
+       (empty defaults) at that point — writing would wipe the real factory/config.
+       The flag auto-clears when the real listener finally fires. */
+    if(forcedBypass){
+      console.error("[V21.9.16 SAFETY] Refusing upConfig — read-only mode (forcedBypass after config stall)");
+      showToast("⛔ وضع القراءة فقط — الإعدادات لسه ما حملتش من السيرفر. أعد فتح التطبيق.");
+      return;
+    }
     /* V18.60 CRITICAL SAFETY: refuse writes if config has known error state.
        Writing on top of an error could corrupt data further. */
     if(configError){
@@ -4592,12 +4612,25 @@ export default function App(){
         </div>
       );
       const tryAnyway = () => {
-        /* Force-bypass: use whatever state we have. Risky but better than infinite stuck. */
+        /* Force-bypass: use whatever state we have. Risky but better than infinite stuck.
+           V21.9.16: if config still hasn't loaded, set the read-only forcedBypass
+           flag — upConfig will refuse all writes until a real listener fire
+           clears it. Reads still work so the user can see cached data. */
         console.warn("[V19.48] User clicked 'Try anyway' — forcing through loading gate");
+        const configWasMissing = !configLoaded;
         if(!configLoaded) setConfigLoaded(true);
         if(dataLoading) setDataLoading(false);
         setLoadingStallDetected(false);
+        if(configWasMissing){
+          console.warn("[V21.9.16] Activating read-only forcedBypass — writes disabled until config listener fires");
+          setForcedBypass(true);
+        }
       };
+      /* V21.9.16: auto-clear forcedBypass once the real config listener finally
+         fires (the listener also flips configLoaded=true normally, but in the
+         bypass case configLoaded was already set by tryAnyway). We watch for
+         listenerStatus.config flipping true. */
+      // Note: handled by an effect outside this render-only block, see below.
       const clearCacheAndReload = async () => {
         try {
           /* Best-effort clearing of Firestore IndexedDB persistence cache.
@@ -4635,14 +4668,26 @@ export default function App(){
               </div>
             )}
           </div>
+          {/* V21.9.16: explicit data-safety warning when config is missing.
+              Pre-V21.9.16 the orange "متابعة على مسؤوليتي" button looked like
+              just an inconvenience — but with config missing, any save can
+              wipe the real factory/config (settings, customers, suppliers,
+              workshops...). The new read-only forcedBypass flag blocks
+              writes in that case, but the user still needs to KNOW that
+              their best bet is to clear cache / reload, not bypass. */}
+          {!stat.config && (
+            <div style={{padding:"10px 12px",background:"#FEE2E2",border:"1px solid #DC2626",borderRadius:8,fontSize:12,color:"#991B1B",lineHeight:1.7,marginBottom:10,fontWeight:700}}>
+              ⚠️ <b>الإعدادات (factory/config) لسه ما حملتش.</b> لو ضغطت "متابعة على مسؤوليتي" بدون تحميل الإعدادات، التطبيق هيـ block أي حفظ تلقائياً (وضع القراءة فقط) عشان ما يضيعش بيانات الـ customers / suppliers / workshops. ينصح بـ "مسح الـ cache + إعادة تحميل" بدل المتابعة.
+            </div>
+          )}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {stat.config && stat.orders ? (
               <button onClick={tryAnyway} style={{padding:"12px 18px",background:"#10B981",color:"#fff",border:"none",borderRadius:10,fontWeight:800,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
                 ✓ متابعة بالبيانات الحالية ({(stat.config?1:0)+(stat.sales?1:0)+(stat.tasks?1:0)+(stat.orders?1:0)}/4 جاهزة)
               </button>
             ) : (
-              <button onClick={tryAnyway} style={{padding:"12px 18px",background:"#F59E0B",color:"#fff",border:"none",borderRadius:10,fontWeight:800,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
-                ⚠️ متابعة على مسؤوليتي (البيانات قد تكون ناقصة)
+              <button onClick={tryAnyway} style={{padding:"12px 18px",background:stat.config?"#F59E0B":"#9CA3AF",color:"#fff",border:"none",borderRadius:10,fontWeight:800,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+                {stat.config?"⚠️ متابعة على مسؤوليتي (البيانات قد تكون ناقصة)":"⚠️ متابعة بوضع القراءة فقط (لا حفظ)"}
               </button>
             )}
             <button onClick={clearCacheAndReload} style={{padding:"10px 18px",background:"#3B82F6",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>

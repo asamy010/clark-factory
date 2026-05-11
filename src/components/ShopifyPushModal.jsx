@@ -218,6 +218,30 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
      content-type. */
   const sanitizeFileName = (n) => String(n || "img.jpg").replace(/[^a-zA-Z0-9.-]/g, "_");
 
+  /* V21.9.16: translate cryptic Firebase Storage errors into actionable Arabic
+     messages. The most common one in production is "storage/unauthorized"
+     which means the Storage rules haven't been deployed for the path we're
+     trying to write to. Pre-V21.9.16 the raw English error leaked through:
+       "Firebase Storage: User does not have permission to access
+        'shopify-products/.../1234.jpg'. (storage/unauthorized)"
+     This left the user confused — they think they don't have permission as a
+     user, but actually the path itself isn't allowed in the rules file. */
+  const friendlyStorageError = (err) => {
+    const raw = err?.code || err?.message || String(err || "");
+    if(/storage\/unauthorized|does not have permission/i.test(raw)){
+      return "صلاحيات الـ Storage مش مكتملة — لازم تـ deploy الـ storage.rules على Firebase. "
+           + "افتح Firebase Console → Storage → Rules → الصق محتوى storage.rules من الـ repo → Publish. "
+           + "تفاصيل تقنية: " + raw;
+    }
+    if(/storage\/canceled/i.test(raw)){
+      return "اتـ cancel الـ upload — حاول تاني";
+    }
+    if(/storage\/retry-limit-exceeded|storage\/server-file-wrong-size/i.test(raw)){
+      return "الـ upload فشل (الاتصال) — جرب تاني. تفاصيل: " + raw;
+    }
+    return raw;
+  };
+
   const uploadOne = async (file, pathPrefix) => {
     const dataUrl = await compressImage(file, 1200, 0.85);
     const blob = await dataUrlToBlob(dataUrl);
@@ -229,7 +253,18 @@ export function ShopifyPushModal({ order, data, onClose, user, isMob }){
     const fname = (baseName || "img") + ".jpg";
     const path = pathPrefix + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "-" + fname;
     const ref = storageRef(storage, path);
-    await uploadBytes(ref, blob, { contentType: "image/jpeg" });
+    try {
+      await uploadBytes(ref, blob, { contentType: "image/jpeg" });
+    } catch(uploadErr){
+      /* V21.9.16: re-throw with the friendly Arabic message so the toast
+         in the caller (handleImageUpload / handleColorImageUpload) shows
+         something actionable. */
+      const msg = friendlyStorageError(uploadErr);
+      const wrapped = new Error(msg);
+      wrapped.originalError = uploadErr;
+      wrapped.code = uploadErr?.code;
+      throw wrapped;
+    }
     return await getDownloadURL(ref);
   };
 
