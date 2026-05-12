@@ -60,7 +60,14 @@ function checkRateLimit(uid) {
   return { ok: true };
 }
 
-const MAX_MESSAGES_BYTES = 50 * 1024;
+/* V21.9.38: messages cap raised from 50KB to 500KB.
+   The CLARK bot ships the full season data (orders + workshops + customers
+   as JSON) inside the latest user message. Real factories with hundreds of
+   orders easily exceed 50KB. 500KB ≈ 125K tokens of JSON, well under
+   Claude Sonnet's 200K context window. Cost-abuse is still bounded by the
+   per-UID 30-req/5-min rate limit (see checkRateLimit below).
+   The system prompt cap stays at 4KB — persona/rules only, no data. */
+const MAX_MESSAGES_BYTES = 500 * 1024;
 const MAX_SYSTEM_BYTES = 4 * 1024;
 
 export default async function handler(req, res) {
