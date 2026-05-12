@@ -304,6 +304,102 @@ export function deleteDraftSalesOrderMutator(d, soId){
   d.salesOrders = d.salesOrders.filter(x => x.id !== soId);
 }
 
+/* V21.10.2 — Slice 3: Create a sales invoice (draft) directly from a confirmed
+   Sales Order. Sits next to the existing delivery-based invoice creators
+   (`upsertSalesInvoiceFromDelivery` in invoices.js) — these are two parallel
+   paths into data.salesInvoices that don't interfere:
+     - Delivery-based: CustDeliver session → per-row delivery → consolidated draft
+     - SO-based (new): Quote → Sales Order (confirmed) → standalone draft invoice
+
+   We deliberately do NOT consolidate SO invoices with delivery-day drafts —
+   each SO maps 1:1 to one invoice. Bulk-merge of the two paths is the job
+   of the Legacy Invoice Merger tool (prompt #7).
+
+   The created invoice carries fromSalesOrderId + fromQuotationId for the
+   Odoo-style document chain. The SO flips to "invoiced" status. */
+export function createInvoiceFromSalesOrderMutator(d, soId, userName){
+  const so = (d.salesOrders || []).find(x => x.id === soId);
+  if(!so) throw new Error("أمر البيع غير موجود");
+  if(!["confirmed","partial_delivered","delivered"].includes(so.status)){
+    throw new Error(`لا يمكن إنشاء فاتورة من أمر بيع في حالة "${so.status}"`);
+  }
+  if(so.salesInvoiceId){
+    throw new Error(`أمر البيع ده عنده فاتورة بالفعل: ${so.salesInvoiceNo}`);
+  }
+
+  /* Reserve invoice number — same counter as legacy invoices (INV-YYYY-NNNN).
+     We piggy-back on invoiceCounters.sales so the number sequence stays
+     uniform across both invoice-creation paths. */
+  if(!d.invoiceCounters) d.invoiceCounters = {};
+  if(!d.invoiceCounters.sales) d.invoiceCounters.sales = {};
+  const year = new Date().getFullYear();
+  const nextNum = (d.invoiceCounters.sales[year] || 0) + 1;
+  d.invoiceCounters.sales[year] = nextNum;
+  const invoiceNo = `INV-${year}-${String(nextNum).padStart(4, "0")}`;
+
+  const today = new Date().toISOString().split("T")[0];
+  const invoice = {
+    id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
+    invoiceNo,
+    type: "sales",
+    customerId: so.customerId,
+    customerName: so.customerName,
+    date: today,
+    /* No deliveryRef — this invoice's source is a Sales Order, not a delivery */
+    deliveryRefs: [],
+    /* V21.10.2 — new cross-link fields for the Pipeline chain. The existing
+       findInvoiceByDelivery etc. helpers won't pick these up (intentional —
+       they're a separate concern). */
+    fromSalesOrderId: so.id,
+    fromSalesOrderNo: so.orderNo,
+    fromQuotationId: so.fromQuotationId || null,
+    fromQuotationNo: so.fromQuotationNo || null,
+    items: (so.items || []).map(it => ({
+      orderId: it.sourceType === "order" ? (it.sourceId || "") : "",
+      modelNo: it.modelNo || "",
+      modelDesc: it.description || "",
+      qty: Number(it.qty) || 0,
+      unitPrice: Number(it.unitPrice) || 0,
+      lineTotal: Number(it.lineTotal) || 0,
+      /* Preserve the source type so future inventory reports know where the
+         line came from. */
+      sourceType: it.sourceType,
+      sourceId: it.sourceId,
+    })),
+    subtotal: Number(so.subtotal) || 0,
+    discountPct: Number(so.discountPct) || 0,
+    discount: Number(so.totalDiscount) || 0,
+    total: Number(so.total) || 0,
+    status: "draft",
+    notes: so.notes || "",
+    createdAt: new Date().toISOString(),
+    createdBy: userName || "",
+  };
+
+  if(!Array.isArray(d.salesInvoices)) d.salesInvoices = [];
+  d.salesInvoices.push(invoice);
+
+  /* Back-link on the SO + flip status to "invoiced" */
+  so.salesInvoiceId = invoice.id;
+  so.salesInvoiceNo = invoice.invoiceNo;
+  const prev = so.status;
+  so.status = "invoiced";
+  if(!Array.isArray(so.statusHistory)) so.statusHistory = [];
+  so.statusHistory.push({ from: prev, to: "invoiced", at: new Date().toISOString(), by: userName || "", note: "فاتورة " + invoice.invoiceNo });
+
+  /* Forward-link on the quotation (if any) so the chain is queryable from any
+     end. */
+  if(so.fromQuotationId){
+    const q = (d.salesQuotations || []).find(x => x.id === so.fromQuotationId);
+    if(q){
+      q.linkedSalesInvoiceId = invoice.id;
+      q.linkedSalesInvoiceNo = invoice.invoiceNo;
+    }
+  }
+
+  return invoice;
+}
+
 export function getSalesOrderStats(data, filters = {}){
   const list = (data.salesOrders || []).filter(o => {
     if(filters.from && (o.date || "") < filters.from) return false;

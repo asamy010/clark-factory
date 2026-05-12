@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.2",
+    date: "2026-05-12",
+    types: ["feature", "architectural"],
+    title: "🧾 Phase 12c — حلقة المبيعات: فاتورة من أمر بيع + Cross-links (Slice 3 من #3)",
+    changes: [
+      { type: "feature", text: "✨ [Sales Pipeline #3 — Slice 3: Create Invoice from SO]\n\nالـ Step الثالث في الـ document chain — الـ user دلوقتي يقدر:\n• على SO في حالة 'مؤكد' (أو partial_delivered/delivered) يضغط '🧾 إنشاء فاتورة'\n• فاتورة draft بـ تتـ create بـ رقم INV-YYYY-NNNN (نفس counter بتاع الفواتير العادية)\n• الـ SO بـ يـ flip لـ 'مفوتر' (invoiced) + back-link لـ الـ invoiceNo\n• الـ Quote الأصلي (لو موجود) بقى يعرف linked invoice number كمان\n• الـ Cross-link chain كاملة: Quote → SO → Invoice، تـ navigate من أي مكان للآخر\n\nالـ Invoice الجديدة بـ تـ open في SalesInvoicesPg الموجود (status='draft'، جاهزة للترحيل اليدوي عبر الـ existing workflow)." },
+      { type: "architectural", text: "🏗 [Decision: two parallel invoice paths]\n\nالـ CLARK دلوقتي عنده **اتنين paths** بـ يخلقوا فواتير:\n\n**Path A (existing — V18.65):** `upsertSalesInvoiceFromDelivery`\n• Source: customer delivery row (CustDeliver session)\n• Consolidation: same-day same-customer drafts merge\n• Counter: INV-YYYY-NNNN\n• Use case: scan-and-sell، توزيعات يومية\n\n**Path B (new — V21.10.2):** `createInvoiceFromSalesOrderMutator`\n• Source: confirmed Sales Order\n• Consolidation: مفيش — كل SO = فاتورة واحدة\n• Counter: نفس INV-YYYY-NNNN (shared sequence)\n• Use case: B2B wholesale، عقود، عروض مقبولة\n\nالـ paths مستقلين تقنياً (مفيش shared state بينهم غير الـ counter + الـ salesInvoices array). الـ admin يقدر يـ mix-and-match — بعض الفواتير من delivery، بعضها من SO.\n\nالـ Legacy Invoice Merger (prompt #7) هـ يـ handle لو الـ admin حب يدمج فواتير الـ paths الاتنين بعدين.\n\n**ليه ما عملتش consolidation للـ SO invoices مع الـ delivery drafts؟**\n• الـ SO بـ يـ snapshot الـ items (commitment) — الـ delivery بـ يـ track الواقع. الاتنين entities محاسبياً مختلفين.\n• الـ admin اللي بـ يستخدم SO flow عاوز فاتورة 1:1 مع الـ SO — مش merged مع scan-sells عشوائية.\n• لو merging مطلوب، الـ #7 tool يوفّره explicitly." },
+      { type: "improvement", text: "🎨 [UX additions]\n\n• زرار '🧾 إنشاء فاتورة' بـ يظهر على SO بـ status confirmed/partial_delivered/delivered (مش بـ يظهر لو فيه فاتورة بالفعل)\n• Cross-link bar في SO detail modal: الآن بـ يعرض الـ invoice number لو موجود\n• Quote → linkedSalesInvoiceNo field — chain queryable من end-to-end\n• حماية ضد double-invoicing: `so.salesInvoiceId` check بـ يـ refuse re-creation" },
+      { type: "doc", text: "📋 [Test plan + ما الجاي]\n\n**Test V21.10.2:**\n1. اعمل quote → accept → convert to SO → confirm (يخصم مخزون)\n2. الـ SO دلوقتي في حالة 'مؤكد' — افتح detail modal\n3. الـ '🧾 إنشاء فاتورة' button ظاهر\n4. اضغطه → confirm → toast '✓ تم إنشاء الفاتورة INV-2026-0001'\n5. الـ SO بقى في حالة 'مفوتر' + cross-link bar بـ يعرض الـ Quote + الـ Invoice\n6. افتح صفحة 'فواتير المبيعات' → الفاتورة الجديدة ظاهرة status='مسودة'\n7. اضغطها → فيها الـ items من الـ SO + التوتلز صحيحة\n8. ترحيل الفاتورة من نفس صفحة الفواتير (الـ existing flow)\n\n**اللي جاي في Slice 4 (V21.10.3):**\n• زرار '💵 ادفع' داخل InvoiceDetailModal لما الفاتورة posted وعليها balance\n• `recordInvoicePaymentMutator`: ينشئ custPayment + treasury entry + يـ link كل حاجة\n• autoPost للقيد المحاسبي (Cash Dr / AR Cr)\n• PaymentFromInvoiceModal — amount, method, treasury account, date, notes" },
+    ]
+  },
+  {
     version: "V21.10.1",
     date: "2026-05-12",
     types: ["feature", "architectural"],

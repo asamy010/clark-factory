@@ -16,6 +16,8 @@ import { ask, tell, showToast } from "../utils/popups.js";
 import {
   confirmSalesOrderMutator, cancelSalesOrderMutator,
   deleteDraftSalesOrderMutator, getSalesOrderStats,
+  /* V21.10.2 — Slice 3 */
+  createInvoiceFromSalesOrderMutator,
 } from "../utils/sales/salesOrders.js";
 
 const STATUS_META = {
@@ -94,6 +96,20 @@ export function SalesOrdersPg({ data, upConfig, isMob, canEdit, user }){
       showToast("✓ تم الحذف");
       setActiveSO(null);
     } catch(e){ tell("خطأ", e.message, { danger: true }); }
+  };
+
+  /* V21.10.2 — Slice 3: Create a draft invoice from this Sales Order. */
+  const handleCreateInvoice = async (so) => {
+    if(!await ask("إنشاء فاتورة", `إنشاء فاتورة مسودة من ${so.orderNo}؟\nالإجمالي: ${fmt(so.total)} ج.م\n\nالفاتورة هتدخل في حالة "مسودة" وتتم الترحيل من صفحة الفواتير.`, { confirmText: "إنشاء" })) return;
+    try {
+      let createdNo = "";
+      await upConfig(d => {
+        const inv = createInvoiceFromSalesOrderMutator(d, so.id, userName);
+        createdNo = inv.invoiceNo;
+      });
+      showToast(`✓ تم إنشاء الفاتورة ${createdNo}`);
+      setActiveSO(null);
+    } catch(e){ tell("فشل الإنشاء", e.message, { danger: true }); }
   };
 
   const handlePrint = (so) => {
@@ -215,13 +231,14 @@ export function SalesOrdersPg({ data, upConfig, isMob, canEdit, user }){
       onCancel={handleCancel}
       onDelete={handleDelete}
       onPrint={handlePrint}
+      onCreateInvoice={handleCreateInvoice}
       canEdit={canEdit}
     />}
   </div>;
 }
 
 /* ─────────────── Detail Modal ─────────────── */
-function SalesOrderDetailModal({ so, data, onClose, onConfirm, onCancel, onDelete, onPrint, canEdit }){
+function SalesOrderDetailModal({ so, data, onClose, onConfirm, onCancel, onDelete, onPrint, onCreateInvoice, canEdit }){
   const meta = STATUS_META[so.status] || STATUS_META.draft;
   const stockMovements = (data.stockMovements || []).filter(m =>
     (so.stockMovementIds || []).includes(m.id)
@@ -349,6 +366,10 @@ function SalesOrderDetailModal({ so, data, onClose, onConfirm, onCancel, onDelet
             <Btn small danger onClick={() => onDelete(so)}>🗑 حذف</Btn>
             <Btn small primary onClick={() => onConfirm(so)}>✅ تأكيد + خصم المخزون</Btn>
           </>
+        )}
+        {/* V21.10.2 — Slice 3: create invoice (drafted, posted manually later) */}
+        {canEdit && ["confirmed","partial_delivered","delivered"].includes(so.status) && !so.salesInvoiceId && (
+          <Btn small style={{background: "#10B981", color: "#fff"}} onClick={() => onCreateInvoice(so)}>🧾 إنشاء فاتورة</Btn>
         )}
         {canEdit && ["draft","confirmed","partial_delivered"].includes(so.status) && (
           <Btn small style={{background: T.err, color: "#fff"}} onClick={() => onCancel(so)}>❌ إلغاء</Btn>
