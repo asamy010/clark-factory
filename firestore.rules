@@ -249,7 +249,17 @@ service cloud.firestore {
 
     /* ──────────────────────────────────────────────────────────
        V19.50 — invoices (V19.64: read scoped to relevant roles)
+       V21.10.0 — added salesQuotationsDays + salesOrdersDays for the
+       Quote→Order→Invoice→Payment pipeline (#3). Same sales scope.
        ────────────────────────────────────────────────────────── */
+    match /salesQuotationsDays/{day} {
+      allow read:  if isSalesScope();
+      allow write: if isSalesScope();
+    }
+    match /salesOrdersDays/{day} {
+      allow read:  if isSalesScope();
+      allow write: if isSalesScope();
+    }
     match /salesInvoicesDays/{day} {
       allow read:  if isSalesScope();
       allow write: if isSalesScope();

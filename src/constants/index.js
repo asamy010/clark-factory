@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.38";
+export const APP_VERSION = "V21.10.0";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -68,6 +68,13 @@ export const INIT_CONFIG = {
   employees:[], hrLog:[], hrWeeks:[], empDebts:[], auditLog:[],
   /* Purchase module — Session 1 */
   stockMovements:[], purchaseReceipts:[], purchaseOrders:[],
+  /* V21.10.0 — #3 Sales/Purchase Pipeline (Slice 1): standalone quotations.
+     Daily-split as salesQuotationsDays/{YYYY-MM-DD}. salesOrders will land
+     in Slice 2 with stock-deduction logic. */
+  salesQuotations:[],
+  salesOrders:[],
+  quotationCounters:{},/* {2026: 12} — lazy-init via reserveQuotationNo */
+  quotationSettings:{ defaultValidityDays: 14 },
   purchaseSettings:{
     stockEnabled:false,
     stockActivationDate:"",
