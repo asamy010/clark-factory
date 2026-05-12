@@ -270,6 +270,11 @@ service cloud.firestore {
       allow read:  if isPurchaseScope();
       allow write: if isPurchaseScope();
     }
+    /* V21.10.6 — Purchase Pipeline #3 Slices 7+8: Pipeline POs daily split */
+    match /purchasePipelineOrdersDays/{day} {
+      allow read:  if isPurchaseScope();
+      allow write: if isPurchaseScope();
+    }
     match /purchaseInvoicesDays/{day} {
       allow read:  if isPurchaseScope();
       allow write: if isPurchaseScope();

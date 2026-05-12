@@ -59,8 +59,9 @@ export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
    Phase 1 ships salesQuotations + salesOrders. RFQs + new-style purchaseOrders
    (distinct from the V19.50 receipts-based purchaseOrders) come in later slices.
    Daily split from day 1 — these accumulate fast in active sales teams.
-   V21.10.5 — purchaseRFQs added (Slice 6). */
-export const SPLIT_FIELDS_V21100 = ["salesQuotations", "salesOrders", "purchaseRFQs"];
+   V21.10.5 — purchaseRFQs added (Slice 6).
+   V21.10.6 — purchasePipelineOrders added (Slices 7+8). */
+export const SPLIT_FIELDS_V21100 = ["salesQuotations", "salesOrders", "purchaseRFQs", "purchasePipelineOrders"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -112,6 +113,8 @@ export const SPLIT_COLLECTIONS = {
   salesOrders:     "salesOrdersDays",
   /* V21.10.5 — Purchase Pipeline RFQs. */
   purchaseRFQs:    "purchaseRFQsDays",
+  /* V21.10.6 — Purchase Pipeline POs (distinct from V19.50 receipt-based purchaseOrders). */
+  purchasePipelineOrders: "purchasePipelineOrdersDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */

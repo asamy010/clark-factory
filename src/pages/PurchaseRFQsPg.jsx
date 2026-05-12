@@ -18,6 +18,8 @@ import {
   markRFQRejectedMutator, deleteDraftRFQMutator,
   autoExpireRFQsMutator, getRFQStats,
 } from "../utils/purchase/rfqs.js";
+/* V21.10.6 — Slice 7: convert RFQ → Pipeline PO */
+import { convertRFQToPipelinePOMutator } from "../utils/purchase/purchasePipelineOrders.js";
 
 const STATUS_META = {
   draft:     { label: "مسودة",   color: "#6B7280", bg: "#6B728015" },
@@ -96,11 +98,25 @@ export function PurchaseRFQsPg({ data, upConfig, isMob, canEdit, user }){
   };
 
   const handleAccept = async (r) => {
-    if(!await ask("الموافقة على العرض", `الموافقة على ${r.rfqNo}؟ (Slice 7 — تحويل لأمر شراء قريباً)`, { confirmText: "موافق" })) return;
+    if(!await ask("الموافقة على العرض", `الموافقة على ${r.rfqNo}؟`, { confirmText: "موافق" })) return;
     try {
       await upConfig(d => { markRFQAcceptedMutator(d, r.id, userName); });
-      showToast("✓ تم الموافقة — جاهز للتحويل لأمر شراء (Slice 7)");
+      showToast("✓ تم الموافقة — اضغط 'حوّل لأمر شراء' للخطوة التالية");
     } catch(e){ tell("خطأ", e.message, { danger: true }); }
+  };
+
+  /* V21.10.6 — Slice 7: convert RFQ → Pipeline PO */
+  const handleConvert = async (r) => {
+    if(!await ask("تحويل لأمر شراء", `تحويل ${r.rfqNo} لأمر شراء جديد؟\nأمر الشراء هـ يدخل بحالة "مسودة" — الاستلام + إضافة المخزون لاحقاً.`, { confirmText: "تحويل" })) return;
+    try {
+      let createdNo = "";
+      await upConfig(d => {
+        const ppo = convertRFQToPipelinePOMutator(d, r.id, userName);
+        createdNo = ppo.orderNo;
+      });
+      showToast(`✓ تم إنشاء أمر الشراء ${createdNo}`);
+      setActiveR(null);
+    } catch(e){ tell("فشل التحويل", e.message, { danger: true }); }
   };
 
   const handleReject = async (r) => {
@@ -229,6 +245,7 @@ export function PurchaseRFQsPg({ data, upConfig, isMob, canEdit, user }){
       onSend={handleSend} onReceived={handleReceived}
       onAccept={handleAccept} onReject={handleReject}
       onDelete={handleDelete} onPrint={handlePrint}
+      onConvert={handleConvert}
       canEdit={canEdit}
     />}
 
@@ -240,7 +257,7 @@ export function PurchaseRFQsPg({ data, upConfig, isMob, canEdit, user }){
   </div>;
 }
 
-function RFQDetailModal({ rfq, onClose, onSend, onReceived, onAccept, onReject, onDelete, onPrint, canEdit }){
+function RFQDetailModal({ rfq, onClose, onSend, onReceived, onAccept, onReject, onDelete, onPrint, onConvert, canEdit }){
   const meta = STATUS_META[rfq.status] || STATUS_META.draft;
   return <div className="pop-overlay" onClick={onClose}
     style={{position:"fixed", inset: 0, background:"rgba(0,0,0,0.5)", zIndex: 99998,
@@ -325,6 +342,15 @@ function RFQDetailModal({ rfq, onClose, onSend, onReceived, onAccept, onReject, 
             <Btn small onClick={() => onReject(rfq)}>❌ رفض</Btn>
             <Btn small style={{background: "#10B981", color: "#fff"}} onClick={() => onAccept(rfq)}>✅ موافقة</Btn>
           </>
+        )}
+        {/* V21.10.6 — Slice 7: convert RFQ to Pipeline PO */}
+        {canEdit && ["draft", "sent", "received", "accepted"].includes(rfq.status) && !rfq.convertedToPipelinePOId && (
+          <Btn small style={{background: "#8B5CF6", color: "#fff"}} onClick={() => onConvert(rfq)}>📑 حوّل لأمر شراء</Btn>
+        )}
+        {rfq.convertedToPipelinePONo && (
+          <span style={{padding:"6px 12px", background:"#8B5CF615", color:"#8B5CF6", borderRadius: 6, fontWeight: 700, fontSize: FS-2}}>
+            🔗 محوّل لـ {rfq.convertedToPipelinePONo}
+          </span>
         )}
       </div>
     </div>

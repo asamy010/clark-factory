@@ -25,8 +25,9 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 /* V19.41: Purchase return picker — opens from a posted purchase invoice */
 import { PurchaseReturnPickerModal } from "../components/PurchaseReturnPickerModal.jsx";
-/* V21.10.3 — Slice 4: pay from invoice */
+/* V21.10.3 — Slice 4: pay from invoice (sales + purchase via shared modal) */
 import { recordInvoicePaymentMutator, computeInvoiceBalance } from "../utils/sales/invoicePayments.js";
+import { recordPurchaseInvoicePaymentMutator, computePurchaseInvoiceBalance } from "../utils/purchase/invoicePayments.js";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -534,21 +535,24 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             ↪️ ارتجاع للمورد
           </Btn>
         )}
-        {/* V21.10.3 — Slice 4: pay from invoice (sales only, posted, balance > 0) */}
-        {invoice.status === "posted" && !isPurchase && (() => {
-          const { balance } = computeInvoiceBalance(invoice, data.custPayments || []);
+        {/* V21.10.3+V21.10.6 — Slice 4+9: pay from invoice (sales OR purchase, posted, balance > 0) */}
+        {invoice.status === "posted" && (() => {
+          const { balance } = isPurchase
+            ? computePurchaseInvoiceBalance(invoice, data.supplierPayments || [])
+            : computeInvoiceBalance(invoice, data.custPayments || []);
           return balance > 0.001;
         })() && (
           <Btn onClick={() => setShowPaymentModal(true)} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700}}>
-            💵 ادفع
+            💵 {isPurchase ? "سداد للمورد" : "ادفع"}
           </Btn>
         )}
         {invoice.status === "posted" && <Btn onClick={() => onVoid(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
       </div>
 
-      {/* V21.10.3 — Payment from invoice modal */}
+      {/* V21.10.3 — Payment from invoice modal (works for both sales + purchase) */}
       {showPaymentModal && <PaymentFromInvoiceModal
         invoice={invoice}
+        isPurchase={isPurchase}
         data={data}
         upConfig={upConfig}
         user={user}
@@ -594,9 +598,14 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
    treasury deposit + updates invoice.paidAmount/balanceDue via the
    recordInvoicePaymentMutator.
    ═══════════════════════════════════════════════════════════════════════ */
-function PaymentFromInvoiceModal({ invoice, data, upConfig, user, onClose, onSaved }){
+function PaymentFromInvoiceModal({ invoice, isPurchase, data, upConfig, user, onClose, onSaved }){
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
-  const { paid, balance } = computeInvoiceBalance(invoice, data.custPayments || []);
+  /* V21.10.6 — Slice 9: same modal serves both sales AND purchase invoices.
+     Compute balance from the appropriate payments array; on save, dispatch
+     to the appropriate mutator. */
+  const { paid, balance } = isPurchase
+    ? computePurchaseInvoiceBalance(invoice, data.supplierPayments || [])
+    : computeInvoiceBalance(invoice, data.custPayments || []);
   const treasuryAccounts = data.treasuryAccounts || [];
 
   const [amount, setAmount] = useState(balance);
@@ -610,12 +619,19 @@ function PaymentFromInvoiceModal({ invoice, data, upConfig, user, onClose, onSav
     setSaving(true);
     try {
       await upConfig(d => {
-        recordInvoicePaymentMutator(d, {
-          invoiceId: invoice.id,
-          amount: Number(amount), method, treasuryAccountId, date, notes, userName,
-        });
+        if(isPurchase){
+          recordPurchaseInvoicePaymentMutator(d, {
+            invoiceId: invoice.id,
+            amount: Number(amount), method, treasuryAccountId, date, notes, userName,
+          });
+        } else {
+          recordInvoicePaymentMutator(d, {
+            invoiceId: invoice.id,
+            amount: Number(amount), method, treasuryAccountId, date, notes, userName,
+          });
+        }
       });
-      showToast(`✓ تم تسجيل دفعة ${fmt(amount)} ج.م`);
+      showToast(`✓ تم تسجيل ${isPurchase ? "السداد" : "الدفعة"} ${fmt(amount)} ج.م`);
       onSaved();
     } catch(e){
       alert("⚠️ " + e.message);
@@ -632,12 +648,12 @@ function PaymentFromInvoiceModal({ invoice, data, upConfig, user, onClose, onSav
       width:"100%", maxWidth: 500, boxShadow:"0 20px 60px rgba(0,0,0,0.3)"
     }}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12}}>
-        <h3 style={{margin: 0, fontSize: FS+3, color:"#10B981"}}>💵 سداد فاتورة</h3>
+        <h3 style={{margin: 0, fontSize: FS+3, color:"#10B981"}}>💵 {isPurchase ? "سداد للمورد" : "سداد فاتورة"}</h3>
         <Btn ghost small onClick={onClose}>✕</Btn>
       </div>
 
       <div style={{background: T.bg, padding: 10, borderRadius: 8, marginBottom: 12, fontSize: FS-1}}>
-        <div>الفاتورة: <strong>{invoice.invoiceNo}</strong> — {invoice.customerName}</div>
+        <div>الفاتورة: <strong>{invoice.invoiceNo}</strong> — {isPurchase ? invoice.supplierName : invoice.customerName}</div>
         <div>الإجمالي: {fmt(invoice.total)} ج.م</div>
         <div>المدفوع سابقاً: {fmt(paid)} ج.م</div>
         <div style={{fontWeight: 800, color:"#10B981"}}>الرصيد المتبقي: {fmt(balance)} ج.م</div>

@@ -75,6 +75,8 @@ const QuotationsPg = lazyNamed(() => import("./pages/QuotationsPg.jsx"), "Quotat
 const SalesOrdersPg = lazyNamed(() => import("./pages/SalesOrdersPg.jsx"), "SalesOrdersPg");
 /* V21.10.5 — Purchase Pipeline (#3 Slice 6) */
 const PurchaseRFQsPg = lazyNamed(() => import("./pages/PurchaseRFQsPg.jsx"), "PurchaseRFQsPg");
+/* V21.10.6 — Purchase Pipeline (#3 Slices 7+8) */
+const PurchasePipelineOrdersPg = lazyNamed(() => import("./pages/PurchasePipelineOrdersPg.jsx"), "PurchasePipelineOrdersPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -5664,8 +5666,9 @@ export default function App(){
         {tab==="salesOrders"&&canViewTab("salesOrders")&&<SalesOrdersPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("salesOrders")} user={user}/>}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
-        {/* V21.10.5 — Purchase Pipeline (#3 Slice 6): RFQs standalone. */}
+        {/* V21.10.5+6 — Purchase Pipeline (#3 Slices 6+7+8): RFQs + Pipeline POs. */}
         {tab==="purchaseRFQs"&&canViewTab("purchaseRFQs")&&<PurchaseRFQsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseRFQs")} user={user}/>}
+        {tab==="purchasePipelineOrders"&&canViewTab("purchasePipelineOrders")&&<PurchasePipelineOrdersPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchasePipelineOrders")} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
         {/* V19.48: Debit notes (purchase returns) */}
