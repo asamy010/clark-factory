@@ -38,6 +38,8 @@ import {
   TASKS_SPLIT_COLLECTIONS, TASKS_SPLIT_FIELDS, TASKS_SPLIT_FIELDS_V1951, TASKS_SPLIT_FLAG_V1951,
   syncAllTasksSplitChanges, stripTasksSplitArrays,
 } from "./utils/splitCollections.js";
+/* V21.11.3 — Feature #10 Slice 2: tag migration */
+import { runTagMigrationV1Mutator, isTagMigrationNeeded, TAG_MIGRATION_FLAG } from "./utils/tagMigration.js";
 import {
   syncAllPartitionedChanges, stripPartitionedArrays,
   PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS,
@@ -1415,6 +1417,31 @@ export default function App(){
       }
     })();
   },[user,configDoc,splitLoaded]);
+
+  /* ═══════════════════════════════════════════════════════════════════
+     V21.11.3 — #10 Slice 2: Tag migration (one-time, idempotent)
+     ═══════════════════════════════════════════════════════════════════
+     Converts legacy string-array customer.tags (from Shopify sync) to
+     ID-based tags pointing at data.tagRegistry. Runs ONCE per install —
+     gated on configDoc[TAG_MIGRATION_FLAG]. Safe to no-op if already done.
+     ═══════════════════════════════════════════════════════════════════ */
+  const tagMigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||tagMigrationRef.current)return;
+    if(!configDoc||!configDoc.accessories)return;/* config not loaded */
+    if(configDoc[TAG_MIGRATION_FLAG])return;/* already done */
+    if(!isTagMigrationNeeded(configDoc))return;/* nothing to migrate */
+    tagMigrationRef.current=true;
+    (async()=>{
+      try{
+        await upConfig(d=>{ runTagMigrationV1Mutator(d, user.email||"system-migration"); });
+        console.log("[V21.11.3] Tag migration completed — legacy customer string tags converted to ID-based.");
+      }catch(err){
+        console.error("[V21.11.3] Tag migration failed:",err);
+        tagMigrationRef.current=false;/* allow retry */
+      }
+    })();
+  },[user,configDoc]);
 
   /* ═══════════════════════════════════════════════════════════════════
      V19.49: One-time migration — split FOUR more growing arrays from
