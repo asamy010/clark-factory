@@ -18,6 +18,8 @@ import {
   markQuotationRejectedMutator, deleteDraftQuotationMutator,
   autoExpireQuotationsMutator, getQuotationStats,
 } from "../utils/sales/quotations.js";
+/* V21.10.1 — Slice 2: convert quotation → sales order */
+import { convertQuotationToSalesOrderMutator } from "../utils/sales/salesOrders.js";
 
 const STATUS_META = {
   draft:     { label: "مسودة",   color: "#6B7280", bg: "#6B728015" },
@@ -111,6 +113,22 @@ export function QuotationsPg({ data, upConfig, isMob, canEdit, user }){
       showToast("✓ تم الحذف");
       setActiveQ(null);
     } catch(e){ tell("خطأ", e.message, { danger: true }); }
+  };
+
+  /* V21.10.1 — Slice 2: convert an accepted (or sent/draft) quotation to a
+     Sales Order. Creates the SO in draft status — admin then "confirms" it
+     on SalesOrdersPg to actually deduct stock. */
+  const handleConvert = async (q) => {
+    if(!await ask("تحويل لأمر بيع", `تحويل ${q.quoteNo} لأمر بيع جديد؟\nهيتم إنشاء SO في حالة "مسودة" — التأكيد + خصم المخزون بيتم لاحقاً.`, { confirmText: "تحويل" })) return;
+    try {
+      let createdNo = "";
+      await upConfig(d => {
+        const so = convertQuotationToSalesOrderMutator(d, q.id, userName);
+        createdNo = so.orderNo;
+      });
+      showToast(`✓ تم إنشاء أمر البيع ${createdNo}`);
+      setActiveQ(null);
+    } catch(e){ tell("فشل التحويل", e.message, { danger: true }); }
   };
 
   const handlePrint = (q) => {
@@ -230,6 +248,7 @@ export function QuotationsPg({ data, upConfig, isMob, canEdit, user }){
       onReject={handleReject}
       onDelete={handleDelete}
       onPrint={handlePrint}
+      onConvert={handleConvert}
       canEdit={canEdit}
     />}
 
@@ -248,7 +267,7 @@ export function QuotationsPg({ data, upConfig, isMob, canEdit, user }){
 }
 
 /* ─────────────── Detail Modal ─────────────── */
-function QuotationDetailModal({ quote, onClose, onSend, onAccept, onReject, onDelete, onPrint, canEdit }){
+function QuotationDetailModal({ quote, onClose, onSend, onAccept, onReject, onDelete, onPrint, onConvert, canEdit }){
   const meta = STATUS_META[quote.status] || STATUS_META.draft;
   return <div className="pop-overlay" onClick={onClose}
     style={{position:"fixed", inset: 0, background:"rgba(0,0,0,0.5)", zIndex: 99998,
@@ -346,6 +365,15 @@ function QuotationDetailModal({ quote, onClose, onSend, onAccept, onReject, onDe
             <Btn small onClick={() => onReject(quote)}>❌ رفض</Btn>
             <Btn small style={{background: "#10B981", color: "#fff"}} onClick={() => onAccept(quote)}>✅ موافقة</Btn>
           </>
+        )}
+        {/* V21.10.1: convert to SO (works from accepted, sent, or draft) */}
+        {canEdit && ["draft", "sent", "accepted"].includes(quote.status) && !quote.convertedToSalesOrderId && (
+          <Btn small style={{background: "#8B5CF6", color: "#fff"}} onClick={() => onConvert(quote)}>📑 حوّل لأمر بيع</Btn>
+        )}
+        {quote.convertedToSalesOrderNo && (
+          <span style={{padding:"6px 12px", background:"#8B5CF615", color:"#8B5CF6", borderRadius: 6, fontWeight: 700, fontSize: FS-2}}>
+            🔗 محوّل لـ {quote.convertedToSalesOrderNo}
+          </span>
         )}
       </div>
     </div>

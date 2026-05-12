@@ -70,8 +70,9 @@ import { lazy, Suspense } from "react";
 import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx";
 
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
-/* V21.10.0 — Sales Pipeline (#3 Slice 1) */
+/* V21.10.0 — Sales Pipeline (#3 Slice 1+2) */
 const QuotationsPg = lazyNamed(() => import("./pages/QuotationsPg.jsx"), "QuotationsPg");
+const SalesOrdersPg = lazyNamed(() => import("./pages/SalesOrdersPg.jsx"), "SalesOrdersPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -5656,8 +5657,9 @@ export default function App(){
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
         {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
             Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
-        {/* V21.10.0 — Sales Pipeline (#3 Slice 1): Quotations standalone. */}
+        {/* V21.10.0 — Sales Pipeline (#3 Slice 1+2): Quotations + Sales Orders. */}
         {tab==="salesQuotations"&&canViewTab("salesQuotations")&&<QuotationsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("salesQuotations")} user={user}/>}
+        {tab==="salesOrders"&&canViewTab("salesOrders")&&<SalesOrdersPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("salesOrders")} user={user}/>}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
