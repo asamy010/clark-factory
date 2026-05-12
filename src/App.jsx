@@ -3692,8 +3692,13 @@ export default function App(){
     );
     /* V17.2: Use precomputed values directly. No fn re-execution. */
     const splitActive=Boolean(configDoc?._splitDaysV1674Done);
-    /* V19.57: partActive triggered by either V1675 or V1957 flag */
-    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957]);
+    /* V19.57 + V21.9.33: partActive triggered by V1675, V1957, OR V2192 flag.
+       Pre-V21.9.33 the V2192 check was missing — meaning when only V2192 was set
+       (Shopify migrated but no other partitioned migrations), syncAllPartitionedChanges
+       never ran, and Shopify data couldn't be synced. More commonly: when ALL three
+       are set, the V2192 fields were missing from newPart, causing the silent
+       wipe of shopifyCustomersDocs/shopifyProductsDocs on every upConfig call. */
+    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957])||Boolean(configDoc?.[PARTITIONED_FLAG_V2192]);
     const splitAfter=splitActive?precomputedNewSplit:null;
     const partAfter=partActive?precomputedNewPart:null;
     /* Strip the precomputed next */
@@ -3994,6 +3999,23 @@ export default function App(){
       }
       if(prev[PARTITIONED_FLAG_V1957]){
         for(const f of PARTITIONED_FIELDS_V1957){
+          next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+          partFieldsActive.push(f);
+        }
+      }
+      /* V21.9.33 CRITICAL FIX (the data-loss bug that plagued the user all day):
+         Pre-V21.9.33 we hydrated V1675 + V1957 fields but FORGOT V2192
+         (shopifyProducts, shopifyCustomers). The downstream effect:
+           1. partFieldsActive doesn't include shopifyCustomers/shopifyProducts
+           2. newPart only contains V1675+V1957 fields
+           3. syncAllPartitionedChanges runs over ALL PARTITIONED_FIELDS — for
+              shopifyCustomers it sees oldArr=1147 (from listener) vs
+              newArr=undefined→[] (not in newPart) → DELETES ALL 1147 DOCS
+         The bug fired on EVERY upConfig call (save settings, add anything),
+         silently wiping shopifyCustomersDocs + shopifyProductsDocs on each
+         operation. Same pattern as the V19.62 V1957 bug — exact same fix. */
+      if(prev[PARTITIONED_FLAG_V2192]){
+        for(const f of PARTITIONED_FIELDS_V2192){
           next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
           partFieldsActive.push(f);
         }
