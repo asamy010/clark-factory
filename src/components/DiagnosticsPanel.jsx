@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -71,6 +71,11 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [permAuditResult, setPermAuditResult] = useState(null);
   const [permFixBusy, setPermFixBusy] = useState(false);
   const [permRoleFilter, setPermRoleFilter] = useState("");
+  /* V21.9.32: Dynamic role scopes editor */
+  const [scopesBusy, setScopesBusy] = useState(false);
+  const [scopesData, setScopesData] = useState(null);
+  const [scopesEdits, setScopesEdits] = useState({}); /* { scopeName: [roles...] } */
+  const [scopesSaveBusy, setScopesSaveBusy] = useState(false);
 
   /* V21.9.23: poll window.__clarkListenerErrors every 3s — captured by the
      App.jsx listener-error callback. Surfaces the "permission-denied" cases
@@ -420,6 +425,92 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     } catch(e){ showToast("⛔ " + e.message); }
   };
 
+  /* V21.9.32: Dynamic role scopes — load + save */
+  const loadRoleScopes = async () => {
+    setScopesBusy(true);
+    try {
+      const r = await roleScopes({ action: "get" }, user);
+      if(r?.ok){
+        setScopesData(r);
+        setScopesEdits({ ...r.scopes }); /* prime the edit buffer */
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setScopesBusy(false); }
+  };
+
+  const toggleRoleInScope = (scopeName, role) => {
+    const current = scopesEdits[scopeName] || [];
+    const has = current.includes(role);
+    const next = has ? current.filter(r => r !== role) : [...current, role];
+    setScopesEdits({ ...scopesEdits, [scopeName]: next });
+  };
+
+  const initRoleScopes = async () => {
+    if(!canEdit) return;
+    setScopesBusy(true);
+    try {
+      const r = await roleScopes({ action: "init" }, user);
+      if(r?.ok){
+        showToast(r.skipped ? "ℹ️ موجود بالفعل" : "✅ تم الإنشاء");
+        await loadRoleScopes();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setScopesBusy(false); }
+  };
+
+  const resetRoleScopes = async () => {
+    if(!canEdit) return;
+    const yes = await ask("⚠️ Reset Role Scopes", "هتـ revert كل الـ scopes للـ defaults. تأكيد؟");
+    if(!yes) return;
+    setScopesBusy(true);
+    try {
+      const r = await roleScopes({ action: "reset" }, user);
+      if(r?.ok){
+        showToast("✅ تم الـ reset");
+        await loadRoleScopes();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setScopesBusy(false); }
+  };
+
+  const saveRoleScopes = async () => {
+    if(!canEdit) return;
+    /* Calculate changes from defaults */
+    const changes = [];
+    for(const [scopeName, currentRoles] of Object.entries(scopesEdits)){
+      const original = scopesData?.scopes?.[scopeName] || [];
+      const added = currentRoles.filter(r => !original.includes(r));
+      const removed = original.filter(r => !currentRoles.includes(r));
+      if(added.length > 0 || removed.length > 0){
+        changes.push({ scopeName, added, removed });
+      }
+    }
+    if(changes.length === 0){
+      showToast("ℹ️ مفيش تغييرات");
+      return;
+    }
+    const summary = changes.map(c =>
+      `${c.scopeName}: ${c.added.length > 0 ? "+[" + c.added.join(",") + "]" : ""}${c.removed.length > 0 ? " -[" + c.removed.join(",") + "]" : ""}`
+    ).join("\n");
+    const yes = await ask(
+      "💾 حفظ Role Scopes",
+      `هـ يتـ update ${changes.length} scope:\n\n${summary}\n\n` +
+      `التغيير بـ يـ take effect فوراً (مفيش rules republish needed).\nBackup كامل قبل أي تعديل. تأكيد؟`
+    );
+    if(!yes) return;
+    setScopesSaveBusy(true);
+    try {
+      const r = await roleScopes({ action: "set", scopes: scopesEdits }, user);
+      if(r?.ok){
+        showToast(`✅ تم! ${r.scopes_updated?.length || 0} scope مـ updated`);
+        await loadRoleScopes();
+      } else showToast("⛔ " + (r?.error || "فشل"));
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setScopesSaveBusy(false); }
+  };
+
   /* V21.9.30: Permissions audit */
   const runPermissionsAudit = async () => {
     setPermAuditBusy(true);
@@ -760,6 +851,121 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                   🆘 Bootstrap me as admin
                 </LoadingBtn>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.32: Dynamic Role Scopes Editor — admin can change which roles are in each scope */}
+      {canEdit && myPerms?.role === "admin" && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid " + T.brd,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: FS, color: T.text }}>
+                🎯 Role Scopes Editor — تعديل الصلاحيات بدون republish
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                الـ scopes (isPurchaseScope, isSalesScope, إلخ) دلوقتي بـ تتـ store في <code>factory/roleScopes</code>. الـ Firestore rules بـ تـ read منهم تلقائياً. لما تـ change role بـ يـ take effect فوراً — مفيش rules republish needed. ⚠️ الـ admin دايماً included في كل scope (auto-protection).
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <LoadingBtn loading={scopesBusy} loadingText="..." onClick={loadRoleScopes} small
+                style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 700 }}>
+                📋 جلب الـ Scopes
+              </LoadingBtn>
+            </div>
+          </div>
+
+          {scopesData && (
+            <div style={{ marginTop: 8 }}>
+              {!scopesData.exists && (
+                <div style={{
+                  padding: 10, marginBottom: 10,
+                  background: T.warn + "15", border: "1.5px solid " + T.warn + "60",
+                  borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap",
+                }}>
+                  <div style={{ fontSize: FS - 2, color: T.warn }}>
+                    ⚠️ <code>factory/roleScopes</code> doc مش موجود — الـ rules بـ تستخدم الـ defaults الـ hardcoded. لـ enable الـ dynamic editing اضغط 'Init'.
+                  </div>
+                  <LoadingBtn loading={scopesBusy} loadingText="..." onClick={initRoleScopes} small
+                    style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 700 }}>
+                    🚀 Init بـ Defaults
+                  </LoadingBtn>
+                </div>
+              )}
+
+              <div style={{ borderRadius: 8, border: "1px solid " + T.brd, overflow: "hidden", marginBottom: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
+                  <thead style={{ background: T.cardSolid }}>
+                    <tr>
+                      <th style={{ padding: "8px 6px", textAlign: "start", borderBottom: "1px solid " + T.brd, minWidth: 200 }}>Scope</th>
+                      {(scopesData.valid_roles || []).map(role => (
+                        <th key={role} style={{
+                          padding: "8px 6px", textAlign: "center", borderBottom: "1px solid " + T.brd,
+                          fontSize: FS - 4, color: T.textSec, fontWeight: 600,
+                        }}>
+                          {role.replace("_", "_\n")}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(scopesData.scopes || {}).map(([scopeName, defaultRoles]) => {
+                      const currentRoles = scopesEdits[scopeName] || defaultRoles;
+                      const label = scopesData.labels[scopeName] || scopeName;
+                      return (
+                        <tr key={scopeName} style={{ borderBottom: "1px solid " + T.brd }}>
+                          <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 700, fontSize: FS - 2 }}>{label}</div>
+                            <div style={{ fontFamily: "monospace", fontSize: FS - 4, color: T.textMut, marginTop: 2 }}>
+                              {scopeName}
+                            </div>
+                          </td>
+                          {(scopesData.valid_roles || []).map(role => {
+                            const inScope = currentRoles.includes(role);
+                            const isAdminCell = role === "admin"; /* always disabled — auto-included */
+                            return (
+                              <td key={role} style={{ padding: "8px 4px", textAlign: "center", verticalAlign: "middle" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={inScope}
+                                  disabled={isAdminCell || scopeName === "isAdmin"}
+                                  onChange={() => !isAdminCell && toggleRoleInScope(scopeName, role)}
+                                  style={{
+                                    width: 18, height: 18,
+                                    cursor: (isAdminCell || scopeName === "isAdmin") ? "not-allowed" : "pointer",
+                                    accentColor: inScope ? T.ok : T.textMut,
+                                  }}
+                                  title={isAdminCell ? "admin دايماً included" : (inScope ? "اضغط لـ remove" : "اضغط لـ add")}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: FS - 3, color: T.textMut }}>
+                  ℹ️ التغيير بـ يـ take effect فوراً بعد الـ Save. أعمل F5 + اطلب من الموظفين الـ refresh.
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <LoadingBtn loading={scopesBusy} loadingText="..." onClick={resetRoleScopes} small
+                    style={{ background: T.bg, color: T.err, border: "1px solid " + T.err + "60", fontWeight: 700 }}>
+                    🔄 Reset to Defaults
+                  </LoadingBtn>
+                  <LoadingBtn loading={scopesSaveBusy} loadingText="جاري الحفظ..." onClick={saveRoleScopes}
+                    style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 800 }}>
+                    💾 حفظ التغييرات
+                  </LoadingBtn>
+                </div>
+              </div>
             </div>
           )}
         </div>

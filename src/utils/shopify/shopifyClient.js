@@ -349,6 +349,12 @@ export function auditPermissions(opts, user){
   return call("POST", "/api/admin/audit-permissions", opts || {}, user);
 }
 
+/* V21.9.32 — Dynamic role scopes (admin can edit who's in each scope).
+   action="get"|"init"|"reset"|"set" */
+export function roleScopes(opts, user){
+  return call("POST", "/api/admin/role-scopes", opts || {}, user);
+}
+
 /* V21.9.7 Phase 11m: Return Requests CRUD.
    Create — { shopify_order_id, reason, reason_text, items[], refund_amount?, ... }
    List   — { status?, search?, limit?, offset? }
