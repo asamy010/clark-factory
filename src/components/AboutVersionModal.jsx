@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.11.1",
+    date: "2026-05-12",
+    types: ["feature"],
+    title: "🔀 Phase 14 — دمج الفواتير القديمة المتفرقة (Feature #7)",
+    changes: [
+      { type: "feature", text: "✨ [Feature #7 — Legacy Invoice Merger]\n\nيكمّل الـ #4 Statement of Account: لما الكشف بـ يـ flag الـ legacy fragmented invoices، الأداة دي بـ تنظفها.\n\n**الـ scope:**\n• Card جديد في Settings → الصيانة → 🔀 دمج الفواتير المتفرقة\n• زرار '🔍 افحص' بـ يـ scan الفواتير في:\n  - factory/config.salesInvoices + salesInvoicesDays/*\n  - factory/config.purchaseInvoices + purchaseInvoicesDays/*\n• الـ scan يـ detect الـ sessions اللي عندها > 1 فاتورة (deliveryRefs/receiptRefs مع نفس sessionId)\n• يـ classify كل جلسة:\n  - 'all-draft' — كل الفواتير draft → ✅ مرشحة للدمج (auto-selected)\n  - 'all-posted' — كلها مرحّلة → 🔒 ممنوع التعديل\n  - 'mixed' — بعضها draft + بعضها posted → ⚠️ ممنوع (خطر محاسبي)\n• الـ admin يختار من الجلسات المرشحة + يضغط 🔀 merge\n• الـ backend بـ يعمل backup كامل لـ factory/config قبل أي merge\n• كل merge بـ يـ log في migrationLog collection للـ audit" },
+      { type: "architectural", text: "🏗 [Server-side endpoint + DiagnosticsPanel UI]\n\n**1. Server endpoint:** `/api/admin/merge-fragmented-invoices.js`\n• Firebase Admin auth (verifyIdToken) — admin only\n• Two-phase: dryRun=true للـ preview، dryRun=false للـ apply\n• Batch limit: 100 sessions per call (يمنع Vercel timeout)\n• Backup → executeMerge → migrationLog → response\n\n**2. Keeper/Victims pattern:**\n• الـ keeper = أقدم invoice في الجلسة (sorted by invoiceNo ASC)\n• الـ victims = الباقي — يـ get merged في الـ keeper:\n  - الـ items[] concatenated\n  - الـ deliveryRefs[]/receiptRefs[] appended\n  - الـ subtotal + discount summed\n  - الـ total = r2(subtotal - discount)\n• الـ victims يـ removed من الـ daily-split docs\n• الـ keeper بقى يحمل `mergedFrom: [...]` + `mergedAt` + `mergedBy`\n\n**3. Counter gaps accepted:**\nبعد الـ merge، أرقام الـ victim invoices ضاعت (gap في الـ sequence INV-001, INV-003 — مفيش INV-002). ده مقبول محاسبياً للـ drafts ولا يـ rollback. الـ migration log يـ document الأرقام اللي اتشالت.\n\n**4. Two-collection scan:**\nالأداة بـ تـ scan الـ daily splits + الـ factory/config legacy array. الفواتير اللي اتعملت قبل V19.50 ممكن تكون لسه في factory/config، والجديدة في daily splits. كلهم يتم detect-هم.\n\n**5. Posted protection:**\nالـ server-side validation تـ refuse أي merge على session فيها أي invoice بـ status='posted'. ده hard rule مش negotiable — accounting integrity." },
+      { type: "doc", text: "📋 [Test plan]\n1. Settings → الصيانة tab\n2. اعمل scroll للـ Card الجديد '🔀 دمج الفواتير المتفرقة'\n3. اختر '📤 مبيعات' → اضغط '🔍 افحص'\n4. لو فيه legacy data، الجدول يظهر بـ الجلسات:\n   - Sessions بـ status='all-draft' (✅ auto-selected)\n   - Sessions بـ status='all-posted' (🔒 disabled، read-only)\n   - Sessions بـ status='mixed' (⚠️ disabled، تحذير)\n5. اضغط '🔀 دمج N جلسة مختارة' → confirm dialog\n6. الـ backend يـ backup ثم يـ execute\n7. Toast '✅ دُمجت N جلسة'\n8. ارجع لـ #4 Statement of Account → الـ legacy fragmentation banner اختفى\n\n**Recovery:** لو حصل أي مشكلة، الـ backup في `backups/pre-invoice-merge-{type}-{timestamp}` collection. يمكن restore يدوياً عبر Firebase Console.\n\n**اللي جاي:** #8 Journal entries Draft/Edit + Subsidiary Linking، ثم #9 Treasury Close، إلخ." },
+    ]
+  },
+  {
     version: "V21.11.0",
     date: "2026-05-12",
     types: ["feature", "architectural"],

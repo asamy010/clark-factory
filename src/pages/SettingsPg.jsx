@@ -3396,6 +3396,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         bug reports come in. Shows the user (and copy-paste forensic line) exactly
         what's failing: permission-denied vs network vs document-size-limit etc. */}
     <WriteSelfTestCard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc} user={user} isMob={isMob}/>
+    {/* V21.11.1 — Feature #7: Legacy Invoice Merger */}
+    <LegacyInvoiceMergerCard user={user}/>
     {/* V19.35: Document composition diagnostic — replaces the buggy V15.80 storage stats block.
         Shows UTF-8 byte sizes of every top-level field in the RAW factory/config doc
         (configDoc, not the merged virtual `config`), so what you see is what Firestore stores. */}
@@ -4698,6 +4700,207 @@ function SelectiveRestoreCard({configDoc, upConfig, user, isMob}){
         </div>
       </>}
     </>}
+  </Card>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   V21.11.1 — Feature #7: Legacy Invoice Merger
+   ═══════════════════════════════════════════════════════════════
+   Card in DiagnosticsPanel section that:
+     1. Scans the production data for "fragmented" invoice sessions
+        (multiple draft invoices linked to one delivery/receipt session
+        — a side-effect of the pre-V21.x flow before consolidation
+        landed).
+     2. Lets admin select which sessions to merge.
+     3. Calls /api/admin/merge-fragmented-invoices with dryRun=false to
+        execute. Server backs up factory/config first + logs to
+        migrationLog.
+
+   Refuses merge for sessions containing ANY posted invoice (accounting
+   integrity). Mixed sessions are visible but disabled.
+   ═══════════════════════════════════════════════════════════════ */
+export function LegacyInvoiceMergerCard({ user }){
+  const [type, setType] = useState("sales");
+  const [scanning, setScanning] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [plan, setPlan] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [resultMsg, setResultMsg] = useState("");
+
+  const handleScan = async () => {
+    if(!user) { setResultMsg("⚠️ مفيش جلسة دخول"); return; }
+    setScanning(true);
+    setResultMsg("");
+    setPlan(null);
+    setSelected(new Set());
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin/merge-fragmented-invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({ type, dryRun: true }),
+      });
+      const data = await res.json();
+      if(!data.ok){
+        setResultMsg("⛔ " + (data.error || "فشل الفحص"));
+        return;
+      }
+      setPlan(data.plan || []);
+      /* Auto-select all mergeable sessions */
+      const ms = new Set((data.plan || []).filter(s => s.mergeable).map(s => s.sessionId));
+      setSelected(ms);
+      setResultMsg(`🔍 وجدت ${data.totalFragmentedSessions} جلسة متفرقة — ${ms.size} منهم قابل للدمج`);
+    } catch(e){
+      setResultMsg("⛔ خطأ: " + e.message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleMerge = async () => {
+    if(!plan || selected.size === 0) return;
+    if(!confirm(`هتدمج ${selected.size} جلسة. هـ يتم backup factory/config أولاً. تأكيد؟`)) return;
+    setMerging(true);
+    setResultMsg("");
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/admin/merge-fragmented-invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({
+          type,
+          dryRun: false,
+          sessionIds: Array.from(selected),
+        }),
+      });
+      const data = await res.json();
+      if(!data.ok){
+        setResultMsg("⛔ " + (data.error || "فشل الدمج"));
+        return;
+      }
+      setResultMsg(`✅ دُمجت ${data.merged} جلسة — تخطّى ${data.skipped} — أخطاء ${(data.errors||[]).length}`);
+      /* Re-scan to update view */
+      setTimeout(() => handleScan(), 600);
+    } catch(e){
+      setResultMsg("⛔ خطأ: " + e.message);
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  const toggleSelect = (sessionId, mergeable) => {
+    if(!mergeable) return;
+    const next = new Set(selected);
+    if(next.has(sessionId)) next.delete(sessionId);
+    else next.add(sessionId);
+    setSelected(next);
+  };
+
+  return <Card title="🔀 دمج الفواتير المتفرقة من التوزيعات القديمة" style={{marginBottom:16}}>
+    <div style={{padding:12, background:T.bg, borderRadius:8, fontSize:FS-2, color:T.textSec, marginBottom:12, lineHeight:1.7}}>
+      قبل V21.x كان فيه bug في الـ invoice consolidation: التوزيعة الواحدة كانت بتخلق فواتير منفصلة بدل ما تدمجها.
+      الأداة دي بتسكان البيانات الموجودة في Firestore وبتعرضلك الجلسات المتفرقة.
+      <strong style={{color:T.warn}}> هتدمج الـ drafts بس </strong>
+      — الفواتير المرحّلة (posted) ما تتلمسش.
+      <br/><strong style={{color:T.accent}}>قبل الدمج:</strong> backup كامل لـ factory/config يتعمل تلقائياً.
+    </div>
+
+    <div style={{display:"flex", gap:8, alignItems:"flex-end", marginBottom:12, flexWrap:"wrap"}}>
+      <div>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>النوع</label>
+        <div style={{display:"flex", gap:4, marginTop:4}}>
+          <button onClick={() => setType("sales")}
+            style={{padding:"8px 16px", borderRadius:8, fontWeight:700, fontSize:FS-1,
+              background: type === "sales" ? T.accent : T.bg,
+              color: type === "sales" ? "#fff" : T.text,
+              border: "1px solid " + (type === "sales" ? T.accent : T.brd),
+              cursor:"pointer"}}>📤 مبيعات</button>
+          <button onClick={() => setType("purchase")}
+            style={{padding:"8px 16px", borderRadius:8, fontWeight:700, fontSize:FS-1,
+              background: type === "purchase" ? "#D97706" : T.bg,
+              color: type === "purchase" ? "#fff" : T.text,
+              border: "1px solid " + (type === "purchase" ? "#D97706" : T.brd),
+              cursor:"pointer"}}>📥 مشتريات</button>
+        </div>
+      </div>
+      <Btn primary onClick={handleScan} disabled={scanning || merging}>
+        {scanning ? "...بيـ scan" : "🔍 افحص الفواتير المتفرقة"}
+      </Btn>
+      {plan && selected.size > 0 && (
+        <Btn onClick={handleMerge} disabled={scanning || merging}
+          style={{background:"#10B981", color:"#fff", border:"none"}}>
+          {merging ? "...بيـ merge" : `🔀 دمج ${selected.size} جلسة مختارة`}
+        </Btn>
+      )}
+    </div>
+
+    {resultMsg && (
+      <div style={{padding:10, background: resultMsg.startsWith("⛔") ? T.err+"15" : resultMsg.startsWith("✅") ? T.ok+"15" : T.accent+"15",
+        color: resultMsg.startsWith("⛔") ? T.err : resultMsg.startsWith("✅") ? T.ok : T.accent,
+        borderRadius:8, fontSize:FS-1, fontWeight:700, marginBottom:12}}>
+        {resultMsg}
+      </div>
+    )}
+
+    {plan && plan.length === 0 && (
+      <div style={{padding:30, textAlign:"center", color:T.textMut, fontSize:FS-1, fontStyle:"italic"}}>
+        🎉 مفيش جلسات متفرقة — الـ data نضيف
+      </div>
+    )}
+
+    {plan && plan.length > 0 && (
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1, minWidth:700}}>
+          <thead>
+            <tr style={{background:T.bg, borderBottom:"2px solid "+T.brd}}>
+              <th style={{padding:"8px", textAlign:"center", width:30}}>اختيار</th>
+              <th style={{padding:"8px", textAlign:"right"}}>الجلسة (sessionId)</th>
+              <th style={{padding:"8px", textAlign:"right"}}>{type === "sales" ? "العميل" : "المورد"}</th>
+              <th style={{padding:"8px", textAlign:"center"}}>عدد الفواتير</th>
+              <th style={{padding:"8px", textAlign:"left"}}>الإجمالي</th>
+              <th style={{padding:"8px", textAlign:"center"}}>الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.map(s => {
+              const statusColor = s.status === "all-draft" ? T.ok : s.status === "all-posted" ? T.err : T.warn;
+              const statusLabel = s.status === "all-draft" ? "✅ كل المسودات" : s.status === "all-posted" ? "🔒 كلها مرحّلة" : "⚠️ مختلطة";
+              return <tr key={s.sessionId} style={{borderBottom:"1px solid "+T.brd,
+                background: selected.has(s.sessionId) ? T.accent+"08" : "transparent",
+                opacity: s.mergeable ? 1 : 0.55,
+                cursor: s.mergeable ? "pointer" : "not-allowed"}}
+                onClick={() => toggleSelect(s.sessionId, s.mergeable)}>
+                <td style={{padding:"8px", textAlign:"center"}}>
+                  <input type="checkbox" checked={selected.has(s.sessionId)} disabled={!s.mergeable}
+                    onChange={() => toggleSelect(s.sessionId, s.mergeable)}
+                    style={{cursor: s.mergeable ? "pointer" : "not-allowed"}}/>
+                </td>
+                <td style={{padding:"8px", fontFamily:"monospace", fontSize:FS-2, color:T.textMut}}>
+                  {String(s.sessionId).slice(0, 18)}...
+                </td>
+                <td style={{padding:"8px"}}>{s.partyName || "—"}</td>
+                <td style={{padding:"8px", textAlign:"center", fontWeight:700}}>
+                  {s.invoiceCount}
+                  <div style={{fontSize:FS-3, color:T.textMut, marginTop:2}}>
+                    {(s.invoices||[]).map(i => i.invoiceNo).join(", ")}
+                  </div>
+                </td>
+                <td style={{padding:"8px", textAlign:"left", fontWeight:700}}>{fmt(s.totalAmount)} ج.م</td>
+                <td style={{padding:"8px", textAlign:"center"}}>
+                  <span style={{padding:"3px 10px", borderRadius:6, fontSize:FS-3,
+                    background: statusColor+"15", color: statusColor, fontWeight:700}}>
+                    {statusLabel}
+                  </span>
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+        <div style={{padding:10, fontSize:FS-2, color:T.textMut, textAlign:"center", borderTop:"1px solid "+T.brd}}>
+          ✅ مختار: {selected.size} • قابل للدمج: {plan.filter(s => s.mergeable).length} • إجمالي: {plan.length}
+        </div>
+      </div>
+    )}
   </Card>;
 }
 
