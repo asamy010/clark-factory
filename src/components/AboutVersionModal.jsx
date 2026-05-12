@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.34",
+    date: "2026-05-12",
+    types: ["fix"],
+    title: "🚨 Phase 13p — Bridge كان بـ يـ silently skip كل رسالة (wrong field names)",
+    changes: [
+      { type: "fix", text: "🚨 [الـ user بلّغ: 'بعت رسالتين على Bridge، ظهر إنهم اتبعتوا لكن فعلياً لم يتم الإرسال']\n\nROOT CAUSE: في V21.9.31 لما بنيت الـ Bridge integration لـ Shopify Customers Bulk، استخدمت field names غلط في الـ messages payload.\n\nالـ wa-bridge server.js بـ يـ validate كل message:\n```\nfor (const m of messages) {\n  if (!m.phone) continue;\n  if (!m.message && !m.mediaBase64 && !(Array.isArray(m.media) && m.media.length > 0)) continue;\n  added.push({...});\n}\n```\n\nبـ يـ require:\n• `m.message` (text)\n• `m.media` (array) OR `m.mediaBase64`\n\nلكن أنا في V21.9.31 بعتلك:\n• `body` بدل `message` ❌\n• `images` بدل `media` ❌\n\nالنتيجة: الـ bridge بـ يـ skip كل رسالة (continue) ويرجع `{ok: true, added: 0}`. الـ UI بـ يـ bump contact_count بدون verification. الـ user يشوف 'تم إرسال 1' لكن فعلياً مفيش رسالة في الـ queue ولا اتبعت." },
+      { type: "fix", text: "✅ [الـ Fix: استخدام نفس الـ format بـ CampaignsPg (الـ working reference)]\nقارنت بـ CampaignsPg.jsx بـ يـ build messages كده:\n```\n{\n  id: campaignIdRef.current + '_' + c.id,\n  phone: cleanPhone(c.phone),\n  customerName: c.name,\n  message: personalize(template.body, c),  ← key field name\n  media: allMedia.length > 0 ? allMedia : null,  ← array of {url, mime, name}\n  campaignId: campaignIdRef.current,\n}\n```\n\nالـ V21.9.34 fix:\n```\nconst messages = targets.map(c => ({\n  id: 'shop_' + c.id + '_' + Date.now().toString(36),\n  phone: String(c.phone || '').replace(/[^0-9]/g, '').replace(/^0/, '20'),\n  customerName: c.name || '',\n  message: renderMessageWithVariables(message, c),  ✓ صح\n  media: imageUrl ? [{ url: imageUrl }] : null,      ✓ صح\n  campaignId: 'shopify_customers_bulk_' + Date.now().toString(36),\n}));\n```" },
+      { type: "fix", text: "🛡 [Verification post-send + pre-send status check]\nأضفت 3 طبقات verification:\n\n1. **Pre-send status check**:\n   • GET /status قبل الـ send\n   • لو waReady === false → ask user confirmation 'الـ WhatsApp مش connected. Continue?'\n   • Default: cancel\n\n2. **Post-send count verification**:\n   • Compare result.added vs messages.length\n   • لو added < messages.length → ask user 'الـ bridge skipped N رسالة، Continue?'\n   • لو added === 0 → abort + toast 'مفيش رسائل اتبعت!'\n\n3. **Activity polling (background)**:\n   • بعد الـ send بـ 5 ثواني، GET /activity?limit=N\n   • Log في console للـ debugging\n   • مفيش UI block — just logs لو الـ admin محتاج يـ debug\n\nالتوست الجديد بـ يكون:\n• ✅ Success: '🌉 تم إضافة N رسالة للـ bridge queue · queue total: M'\n• ⚠️ Partial: ask user how to proceed\n• ❌ Zero added: 'مفيش رسائل اتبعت! check phones + opt-outs'" },
+      { type: "doc", text: "📋 [How to retry after V21.9.34 deploys]\n\n1. ⏰ استنى Vercel ينهي الـ deploy\n2. ⬆️ اضغط toast 'نسخة جديدة' أو Ctrl+Shift+R\n3. Shopify Integration → tab العملاء\n4. اختار العملاء اللي بعتلهم قبل كده (الـ contact_count بـ يفضل = 1 من المحاولة السابقة — مش مشكلة، Sequential bumping)\n5. اضغط '📱 WhatsApp Bulk'\n6. اكتب الرسالة\n7. اختار '🌉 Bridge' (default)\n8. اضغط '🌉 إرسال عبر Bridge'\n9. التوست الجديد هـ يقول '🌉 تم إضافة N رسالة للـ bridge queue · queue total: M'\n10. الرسائل بـ تطلع فعلياً على واتساب الـ bridge خلال ثواني\n\n**Verification: افتح الـ bridge dashboard URL** (مثلاً http://localhost:3001/) — هـ تشوف queue + activity مع الرسائل اللي اتبعتت فعلاً." },
+    ]
+  },
+  {
     version: "V21.9.33",
     date: "2026-05-12",
     types: ["fix"],
