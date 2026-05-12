@@ -77,6 +77,8 @@ const SalesOrdersPg = lazyNamed(() => import("./pages/SalesOrdersPg.jsx"), "Sale
 const PurchaseRFQsPg = lazyNamed(() => import("./pages/PurchaseRFQsPg.jsx"), "PurchaseRFQsPg");
 /* V21.10.6 — Purchase Pipeline (#3 Slices 7+8) */
 const PurchasePipelineOrdersPg = lazyNamed(() => import("./pages/PurchasePipelineOrdersPg.jsx"), "PurchasePipelineOrdersPg");
+/* V21.11.0 — Feature #4: Statement of Account */
+const AccountStatementPg = lazyNamed(() => import("./pages/AccountStatementPg.jsx"), "AccountStatementPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -5679,6 +5681,8 @@ export default function App(){
             real customer deliveries that show up in KASF + accounting. */}
         {tab==="pieces"&&canViewTab("pieces")&&<PiecesPg data={data} isMob={isMob} T={T} FS={FS} user={user} upConfig={upConfig} upSales={upSales} updOrder={updOrder}/>}
         {tab==="treasury"&&<TreasuryPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("treasury")} user={user} userRole={userRole}/>}
+        {/* V21.11.0 — Feature #4: Account Statement */}
+        {tab==="accountStatement"&&canViewTab("accountStatement")&&<AccountStatementPg data={data} isMob={isMob} user={user}/>}
         {tab==="hr"&&<HRPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("hr")} user={user} userRole={userRole} getHrSubPerm={getHrSubPerm} setSavingOverlay={setSavingOverlay}/>}
         {/* V19.48: Bulk messaging campaigns */}
         {tab==="campaigns"&&<CampaignsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("campaigns")} user={user}/>}

@@ -70,6 +70,8 @@ export const PERMISSION_TABS = [
   /* V19.91 — Shopify B2C integration tab */
   { key: "shopify",          label: "Shopify",             icon: "🛍️", group: "sales" },
   { key: "audit",            label: "سجل التدقيق",         icon: "🔍", group: "admin" },
+  /* V21.11.0 — Feature #4: Cumulative Statement of Account */
+  { key: "accountStatement", label: "كشف حساب تراكمي",    icon: "📊", group: "finance" },
   { key: "accounting",       label: "محاسبة",              icon: "📊", group: "finance" },
   { key: "fixedAssets",      label: "أصول ثابتة",          icon: "🏭", group: "finance" },
   { key: "settings",         label: "الإعدادات",           icon: "⚙️", group: "admin" },
@@ -179,7 +181,7 @@ export const DEFAULT_PERMS = {
     warehouse:"edit", pieces:"edit", treasury:"edit",
     hr: {weeks:"edit",verify:"edit",employees:"edit",security:"edit"},
     campaigns:"edit", automation:"edit", aiAgent:"edit", shopify:"edit", audit:"edit",
-    accounting:"edit", fixedAssets:"edit",
+    accountStatement:"edit", accounting:"edit", fixedAssets:"edit",
     settings:"edit",
   },
   manager: {
@@ -190,7 +192,7 @@ export const DEFAULT_PERMS = {
     warehouse:"edit", pieces:"edit", treasury:"view",
     hr: {weeks:"view",verify:"view",employees:"view",security:"view"},
     campaigns:"edit", automation:"view", aiAgent:"edit", shopify:"edit", audit:"view",
-    accounting:"view", fixedAssets:"view",
+    accountStatement:"view", accounting:"view", fixedAssets:"view",
     settings:"hide",
   },
   sales_accountant: {
@@ -201,7 +203,7 @@ export const DEFAULT_PERMS = {
     warehouse:"view", pieces:"view", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"edit", automation:"hide", aiAgent:"edit", shopify:"edit", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
   purchase_accountant: {
@@ -212,7 +214,7 @@ export const DEFAULT_PERMS = {
     warehouse:"edit", pieces:"edit", treasury:"edit",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
   /* V19.44 — Warehouse keeper: the role that prompted this whole audit.
@@ -229,7 +231,7 @@ export const DEFAULT_PERMS = {
     warehouse:"edit", pieces:"edit", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
   payroll_accountant: {
@@ -240,7 +242,7 @@ export const DEFAULT_PERMS = {
     warehouse:"hide", pieces:"hide", treasury:"view",
     hr: {weeks:"edit",verify:"hide",employees:"edit",security:"view"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
   payroll_verifier: {
@@ -251,7 +253,7 @@ export const DEFAULT_PERMS = {
     warehouse:"hide", pieces:"hide", treasury:"view",
     hr: {weeks:"view",verify:"edit",employees:"view",security:"view"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
   viewer: {
@@ -262,7 +264,7 @@ export const DEFAULT_PERMS = {
     warehouse:"view", pieces:"view", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"view", audit:"hide",
-    accounting:"hide", fixedAssets:"hide",
+    accountStatement:"hide", accounting:"hide", fixedAssets:"hide",
     settings:"hide",
   },
 };
