@@ -3398,6 +3398,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <WriteSelfTestCard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc} user={user} isMob={isMob}/>
     {/* V21.11.1 — Feature #7: Legacy Invoice Merger */}
     <LegacyInvoiceMergerCard user={user}/>
+    {/* V21.11.2 — Feature #10 Slice 1: Universal Tags Management */}
+    <TagsManagementCard config={config} upConfig={upConfig} user={user}/>
     {/* V19.35: Document composition diagnostic — replaces the buggy V15.80 storage stats block.
         Shows UTF-8 byte sizes of every top-level field in the RAW factory/config doc
         (configDoc, not the merged virtual `config`), so what you see is what Firestore stores. */}
@@ -4701,6 +4703,274 @@ function SelectiveRestoreCard({configDoc, upConfig, user, isMob}){
       </>}
     </>}
   </Card>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   V21.11.2 — Feature #10 Slice 1: Universal Tags Management
+   ═══════════════════════════════════════════════════════════════
+   Settings card to CRUD tag registry. Slice 1 = registry + management
+   only. Slices 2+ wire tags into entity pages (customer/supplier/etc.).
+   ═══════════════════════════════════════════════════════════════ */
+import {
+  createTagMutator, updateTagMutator, archiveTagMutator,
+  restoreTagMutator, deleteTagMutator,
+  getTagUsageCount, getTagsForEntityType,
+  TAG_PRESET_COLORS, TAG_PRESET_ICONS, TAG_ENTITY_TYPES,
+} from "../utils/tags.js";
+
+export function TagsManagementCard({ config, upConfig, user }){
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+  const registry = config.tagRegistry || [];
+  const visible = showArchived ? registry : registry.filter(t => !t.archived);
+  const sorted = visible.slice().sort((a,b) => (a.archived?1:0) - (b.archived?1:0) || (a.name||"").localeCompare(b.name||""));
+
+  const handleSave = async (args) => {
+    try {
+      await upConfig(d => {
+        if(editing){
+          updateTagMutator(d, editing.id, args, userName);
+        } else {
+          createTagMutator(d, { ...args, userName });
+        }
+      });
+      showToast(editing ? "✓ تم التعديل" : "✓ تم إنشاء الـ tag");
+      setShowForm(false);
+      setEditing(null);
+    } catch(e){
+      alert("⛔ " + e.message);
+    }
+  };
+
+  const handleArchive = async (tag) => {
+    const cnt = getTagUsageCount(tag.id, config);
+    const msg = cnt > 0
+      ? `الـ tag "${tag.name}" مستخدم على ${cnt} entity. أرشفته (الـ entities موصولة بـ الـ tag بـ تفضل).`
+      : `أرشفة "${tag.name}"؟`;
+    if(!confirm(msg)) return;
+    try {
+      await upConfig(d => { archiveTagMutator(d, tag.id, userName); });
+      showToast("✓ تم الأرشفة");
+    } catch(e){ alert("⛔ " + e.message); }
+  };
+
+  const handleRestore = async (tag) => {
+    try {
+      await upConfig(d => { restoreTagMutator(d, tag.id); });
+      showToast("✓ تم الاستعادة");
+    } catch(e){ alert("⛔ " + e.message); }
+  };
+
+  const handleDelete = async (tag) => {
+    const cnt = getTagUsageCount(tag.id, config);
+    if(cnt > 0){
+      alert(`⛔ الـ tag مستخدم على ${cnt} entity — أرشفه بدلاً (مش حذف)`);
+      return;
+    }
+    if(!confirm(`حذف الـ tag "${tag.name}" نهائياً؟ مفيش entities موصولة بيه.`)) return;
+    try {
+      await upConfig(d => { deleteTagMutator(d, tag.id); });
+      showToast("✓ تم الحذف");
+    } catch(e){ alert("⛔ " + e.message); }
+  };
+
+  return <Card title="🏷️ نظام الـ Tags (#10 Slice 1)" style={{marginBottom:16}}>
+    <div style={{padding:12, background:T.bg, borderRadius:8, fontSize:FS-2, color:T.textSec, marginBottom:12, lineHeight:1.7}}>
+      tags مركزية على مستوى المصنع — انت بتعرّفها هنا مرة واحدة، الـ Slices الجاية هـ تربطها بـ كل entity (عملاء، موردين، أصناف، إلخ).
+      كل tag له ID ثابت + لون + icon + تحديد للأنواع اللي ينطبق عليها.
+      <br/>📌 <strong>Slice 1:</strong> الـ Registry + إدارة الـ tags.
+      <strong>Slices 2-10:</strong> ربط الـ tags بالـ entities (customers في Slice 2، suppliers في Slice 3، إلخ).
+    </div>
+
+    <div style={{display:"flex", gap:8, marginBottom:12, alignItems:"center", flexWrap:"wrap"}}>
+      <Btn primary onClick={() => { setEditing(null); setShowForm(true); }}>➕ tag جديد</Btn>
+      <label style={{fontSize:FS-2, color:T.text, cursor:"pointer"}}>
+        <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)}/> إظهار المؤرشف
+      </label>
+      <div style={{flex:1, textAlign:"left", fontSize:FS-2, color:T.textMut}}>
+        {visible.length} tag {showArchived ? "(شامل المؤرشف)" : "نشط"}
+      </div>
+    </div>
+
+    {sorted.length === 0 ? (
+      <div style={{padding:30, textAlign:"center", color:T.textMut, fontStyle:"italic"}}>
+        مفيش tags. اضغط "➕ tag جديد" لإنشاء أول واحد.
+      </div>
+    ) : (
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:8}}>
+        {sorted.map(tag => {
+          const cnt = getTagUsageCount(tag.id, config);
+          return <div key={tag.id} style={{
+            padding:10, borderRadius:10,
+            background: tag.archived ? T.textMut+"08" : tag.color+"08",
+            border: "1px solid " + (tag.archived ? T.brd : tag.color+"40"),
+            opacity: tag.archived ? 0.6 : 1,
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+              <span style={{width:24, height:24, borderRadius:6, background:tag.color, display:"inline-flex",
+                alignItems:"center", justifyContent:"center", fontSize:14}}>
+                {tag.icon || "🏷️"}
+              </span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800, fontSize:FS, color:tag.archived?T.textMut:T.text}}>
+                  {tag.name}
+                  {tag.archived && <span style={{fontSize:FS-3, color:T.warn, marginRight:6}}>(مؤرشف)</span>}
+                </div>
+                {tag.description && (
+                  <div style={{fontSize:FS-3, color:T.textMut, marginTop:2}}>{tag.description}</div>
+                )}
+              </div>
+            </div>
+            <div style={{display:"flex", flexWrap:"wrap", gap:4, marginBottom:6}}>
+              {(tag.appliesTo || []).map(et => {
+                const meta = TAG_ENTITY_TYPES.find(x => x.key === et);
+                return <span key={et} style={{
+                  padding:"2px 6px", borderRadius:4, fontSize:FS-3,
+                  background:T.bg, color:T.text, fontWeight:600,
+                }}>{meta?.icon || ""}{meta?.label || et}</span>;
+              })}
+            </div>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:FS-3}}>
+              <span style={{color:T.textMut}}>مستخدم على {cnt} entity</span>
+              <div style={{display:"flex", gap:4}}>
+                {!tag.archived && (
+                  <button onClick={() => { setEditing(tag); setShowForm(true); }}
+                    style={{padding:"3px 8px", borderRadius:4, background:T.accent+"15", color:T.accent, border:"none", cursor:"pointer", fontSize:FS-3, fontWeight:700}}>✏️</button>
+                )}
+                {!tag.archived && (
+                  <button onClick={() => handleArchive(tag)}
+                    style={{padding:"3px 8px", borderRadius:4, background:T.warn+"15", color:T.warn, border:"none", cursor:"pointer", fontSize:FS-3, fontWeight:700}}>📦</button>
+                )}
+                {tag.archived && (
+                  <button onClick={() => handleRestore(tag)}
+                    style={{padding:"3px 8px", borderRadius:4, background:T.ok+"15", color:T.ok, border:"none", cursor:"pointer", fontSize:FS-3, fontWeight:700}}>♻️</button>
+                )}
+                {tag.archived && cnt === 0 && (
+                  <button onClick={() => handleDelete(tag)}
+                    style={{padding:"3px 8px", borderRadius:4, background:T.err+"15", color:T.err, border:"none", cursor:"pointer", fontSize:FS-3, fontWeight:700}}>🗑</button>
+                )}
+              </div>
+            </div>
+          </div>;
+        })}
+      </div>
+    )}
+
+    {showForm && <TagFormModal
+      existing={editing}
+      onClose={() => { setShowForm(false); setEditing(null); }}
+      onSave={handleSave}
+    />}
+  </Card>;
+}
+
+function TagFormModal({ existing, onClose, onSave }){
+  const [name, setName] = useState(existing?.name || "");
+  const [color, setColor] = useState(existing?.color || TAG_PRESET_COLORS[0]);
+  const [icon, setIcon] = useState(existing?.icon || "");
+  const [description, setDescription] = useState(existing?.description || "");
+  const [appliesTo, setAppliesTo] = useState(existing?.appliesTo || ["customer"]);
+
+  const toggleEntity = (key) => {
+    setAppliesTo(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  return <div className="pop-overlay" onClick={onClose}
+    style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:99998,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+    <div onClick={e => e.stopPropagation()} style={{
+      background:T.cardSolid, borderRadius:16, padding:20,
+      width:"100%", maxWidth:560, maxHeight:"90vh", overflowY:"auto",
+      boxShadow:"0 20px 60px rgba(0,0,0,0.3)"
+    }}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+        <h3 style={{margin:0, fontSize:FS+3}}>{existing ? "✏️ تعديل tag" : "➕ tag جديد"}</h3>
+        <Btn ghost small onClick={onClose}>✕</Btn>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>الاسم *</label>
+        <Inp value={name} onChange={setName} placeholder="VIP / عاجل / مزمن..."/>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>اللون *</label>
+        <div style={{display:"flex", flexWrap:"wrap", gap:6, marginTop:6}}>
+          {TAG_PRESET_COLORS.map(c => (
+            <button key={c} onClick={() => setColor(c)}
+              style={{
+                width:32, height:32, borderRadius:8,
+                background:c, border: color === c ? "3px solid " + T.text : "1px solid " + T.brd,
+                cursor:"pointer",
+              }}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>الـ icon (اختياري)</label>
+        <div style={{display:"flex", flexWrap:"wrap", gap:4, marginTop:6}}>
+          <button onClick={() => setIcon("")} style={{
+            padding:"6px 10px", borderRadius:6, fontSize:FS-1,
+            background: !icon ? T.accent : T.bg, color: !icon ? "#fff" : T.text,
+            border: "1px solid " + (!icon ? T.accent : T.brd), cursor:"pointer",
+          }}>بدون</button>
+          {TAG_PRESET_ICONS.map(ic => (
+            <button key={ic} onClick={() => setIcon(ic)} style={{
+              padding:"6px 10px", borderRadius:6, fontSize:FS+1,
+              background: icon === ic ? T.accent : T.bg, color: icon === ic ? "#fff" : T.text,
+              border: "1px solid " + (icon === ic ? T.accent : T.brd), cursor:"pointer",
+            }}>{ic}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>الوصف (اختياري)</label>
+        <Inp value={description} onChange={setDescription} placeholder="ايه معنى الـ tag ده..."/>
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>ينطبق على * ({appliesTo.length} مختار)</label>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))", gap:6, marginTop:6}}>
+          {TAG_ENTITY_TYPES.map(et => (
+            <label key={et.key} style={{
+              display:"flex", alignItems:"center", gap:6, padding:"8px 10px",
+              borderRadius:6, cursor:"pointer",
+              background: appliesTo.includes(et.key) ? T.accent+"15" : T.bg,
+              border:"1px solid " + (appliesTo.includes(et.key) ? T.accent+"40" : T.brd),
+              fontSize:FS-2, fontWeight: appliesTo.includes(et.key) ? 700 : 500,
+              color: appliesTo.includes(et.key) ? T.accent : T.text,
+            }}>
+              <input type="checkbox" checked={appliesTo.includes(et.key)}
+                onChange={() => toggleEntity(et.key)} style={{cursor:"pointer"}}/>
+              {et.icon} {et.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Preview */}
+      <div style={{padding:10, background:T.bg, borderRadius:8, marginBottom:14, fontSize:FS-2}}>
+        <div style={{fontSize:FS-3, color:T.textMut, marginBottom:6}}>المعاينة:</div>
+        <div style={{display:"inline-flex", alignItems:"center", gap:6,
+          padding:"4px 12px", borderRadius:6,
+          background:color+"15", color:color, fontWeight:700, fontSize:FS}}>
+          {icon && <span>{icon}</span>}
+          {name || "اسم الـ tag"}
+        </div>
+      </div>
+
+      <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+        <Btn onClick={onClose}>إلغاء</Btn>
+        <Btn primary onClick={() => onSave({ name, color, icon, description, appliesTo })}>
+          💾 {existing ? "حفظ التعديل" : "إنشاء"}
+        </Btn>
+      </div>
+    </div>
+  </div>;
 }
 
 /* ═══════════════════════════════════════════════════════════════

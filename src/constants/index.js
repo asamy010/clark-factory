@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.11.1";
+export const APP_VERSION = "V21.11.2";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -83,6 +83,8 @@ export const INIT_CONFIG = {
   purchasePipelineSettings:{ allowNegativeStock: false },
   /* V21.10.6 — shared payment counter across sales + purchase */
   paymentCounters:{},
+  /* V21.11.2 — Feature #10 Slice 1: Universal Tagging registry */
+  tagRegistry:[],
   quotationCounters:{},/* {2026: 12} — lazy-init via reserveQuotationNo */
   salesOrderCounters:{},/* V21.10.1 — lazy-init via reserveSalesOrderNo */
   quotationSettings:{ defaultValidityDays: 14 },
