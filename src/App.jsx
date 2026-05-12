@@ -509,49 +509,12 @@ export default function App(){
     });
   };
   const isDismissed=(key)=>dismissedAlerts.some(d=>d.key===key);
-  const aiAlerts=useMemo(()=>{const a=[];const now=Date.now();const workshops=config.workshops||[];const wsPayments=config.wsPayments||[];
-    /* 1. أوردرات متأخرة */
-    orders.forEach(o=>{if(o.closed||o.settlement||o.status==="تم التسليم لمخزن الجاهز")return;const _t=calcOrder(o);const _stk=getConfirmedStock(o);if(_t.cutQty>0&&_stk>=_t.cutQty*0.85)return;const wds=o.workshopDeliveries||[];let lastDate=o.date;wds.forEach(wd=>{if(wd.date>lastDate)lastDate=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>lastDate)lastDate=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>lastDate)lastDate=d.date});const days=Math.floor((now-new Date(lastDate))/(86400000));
-      if(days>7)a.push({icon:"🔴",text:"موديل "+o.modelNo+" واقف من "+days+" يوم",type:"late",orderId:o.id,key:"late_"+o.id})});
-    /* 2. أوردرات جاهزة للغلق */
-    const _userName=user?.displayName||user?.email?.split("@")[0]||"";
-    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.status==="pending"&&d.createdBy===_userName).forEach(d=>{a.push({icon:"⏳",text:"موديل "+o.modelNo+": "+d.qty+" قطعة في انتظار تأكيد أمين المخزن",type:"info",orderId:o.id,key:"pend_"+o.id+"_"+d.date})})});
-    orders.forEach(o=>{(o.deliveries||[]).filter(d=>d.confirmedAt&&d.confirmedAt>new Date(Date.now()-24*60*60*1000).toISOString()&&d.createdBy===_userName).forEach(d=>{a.push({icon:"✅",text:"تم تأكيد استلام "+(d.confirmedQty||d.qty)+" قطعة من موديل "+o.modelNo+(d.confirmedBy?" بواسطة "+d.confirmedBy:""),type:"ready",orderId:o.id,key:"conf_"+o.id+"_"+d.confirmedAt})})});
-    orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const stockDel=getConfirmedStock(o);if(t.cutQty>0&&stockDel>=t.cutQty)a.push({icon:"✅",text:"موديل "+o.modelNo+" كامل — جاهز للغلق",type:"ready",orderId:o.id,key:"close_"+o.id})});
-    /* 3. هالك كبير (>5%) */
-    orders.forEach(o=>{if(o.closed||!o.settlement)return;const t=calcOrder(o);if(t.cutQty>0){const pct=Math.round((o.settlement.qty/t.cutQty)*100);if(pct>5)a.push({icon:"⚠️",text:"موديل "+o.modelNo+" فيه "+pct+"% هالك ("+o.settlement.qty+" قطعة)",type:"waste",key:"waste_"+o.id})}});
-    /* 4. ورش — أرصدة مالية */
-    workshops.forEach(w=>{const isInt=w.type==="داخلي"||w.type==="internal";if(isInt)return;
-      let due=0;orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
-      const payments=wsPayments.filter(p=>p.wsName===w.name);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);
-      const owed=due+purchase-paid;
-      if(owed<-500)a.push({icon:"💸",text:""+w.name+" عليها "+fmt(r2(Math.abs(owed)))+" ج.م (دفعنالها زيادة)",type:"overpaid"});
-      if(owed>5000)a.push({icon:"💰",text:""+w.name+" ليها "+fmt(r2(owed))+" ج.م مدفعناش",type:"unpaid"})});
-    /* 5. ورش بطيئة + قرب الموعد */
-    workshops.forEach(w=>{const wPhone=w.phone||"";let details=[];orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===w.name).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const wBal=(Number(wd.qty)||0)-rcvd;if(wBal>0){const daysSince=Math.floor((now-new Date(wd.date))/(86400000));const agreed=Number(wd.agreedDays)||0;details.push({modelNo:o.modelNo,qty:wBal,days:daysSince,agreed,garment:wd.garmentType||"",delDate:wd.date})}})});
-      if(details.length>0){const totalBal=details.reduce((s,d)=>s+d.qty,0);const maxDays=Math.max(...details.map(d=>d.days));
-        if(maxDays>14)a.push({icon:"🐢",text:w.name+" عندها "+totalBal+" قطعة من "+maxDays+" يوم",type:"slow",wsName:w.name,wsPhone:wPhone,details});
-        details.forEach(d=>{if(d.agreed>0){const remaining=d.agreed-d.days;if(remaining<=2&&remaining>=0)a.push({icon:"⏰",text:w.name+" باقي "+(remaining||"آخر")+" يوم على موعد تسليم موديل "+d.modelNo+" ("+d.agreed+" يوم متفق)",type:"deadline",wsName:w.name,wsPhone:wPhone,details:[d]});
-          else if(remaining<0)a.push({icon:"🔴",text:w.name+" متأخرة "+Math.abs(remaining)+" يوم عن الموعد — موديل "+d.modelNo+" (متفق "+d.agreed+" يوم)",type:"overdue",wsName:w.name,wsPhone:wPhone,details:[d]})}})}});
-    /* 6. تنبيهات مخزن الخامات والإكسسوار — لو المخزن مفعل */
-    const psettings=config.purchaseSettings||{};
-    if(psettings.stockEnabled){
-      (config.fabrics||[]).forEach(f=>{const st=Number(f.stock)||0;const m=Number(f.minStock)||0;
-        if(m>0&&st===0)a.push({icon:"🚫",text:"خامة "+f.name+" نفذت من المخزن!",type:"stock-zero",key:"stock_zero_"+f.id});
-        else if(m>0&&st<=m)a.push({icon:"⚠️",text:"خامة "+f.name+" ناقصة ("+fmt(st)+" "+(f.unit||"")+" — الحد الأدنى "+fmt(m)+")",type:"stock-low",key:"stock_low_"+f.id});
-      });
-      (config.accessories||[]).forEach(ac=>{const st=Number(ac.stock)||0;const m=Number(ac.minStock)||0;
-        if(m>0&&st===0)a.push({icon:"🚫",text:"إكسسوار "+ac.name+" نفذ من المخزن!",type:"stock-zero",key:"stock_zero_acc_"+ac.id});
-        else if(m>0&&st<=m)a.push({icon:"⚠️",text:"إكسسوار "+ac.name+" ناقص ("+fmt(st)+" "+(ac.unit||"")+" — الحد الأدنى "+fmt(m)+")",type:"stock-low",key:"stock_low_acc_"+ac.id});
-      });
-    }
-    /* 7. تنبيهات المنتجات العامة — دايماً شغالة (مش مرتبطة بـ stockEnabled) */
-    (config.generalProducts||[]).forEach(p=>{const st=Number(p.stock)||0;const m=Number(p.minStock)||0;
-      if(m>0&&st===0)a.push({icon:"🚫",text:(p.category||"منتج")+" — "+p.name+" نفذ من المخزن!",type:"stock-zero",key:"stock_zero_prod_"+p.id});
-      else if(m>0&&st<=m)a.push({icon:"⚠️",text:(p.category||"منتج")+" — "+p.name+" ناقص ("+fmt(st)+" "+(p.unit||"")+" — الحد الأدنى "+fmt(m)+")",type:"stock-low",key:"stock_low_prod_"+p.id});
-    });
-    return a},[orders,config.workshops,config.wsPayments,config.fabrics,config.accessories,config.generalProducts,config.purchaseSettings]);
-  const visibleAlerts=aiAlerts.filter(a=>!isDismissed(a.key||a.text));
+  /* V21.9.37: removed aiAlerts + visibleAlerts.
+     The bot used to render a digest of stock/workshop/late-order alerts in the
+     popup empty-state and a red count badge on the floating icon. The user
+     wanted the bot to be pure Q&A about the factory — same alerts are still
+     surfaced via the bell/topbar notifications (which use the shared
+     dismissAlert/isDismissed helpers above). */
   const askAI=async()=>{if(!aiInput.trim()||aiLoading)return;const q=aiInput.trim();setAiInput("");setAiMsgs(p=>[...p,{role:"user",text:q}]);setAiLoading(true);
     try{
       /* Workshop summary */
@@ -580,9 +543,22 @@ export default function App(){
       const summary={totalCut,totalStock,totalSold,availableInStock:totalStock-totalSold,totalRevenue:r2(totalRevenue),ordersCount:ords.length,workshopsCount:ws.length,customersCount:custs.length};
       const ctx="أنت مساعد ذكي لنظام CLARK لإدارة مصانع الملابس.\n\nقواعد الرد:\n- رد بالمصري العامي (يعني، كده، خلاص، أهو)\n- اختصر اختصار غير مخل — بلاش كلام كتير\n- افصل بين كل أوردر أو معلومة بخط فاصل ─────\n\n⚠️ قاعدة حرجة في الأرصدة المالية للورش (لازم تتبعها حرفياً):\nالـ field اسمه `factoryOwesWorkshop` ومعناه: المبلغ اللي المصنع مديون به للورشة.\n• لو `factoryOwesWorkshop` موجب (> 0): الورشة دائنة — اكتب \"الورشة **ليها** X جنيه عندنا\" أو \"المصنع مدين للورشة بـ X\". مش \"عليها\"!\n• لو `factoryOwesWorkshop` سالب (< 0): الورشة مدينة لنا — اكتب \"الورشة **عليها** X جنيه\" (دفعنالها أكتر من المستحق).\n• لو = 0: حسابها متسوّي.\nمثال: ورشة نورهان `factoryOwesWorkshop=129900` (موجب) → \"ورشة نورهان ليها 129,900 جنيه عندنا\". غلط لو كتبت \"عليها\".\n\n- نسبة الدفع payPercent = الحد الأقصى المسموح بدفعه من المستحق (عادي 60%)\n- مصطلحات الورش مهمة جداً: workshopDeliveries.qty = الورشة استلمت منّنا (استلم)، workshopDeliveries.receives[].qty = الورشة سلّمت لنا (سلّم). يعني لما تكتب عن ورشة اكتب: استلم 508، سلّم 495، باقي 13. مش العكس!\n- availableInStock = المتاح في مخزن الجاهز (بعد طرح اللي اتباع)\n- sold = اللي اتباع للعملاء (بعد طرح المرتجعات)\n- في الآخر خالص حط سطر ─────── وبعده 💡 ملاحظتك أو نصيحتك من عندك كمدير انتاج خبرة\n\nبيانات الموسم "+season+":\n\nملخص عام:\n"+JSON.stringify(summary,null,0)+"\n\nالأوردرات ("+ords.length+"):\n"+JSON.stringify(ords,null,0)+"\n\nالورش ("+ws.length+"):\n"+JSON.stringify(ws,null,0)+"\n\nالعملاء ("+custs.length+"):\n"+JSON.stringify(custs,null,0)+"\n\nالتاريخ: "+new Date().toISOString().split("T")[0];
       const msgs=[...aiMsgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text})),{role:"user",content:q}];
+      /* V21.9.37: /api/ai requires a Firebase ID token since V19.64 (rate-limit
+         + cost-abuse hardening). Before this fix the client sent no token and
+         every request failed with "Authentication required" — visible to the
+         user as the ⚠️ banner in the chat. Grab the current token here (auto-
+         refreshes if expired). If user is null somehow, abort cleanly. */
+      let idToken="";
+      try{ if(user&&typeof user.getIdToken==="function") idToken=await user.getIdToken(); }
+      catch(e){ console.warn("[askAI] getIdToken failed:",e?.message); }
+      if(!idToken){
+        setAiMsgs(p=>[...p,{role:"ai",text:"⚠️ مفيش جلسة تسجيل دخول — اعمل sign-in تاني"}]);
+        setAiLoading(false);
+        return;
+      }
       let data2;let retries=0;
       while(retries<2){
-        const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:ctx,messages:msgs})});
+        const res=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+idToken},body:JSON.stringify({idToken,system:ctx,messages:msgs})});
         data2=await res.json();
         if(data2.error&&(data2.error.message||"").toLowerCase().includes("overloaded")&&retries<1){retries++;setAiMsgs(p=>[...p,{role:"ai",text:"⏳ السيرفر مشغول... بعيد المحاولة"}]);await new Promise(r=>setTimeout(r,3000));setAiMsgs(p=>p.filter(m=>m.text!=="⏳ السيرفر مشغول... بعيد المحاولة"));continue}
         break}
@@ -5608,7 +5584,8 @@ export default function App(){
           {!isMob&&<>
             <div onClick={()=>setAiOpen(!aiOpen)} title="المساعد الذكي" style={{position:"fixed",bottom:30,right:30,zIndex:9997,width:60,height:60,borderRadius:"50%",background:aiOpen?"linear-gradient(135deg,#0EA5E9,#8B5CF6)":"linear-gradient(135deg,#0EA5E9,#8B5CF6)",boxShadow:aiOpen?"0 8px 30px rgba(139,92,246,0.5)":"0 6px 20px rgba(14,165,233,0.35)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.25s cubic-bezier(0.4,0,0.2,1)",transform:aiOpen?"scale(1.05)":"scale(1)",border:"3px solid #fff"}} onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.08)"}} onMouseLeave={e=>{e.currentTarget.style.transform=aiOpen?"scale(1.05)":"scale(1)"}}>
               <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
-              {visibleAlerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:22,height:22,padding:"0 6px",borderRadius:11,background:"#EF4444",color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #fff"}}>{visibleAlerts.length}</span>}
+              {/* V21.9.37: bot is pure Q&A now; the red alert badge moved out
+                  with the rest of the notifications digest. */}
             </div>
             {aiOpen&&<>
               <div onClick={()=>setAiOpen(false)} style={{position:"fixed",inset:0,zIndex:9998}}/>
@@ -5623,18 +5600,10 @@ export default function App(){
                   </div>
                   <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
                     {aiMsgs.length===0&&<div>
-                      {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
-                        <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
-                        {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text)}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer"}}>
-                          <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                          <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>
-                          {al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";openWA("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}
-                          <span onClick={e=>{e.stopPropagation();dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
-                        </div>)}
-                        <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
-                      </div>}
-                      <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
-                        {visibleAlerts.length===0&&<div style={{fontSize:38,marginBottom:10}}>🤖</div>}
+                      {/* V21.9.37: alerts digest removed — bot is pure Q&A.
+                          Empty state shows just the icon + suggestion chips. */}
+                      <div style={{textAlign:"center",padding:20,color:T.textMut}}>
+                        <div style={{fontSize:38,marginBottom:10}}>🤖</div>
                         <div style={{fontSize:FS-1,fontWeight:700,marginBottom:10,color:T.text}}>جرب تسأل:</div>
                         <div style={{display:"flex",flexDirection:"column",gap:6}}>
                           {["📦 إيه الورش اللي متأخرة؟","📊 لخصلي أداء الأسبوع","🏭 كام أوردر جاهز للتسليم؟","💰 مين الورش المدفوع لها زيادة؟","🛒 إيه أكتر الموديلات مبيعاً؟"].map((s,i)=><div key={i} onClick={()=>setAiInput(s.replace(/^[^\s]+\s/,""))} style={{padding:"8px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-1,color:T.text,cursor:"pointer",textAlign:"right",fontWeight:600,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background=T.accent+"10";e.currentTarget.style.borderColor=T.accent+"40"}} onMouseLeave={e=>{e.currentTarget.style.background=T.bg;e.currentTarget.style.borderColor=T.brd}}>{s}</div>)}
@@ -5752,16 +5721,9 @@ export default function App(){
         </div>
         <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
           {aiMsgs.length===0&&<div>
-            {visibleAlerts.length>0&&<div style={{marginBottom:12}}>
-              <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>{"⚡ "+visibleAlerts.length+" تنبيه"}</div>
-              {visibleAlerts.map((al,i)=><div key={i} onClick={()=>{setAiInput(al.text);}} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",marginBottom:4,borderRadius:10,background:al.type==="late"?"#FEF2F2":al.type==="ready"?"#F0FDF4":al.type==="overpaid"?"#FFF7ED":al.type==="slow"?"#FFFBEB":"#F8FAFC",border:"1px solid "+(al.type==="late"?"#FECACA":al.type==="ready"?"#BBF7D0":al.type==="overpaid"?"#FED7AA":al.type==="slow"?"#FDE68A":"#E2E8F0"),cursor:"pointer",transition:"all 0.15s"}}>
-                <span style={{fontSize:16,flexShrink:0}}>{al.icon}</span>
-                <span style={{fontSize:FS-2,color:"#1E293B",fontWeight:600,lineHeight:1.5,flex:1}}>{al.text}</span>{al.wsPhone&&<span onClick={e=>{e.stopPropagation();const lines=(al.details||[]).map(d=>"• موديل *"+d.modelNo+"*: *"+d.qty+"* قطعة — "+d.days+" يوم"+(d.agreed?" (متفق "+d.agreed+" يوم)":"")).join("%0A");const msg="*CLARK — تنبيه تأخير*%0A%0A• الورشة: *"+al.wsName+"*%0A%0A"+lines+"%0A%0A⚠️ *برجاء الاهتمام بالتسليم في أقرب وقت*";openWA("https://wa.me/"+(al.wsPhone.replace(/[^0-9]/g,""))+"?text="+msg,"_blank");dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#25D366",flexShrink:0,padding:"0 4px",fontWeight:700}}>📱</span>}<span onClick={e=>{e.stopPropagation();dismissAlert(al.key||al.text)}} style={{cursor:"pointer",fontSize:10,color:"#94A3B8",flexShrink:0,padding:"0 2px"}}>✕</span>
-              </div>)}
-              <div style={{textAlign:"center",margin:"10px 0",fontSize:FS-2,color:T.textMut,letterSpacing:4}}>— — —</div>
-            </div>}
-            <div style={{textAlign:"center",padding:visibleAlerts.length>0?8:20,color:T.textMut}}>
-              {visibleAlerts.length===0&&<div style={{fontSize:32,marginBottom:8}}>🤖</div>}
+            {/* V21.9.37: mobile bot — alerts digest removed, pure Q&A. */}
+            <div style={{textAlign:"center",padding:20,color:T.textMut}}>
+              <div style={{fontSize:32,marginBottom:8}}>🤖</div>
               <div style={{fontSize:FS-1,fontWeight:600,marginBottom:4}}>اسألني عن أي حاجة</div>
               <div style={{fontSize:FS-2,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{"• موديل 3262 فين؟\n• ملخص الورش\n• كام أوردر متأخر؟"}</div>
             </div>
