@@ -21,6 +21,9 @@ import { ask, showToast, tell } from "../utils/popups.js";
 import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
+/* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
+   queue inspection, activity log, and pause/resume controls. */
+import { bridge as waBridge } from "../utils/whatsappBridge.js";
 
 export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [busy, setBusy] = useState(false);
@@ -717,6 +720,12 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   };
 
   return (
+    <>
+      {/* V21.9.35: Bridge Status Card — live visibility for WhatsApp bridge.
+          Surfaces waReady, queue state, daily cap, recent activity. The most
+          actionable signal for "messages don't send" bugs. */}
+      <BridgeStatusCard data={data} canEdit={canEdit} />
+
     <Card title="🩺 فحص الصحة + المخزن (Diagnostics)" extra={
       <LoadingBtn primary loading={busy} loadingText="..." onClick={runCheck} disabled={!canEdit} small>
         🔍 شغّل فحص شامل
@@ -1920,5 +1929,294 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
         </div>
       )}
     </Card>
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   BridgeStatusCard (V21.9.35)
+   ─────────────────────────────────────────────────────────────────────
+   Live WhatsApp Bridge dashboard inside CLARK. Polls /status every 3s
+   when expanded. Shows:
+   • Connection health: waReady, queueRunning, queuePaused
+   • Daily counter: sent / cap (with progress bar)
+   • Queue: pending / sending / sent / failed / skipped
+   • Recent activity (last 20 with timestamps + reasons)
+   • Pause / Resume / Clear / Reset-Daily controls
+   • Link to open bridge dashboard directly
+
+   This is the single most actionable diagnostic for "messages don't
+   send" complaints. Before V21.9.35 the user had no visibility into
+   why the bridge was silently dropping messages. Now they can see the
+   exact reason (queuePaused, daily cap, WhatsApp not connected, etc.).
+   ───────────────────────────────────────────────────────────────────── */
+function BridgeStatusCard({ data, canEdit }){
+  const bridgeUrl = data?.campaignBridge?.url || "";
+  const bridgeToken = data?.campaignBridge?.token || "";
+  const [expanded, setExpanded] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [optoutsCount, setOptoutsCount] = useState(null);
+  const [err, setErr] = useState("");
+  const [actionBusy, setActionBusy] = useState("");
+
+  /* Poll status + activity every 3s when expanded. Stops when collapsed
+     so we don't waste bandwidth on a background card. */
+  useEffect(() => {
+    if(!expanded || !bridgeUrl) return;
+    let dead = false;
+    const tick = async () => {
+      try {
+        const [s, a] = await Promise.all([
+          waBridge.status(bridgeUrl, bridgeToken),
+          waBridge.activity(bridgeUrl, bridgeToken, 20).catch(() => ({ activity: [] })),
+        ]);
+        if(dead) return;
+        setStatus(s);
+        setActivity(a.activity || []);
+        setOptoutsCount(s.optOutsCount ?? null);
+        setErr("");
+      } catch(e){
+        if(!dead) setErr(e.message || "فشل الاتصال");
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 3000);
+    return () => { dead = true; clearInterval(iv); };
+  }, [expanded, bridgeUrl, bridgeToken]);
+
+  const handleAction = async (kind) => {
+    if(actionBusy) return;
+    if(kind === "clear" && !confirm("Clear الـ queue من الـ completed/failed entries؟")) return;
+    if(kind === "stop"  && !confirm("Stop الـ queue كله؟ كل الرسائل الـ pending هـ تتلغى.")) return;
+    if(kind === "reset" && !confirm("Reset الـ daily counter لـ 0؟ استخدمها فقط لو محتاج تبعت أكتر من الـ cap اليومي.")) return;
+    setActionBusy(kind);
+    try {
+      if(kind === "pause")  await waBridge.pause(bridgeUrl, bridgeToken);
+      if(kind === "resume") await waBridge.resume(bridgeUrl, bridgeToken);
+      if(kind === "clear")  await waBridge.clear(bridgeUrl, bridgeToken);
+      if(kind === "stop")   await waBridge.stop(bridgeUrl, bridgeToken);
+      if(kind === "reset")  await waBridge.resetDaily(bridgeUrl, bridgeToken);
+      showToast("✅ " + kind + " — done");
+      /* Force a status refresh */
+      const s = await waBridge.status(bridgeUrl, bridgeToken);
+      setStatus(s);
+    } catch(e){
+      showToast("⛔ " + e.message);
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  /* Don't show the card if no bridge is configured */
+  if(!bridgeUrl) return null;
+
+  /* Compact summary line — shown when collapsed */
+  const summaryColor = !status ? T.textMut
+    : status.waReady === false ? "#DC2626"
+    : status.queuePaused ? "#F59E0B"
+    : "#10B981";
+  const summaryIcon = !status ? "🌉"
+    : status.waReady === false ? "🔴"
+    : status.queuePaused ? "⏸"
+    : "🟢";
+  const summaryText = !status ? "Bridge — اضغط للفتح"
+    : status.waReady === false ? "WhatsApp مش متصل!"
+    : status.queuePaused ? "Bridge موقّف (paused)"
+    : `Bridge شغّال · ${status.daily?.sent || 0}/${status.settings?.dailyCap || 50} اليوم · ${status.queue?.pending || 0} pending`;
+
+  return (
+    <Card title={
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span>🌉 WhatsApp Bridge Status</span>
+        <span style={{ fontSize: FS - 3, fontWeight: 400, color: T.textMut }}>(V21.9.35)</span>
+      </span>
+    } extra={
+      <Btn small onClick={() => setExpanded(e => !e)}>
+        {expanded ? "▲ إخفاء" : "▼ عرض"}
+      </Btn>
+    }>
+      {/* Summary line — always shown */}
+      <div style={{
+        padding: "10px 14px",
+        background: summaryColor + "15",
+        border: "1.5px solid " + summaryColor + "60",
+        borderRadius: 8,
+        marginBottom: expanded ? 12 : 0,
+        display: "flex", alignItems: "center", gap: 10,
+        cursor: "pointer",
+      }} onClick={() => setExpanded(e => !e)}>
+        <span style={{ fontSize: 22 }}>{summaryIcon}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: FS - 1, fontWeight: 700, color: summaryColor }}>{summaryText}</div>
+          <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2, fontFamily: "monospace" }}>{bridgeUrl}</div>
+        </div>
+        {err && <span style={{ fontSize: FS - 3, color: T.err }}>⚠ {err}</span>}
+      </div>
+
+      {/* Expanded panel */}
+      {expanded && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {!status && !err && (
+            <div style={{ padding: 20, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>
+              ⏳ جاري التحميل...
+            </div>
+          )}
+
+          {status && (
+            <>
+              {/* Health row — 3 indicators */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
+                <StatusPill label="WhatsApp" value={status.waReady ? "متصل" : "غير متصل"} color={status.waReady ? "#10B981" : "#DC2626"} />
+                <StatusPill label="Queue" value={status.queueRunning ? "بـ يـ process" : (status.queuePaused ? "موقّف" : "خامل")} color={status.queueRunning ? "#10B981" : (status.queuePaused ? "#F59E0B" : T.textMut)} />
+                <StatusPill label="State" value={status.waState || "—"} color="#6366F1" />
+              </div>
+
+              {/* Daily counter with progress bar */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: FS - 2, fontWeight: 700, color: T.text }}>📅 الحد اليومي</span>
+                  <span style={{ fontSize: FS - 2, fontFamily: "monospace", color: T.textSec }}>
+                    {status.daily?.sent || 0} / {status.settings?.dailyCap || 50}
+                  </span>
+                </div>
+                <div style={{ height: 8, background: T.brd, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{
+                    width: Math.min(100, ((status.daily?.sent || 0) / (status.settings?.dailyCap || 50)) * 100) + "%",
+                    height: "100%",
+                    background: (status.daily?.sent || 0) >= (status.settings?.dailyCap || 50) ? "#DC2626" : "#10B981",
+                    transition: "width 0.3s",
+                  }} />
+                </div>
+              </div>
+
+              {/* Queue stats — 5 cells */}
+              <div>
+                <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.text, marginBottom: 6 }}>📊 الـ Queue</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, fontSize: FS - 3 }}>
+                  <QueueStat label="pending" value={status.queue?.pending || 0} color="#F59E0B" />
+                  <QueueStat label="sending" value={status.queue?.sending || 0} color="#0EA5E9" />
+                  <QueueStat label="sent" value={status.queue?.sent || 0} color="#10B981" />
+                  <QueueStat label="failed" value={status.queue?.failed || 0} color="#DC2626" />
+                  <QueueStat label="skipped" value={status.queue?.skipped || 0} color="#6B7280" />
+                </div>
+                {optoutsCount != null && (
+                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6 }}>
+                    🚫 Opt-outs: <b>{optoutsCount}</b> · إجمالي الـ queue: <b>{status.queue?.total || 0}</b>
+                  </div>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              {canEdit && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {status.queuePaused ? (
+                    <Btn small primary disabled={actionBusy} onClick={() => handleAction("resume")}>
+                      {actionBusy === "resume" ? "⏳..." : "▶ Resume"}
+                    </Btn>
+                  ) : (
+                    <Btn small disabled={actionBusy} onClick={() => handleAction("pause")}>
+                      {actionBusy === "pause" ? "⏳..." : "⏸ Pause"}
+                    </Btn>
+                  )}
+                  <Btn small disabled={actionBusy} onClick={() => handleAction("clear")}>
+                    {actionBusy === "clear" ? "⏳..." : "🗑 Clear Completed"}
+                  </Btn>
+                  <Btn small disabled={actionBusy} onClick={() => handleAction("reset")}>
+                    {actionBusy === "reset" ? "⏳..." : "🔄 Reset Daily"}
+                  </Btn>
+                  <Btn small ghost danger disabled={actionBusy} onClick={() => handleAction("stop")}>
+                    {actionBusy === "stop" ? "⏳..." : "⛔ Stop All"}
+                  </Btn>
+                  <Btn small onClick={() => window.open(bridgeUrl, "_blank")}>
+                    🌐 افتح Dashboard
+                  </Btn>
+                </div>
+              )}
+
+              {/* Recent activity */}
+              {activity.length > 0 && (
+                <div>
+                  <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+                    📜 آخر {activity.length} رسالة:
+                  </div>
+                  <div style={{
+                    maxHeight: 240, overflowY: "auto",
+                    border: "1px solid " + T.brd, borderRadius: 6,
+                    background: T.bg,
+                  }}>
+                    {activity.map((a, i) => (
+                      <ActivityRow key={i} item={a} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function StatusPill({ label, value, color }){
+  return (
+    <div style={{
+      padding: "8px 10px",
+      background: color + "10",
+      border: "1px solid " + color + "40",
+      borderRadius: 6,
+    }}>
+      <div style={{ fontSize: FS - 4, color: T.textMut, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: FS - 1, color, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+
+function QueueStat({ label, value, color }){
+  return (
+    <div style={{
+      padding: "6px 4px",
+      textAlign: "center",
+      background: color + "10",
+      border: "1px solid " + color + "30",
+      borderRadius: 6,
+    }}>
+      <div style={{ fontSize: FS, color, fontWeight: 800 }}>{value}</div>
+      <div style={{ fontSize: FS - 4, color: T.textMut }}>{label}</div>
+    </div>
+  );
+}
+
+function ActivityRow({ item }){
+  const statusColors = {
+    sent:    "#10B981",
+    failed:  "#DC2626",
+    skipped: "#6B7280",
+    pending: "#F59E0B",
+    sending: "#0EA5E9",
+  };
+  const color = statusColors[item.status] || T.textMut;
+  const time = item.timestamp || item.sentAt;
+  const timeStr = time ? new Date(time).toLocaleTimeString("ar-EG", { hour12: false }) : "—";
+  return (
+    <div style={{
+      padding: "6px 10px",
+      borderBottom: "1px solid " + T.brd,
+      display: "grid",
+      gridTemplateColumns: "70px 70px 1fr 1fr",
+      gap: 8,
+      fontSize: FS - 3,
+      alignItems: "center",
+    }}>
+      <span style={{ color: T.textMut, fontFamily: "monospace" }}>{timeStr}</span>
+      <span style={{ color, fontWeight: 700 }}>{item.status}</span>
+      <span style={{ fontFamily: "monospace", color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {item.phone || "—"}
+      </span>
+      <span style={{ color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.error || item.customerName || ""}>
+        {item.error || item.customerName || "—"}
+      </span>
+    </div>
   );
 }
