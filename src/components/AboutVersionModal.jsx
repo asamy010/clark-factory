@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.5",
+    date: "2026-05-12",
+    types: ["feature"],
+    title: "📋 Phase 12f — حلقة المشتريات: عروض الموردين (RFQs) — Slice 6 من #3",
+    changes: [
+      { type: "feature", text: "✨ [#3 Slice 6: Purchase RFQs standalone]\n\nأول step في حلقة المشتريات — mirror لـ Sales Quotations:\n• tab جديد 'عروض الموردين' (RFQs) في group الـ مشتريات\n• free-form items: منتج عام / قماش / إكسسوار / خدمة حر\n• خصم per-line + خصم على الإجمالي\n• status workflow: draft → sent → received → accepted → rejected → expired\n• الـ 'received' ده مفهوم جديد للـ Purchase: لما المورد رد بعرض السعر بتاعه\n• Counter: RFQ-YYYY-NNNN\n• Print template جاهز للإرسال للمورد بـ 'برجاء الرد بأفضل سعر وشروط التسليم'\n• Auto-expire بعد validUntil" },
+      { type: "architectural", text: "🏗 [الـ Architecture mirrors Sales side]\n\n• `data.purchaseRFQs` — daily-split لـ `purchaseRFQsDays/{YYYY-MM-DD}`\n• `data.rfqCounters[year]` — lazy-init\n• `data.rfqSettings.defaultValidityDays = 30` (أطول من Sales الـ 14 — موردين عادة بياخدوا وقت أكتر للرد)\n• Permissions: `purchaseRFQs` tab — admin/manager/purchase_accountant edit، purchase_keeper view، sales/payroll hide\n• firestore.rules: `purchaseRFQsDays/{day}` تحت `isPurchaseScope()`\n• Reuses نفس compute logic من quotations.js (computeRFQTotals = computeQuotationTotals بـ rename)\n\nالـ Slice 7 (Pipeline POs) + Slice 8 (PO Receipt → PINV) + Slice 9 (Payment from PINV) باقيين. الـ chain حالياً: RFQ standalone — لما توافق عرض، الـ next step هـ يـ activate في Slice 7." },
+      { type: "doc", text: "📋 [Test plan]\n1. افتح Vercel deploy\n2. السايدبار فيها 'عروض الموردين' (تحت 'مشتريات' في group)\n3. اضغط '➕ طلب عرض جديد'\n4. اختر مورد + ضيف بنود (قماش/إكسسوار/منتج عام/خدمة)\n5. احفظ → toast 'تم إنشاء الطلب RFQ-2026-0001'\n6. افتح الـ row → '📤 إرسال للمورد' → status بقى 'مُرسل'\n7. لما يرد المورد، '📩 وصل عرض' → status 'وصل عرض'\n8. وافق عليه → status 'موافق' (جاهز للـ Slice 7 conversion لـ PO)\n9. '🖨 طباعة' → print template مع 'برجاء الرد بأفضل سعر'\n\n**اللي جاي:** Slice 7 (Pipeline POs) + Slice 8 (Receipt + PINV) + Slice 9 (Payment)." },
+    ]
+  },
+  {
     version: "V21.10.4",
     date: "2026-05-12",
     types: ["improvement"],

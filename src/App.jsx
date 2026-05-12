@@ -73,6 +73,8 @@ const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "Cust
 /* V21.10.0 — Sales Pipeline (#3 Slice 1+2) */
 const QuotationsPg = lazyNamed(() => import("./pages/QuotationsPg.jsx"), "QuotationsPg");
 const SalesOrdersPg = lazyNamed(() => import("./pages/SalesOrdersPg.jsx"), "SalesOrdersPg");
+/* V21.10.5 — Purchase Pipeline (#3 Slice 6) */
+const PurchaseRFQsPg = lazyNamed(() => import("./pages/PurchaseRFQsPg.jsx"), "PurchaseRFQsPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -5662,6 +5664,8 @@ export default function App(){
         {tab==="salesOrders"&&canViewTab("salesOrders")&&<SalesOrdersPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("salesOrders")} user={user}/>}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
+        {/* V21.10.5 — Purchase Pipeline (#3 Slice 6): RFQs standalone. */}
+        {tab==="purchaseRFQs"&&canViewTab("purchaseRFQs")&&<PurchaseRFQsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseRFQs")} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
         {/* V19.48: Debit notes (purchase returns) */}
