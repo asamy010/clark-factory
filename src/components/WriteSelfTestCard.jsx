@@ -106,7 +106,7 @@ export function WriteSelfTestCard({configDoc, salesDoc, tasksDoc, user, isMob}){
   return <Card title="🔧 اختبار حفظ البيانات (تشخيص)" style={{marginBottom:16}}>
     <div style={{padding:"10px 12px", background:T.accent+"08", borderRadius:8, fontSize:FS-2, color:T.textSec, lineHeight:1.7, marginBottom:12}}>
       💡 <b>إيمتى تستخدم ده؟</b> لو لاحظت إن البيانات بتختفي بعد الحفظ، أو اللي حصل في وضع "بيع سريع" وما اتحفظش، اضغط الزر تحت لتشخيص هل في مشكلة في الكتابة.
-      <br/>📊 <b>أحجام الـ documents:</b> Firestore بيقبل حد أقصى 1 ميجابايت لكل document. لو وصلنا حد التحذير (>80%)، الكتابة هتبدأ تفشل.
+      <br/>📊 <b>أحجام الـ documents:</b> Firestore بيقبل حد أقصى 1 ميجابايت لكل document. لو وصلنا حد التحذير (أكثر من 80%)، الكتابة هتبدأ تفشل.
     </div>
 
     {/* Document size meter */}

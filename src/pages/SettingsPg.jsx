@@ -3398,6 +3398,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     <WriteSelfTestCard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc} user={user} isMob={isMob}/>
     {/* V21.11.1 — Feature #7: Legacy Invoice Merger */}
     <LegacyInvoiceMergerCard user={user}/>
+    {/* V21.12.0 — Feature #13: Push Notifications */}
+    <PushNotificationsCard user={user}/>
     {/* V21.11.2 — Feature #10 Slice 1: Universal Tags Management */}
     <TagsManagementCard config={config} upConfig={upConfig} user={user}/>
     {/* V19.35: Document composition diagnostic — replaces the buggy V15.80 storage stats block.
@@ -5186,3 +5188,116 @@ export function LegacyInvoiceMergerCard({ user }){
    - Finished goods (جاهز) — shortcut to existing StockPg
    - General products (منتجات عامة) — new
    ═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   V21.12.0 — Push Notifications Card (#13 Slice 1)
+   ───────────────────────────────────────────────────────────────
+   Settings → Maintenance section. Shows current permission state +
+   enables admin to subscribe this device + test-send.
+   ═══════════════════════════════════════════════════════════════ */
+export function PushNotificationsCard({ user }){
+  const [perm, setPerm] = useState(typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default");
+  const [support, setSupport] = useState(null);
+  const [subscribing, setSubscribing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [token, setToken] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    import("../utils/pushNotifications.js").then(({ detectPushSupport, getCurrentSubscription }) => {
+      if(!alive) return;
+      setSupport(detectPushSupport());
+      getCurrentSubscription().then(t => { if(alive) setToken(t || ""); });
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const handleSubscribe = async () => {
+    setSubscribing(true);
+    try {
+      const { requestPermissionAndSubscribe } = await import("../utils/pushNotifications.js");
+      const r = await requestPermissionAndSubscribe(user);
+      if(r.ok){
+        setPerm("granted");
+        setToken(r.token);
+        showToast("✓ تم تفعيل الإشعارات على هذا الجهاز");
+      } else {
+        tell("فشل التفعيل", r.message || r.reason || "خطأ غير معروف", { danger: true });
+      }
+    } finally { setSubscribing(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const idToken = await user.getIdToken();
+      const r = await fetch("/api/notifications/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({
+          recipients: [user.uid],
+          category: "warnings",
+          title: "اختبار إشعار من CLARK",
+          body: "لو شفت الرسالة دي، الـ Push شغّال تمام ✓",
+          urgency: "normal",
+        }),
+      });
+      const data = await r.json();
+      if(data.ok && data.sent > 0){
+        showToast(`✓ تم إرسال إشعار اختبار (${data.sent} جهاز)`);
+      } else if(data.ok){
+        tell("لا أجهزة مفعّلة", "مفيش subscriptions نشطة لإرسال الاختبار", { danger: true });
+      } else {
+        tell("فشل الإرسال", data.error || "خطأ غير معروف", { danger: true });
+      }
+    } catch(e){
+      tell("فشل الإرسال", e.message, { danger: true });
+    } finally { setTesting(false); }
+  };
+
+  return <Card title="🔔 الإشعارات الفورية (Push Notifications)" style={{ marginBottom: 16 }}>
+    <CardSubtitle icon="💡">يستلم الجهاز إشعارات فورية حتى لو الـ app مغلق. لازم تفعّل الإذن لكل جهاز.</CardSubtitle>
+    {support && !support.supported && (
+      <div style={{ padding: 12, background: T.err + "10", borderRadius: 8, color: T.err, fontSize: FS - 2 }}>
+        ⚠️ المتصفح/الجهاز ده مش بـ يدعم الإشعارات الفورية ({support.reason})
+      </div>
+    )}
+    {support && support.supported && support.requiresInstall && (
+      <div style={{ padding: 12, background: T.warn + "10", borderRadius: 8, color: T.warn, fontSize: FS - 2, marginBottom: 10 }}>
+        📱 {support.message}
+        <ol style={{ marginTop: 8, paddingRight: 20, lineHeight: 1.8 }}>
+          <li>اضغط زر المشاركة في Safari ⬆️</li>
+          <li>اختار "إضافة إلى الشاشة الرئيسية"</li>
+          <li>افتح التطبيق من الأيقونة الجديدة</li>
+          <li>ارجع لهذه الصفحة وفعّل الإشعارات</li>
+        </ol>
+      </div>
+    )}
+    {support && support.supported && !support.requiresInstall && (
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 0" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: FS - 2, color: T.textMut }}>الحالة:</div>
+          <div style={{ fontSize: FS, fontWeight: 700,
+            color: perm === "granted" ? T.ok : perm === "denied" ? T.err : T.warn }}>
+            {perm === "granted" ? "✓ مفعّلة" : perm === "denied" ? "⛔ مرفوضة (راجع إعدادات المتصفح)" : "○ غير مفعّلة"}
+          </div>
+          {token && (
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4, fontFamily: "monospace" }}>
+              Token: {token.slice(0, 24)}…
+            </div>
+          )}
+        </div>
+        {perm !== "granted" && perm !== "denied" && (
+          <Btn primary onClick={handleSubscribe} disabled={subscribing}>
+            {subscribing ? "..." : "🔔 فعّل الإشعارات على هذا الجهاز"}
+          </Btn>
+        )}
+        {perm === "granted" && (
+          <Btn onClick={handleTest} disabled={testing}>
+            {testing ? "..." : "🧪 إرسال إشعار اختبار"}
+          </Btn>
+        )}
+      </div>
+    )}
+  </Card>;
+}
