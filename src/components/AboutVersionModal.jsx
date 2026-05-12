@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.4",
+    date: "2026-05-12",
+    types: ["improvement"],
+    title: "⚡ Phase 12e — autoPostOnCreate يعمل أيضاً على فواتير SO (Slice 5 من #3)",
+    changes: [
+      { type: "improvement", text: "✨ [#3 Slice 5: extend autoPostOnCreate to SO→Invoice flow]\n\nالـ `invoiceSettings.autoPostOnCreate` flag (موجود من V18.51 للـ delivery-based flow) دلوقتي بـ يطبق على الـ SO-based flow الجديد بنفس الطريقة:\n\n• لو `autoPostFromInvoice=true` + `autoPostOnCreate=true` في الـ Settings:\n  - الـ '🧾 إنشاء فاتورة' button في SO detail modal بقى '🧾 إنشاء + ترحيل'\n  - الفاتورة تتـ post فوراً في نفس upConfig cycle\n  - الـ journal entry بـ يتعمل تلقائياً عبر `autoPost.salesInvoicePosted`\n  - toast بـ يقول 'مرحّلة تلقائياً'\n\n• لو الـ flag معطّل (default):\n  - الـ behavior القديم — فاتورة draft، الترحيل يدوي من 'فواتير المبيعات'\n\n**No new UI** — الـ Settings toggle الموجود (V18.51) كافي. ده bug-prevention slice — يخلي الـ behavior consistent بين الـ delivery flow الـ existing والـ SO flow الجديد." },
+      { type: "doc", text: "📋 [Test plan]\n1. افتح Settings → 📄 إعدادات الفواتير\n2. فعّل 'الترحيل من الفاتورة' → فعّل 'ترحيل تلقائي عند الإنشاء'\n3. ارجع لـ SO مؤكد بـ status='confirmed'\n4. اضغط '🧾 إنشاء فاتورة' → الـ confirm dialog بقى 'إنشاء + ترحيل'\n5. اضغط → فاتورة + قيد محاسبي بـ يتعملوا في step واحد\n6. افتح AccountingPg → الـ journal entry موجود\n7. عطّل الـ flag → اعمل تجربة تانية → الفاتورة draft تاني\n\n**اللي جاي:** Slices 6-12 — Purchase mirror الكامل + cross-page nav + reports." },
+    ]
+  },
+  {
     version: "V21.10.3",
     date: "2026-05-12",
     types: ["feature"],

@@ -19,6 +19,9 @@ import {
   /* V21.10.2 — Slice 3 */
   createInvoiceFromSalesOrderMutator,
 } from "../utils/sales/salesOrders.js";
+/* V21.10.4 — Slice 5: respect autoPostOnCreate when creating invoices from SO */
+import { postInvoiceMutator } from "../utils/invoices.js";
+import { autoPost } from "../utils/accounting/autoPost.js";
 
 const STATUS_META = {
   draft:              { label: "مسودة",       color: "#6B7280", bg: "#6B728015" },
@@ -98,16 +101,41 @@ export function SalesOrdersPg({ data, upConfig, isMob, canEdit, user }){
     } catch(e){ tell("خطأ", e.message, { danger: true }); }
   };
 
-  /* V21.10.2 — Slice 3: Create a draft invoice from this Sales Order. */
+  /* V21.10.2 — Slice 3: Create a draft invoice from this Sales Order.
+     V21.10.4 — Slice 5: respect the existing invoiceSettings.autoPostOnCreate
+     flag (added in V18.51 for the delivery-based flow). When true, we
+     immediately post the new invoice + trigger autoPost.salesInvoicePosted
+     so the journal entry lands in the same upConfig cycle. */
   const handleCreateInvoice = async (so) => {
-    if(!await ask("إنشاء فاتورة", `إنشاء فاتورة مسودة من ${so.orderNo}؟\nالإجمالي: ${fmt(so.total)} ج.م\n\nالفاتورة هتدخل في حالة "مسودة" وتتم الترحيل من صفحة الفواتير.`, { confirmText: "إنشاء" })) return;
+    const autoPost_on = !!data.invoiceSettings?.autoPostOnCreate;
+    const msg = autoPost_on
+      ? `إنشاء فاتورة من ${so.orderNo} + ترحيل تلقائي + قيد محاسبي؟\nالإجمالي: ${fmt(so.total)} ج.م`
+      : `إنشاء فاتورة مسودة من ${so.orderNo}؟\nالإجمالي: ${fmt(so.total)} ج.م\n\nالفاتورة هتدخل في حالة "مسودة" وتتم الترحيل من صفحة الفواتير.`;
+    if(!await ask("إنشاء فاتورة", msg, { confirmText: autoPost_on ? "إنشاء + ترحيل" : "إنشاء" })) return;
     try {
-      let createdNo = "";
+      let createdInv = null;
       await upConfig(d => {
-        const inv = createInvoiceFromSalesOrderMutator(d, so.id, userName);
-        createdNo = inv.invoiceNo;
+        createdInv = createInvoiceFromSalesOrderMutator(d, so.id, userName);
+        if(autoPost_on){
+          postInvoiceMutator(d, createdInv.id, userName);
+        }
       });
-      showToast(`✓ تم إنشاء الفاتورة ${createdNo}`);
+      /* If we auto-posted, also drop the journal entry. autoPost handles its
+         own errors (writes to accountingPostFailures) so a failure here
+         won't undo the invoice — admin can retry post manually. */
+      if(autoPost_on && createdInv){
+        const customer = (data.customers || []).find(c => c.id === createdInv.customerId);
+        try {
+          await autoPost.salesInvoicePosted(
+            data,
+            { ...createdInv, status: "posted", postedAt: new Date().toISOString(), postedBy: userName },
+            customer,
+            null,
+            userName
+          );
+        } catch(e){ console.warn("[V21.10.4] autoPost.salesInvoicePosted failed (recoverable):", e?.message); }
+      }
+      showToast(`✓ تم إنشاء الفاتورة ${createdInv?.invoiceNo || ""}` + (autoPost_on ? " (مرحّلة تلقائياً)" : ""));
       setActiveSO(null);
     } catch(e){ tell("فشل الإنشاء", e.message, { danger: true }); }
   };
