@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.3",
+    date: "2026-05-12",
+    types: ["feature"],
+    title: "💵 Phase 12d — حلقة المبيعات: سداد من داخل الفاتورة (Slice 4 من #3)",
+    changes: [
+      { type: "feature", text: "✨ [Sales Pipeline #3 — Slice 4: Payment from Invoice]\n\nالـ Step الرابع في الـ document chain. زرار '💵 ادفع' بـ يظهر داخل تفاصيل أي فاتورة مبيعات بـ status='posted' وعليها رصيد متبقي. يفتح modal فيه:\n• المبلغ (default = الرصيد المتبقي)\n• طريقة الدفع: كاش / تحويل بنكي / شيك\n• حساب الخزنة (من treasuryAccounts الموجودة)\n• تاريخ + ملاحظات\n\nعلى الحفظ، `recordInvoicePaymentMutator` بـ يعمل أربع حاجات atomic:\n1. ينشئ entry في `custPayments` بـ paymentNo (PMT-YYYY-NNNN) و كامل الـ cross-links (invoice + SO + quote)\n2. ينشئ entry في `treasury` بـ type='deposit' + كل الـ refs للأصل\n3. يحدّث `invoice.paidAmount` + `invoice.balanceDue`، ولو الـ balance = 0 يحط `fullyPaidAt`\n4. لو الفاتورة من SO، يحدّث `so.paidAmount`\n\n**Guards:**\n• المبلغ > 0 ومش > balanceDue\n• الفاتورة status لازم 'posted'\n• حساب الخزنة + طريقة الدفع مطلوبين\n• `computeInvoiceBalance()` بـ يحسب الـ balance real-time من custPayments الموجودة" },
+      { type: "architectural", text: "🏗 [Shared payment counter + cross-links]\n\n**Counter:**\n`paymentCounters[year]` lazy-init — مفيش separate sales/purchase counter للـ payments. PMT-YYYY-NNNN sequence واحدة لكل المدفوعات (consistency للـ admin).\n\n**Cross-links على الـ custPayment entry:**\n```js\n{\n  linkedInvoiceId, linkedInvoiceNo,\n  linkedSalesOrderId, linkedSalesOrderNo,  // null لو من delivery path\n  linkedQuotationId, linkedQuotationNo,    // null لو direct invoice\n}\n```\n\n**Cross-links على الـ treasury entry:**\nنفس الـ refs + `relatedTo: 'invoice_payment'` + `refCustPaymentId` (شيك inverse).\n\nده يخلي الـ chain queryable من 6 nodes (Quote, SO, Invoice, Payment, Treasury entry, Customer) من أي اتجاه. الـ Statement of Account (#4) و الـ Subsidiary Ledger (#8) هـ يستفيدوا من ده بشكل مباشر." },
+      { type: "doc", text: "📋 [Test plan]\n1. خد INV-2026-NNNN من الـ chain السابق (السلسلة الكاملة Quote→SO→INV)\n2. ترحّلها من 'فواتير المبيعات' (status='posted')\n3. اضغطها → زرار '💵 ادفع' ظهر (أخضر)\n4. اضغطه → modal فيه balance + المبلغ pre-filled = balance\n5. اختر طريقة + حساب خزنة + احفظ\n6. الـ toast '✓ تم تسجيل دفعة X ج.م'\n7. افتح TreasuryPg → entry جديد بـ description 'دفعة فاتورة INV-... — العميل'\n8. افتح الـ Customer's تاريخ المعاملات → custPayments فيها PMT-2026-0001\n9. ارجع للفاتورة → balanceDue = 0 + fullyPaidAt مسجّل\n\n**اللي جاي:** Slice 5 (V21.10.4) — autoPostOnInvoiceCreate setting (toggle في Settings) + Slices 6-12 — Purchase mirror." },
+    ]
+  },
+  {
     version: "V21.10.2",
     date: "2026-05-12",
     types: ["feature", "architectural"],

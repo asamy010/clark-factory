@@ -25,6 +25,8 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 /* V19.41: Purchase return picker — opens from a posted purchase invoice */
 import { PurchaseReturnPickerModal } from "../components/PurchaseReturnPickerModal.jsx";
+/* V21.10.3 — Slice 4: pay from invoice */
+import { recordInvoicePaymentMutator, computeInvoiceBalance } from "../utils/sales/invoicePayments.js";
 
 const STATUS_META = {
   draft:  { label: "مسودة",  color: "#6B7280", bg: "#6B728015" },
@@ -338,6 +340,8 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   const [showReview, setShowReview] = useState(false);
   /* V19.41: Purchase return picker toggle (only relevant for posted purchase invoices) */
   const [showReturnPicker, setShowReturnPicker] = useState(false);
+  /* V21.10.3 — Slice 4: pay-from-invoice modal toggle */
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   /* V18.58: Free discount editor — local state, applied to invoice on change */
   const [discountType, setDiscountType] = useState(invoice.discountType || (invoice.discountPct ? "pct" : "amount"));
   const [discountValue, setDiscountValue] = useState(
@@ -530,8 +534,27 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             ↪️ ارتجاع للمورد
           </Btn>
         )}
+        {/* V21.10.3 — Slice 4: pay from invoice (sales only, posted, balance > 0) */}
+        {invoice.status === "posted" && !isPurchase && (() => {
+          const { balance } = computeInvoiceBalance(invoice, data.custPayments || []);
+          return balance > 0.001;
+        })() && (
+          <Btn onClick={() => setShowPaymentModal(true)} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700}}>
+            💵 ادفع
+          </Btn>
+        )}
         {invoice.status === "posted" && <Btn onClick={() => onVoid(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
       </div>
+
+      {/* V21.10.3 — Payment from invoice modal */}
+      {showPaymentModal && <PaymentFromInvoiceModal
+        invoice={invoice}
+        data={data}
+        upConfig={upConfig}
+        user={user}
+        onClose={() => setShowPaymentModal(false)}
+        onSaved={() => { setShowPaymentModal(false); }}
+      />}
     </div>
     {/* V18.90: Review request modal */}
     {showReview && <ReviewRequestModal
@@ -562,5 +585,103 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         onCreated={() => onClose()}
       />;
     })()}
+  </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PaymentFromInvoiceModal (V21.10.3 — Slice 4)
+   Pay an invoice's outstanding balance in one go. Creates custPayment +
+   treasury deposit + updates invoice.paidAmount/balanceDue via the
+   recordInvoicePaymentMutator.
+   ═══════════════════════════════════════════════════════════════════════ */
+function PaymentFromInvoiceModal({ invoice, data, upConfig, user, onClose, onSaved }){
+  const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+  const { paid, balance } = computeInvoiceBalance(invoice, data.custPayments || []);
+  const treasuryAccounts = data.treasuryAccounts || [];
+
+  const [amount, setAmount] = useState(balance);
+  const [method, setMethod] = useState("cash");
+  const [treasuryAccountId, setTreasuryAccountId] = useState(treasuryAccounts[0]?.id || "");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await upConfig(d => {
+        recordInvoicePaymentMutator(d, {
+          invoiceId: invoice.id,
+          amount: Number(amount), method, treasuryAccountId, date, notes, userName,
+        });
+      });
+      showToast(`✓ تم تسجيل دفعة ${fmt(amount)} ج.م`);
+      onSaved();
+    } catch(e){
+      alert("⚠️ " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="pop-overlay" onClick={onClose}
+    style={{position:"fixed", inset: 0, background:"rgba(0,0,0,0.5)", zIndex: 99999,
+            display:"flex", alignItems:"center", justifyContent:"center", padding: 16}}>
+    <div onClick={e => e.stopPropagation()} style={{
+      background: T.cardSolid, borderRadius: 16, padding: 20,
+      width:"100%", maxWidth: 500, boxShadow:"0 20px 60px rgba(0,0,0,0.3)"
+    }}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12}}>
+        <h3 style={{margin: 0, fontSize: FS+3, color:"#10B981"}}>💵 سداد فاتورة</h3>
+        <Btn ghost small onClick={onClose}>✕</Btn>
+      </div>
+
+      <div style={{background: T.bg, padding: 10, borderRadius: 8, marginBottom: 12, fontSize: FS-1}}>
+        <div>الفاتورة: <strong>{invoice.invoiceNo}</strong> — {invoice.customerName}</div>
+        <div>الإجمالي: {fmt(invoice.total)} ج.م</div>
+        <div>المدفوع سابقاً: {fmt(paid)} ج.م</div>
+        <div style={{fontWeight: 800, color:"#10B981"}}>الرصيد المتبقي: {fmt(balance)} ج.م</div>
+      </div>
+
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 8, marginBottom: 8}}>
+        <div>
+          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>المبلغ *</label>
+          <Inp type="number" value={amount} onChange={v => setAmount(Number(v) || 0)}/>
+        </div>
+        <div>
+          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>التاريخ</label>
+          <Inp type="date" value={date} onChange={setDate}/>
+        </div>
+      </div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 8, marginBottom: 8}}>
+        <div>
+          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>طريقة الدفع *</label>
+          <Sel value={method} onChange={setMethod}>
+            <option value="cash">💵 كاش</option>
+            <option value="bank">🏦 تحويل بنكي</option>
+            <option value="check">📄 شيك</option>
+          </Sel>
+        </div>
+        <div>
+          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>حساب الخزنة *</label>
+          <Sel value={treasuryAccountId} onChange={setTreasuryAccountId}>
+            <option value="">— اختر —</option>
+            {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Sel>
+        </div>
+      </div>
+      <div style={{marginBottom: 12}}>
+        <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>ملاحظات</label>
+        <Inp value={notes} onChange={setNotes} placeholder="اختياري..."/>
+      </div>
+
+      <div style={{display:"flex", gap: 8, justifyContent:"flex-end"}}>
+        <Btn onClick={onClose}>إلغاء</Btn>
+        <Btn primary onClick={handleSave} disabled={saving || !(amount > 0) || !treasuryAccountId}
+          style={{background:"#10B981", color:"#fff"}}>
+          {saving ? "...جاري الحفظ" : "💾 تسجيل الدفعة"}
+        </Btn>
+      </div>
+    </div>
   </div>;
 }
