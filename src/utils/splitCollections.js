@@ -55,13 +55,6 @@ export const SPLIT_FIELDS_V2198 = ["whatsappCampaigns", "whatsappCampaignRuns"];
    of the doc at 200 orders cap). CLAUDE.md §2 has flagged this as TODO since
    V19.91. Migration runs auto on app open, just like every other split. */
 export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
-/* V21.10.0 — Sales/Purchase Pipeline document chain (Quote→Order→Invoice).
-   Phase 1 ships salesQuotations + salesOrders. RFQs + new-style purchaseOrders
-   (distinct from the V19.50 receipts-based purchaseOrders) come in later slices.
-   Daily split from day 1 — these accumulate fast in active sales teams.
-   V21.10.5 — purchaseRFQs added (Slice 6).
-   V21.10.6 — purchasePipelineOrders added (Slices 7+8). */
-export const SPLIT_FIELDS_V21100 = ["salesQuotations", "salesOrders", "purchaseRFQs", "purchasePipelineOrders"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -72,7 +65,6 @@ export const SPLIT_FLAG_V2195 = "_splitDaysV2195Done";
 export const SPLIT_FLAG_V2197 = "_splitDaysV2197Done";
 export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
 export const SPLIT_FLAG_V2199 = "_splitDaysV2199Done";
-export const SPLIT_FLAG_V21100 = "_splitDaysV21100Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -108,13 +100,6 @@ export const SPLIT_COLLECTIONS = {
      Existing maintenance endpoint name was "shopifyOrdersDays" — we keep that
      so the V21.9.3 manual migration tool's output is compatible. */
   shopifyPendingOrders: "shopifyOrdersDays",
-  /* V21.10.0 — Sales Pipeline (Quote→Order chain). Split on creation date. */
-  salesQuotations: "salesQuotationsDays",
-  salesOrders:     "salesOrdersDays",
-  /* V21.10.5 — Purchase Pipeline RFQs. */
-  purchaseRFQs:    "purchaseRFQsDays",
-  /* V21.10.6 — Purchase Pipeline POs (distinct from V19.50 receipt-based purchaseOrders). */
-  purchasePipelineOrders: "purchasePipelineOrdersDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */

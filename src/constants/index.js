@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.13.0";
+export const APP_VERSION = "V21.9.31";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -68,29 +68,6 @@ export const INIT_CONFIG = {
   employees:[], hrLog:[], hrWeeks:[], empDebts:[], auditLog:[],
   /* Purchase module — Session 1 */
   stockMovements:[], purchaseReceipts:[], purchaseOrders:[],
-  /* V21.10.0 — #3 Sales/Purchase Pipeline (Slice 1): standalone quotations.
-     Daily-split as salesQuotationsDays/{YYYY-MM-DD}. salesOrders will land
-     in Slice 2 with stock-deduction logic. */
-  salesQuotations:[],
-  salesOrders:[],
-  /* V21.10.5 — Purchase Pipeline (#3 Slice 6): RFQs */
-  purchaseRFQs:[],
-  rfqCounters:{},
-  rfqSettings:{ defaultValidityDays: 30 },
-  /* V21.10.6 — Purchase Pipeline (#3 Slices 7+8): Pipeline POs */
-  purchasePipelineOrders:[],
-  purchasePipelineOrderCounters:{},
-  purchasePipelineSettings:{ allowNegativeStock: false },
-  /* V21.10.6 — shared payment counter across sales + purchase */
-  paymentCounters:{},
-  /* V21.11.2 — Feature #10 Slice 1: Universal Tagging registry */
-  tagRegistry:[],
-  quotationCounters:{},/* {2026: 12} — lazy-init via reserveQuotationNo */
-  salesOrderCounters:{},/* V21.10.1 — lazy-init via reserveSalesOrderNo */
-  quotationSettings:{ defaultValidityDays: 14 },
-  /* V21.10.1 — Sales Order config. allowNegativeStock=false blocks confirm
-     when an item's stock is below the requested qty (per CLARK §0 defensive). */
-  salesOrderSettings:{ allowNegativeStock: false },
   purchaseSettings:{
     stockEnabled:false,
     stockActivationDate:"",

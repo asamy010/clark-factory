@@ -63,11 +63,6 @@ import { TIER_META, getTierMeta, buildWhatsAppLink } from "../utils/shopify/cust
 import { judgemeSyncReviews, getProductRating } from "../utils/judgeme/judgemeClient.js";
 import { shippingConfigure, SHIPPING_PROVIDERS } from "../utils/shipping/shippingClient.js";
 import { fmt } from "../utils/format.js";
-/* V21.9.35: shared bridge client + canonical phone normalization + pre-flight
-   + real post-send verification. Replaces the inline fetch + naive phone regex
-   that silently dropped messages when the bridge was paused or phones were
-   non-canonical. See src/utils/whatsappBridge.js for the API. */
-import { bridge as waBridge, cleanPhone as waCleanPhone, verifyBridgeReady, pollBridgeActivity } from "../utils/whatsappBridge.js";
 
 const SUB_TABS = [
   { key: "dashboard",      label: "📊 لوحة التحكم",     color: "#0EA5E9" },
@@ -5893,26 +5888,7 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
 
   /* Called by the composer when "Send" is clicked.
      V21.9.31: now supports sendMode = "bridge" | "manual". The composer
-     decides which mode based on the bridgeUrl prop + user's radio choice.
-
-     V21.9.35 ROOT-CAUSE FIX: pre-V21.9.35 this function:
-       1) Only checked waReady — missed queuePaused / daily cap (most common
-          silent-fail mode: queue paused after daily cap → bridge accepts
-          messages but never sends them. UI showed "تم إرسال" anyway).
-       2) Used naive phone regex `.replace(/^0/, "20")` — only handles the
-          `01...` case, breaks for `00201...` (produces 16-digit garbage).
-       3) Verified only `addedCount` (bridge-reported queue insert count) —
-          which is positive even when every message later fails with
-          "Number not on WhatsApp". The setTimeout(5s) console.log was
-          invisible to the user.
-
-     Now we use the shared whatsappBridge.js client:
-       • verifyBridgeReady() — comprehensive pre-flight (waReady + queuePaused
-         + daily cap + queue backlog)
-       • cleanPhone() — handles 00/0/+20/10-digit Egyptian variants
-       • pollBridgeActivity() — polls /activity for up to 30s and surfaces
-         REAL sent/failed/skipped counts (not just queue add count)
-       • A single campaignId per batch so we can filter activity reliably */
+     decides which mode based on the bridgeUrl prop + user's radio choice. */
   const handleComposerSend = async (message, imageUrl, sendMode) => {
     const targets = composerTargets;
     if(!targets || targets.length === 0){
@@ -5926,120 +5902,35 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       const useBridge = sendMode === "bridge" && bridgeUrl;
 
       if(useBridge){
-        /* ─── V21.9.35: comprehensive pre-flight ─── */
-        const ready = await verifyBridgeReady(bridgeUrl, bridgeToken, {
-          messageCount: targets.length,
-        });
-        if(!ready.ok){
-          /* Hard blockers — list them. User must fix before sending. */
-          const proceed = await ask(
-            "⛔ Bridge مش جاهز للإرسال",
-            `لقينا المشاكل دي:\n\n• ${ready.blockers.join("\n• ")}\n\n` +
-            `لازم تصلّحها قبل الإرسال (افتح bridge dashboard).\n\n` +
-            `تكمّل على أي حال (الرسائل هـ تـ queue بس مش هـ تتبعت)؟`,
-            { confirmText: "كمل برغم ده", cancelText: "إلغاء" }
-          );
-          if(!proceed){
-            showToast("ℹ️ تم الإلغاء — صلّح الـ bridge قبل الإرسال");
-            return;
-          }
-        }
-        /* Soft warnings — let the user see them but proceed */
-        if(ready.warnings.length > 0){
-          const proceed = await ask(
-            "⚠️ تنبيهات قبل الإرسال",
-            ready.warnings.join("\n\n") + "\n\nتكمّل؟",
-            { confirmText: "كمل", cancelText: "إلغاء" }
-          );
-          if(!proceed){
-            showToast("ℹ️ تم الإلغاء");
-            return;
-          }
-        }
-
-        /* ─── V21.9.35: build messages with canonical phone normalization ─── */
-        const batchCampaignId = "shopify_bulk_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+        /* V21.9.31: send via WA bridge — single HTTP POST with messages
+           array. The bridge handles the actual WhatsApp Web automation
+           in the background — no tabs open in the browser. */
         const messages = targets.map(c => ({
-          id: "shop_" + c.id + "_" + Date.now().toString(36),
-          phone: waCleanPhone(c.phone),     /* ← FIX: was .replace(/^0/,"20") — broke 00... */
-          customerName: c.name || "",
-          message: renderMessageWithVariables(message, c),
-          media: imageUrl ? [{ url: imageUrl }] : null,
-          campaignId: batchCampaignId,       /* ← FIX: single id for the batch so polling can filter */
+          phone: c.phone,
+          body: renderMessageWithVariables(message, c),
+          images: imageUrl ? [imageUrl] : [],
         }));
-
-        /* Sanity log — visible in browser DevTools for diagnostics */
-        console.log("[handleComposerSend] V21.9.35 sending batch:", {
-          campaignId: batchCampaignId,
-          messageCount: messages.length,
-          samplePhone: messages[0]?.phone,
-          hasMedia: !!imageUrl,
-          bridgeStatus: ready.status?.waReady,
-        });
-
-        /* ─── Send to bridge ─── */
-        let result;
         try {
-          result = await waBridge.send(bridgeUrl, messages, bridgeToken);
+          const base = bridgeUrl.replace(/\/+$/, "");
+          const headers = { "Content-Type": "application/json" };
+          if(bridgeToken) headers["Authorization"] = "Bearer " + bridgeToken;
+          const r = await fetch(base + "/send", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ messages }),
+          });
+          if(!r.ok){
+            const text = await r.text();
+            throw new Error("Bridge HTTP " + r.status + ": " + text.slice(0, 200));
+          }
+          const result = await r.json();
           if(!result.ok) throw new Error(result.error || "Bridge rejected");
+          showToast(`🌉 تم إرسال ${result.added || messages.length} رسالة عبر Bridge`);
         } catch(e){
           showToast("⛔ Bridge فشل: " + e.message);
-          console.error("[handleComposerSend] bridge.send error:", e);
-          return;
+          console.error("[handleComposerSend] bridge error:", e);
+          return; /* don't bump contact_count if send failed */
         }
-
-        const addedCount = Number(result.added || 0);
-        if(addedCount === 0){
-          showToast("⛔ Bridge ما قبل أي رسالة! تأكد من الـ phone numbers أو الـ opt-outs.");
-          return;
-        }
-        if(addedCount < messages.length){
-          /* Bridge filtered some out at the /send entry — usually missing phone */
-          const dropped = messages.length - addedCount;
-          showToast(`⚠️ Bridge دخّل ${addedCount} من ${messages.length}. ${dropped} اتـ drop-ـت (missing phone/message).`);
-        } else {
-          showToast(`🌉 تم إضافة ${addedCount} رسالة للـ queue · جاري المتابعة...`);
-        }
-
-        /* ─── V21.9.35: REAL post-send verification ───
-           Poll /activity for up to 30s. Surface actual sent/failed/skipped
-           counts instead of trusting the "added" number. */
-        const verdict = await pollBridgeActivity(
-          bridgeUrl, bridgeToken, batchCampaignId, addedCount, 30000
-        );
-
-        /* Build a comprehensive result toast */
-        if(verdict.timedOut && verdict.pending > 0){
-          /* Bridge is delivering but slowly (typical: 6-12s per message).
-             User sees the count actually sent so far + still-pending count.
-             Multi-line so showToast auto-extends to 5s. */
-          showToast(
-            `⏳ Bridge شغّال — جاري الإرسال في الـ background\n\n` +
-            `• اتبعت: ${verdict.sent}\n` +
-            `• لسه pending: ${verdict.pending}\n` +
-            (verdict.failed > 0 ? `• فشل: ${verdict.failed}\n` : "") +
-            (verdict.skipped > 0 ? `• skipped: ${verdict.skipped}\n` : "") +
-            `\nافتح Bridge Dashboard للمتابعة.`
-          );
-        } else if(verdict.failed > 0 || verdict.skipped > 0){
-          /* Real delivery problem — surface details */
-          const reasons = [...new Set(verdict.activities
-            .filter(a => a.status === "failed" || a.status === "skipped")
-            .map(a => a.error || "—"))].slice(0, 3).join(" / ");
-          showToast(
-            `⚠️ نتيجة الإرسال:\n\n` +
-            `• اتبعت: ${verdict.sent}\n` +
-            `• فشل: ${verdict.failed}\n` +
-            `• skipped: ${verdict.skipped}\n` +
-            (reasons ? `\nأسباب: ${reasons}` : "")
-          );
-        } else {
-          /* All sent successfully */
-          showToast(`✅ تم إرسال ${verdict.sent} رسالة بنجاح!`);
-        }
-
-        /* Console log full verdict for debugging */
-        console.log("[handleComposerSend] V21.9.35 final verdict:", verdict);
       } else {
         /* Manual mode — open WhatsApp Web tabs (existing behavior) */
         let opened = 0;

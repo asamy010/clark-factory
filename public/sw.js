@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Service Worker — V21.9.35
+   CLARK Service Worker — V21.9.21
    ───────────────────────────────────────────────────────────────
    Two cache strategies:
    1. Images (Firebase Storage / common image extensions): cache-first.
@@ -38,7 +38,7 @@
    new JS. No manual cache clears needed.
    ═══════════════════════════════════════════════════════════════ */
 
-const SW_VERSION = 'v21.13.0';
+const SW_VERSION = 'v21.9.31';
 const APP_CACHE = 'clark-app-' + SW_VERSION;
 const IMG_CACHE = 'clark-images-' + SW_VERSION;
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];
@@ -178,87 +178,3 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(e.request))
   );
 });
-
-/* ═══════════════════════════════════════════════════════════════════════
-   V21.12.0 — Push Notification Handlers (#13 Slice 1)
-   ───────────────────────────────────────────────────────────────────────
-   ADDITIVE — no existing handlers modified.
-
-   • push event: shows notification when server sends a push
-   • notificationclick: closes notification + focuses/opens CLARK tab
-   • pushsubscriptionchange: re-registers subscription on browser renewal
-
-   Payload format expected from server:
-     { title, body, icon?, badge?, image?, tag?, data?, actions?, urgency? }
-
-   data.url: where to navigate on click (default '/')
-   data.type: optional routing hint ('treasury'|'task'|'instruction'|'warning')
-   ═══════════════════════════════════════════════════════════════════════ */
-
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-  let payload = {};
-  try { payload = event.data.json(); }
-  catch (e) {
-    payload = { title: 'CLARK', body: event.data.text() };
-  }
-  const { title, body, icon, badge, image, tag, data, actions, urgency } = payload;
-  const options = {
-    body: body || '',
-    icon: icon || '/icon-192.png',
-    badge: badge || '/icon-192.png',
-    image,
-    tag: tag || ('clark-' + Date.now()),
-    data: data || {},
-    actions: actions || [],
-    dir: 'rtl',
-    lang: 'ar-EG',
-    vibrate: [200, 100, 200],
-    requireInteraction: urgency === 'high',
-    silent: urgency === 'low',
-    timestamp: Date.now(),
-  };
-  event.waitUntil(
-    self.registration.showNotification(title || 'CLARK', options)
-  );
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const data = event.notification.data || {};
-  const action = event.action;
-  let url = '/';
-  if (data.url) url = data.url;
-  else if (data.type === 'treasury') url = '/?tab=treasury' + (data.entryId ? '&entryId=' + data.entryId : '');
-  else if (data.type === 'task') url = '/?tab=tasks' + (data.taskId ? '&taskId=' + data.taskId : '');
-  else if (data.type === 'instruction') url = '/?tab=home&inst=' + (data.instructionId || '');
-  else if (data.type === 'warning') url = '/?tab=' + (data.target || 'home');
-  if (action === 'approve' && data.actionUrl) url = data.actionUrl + '?action=approve';
-  else if (action === 'snooze' && data.snoozeUrl) url = data.snoozeUrl;
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
-      for (const win of wins) {
-        if (win.url.includes(self.location.origin)) {
-          win.focus();
-          try { win.postMessage({ type: 'NOTIFICATION_CLICK', data, action, url }); } catch (e) {}
-          return;
-        }
-      }
-      return self.clients.openWindow(url);
-    })
-  );
-});
-
-self.addEventListener('pushsubscriptionchange', (event) => {
-  event.waitUntil(
-    self.registration.pushManager.subscribe(event.oldSubscription ? event.oldSubscription.options : { userVisibleOnly: true })
-      .then(sub => {
-        return fetch('/api/notifications/renew-subscription', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscription: sub.toJSON() }),
-        }).catch(() => {});
-      }).catch(() => {})
-  );
-});
-

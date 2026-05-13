@@ -62,38 +62,20 @@ service cloud.firestore {
       return isAuthed() && (isBootstrapAdmin() || getRole() in roles);
     }
 
-    /* V21.9.32: DYNAMIC SCOPES — admin can edit role-to-scope mapping from
-       the UI without re-deploying rules. Stored in factory/roleScopes:
-       {
-         isAdmin: ['admin'],
-         isManagerPlus: ['admin','manager'],
-         isSalesScope: ['admin','manager','sales_accountant'],
-         isPurchaseScope: ['admin','manager','purchase_accountant','warehouse_keeper'],
-         isHRRole: ['admin','manager','payroll_accountant','payroll_verifier'],
-         isHRWriter: ['admin','manager','payroll_accountant'],
-         isAnyAccountant: ['admin','manager','sales_accountant','purchase_accountant','payroll_accountant'],
-         isAnyUser: [...all roles...]
-       }
-       Falls back to V21.9.26 hardcoded defaults if the doc doesn't exist. */
-    function inScope(scopeName, fallbackRoles) {
-      let scopesData = exists(/databases/$(database)/documents/factory/roleScopes)
-        ? get(/databases/$(database)/documents/factory/roleScopes).data
-        : null;
-      let roles = scopesData != null
-        ? scopesData.get(scopeName, fallbackRoles)
-        : fallbackRoles;
-      return isAuthed() && (isBootstrapAdmin() || getRole() in roles);
-    }
-
-    function isAdmin()        { return inScope('isAdmin', ['admin']); }
-    function isManagerPlus()  { return inScope('isManagerPlus', ['admin', 'manager']); }
-    function isSalesScope()   { return inScope('isSalesScope', ['admin','manager','sales_accountant']); }
-    function isPurchaseScope(){ return inScope('isPurchaseScope', ['admin','manager','purchase_accountant','warehouse_keeper']); }
-    function isWarehouseScope(){ return inScope('isWarehouseScope', ['admin','manager','purchase_accountant','warehouse_keeper']); }
-    function isAnyAccountant(){ return inScope('isAnyAccountant', ['admin','manager','sales_accountant','purchase_accountant','payroll_accountant']); }
-    function isHRRole()       { return inScope('isHRRole', ['admin','manager','payroll_accountant','payroll_verifier']); }
-    function isHRWriter()     { return inScope('isHRWriter', ['admin','manager','payroll_accountant']); }
-    function isAnyUser()      { return inScope('isAnyUser', ['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant','payroll_verifier','viewer']); }
+    function isAdmin()        { return hasRole(['admin']); }
+    function isManagerPlus()  { return hasRole(['admin', 'manager']); }
+    function isSalesScope()   { return hasRole(['admin','manager','sales_accountant']); }
+    /* V21.9.26: warehouse_keeper added to purchase scope — warehouse ops
+       (receiving, stock counts, purchase receipts) are under purchase scope */
+    function isPurchaseScope(){ return hasRole(['admin','manager','purchase_accountant','warehouse_keeper']); }
+    /* V21.9.26: warehouse-specific scope (no treasury access) — warehouse_keeper
+       only writes warehouse + stock + purchase receipts, NOT invoices/treasury */
+    function isWarehouseScope(){ return hasRole(['admin','manager','purchase_accountant','warehouse_keeper']); }
+    function isAnyAccountant(){ return hasRole(['admin','manager','sales_accountant','purchase_accountant','payroll_accountant']); }
+    function isHRRole()       { return hasRole(['admin','manager','payroll_accountant','payroll_verifier']); }
+    function isHRWriter()     { return hasRole(['admin','manager','payroll_accountant']); }/* V19.64: verifier excluded */
+    /* V21.9.26: warehouse_keeper added to isAnyUser */
+    function isAnyUser()      { return isAuthed() && (isBootstrapAdmin() || getRole() in ['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant','payroll_verifier','viewer']); }
 
     /* V19.64: detect sensitive-field changes on factory/config.
        Only admin can change role assignments / permissions / custom roles. */
@@ -114,14 +96,6 @@ service cloud.firestore {
       /* UPDATE: admin always; manager only if NOT touching sensitive fields */
       allow update: if isAdmin() || (isManagerPlus() && !affectsSensitiveFields());
       allow delete: if isAdmin();
-    }
-
-    /* V21.9.32: roleScopes doc — read by anyone (rules read it themselves),
-       write by admin only. The rule function inScope() reads this doc on
-       every request, so it must be readable by any authenticated user. */
-    match /factory/roleScopes {
-      allow read:  if isAuthed();
-      allow write: if isAdmin();
     }
 
     match /factory/{docId} {
@@ -249,32 +223,12 @@ service cloud.firestore {
 
     /* ──────────────────────────────────────────────────────────
        V19.50 — invoices (V19.64: read scoped to relevant roles)
-       V21.10.0 — added salesQuotationsDays + salesOrdersDays for the
-       Quote→Order→Invoice→Payment pipeline (#3). Same sales scope.
        ────────────────────────────────────────────────────────── */
-    match /salesQuotationsDays/{day} {
-      allow read:  if isSalesScope();
-      allow write: if isSalesScope();
-    }
-    match /salesOrdersDays/{day} {
-      allow read:  if isSalesScope();
-      allow write: if isSalesScope();
-    }
     match /salesInvoicesDays/{day} {
       allow read:  if isSalesScope();
       allow write: if isSalesScope();
     }
 
-    /* V21.10.5 — Purchase Pipeline #3 Slice 6: RFQs daily split */
-    match /purchaseRFQsDays/{day} {
-      allow read:  if isPurchaseScope();
-      allow write: if isPurchaseScope();
-    }
-    /* V21.10.6 — Purchase Pipeline #3 Slices 7+8: Pipeline POs daily split */
-    match /purchasePipelineOrdersDays/{day} {
-      allow read:  if isPurchaseScope();
-      allow write: if isPurchaseScope();
-    }
     match /purchaseInvoicesDays/{day} {
       allow read:  if isPurchaseScope();
       allow write: if isPurchaseScope();
@@ -494,24 +448,6 @@ service cloud.firestore {
     }
     match /aiAgentAnalytics/{id} {
       allow read:  if isManagerPlus();
-      allow write: if isManagerPlus();
-    }
-
-    /* V21.12.0 — Push Notifications (#13 Slice 1)
-       notificationSubscriptions/{userId} — per-user FCM device tokens.
-       Each user manages their own doc (subscribe/unsubscribe from their
-       devices). Admin reads all for the /send endpoint, but that runs
-       via firebase-admin which bypasses rules. Client-side reads are
-       limited to own doc for now (no client side fan-out). */
-    match /notificationSubscriptions/{userId} {
-      allow read:  if isAuthed() && (request.auth.uid == userId || isManagerPlus());
-      allow write: if isAuthed() && request.auth.uid == userId;
-    }
-    /* notificationHistoryDays/{YYYY-MM-DD} — audit trail of sent pushes.
-       Server-side writes (admin SDK bypass). Client reads for the
-       notification center UI (Slice 2). */
-    match /notificationHistoryDays/{day} {
-      allow read:  if isAuthed();
       allow write: if isManagerPlus();
     }
 

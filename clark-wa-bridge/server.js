@@ -187,100 +187,6 @@ function formatChatId(phone) {
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   V21.9.36: NUMBER-ID RESOLVER WITH CACHE
-   ──────────────────────────────────────────────────────────────────
-   ROOT CAUSE behind "WhatsApp bridge works for everyone except Shopify
-   customers" (V21.9.34 → V21.9.35 left it unfixed):
-
-   The bridge was hard-coding chatId = "<phone>@c.us". That works for the
-   vast majority of legacy WhatsApp accounts. But newer accounts — multi-
-   device users, accounts migrated to Meta's new identifier model, and
-   some WhatsApp Business profiles — get LID-based serializations like
-   "<lid>@lid". For those accounts:
-
-     waClient.isRegisteredUser("<phone>@c.us")   → false
-     waClient.sendMessage   ("<phone>@c.us", …)  → "Number not on WhatsApp"
-
-   …even though the number IS on WhatsApp. That's exactly the failure mode
-   the user reported: bulk send to Shopify customers silently fails while
-   manual wa.me links work (wa.me uses the phone number directly, server-
-   side WhatsApp resolves the right account).
-
-   FIX: ask whatsapp-web.js to resolve the canonical chatId via
-   `waClient.getNumberId(phone)`, which pings WhatsApp servers and returns
-   `{ server: "c.us" | "lid", user, _serialized }` (or null if not on WA).
-   `_serialized` is the chatId we feed to sendMessage / getChatById and it
-   works regardless of which identifier the account uses.
-
-   Performance: getNumberId is a network round-trip. For a campaign of 50
-   recipients we'd make 50 calls = slow + rate-limit risk. So we cache:
-     • valid number              → 24h TTL (canonical id rarely changes)
-     • not-on-WhatsApp result    → 1h TTL  (they might register later)
-     • network/transient errors  → NOT cached (next attempt retries; we
-                                    also fall back to "@c.us" so a flaky
-                                    network doesn't permanently block a
-                                    legacy account that the legacy path
-                                    would have reached anyway)
-     • LRU eviction at 100 entries — bounded memory, recent senders stay.
-
-   Admins can flush via POST /numberid-cache/clear if a number flips state
-   and the cache is stale.
-   ────────────────────────────────────────────────────────────────── */
-const NUMBER_ID_TTL_VALID_MS = 24 * 60 * 60 * 1000; /* 24h */
-const NUMBER_ID_TTL_INVALID_MS = 60 * 60 * 1000;    /* 1h */
-const NUMBER_ID_CACHE_MAX = 100;
-const numberIdCache = new Map(); /* phone -> {chatId, expiresAt, valid} */
-
-async function resolveChatId(phone) {
-  const key = String(phone || "");
-  if (!key) return null;
-  const now = Date.now();
-
-  /* Cache hit — refresh LRU position (Map iteration order = insertion order) */
-  const cached = numberIdCache.get(key);
-  if (cached && cached.expiresAt > now) {
-    numberIdCache.delete(key);
-    numberIdCache.set(key, cached);
-    return cached.chatId;
-  }
-
-  /* No client / not ready → degrade to legacy format. Don't cache: the
-     queue processor will retry on the next tick when waReady flips back. */
-  if (!waClient || !waReady) return key + "@c.us";
-
-  let chatId = null;
-  try {
-    const numberId = await waClient.getNumberId(key);
-    /* getNumberId returns { server, user, _serialized } or null. We use
-       _serialized directly (it's the form sendMessage/getChatById expect). */
-    chatId = numberId && numberId._serialized ? numberId._serialized : null;
-  } catch (e) {
-    console.warn(`[resolveChatId] getNumberId(${key}) threw: ${e.message}`);
-    /* Transient error — don't cache, but fall back so a flaky network
-       doesn't permanently block a number that the legacy code would have
-       successfully reached. */
-    return key + "@c.us";
-  }
-
-  /* Cache the result (valid → 24h, invalid → 1h) */
-  numberIdCache.set(key, {
-    chatId,
-    valid: !!chatId,
-    expiresAt: now + (chatId ? NUMBER_ID_TTL_VALID_MS : NUMBER_ID_TTL_INVALID_MS),
-  });
-
-  /* LRU eviction. Map iteration order is insertion order, so the first
-     key from .keys() is the oldest. */
-  while (numberIdCache.size > NUMBER_ID_CACHE_MAX) {
-    const oldest = numberIdCache.keys().next().value;
-    if (oldest === undefined) break;
-    numberIdCache.delete(oldest);
-  }
-
-  return chatId;
-}
-
-/* ──────────────────────────────────────────────────────────────────
    V19.37: SINGLETON LOCK CLEANUP
    ──────────────────────────────────────────────────────────────────
    When Chromium dies hard (container OOM-kill, force-stop, host reboot),
@@ -470,17 +376,11 @@ async function processQueue() {
 
     try {
       if (!waReady) throw new Error("WhatsApp not ready");
+      const chatId = formatChatId(phoneNorm);
 
-      /* V21.9.36: canonical chatId resolution.
-         Replaces the legacy `formatChatId + isRegisteredUser` pair, which
-         failed for LID-based accounts (the silent-skip bug behind the
-         Shopify-customers report). resolveChatId() returns null only when
-         WhatsApp explicitly says the number is not registered; otherwise
-         it returns the canonical id (phone-based OR lid-based) that
-         sendMessage/getChatById accept. Cached 24h per number — a 50-msg
-         campaign now hits getNumberId once per recipient and never again. */
-      const chatId = await resolveChatId(phoneNorm);
-      if (!chatId) throw new Error("Number not on WhatsApp");
+      /* Validate number first */
+      const isReg = await waClient.isRegisteredUser(chatId).catch(() => false);
+      if (!isReg) throw new Error("Number not on WhatsApp");
 
       /* Simulate typing */
       const chat = await waClient.getChatById(chatId);
@@ -599,16 +499,7 @@ app.get("/status", (req, res) => {
     optOutsCount: optOuts.length,
     stats,
     settings,
-    /* V21.9.36: bumped from "1.0" — bridges < 1.1 still hard-code @c.us
-       and silently drop LID-based accounts. CLARK's Bridge Status Panel
-       reads this to warn the admin to redeploy. */
-    bridgeVersion: "1.1",
-    /* V21.9.36: cache observability — admins can see if the resolver is
-       being exercised. Useful when debugging "why won't this number send". */
-    numberIdCache: {
-      size: numberIdCache.size,
-      max: NUMBER_ID_CACHE_MAX,
-    },
+    bridgeVersion: "1.0",
     uptime: Date.now() - stats.sessionStart,
   });
 });
@@ -733,12 +624,9 @@ app.post("/test-message", async (req, res) => {
   if (!phone || !message) return res.status(400).json({ ok: false, error: "phone and message required" });
   try {
     const phoneNorm = normalizePhone(phone);
-    /* V21.9.36: same canonical-id resolution as the queue processor.
-       This is the single-message path, but it must use resolveChatId for
-       the same reason — without it, /test-message would lie to the admin
-       about whether their bridge can reach LID-based accounts. */
-    const chatId = await resolveChatId(phoneNorm);
-    if (!chatId) return res.status(404).json({ ok: false, error: "Number not on WhatsApp" });
+    const chatId = formatChatId(phoneNorm);
+    const isReg = await waClient.isRegisteredUser(chatId).catch(() => false);
+    if (!isReg) return res.status(404).json({ ok: false, error: "Number not on WhatsApp" });
     await waClient.sendMessage(chatId, message);
     addActivity({ phone: phoneNorm, customerName: "TEST", status: "sent", campaignId: "test" });
     res.json({ ok: true, sentTo: phoneNorm });
@@ -754,21 +642,6 @@ app.post("/reset-daily", (req, res) => {
   saveState();
   console.log(`[ADMIN] Daily counter reset (was ${oldCount})`);
   res.json({ ok: true, previousCount: oldCount });
-});
-
-/* V21.9.36: Flush the numberId resolver cache.
-   Use case: a recipient changed their account state (e.g., registered on
-   WhatsApp after we cached them as "not on WhatsApp", or moved their LID),
-   and the admin wants the next send to re-query WhatsApp instead of
-   trusting the 1h/24h cached answer. Safe to call any time — at worst it
-   adds ~150-300ms to the next message per recipient (one getNumberId call
-   that gets re-cached). */
-app.post("/numberid-cache/clear", (req, res) => {
-  const sizeBefore = numberIdCache.size;
-  const validBefore = Array.from(numberIdCache.values()).filter(v => v.valid).length;
-  numberIdCache.clear();
-  console.log(`[ADMIN] Cleared numberId cache (was ${sizeBefore} entries, ${validBefore} valid)`);
-  res.json({ ok: true, cleared: sizeBefore, validCleared: validBefore });
 });
 
 /* V19.31: Bulk opt-outs add — accepts array of phone numbers */
@@ -929,9 +802,8 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`\n╔══════════════════════════════════════════╗`);
-  console.log(`║  CLARK WhatsApp Bridge v1.1              ║`);
+  console.log(`║  CLARK WhatsApp Bridge v1.0              ║`);
   console.log(`║  http://localhost:${PORT}                    ║`);
   console.log(`╚══════════════════════════════════════════╝\n`);
   console.log(`Open the URL above in a browser to scan QR.\n`);
-  console.log(`V21.9.36: LID-aware chatId resolution enabled (cache: ${NUMBER_ID_CACHE_MAX} entries).\n`);
 });
