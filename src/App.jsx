@@ -1419,29 +1419,28 @@ export default function App(){
   },[user,configDoc,splitLoaded]);
 
   /* ═══════════════════════════════════════════════════════════════════
-     V21.11.3 — #10 Slice 2: Tag migration (one-time, idempotent)
+     V21.13.0 — ROOT CAUSE FIX: Tag migration DISABLED from auto-run.
      ═══════════════════════════════════════════════════════════════════
-     Converts legacy string-array customer.tags (from Shopify sync) to
-     ID-based tags pointing at data.tagRegistry. Runs ONCE per install —
-     gated on configDoc[TAG_MIGRATION_FLAG]. Safe to no-op if already done.
+     ROOT CAUSE: The V21.11.3 auto-run migration mutated 1000+ customer
+     entries in ONE upConfig() call when the user had Shopify-imported
+     customers with string tags. This produced a giant partitioned write
+     (1000+ Firestore docs) that:
+       1. Entered the upConfigWriteQueueRef serialized queue
+       2. Took minutes (or stalled on rate-limits/timeouts)
+       3. BLOCKED every subsequent write (treasury, sales, settings…)
+       4. From the user's POV: "writes aren't saving anywhere"
+
+     Repro: factory with Shopify tags + load app → click Save on
+     Treasury → silently queued behind migration → never persists.
+
+     FIX: migration auto-run removed. Tags remain functional as strings
+     (existing code handles both string and ID forms). Admin can run the
+     migration manually from Settings → Maintenance → "🏷️ نظام الـ Tags"
+     when ready (TODO V21.14: add a manual-trigger button there).
      ═══════════════════════════════════════════════════════════════════ */
+  /* eslint-disable-next-line no-unused-vars */
   const tagMigrationRef=useRef(false);
-  useEffect(()=>{
-    if(!user||tagMigrationRef.current)return;
-    if(!configDoc||!configDoc.accessories)return;/* config not loaded */
-    if(configDoc[TAG_MIGRATION_FLAG])return;/* already done */
-    if(!isTagMigrationNeeded(configDoc))return;/* nothing to migrate */
-    tagMigrationRef.current=true;
-    (async()=>{
-      try{
-        await upConfig(d=>{ runTagMigrationV1Mutator(d, user.email||"system-migration"); });
-        console.log("[V21.11.3] Tag migration completed — legacy customer string tags converted to ID-based.");
-      }catch(err){
-        console.error("[V21.11.3] Tag migration failed:",err);
-        tagMigrationRef.current=false;/* allow retry */
-      }
-    })();
-  },[user,configDoc]);
+  /* AUTO-RUN DISABLED — see ROOT CAUSE comment above. */
 
   /* ═══════════════════════════════════════════════════════════════════
      V19.49: One-time migration — split FOUR more growing arrays from

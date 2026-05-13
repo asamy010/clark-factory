@@ -497,6 +497,24 @@ service cloud.firestore {
       allow write: if isManagerPlus();
     }
 
+    /* V21.12.0 — Push Notifications (#13 Slice 1)
+       notificationSubscriptions/{userId} — per-user FCM device tokens.
+       Each user manages their own doc (subscribe/unsubscribe from their
+       devices). Admin reads all for the /send endpoint, but that runs
+       via firebase-admin which bypasses rules. Client-side reads are
+       limited to own doc for now (no client side fan-out). */
+    match /notificationSubscriptions/{userId} {
+      allow read:  if isAuthed() && (request.auth.uid == userId || isManagerPlus());
+      allow write: if isAuthed() && request.auth.uid == userId;
+    }
+    /* notificationHistoryDays/{YYYY-MM-DD} — audit trail of sent pushes.
+       Server-side writes (admin SDK bypass). Client reads for the
+       notification center UI (Slice 2). */
+    match /notificationHistoryDays/{day} {
+      allow read:  if isAuthed();
+      allow write: if isManagerPlus();
+    }
+
     /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
