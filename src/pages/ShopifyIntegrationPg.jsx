@@ -5902,18 +5902,52 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
       const useBridge = sendMode === "bridge" && bridgeUrl;
 
       if(useBridge){
-        /* V21.9.31: send via WA bridge — single HTTP POST with messages
-           array. The bridge handles the actual WhatsApp Web automation
-           in the background — no tabs open in the browser. */
-        const messages = targets.map(c => ({
-          phone: c.phone,
-          body: renderMessageWithVariables(message, c),
-          images: imageUrl ? [imageUrl] : [],
-        }));
+        /* V21.9.31 → V21.9.34 CRITICAL FIX:
+           Pre-V21.9.34 we sent { phone, body, images } — but the bridge
+           expects { phone, message, media: [{url, mime, name}] }. The
+           bridge silently skipped every message (continue) and returned
+           { ok: true, added: 0 }. The UI showed "تم إرسال" because we
+           bumped contact_count without verifying actual send.
+
+           Fix: use the EXACT same format as CampaignsPg (the working
+           reference impl). Plus: verify result.added matches our count;
+           if 0, throw with diagnostic info. */
+
+        /* Pre-send status check — warn if bridge isn't ready */
+        const base = bridgeUrl.replace(/\/+$/, "");
+        const headers = { "Content-Type": "application/json" };
+        if(bridgeToken) headers["Authorization"] = "Bearer " + bridgeToken;
+        let bridgeStatus = null;
         try {
-          const base = bridgeUrl.replace(/\/+$/, "");
-          const headers = { "Content-Type": "application/json" };
-          if(bridgeToken) headers["Authorization"] = "Bearer " + bridgeToken;
+          const statusResp = await fetch(base + "/status", {
+            headers: bridgeToken ? { Authorization: "Bearer " + bridgeToken } : undefined,
+          });
+          if(statusResp.ok) bridgeStatus = await statusResp.json();
+        } catch(_){ /* status check is best-effort */ }
+        if(bridgeStatus && bridgeStatus.waReady === false){
+          const proceed = await ask(
+            "⚠️ Bridge مش READY",
+            `الـ WhatsApp مش connected في الـ bridge (waReady=false).\n\nأي رسالة هـ تتـ skip.\n\nتأكيد المتابعة على أي حال؟`,
+            { confirmText: "كمل", cancelText: "إلغاء" }
+          );
+          if(!proceed){
+            showToast("ℹ️ تم الإلغاء — صلّح الـ bridge قبل الإرسال");
+            return;
+          }
+        }
+
+        /* Build messages in the FORMAT THE BRIDGE EXPECTS (matches CampaignsPg) */
+        const messages = targets.map(c => ({
+          id: "shop_" + c.id + "_" + Date.now().toString(36),
+          phone: String(c.phone || "").replace(/[^0-9]/g, "").replace(/^0/, "20"),
+          customerName: c.name || "",
+          message: renderMessageWithVariables(message, c),     /* ← KEY: 'message' not 'body' */
+          media: imageUrl ? [{ url: imageUrl }] : null,         /* ← KEY: 'media' array of objects */
+          campaignId: "shopify_customers_bulk_" + Date.now().toString(36),
+        }));
+
+        let result;
+        try {
           const r = await fetch(base + "/send", {
             method: "POST",
             headers,
@@ -5923,14 +5957,50 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
             const text = await r.text();
             throw new Error("Bridge HTTP " + r.status + ": " + text.slice(0, 200));
           }
-          const result = await r.json();
+          result = await r.json();
           if(!result.ok) throw new Error(result.error || "Bridge rejected");
-          showToast(`🌉 تم إرسال ${result.added || messages.length} رسالة عبر Bridge`);
         } catch(e){
           showToast("⛔ Bridge فشل: " + e.message);
           console.error("[handleComposerSend] bridge error:", e);
-          return; /* don't bump contact_count if send failed */
+          return;
         }
+
+        /* V21.9.34: verify actual queue add count */
+        const addedCount = Number(result.added || 0);
+        if(addedCount < messages.length){
+          /* Bridge accepted fewer than we sent — likely format issue or opt-outs */
+          const skipped = messages.length - addedCount;
+          const proceed = await ask(
+            "⚠️ Bridge skipped رسائل",
+            `بعتنا ${messages.length} رسالة للـ bridge لكن ضاف ${addedCount} بس للـ queue.\n\n` +
+            `${skipped} رسالة اتـ skip-ـت (ممكن opt-outs أو missing data).\n\n` +
+            `هل تـ continue (bump contact_count لـ ${addedCount}) ولا cancel؟`,
+            { confirmText: "كمل", cancelText: "إلغاء" }
+          );
+          if(!proceed){
+            showToast("ℹ️ تم الإلغاء");
+            return;
+          }
+        }
+        if(addedCount === 0){
+          showToast("⛔ مفيش رسائل اتبعت! الـ bridge ما قبل أي رسالة. Check الـ phone numbers + opt-outs.");
+          return;
+        }
+        showToast(`🌉 تم إضافة ${addedCount} رسالة للـ bridge queue · queue total: ${result.queueTotal || "?"}`);
+
+        /* Optional: poll activity in 5 seconds to confirm sending starts.
+           We don't block on it — just log to console for debugging. */
+        setTimeout(async () => {
+          try {
+            const activityResp = await fetch(base + "/activity?limit=" + messages.length, {
+              headers: bridgeToken ? { Authorization: "Bearer " + bridgeToken } : undefined,
+            });
+            if(activityResp.ok){
+              const activity = await activityResp.json();
+              console.log("[Bridge] post-send activity:", activity);
+            }
+          } catch(_){}
+        }, 5000);
       } else {
         /* Manual mode — open WhatsApp Web tabs (existing behavior) */
         let opened = 0;
