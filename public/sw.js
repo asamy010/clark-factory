@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK Service Worker — V21.9.21
+   CLARK Service Worker — V21.9.35
    ───────────────────────────────────────────────────────────────
    Two cache strategies:
    1. Images (Firebase Storage / common image extensions): cache-first.
@@ -38,7 +38,7 @@
    new JS. No manual cache clears needed.
    ═══════════════════════════════════════════════════════════════ */
 
-const SW_VERSION = 'v21.9.34';
+const SW_VERSION = 'v21.9.35';
 const APP_CACHE = 'clark-app-' + SW_VERSION;
 const IMG_CACHE = 'clark-images-' + SW_VERSION;
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];
