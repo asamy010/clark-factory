@@ -1422,9 +1422,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(txCheck && txCheck.date){
       /* Treasury sourceType — for manual entries that journaled via buildTreasuryEntry */
       autoPost.reverse(data,"treasury",txCheck.sourceId||txCheck.id,txCheck.date,"حذف حركة خزنة",userName).catch(()=>{});
-      /* HR-linked: salary/advance/weekly_advance journaled via buildHrEntry (sourceType="hr") */
+      /* HR-linked: salary/advance/weekly_advance journaled via buildHrEntry.
+         V21.9.40 FIX: pre-V21.9.40 this fired reverse("hr") — but buildHrEntry
+         posts with sourceType=ruleKey ("hrSalary" | "hrAdvance" | "hrBonus"), so
+         the reverse was a silent no-op. Now fire all three (idempotent: only the
+         matching one finds an entry). */
       if(txCheck.hrLogId){
-        autoPost.reverse(data,"hr",txCheck.hrLogId,txCheck.date,"حذف حركة خزنة (HR)",userName).catch(()=>{});
+        autoPost.reverse(data,"hrSalary",txCheck.hrLogId,txCheck.date,"حذف حركة خزنة (HR — مرتب)",userName).catch(()=>{});
+        autoPost.reverse(data,"hrAdvance",txCheck.hrLogId,txCheck.date,"حذف حركة خزنة (HR — سلفة)",userName).catch(()=>{});
+        autoPost.reverse(data,"hrBonus",txCheck.hrLogId,txCheck.date,"حذف حركة خزنة (HR — مكافأة)",userName).catch(()=>{});
       }
       /* Customer payment journaled via buildCustomerPaymentEntry (sourceType="customerPay") */
       const _custPayLink=(data.custPayments||[]).find(p=>p.treasuryTxId===txCheck.id);
@@ -1568,7 +1574,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!tx||!tx.date)return;
       autoPost.reverse(data,"treasury",tx.sourceId||tx.id,tx.date,"حذف مجمع من اليومية",userName).catch(()=>{});
       if(tx.hrLogId){
-        autoPost.reverse(data,"hr",tx.hrLogId,tx.date,"حذف مجمع (HR)",userName).catch(()=>{});
+        /* V21.9.40 FIX: see delTx — pre-V21.9.40 the "hr" sourceType never matched. */
+        autoPost.reverse(data,"hrSalary",tx.hrLogId,tx.date,"حذف مجمع (HR — مرتب)",userName).catch(()=>{});
+        autoPost.reverse(data,"hrAdvance",tx.hrLogId,tx.date,"حذف مجمع (HR — سلفة)",userName).catch(()=>{});
+        autoPost.reverse(data,"hrBonus",tx.hrLogId,tx.date,"حذف مجمع (HR — مكافأة)",userName).catch(()=>{});
       }
       const _cp=(data.custPayments||[]).find(p=>p.treasuryTxId===tx.id);
       if(_cp||tx.custPaymentId){

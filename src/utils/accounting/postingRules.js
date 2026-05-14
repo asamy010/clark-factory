@@ -401,8 +401,19 @@ export function buildHrEntry(hrLog, employee, coa, rules, config){
    by the more specific builders above. Uses the category map to route to
    the right expense/income account. */
 export function buildTreasuryEntry(tx, coa, rules, categoryMap, config){
-  /* Don't re-post operations that have a specific handler */
-  if(tx.sourceType && tx.sourceType !== "manual") return null;
+  /* V21.9.40: Pre-V21.9.40 this skipped EVERY entry with a sourceType (only "manual"
+     was allowed through). That hid a class of treasury entries that DO need the generic
+     treasury posting because they have no specific HR/workshop/customer handler:
+       - hr_other_expense: weekly closure "weekly other expenses" — categorized
+         expense, no specific handler in postingRules.js → must use buildTreasuryEntry.
+       - hr_other_expense_supplier: the mirror supplier-payment ledger entry. The
+         treasury leg should post via this generic builder; the AP side is handled
+         separately via supplierPayments listings.
+     Without this whitelist, every weekly_other_expense treasury entry created in
+     approveWeek silently fell through with `return null` → no journal posting →
+     trial balance permanently understated cash outflows. */
+  const _genericSources = ["manual", "hr_other_expense", "hr_other_expense_supplier"];
+  if(tx.sourceType && !_genericSources.includes(tx.sourceType)) return null;
   const amt = _r2(tx.amount);
   if(amt<=0) return null;
 

@@ -778,6 +778,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     const day=dayName(dt);
     const treasuryTxId=gid();const logId=gid();
     const desc="سلفة "+emp.name+(quickAdvance.note?" — "+quickAdvance.note:"");
+    /* V21.9.40 ROOT CAUSE FIX: build the hrLog OUTSIDE upConfig so we can pass it
+       to autoPost.hr after commit. Pre-V21.9.40 this path wrote hrLog+treasury but
+       NEVER called autoPost.hr → journal silently missed the advance → trial balance
+       drifted from cash counts. */
+    const _newHrLog={
+      id:logId,empId:emp.id,empName:emp.name,type:"advance",
+      amount:amt,date:dt,desc,account:quickAdvance.account||"MAIN CASH",
+      treasuryTxId,by:userName,createdAt:new Date().toISOString()
+    };
     upConfig(d=>{
       /* 1. Treasury entry (out) */
       if(!d.treasury)d.treasury=[];
@@ -790,12 +799,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       });
       /* 2. HR log entry (advance) */
       if(!d.hrLog)d.hrLog=[];
-      d.hrLog.unshift({
-        id:logId,empId:emp.id,empName:emp.name,type:"advance",
-        amount:amt,date:dt,desc,
-        treasuryTxId,by:userName,createdAt:new Date().toISOString()
-      });
+      d.hrLog.unshift(_newHrLog);
     });
+    /* V21.9.40: auto-post the advance to the journal AFTER upConfig commits.
+       Defensive wrap mirrors TreasuryPg.saveTx pattern — never let a posting
+       failure interrupt the user's save path. */
+    try{
+      const _r=autoPost.hr(data,_newHrLog,emp,userName);
+      if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+    }catch(e){console.warn("[V21.9.40 saveQuickAdvance autoPost.hr] threw:",e?.message||e);}
     setQuickAdvance(null);
     showToast("✅ تم تسجيل سلفة "+fmt0(amt)+" ج.م لـ "+emp.name);
   };
@@ -956,15 +968,28 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* Admin: approve a pending bulk payment — runs the original submitMatrix logic on stored items */
   const approveBulkPayment=(approval)=>{
+    /* V21.9.40: collect new hrLogs for post-commit autoPost.hr — see ROOT CAUSE
+       comment on saveQuickAdvance for the wider gap this addresses. */
+    const _newLogs=[];
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
       const hrLogIds=[];
       approval.items.forEach(m=>{const emp=(d.employees||[]).find(e=>e.id===m.empId);if(!emp)return;
         const logId=gid();hrLogIds.push(logId);
-        d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:"دفعة مجمعة (طلب "+(approval.requestedByName||"")+")",weekId:openWeekId||"",date:approval.date,by:userName,createdAt:new Date().toISOString()});
-        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+" — دفعة مجمعة",category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:approval.date,day:dayName(approval.date),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})});
+        const _log={id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:"دفعة مجمعة (طلب "+(approval.requestedByName||"")+")",weekId:openWeekId||"",date:approval.date,account:"SUB CASH",by:userName,createdAt:new Date().toISOString()};
+        d.hrLog.unshift(_log);
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+" — دفعة مجمعة",category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:approval.date,day:dayName(approval.date),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()});
+        _newLogs.push({log:_log,emp});
+      });
       /* Mark approval as approved */
       const i=(d.bulkPaymentApprovals||[]).findIndex(a=>a.id===approval.id);
       if(i>=0){d.bulkPaymentApprovals[i]={...d.bulkPaymentApprovals[i],status:"approved",reviewedBy:userEmail||"",reviewedAt:new Date().toISOString(),hrLogIds}}});
+    /* V21.9.40: post each advance to journal after upConfig commits */
+    _newLogs.forEach(({log,emp})=>{
+      try{
+        const _r=autoPost.hr(data,log,emp,userName);
+        if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+      }catch(e){console.warn("[V21.9.40 approveBulkPayment autoPost.hr] threw:",e?.message||e);}
+    });
     showToast("✅ تم الاعتماد ونقل "+approval.items.length+" دفعة للخزنة");
     setShowBulkApprovalReview(null)};
 
@@ -976,11 +1001,22 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     setShowBulkApprovalReview(null);setRejectReason("")};
 
   const submitMatrix=()=>{const items=matrixEmps.filter(m=>m.amount>0);if(items.length===0)return;
+    /* V21.9.40: collect for post-commit autoPost.hr */
+    const _newLogs=[];
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];
       items.forEach(m=>{const emp=employees.find(e=>e.id===m.empId);if(!emp)return;
         const logId=gid();
-        d.hrLog.unshift({id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:matrixDesc||"سلفة",weekId:openWeekId||"",date:matrixDate,by:userName,createdAt:new Date().toISOString()});
-        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+(matrixDesc?" — "+matrixDesc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:matrixDate,day:dayName(matrixDate),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()})})});
+        const _log={id:logId,type:"advance",empId:m.empId,empName:emp.name,amount:m.amount,desc:matrixDesc||"سلفة",weekId:openWeekId||"",date:matrixDate,account:"SUB CASH",by:userName,createdAt:new Date().toISOString()};
+        d.hrLog.unshift(_log);
+        d.treasury.unshift({id:gid(),type:"out",amount:m.amount,desc:"سلفة "+emp.name+(matrixDesc?" — "+matrixDesc:""),category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:matrixDate,day:dayName(matrixDate),sourceType:"hr_advance",hrLogId:logId,empId:m.empId,by:userName,createdAt:new Date().toISOString()});
+        _newLogs.push({log:_log,emp});
+      })});
+    _newLogs.forEach(({log,emp})=>{
+      try{
+        const _r=autoPost.hr(data,log,emp,userName);
+        if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+      }catch(e){console.warn("[V21.9.40 submitMatrix autoPost.hr] threw:",e?.message||e);}
+    });
     showToast("✓ "+items.length+" دفعة");setShowMatrix(false);setMatrixEmps([])};
 
   /* ── Salary Calc for a week ── */
@@ -1596,6 +1632,18 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     setTimeout(()=>{
     /* V15.87: Wrap upConfig in try/catch to surface any unexpected exception that was
        previously silenced by the try/catch inside upConfig (App.jsx line 613). */
+    /* V21.9.40 ROOT CAUSE FIX: pre-V21.9.40 every entry created in approveWeek
+       (salary records, weekly_advance, weekly_ws_payment, weekly_other_expense,
+       supplier payments) was written to hrLog/treasury/wsPayments/supplierPayments
+       but NEVER posted to the journal. Net effect: every Thursday close created a
+       gap between operational state (cash physically left) and accounting books
+       (journal showed nothing). Trial Balance / Income Statement / Cash account
+       all drifted from reality. Fix: collect every new entry in queues while
+       upConfig runs, then call autoPost.* per entry after the commit succeeds.
+       postEntry is idempotent on (sourceType, sourceId, date) so re-runs are safe. */
+    const _autoPostHrLogs=[];     /* {log, emp} — for autoPost.hr (type "salary"|"weekly_advance") */
+    const _autoPostWsPays=[];     /* {payment, ws} — for autoPost.workshopPay */
+    const _autoPostOtherExp=[];   /* {tx} — for autoPost.treasury (hr_other_expense) */
     try{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* V15.88 FIX: Declare wAdvs HERE (outside if/else) — was declared inside else block at 
@@ -1608,8 +1656,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       if(isAnalysisWeek){
         /* Skip all hrLog/treasury/prevBalance updates. Jump to week-closure snapshot below. */
       }else{
-      /* Log each salary */
-      records.forEach(r=>{d.hrLog.unshift({id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,by:userName,createdAt:new Date().toISOString(),snapshotId})});
+      /* Log each salary. V21.9.40: capture for post-commit autoPost.hr. */
+      records.forEach(r=>{
+        const _salLog={id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,account:"SUB CASH",by:userName,createdAt:new Date().toISOString(),snapshotId};
+        d.hrLog.unshift(_salLog);
+        const _emp=(d.employees||[]).find(x=>x.id===r.empId)||{id:r.empId,name:r.empName};
+        /* Only post if thursdayPay>0 (matches treasury entry). Salary with 0 payment = full carryover, nothing to post. */
+        if((r.thursdayPay||0)>0){
+          /* Use thursdayPay (actually-paid amount) for the autoPost — that's what hit the treasury. */
+          _autoPostHrLogs.push({log:{..._salLog,amount:r.thursdayPay,date:useDate},emp:_emp});
+        }
+      });
       /* Record debt installments — supports full/partial/skip
          - Full payment: debtInstall === debtInfoTotal → mark week as paid (paidWeekIds)
          - Partial: debtInstall > 0 AND < debtInfoTotal → split pro-rata between debts, 
@@ -1680,13 +1737,17 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             weeklyAdvanceId:a.id,
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
           });
-          d.hrLog.unshift({
+          const _advLog={
             id:gid(),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
             amount:Number(a.amount)||0,note:a.note||"",
             weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
-            date:a.date||useDate,by:userName,createdAt:new Date().toISOString(),
+            date:a.date||useDate,account:"SUB CASH",by:userName,createdAt:new Date().toISOString(),
             weeklyAdvanceId:a.id,treasuryTxId:advTxId,snapshotId
-          });
+          };
+          d.hrLog.unshift(_advLog);
+          /* V21.9.40: queue for autoPost.hr — buildHrEntry matches "weekly_advance" via .includes("advance") */
+          const _advEmp=(d.employees||[]).find(x=>x.id===a.empId)||{id:a.empId,name:a.empName};
+          _autoPostHrLogs.push({log:_advLog,emp:_advEmp});
           /* Link back: store txId on the advance itself so delete after close can reverse */
           const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
           if(wiUpd>=0){const advUpd=(d.hrWeeks[wiUpd].weeklyAdvances||[]).find(x=>x.id===a.id);
@@ -1712,13 +1773,14 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           const wsDayName=dayName(effDate);
           if(!Array.isArray(d.wsPayments))d.wsPayments=[];
           /* Register in data.wsPayments (this is how ExtProdPg reads them) */
-          d.wsPayments.push({
+          const _wsPayment={
             id:wsPayId,wsName:p.wsName,wsId:p.wsId||null,
             amount:Number(p.amount)||0,type:p.type||"payment",
-            notes:p.note||"",date:effDate,
+            notes:p.note||"",date:effDate,account:"SUB CASH",
             createdBy:userName||"",treasuryTxId:wsTxId,
             sourceWeekId:openWeek.id,/* V15.27: link back to week for cascade delete */
-          });
+          };
+          d.wsPayments.push(_wsPayment);
           /* V19.80.12: avoid "ورشة ورشة" duplication when wsName already starts with "ورشة" */
           const _wsLabel=(p.wsName||"").replace(/^\s*ورشة\s+/,"");
           /* Register in treasury */
@@ -1732,6 +1794,9 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             wsName:p.wsName,wsPaymentId:wsPayId,
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
           });
+          /* V21.9.40: queue for autoPost.workshopPay — wsPayment has full {payment, ws} shape */
+          const _wsObj=(d.workshops||[]).find(x=>x.name===p.wsName||x.id===p.wsId)||{id:p.wsId||null,name:p.wsName};
+          _autoPostWsPays.push({payment:_wsPayment,ws:_wsObj});
           /* Link back: mark as registered on the planned entry */
           const wiUpd=(d.hrWeeks||[]).findIndex(w=>w.id===openWeek.id);
           if(wiUpd>=0){const pUpd=(d.hrWeeks[wiUpd].weeklyWsPayments||[]).find(x=>x.id===p.id);
@@ -1752,7 +1817,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           const exTxId=gid();
           const exDayName=dayName(ex.date||useDate);
           /* Register in treasury as a regular expense (NOT in wsPayments) */
-          d.treasury.unshift({
+          const _exTx={
             id:exTxId,type:"out",amount:r2(Number(ex.amount)||0),
             desc:"مصروف — "+ex.category+" W"+openWeek.weekNum+(ex.desc?" — "+ex.desc:""),
             category:ex.category||"مصاريف أخرى",
@@ -1763,7 +1828,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                under the supplier's account when category is "دفعة مورد". */
             ...(ex.supplierId?{supplierId:ex.supplierId,supplierName:ex.supplierName||""}:{}),
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
-          });
+          };
+          d.treasury.unshift(_exTx);
+          /* V21.9.40: queue for autoPost.treasury. buildTreasuryEntry whitelists
+             "hr_other_expense" sourceType — see postingRules.js change in V21.9.40. */
+          _autoPostOtherExp.push({tx:_exTx});
           /* V19.80.12: also push a supplierPayment record when the expense is linked
              to a supplier ("دفعة مورد" category). Without this, the supplier ledger
              never sees the payment AND the orphan detector in PaymentsTab flags the
@@ -1906,6 +1975,28 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:backdated?"warning":"info",
           notes:backdated?"⚠️ إقفال بتاريخ مختلف عن التاريخ الحقيقي ("+actualCloseDate+")":"إقفال أسبوع"});
       }});
+      /* V21.9.40: AUTO-POST every entry created during week closure to the journal.
+         Each builder is idempotent on (sourceType, sourceId, date) so re-runs after
+         partial failures are safe. Fire-and-forget — failures are recorded into
+         data.accountingPostFailures via the autoPost layer for later review/retry. */
+      _autoPostHrLogs.forEach(({log,emp})=>{
+        try{
+          const _r=autoPost.hr(data,log,emp,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.hr]",log?.type,e?.message||e);}
+      });
+      _autoPostWsPays.forEach(({payment,ws})=>{
+        try{
+          const _r=autoPost.workshopPay(data,payment,ws,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.workshopPay]",e?.message||e);}
+      });
+      _autoPostOtherExp.forEach(({tx})=>{
+        try{
+          const _r=autoPost.treasury(data,tx,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.treasury other_expense]",e?.message||e);}
+      });
       /* V15.87: Check document size AFTER writes — Firestore hard limit is 1MB.
          If we're over/near the limit, the write will have failed silently. */
       try{
@@ -2092,12 +2183,27 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         showToast("⚠️ لا يمكن الاستعادة — النسخة من يوم مختلف");setRestorePopup(null);return;
       }
       if(setSavingOverlay)setSavingOverlay({message:"جاري عكس الحركات المالية...",progress:50});
+      /* V21.9.40: capture entries to reverse BEFORE removing them. Pre-V21.9.40
+         this function only deleted hrLog + treasury rows but never reversed the
+         linked journal entries — so the journal kept "ghost" entries after a
+         restore, drifting the books. (Pre-V21.9.40 those JEs didn't exist anyway
+         because nothing was being posted; now they do exist after V21.9.40's
+         autoPost coverage, so the reversals must happen.) */
+      const _toReverseHrLogs=(data.hrLog||[]).filter(l=>l.snapshotId===snapId);
+      const _toReverseTreasury=(data.treasury||[]).filter(t=>t.snapshotId===snapId);
+      const _toReverseWsPayments=(data.wsPayments||[]).filter(p=>p.sourceWeekId===weekId&&(p.createdAt||"").slice(0,10)===snap.savedAtDate);
       /* 2. Reverse all changes */
       upConfig(d=>{
         /* a) Remove hrLog entries linked to this snapshot */
         if(Array.isArray(d.hrLog))d.hrLog=d.hrLog.filter(l=>l.snapshotId!==snapId);
         /* b) Remove treasury entries linked to this snapshot */
         if(Array.isArray(d.treasury))d.treasury=d.treasury.filter(t=>t.snapshotId!==snapId);
+        /* V21.9.40: also strip wsPayments + supplierPayments tied to this week-close.
+           Pre-V21.9.40 these stayed in the lists post-restore → ghost workshop ledger
+           rows + supplier statement duplicates. Match by sourceWeekId (set in approveWeek)
+           AND same-day creation (matches the snapshot's savedAtDate). */
+        if(Array.isArray(d.wsPayments))d.wsPayments=d.wsPayments.filter(p=>!(p.sourceWeekId===weekId&&(p.createdAt||"").slice(0,10)===snap.savedAtDate));
+        if(Array.isArray(d.supplierPayments))d.supplierPayments=d.supplierPayments.filter(p=>!(p.sourceWeekId===weekId&&(p.createdAt||"").slice(0,10)===snap.savedAtDate));
         /* c) Restore employee balances from snapshot */
         const balances=snap.empBalancesBefore||{};
         (d.employees||[]).forEach(e=>{if(e.id in balances)e.prevBalance=balances[e.id]});
@@ -2116,7 +2222,37 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           delete d.hrWeeks[wi].totalGross;delete d.hrWeeks[wi].totalNet;
           delete d.hrWeeks[wi].totalThursdayPay;delete d.hrWeeks[wi].totalRemaining;
           delete d.hrWeeks[wi].empCount;delete d.hrWeeks[wi].snapshotId;delete d.hrWeeks[wi].snapshotDate;
+          /* V21.9.40: clear treasuryTxId on each planned entry so they're treated as
+             "not yet registered" on the next close attempt. Pre-V21.9.40 they kept
+             pointing at deleted treasury IDs and went through the stale-link recovery
+             path — net same outcome, but cleaner state. */
+          ["weeklyAdvances","weeklyWsPayments","weeklyOtherExpenses"].forEach(k=>{
+            if(Array.isArray(d.hrWeeks[wi][k])){
+              d.hrWeeks[wi][k].forEach(x=>{delete x.treasuryTxId;delete x.wsPaymentId;x.planned=true});
+            }
+          });
         }
+      });
+      /* V21.9.40: reverse each journal entry created during the closure. Fire all
+         plausible sourceTypes per hrLog (don't know type without re-checking) and
+         per treasury entry (covers hr_other_expense via "treasury" sourceType,
+         hr_weekly_ws_payment via "workshopPay"). All calls idempotent (no-op on miss). */
+      _toReverseHrLogs.forEach(l=>{
+        if(!l||!l.date||!l.id)return;
+        ["hrSalary","hrAdvance","hrBonus"].forEach(st=>{
+          autoPost.reverse(data,st,l.id,l.date,"استعادة أسبوع W"+(restorePopup.week?.weekNum||""),userName).catch(()=>{});
+        });
+      });
+      _toReverseTreasury.forEach(t=>{
+        if(!t||!t.date||!t.id)return;
+        /* treasury sourceType — covers hr_other_expense + hr_other_expense_supplier (whitelisted in buildTreasuryEntry V21.9.40) */
+        autoPost.reverse(data,"treasury",t.id,t.date,"استعادة أسبوع W"+(restorePopup.week?.weekNum||""),userName).catch(()=>{});
+      });
+      _toReverseWsPayments.forEach(p=>{
+        if(!p||!p.date||!p.id)return;
+        autoPost.reverse(data,"workshopPay",p.id,p.date,"استعادة أسبوع W"+(restorePopup.week?.weekNum||""),userName).catch(()=>{});
+        /* workshop purchases use sourceType="workshopPurchase" in buildWorkshopPaymentEntry — cover both. */
+        autoPost.reverse(data,"workshopPurchase",p.id,p.date,"استعادة أسبوع W"+(restorePopup.week?.weekNum||""),userName).catch(()=>{});
       });
       /* 3. Log the restoration for audit */
       try{
