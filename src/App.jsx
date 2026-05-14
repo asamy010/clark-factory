@@ -3664,8 +3664,13 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    /* V19.57: refuse if any partitioned migration is done but listeners haven't loaded yet */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957])&&!partitionedLoaded){
+    /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
+       V21.9.39 adds V2192 (shopifyProducts/shopifyCustomers) — defensive parity with the V21.9.33
+       hydration fix. On a rare path where ONLY V2192 is set (fresh install that ran only the
+       Shopify split, never the master-data V1675/V1957 splits), the pre-V21.9.39 guard would
+       silently skip and let upConfig wipe shopifyProductsDocs/shopifyCustomersDocs before they
+       finished loading. */
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
@@ -3886,8 +3891,9 @@ export default function App(){
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
     }
-    /* V19.57: refuse if any partitioned migration is done but listeners haven't loaded yet */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957])&&!partitionedLoaded){
+    /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
+       Same V2192 parity fix as the upConfigTx guard above. */
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
@@ -3971,6 +3977,43 @@ export default function App(){
       }
       if(prev[SPLIT_FLAG_V1953]){
         for(const f of SPLIT_FIELDS_V1953){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      /* V21.9.39 CRITICAL FIX — same shape as V21.9.33 partitioned bug, but for daily splits.
+         Pre-V21.9.39 the hydration block stopped at V1953 — V2195+V2197+V2198+V2199 fields
+         were never hydrated into `next`. Downstream effect on every upConfig call:
+           1. splitFieldsActive doesn't include salesCreditNotes/purchaseDebitNotes/
+              shopifyReturnRequests/whatsappCampaigns/whatsappCampaignRuns/shopifyPendingOrders
+           2. newSplit (built below from splitFieldsActive) doesn't include them either
+           3. syncAllSplitChanges iterates over ALL SPLIT_FIELDS — for an unhydrated field it
+              sees oldArr=listener-state (e.g. 50 credit notes) vs newArr=undefined→[] →
+              DELETES every entry in salesCreditNotesDays/ on every save.
+           4. The V19.62/63 wipe safety-net at the bottom uses `if(!(f in newSplit))continue`,
+              so it doesn't catch this class (unhydrated fields aren't checked).
+         User-visible symptom: credit/debit notes, Shopify return requests, WhatsApp campaigns,
+         and Shopify pending orders vanish randomly after any treasury/config/HR save. */
+      if(prev[SPLIT_FLAG_V2195]){
+        for(const f of SPLIT_FIELDS_V2195){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V2197]){
+        for(const f of SPLIT_FIELDS_V2197){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V2198]){
+        for(const f of SPLIT_FIELDS_V2198){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V2199]){
+        for(const f of SPLIT_FIELDS_V2199){
           next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
           splitFieldsActive.push(f);
         }
