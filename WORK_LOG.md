@@ -365,6 +365,56 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.46 — Phase 14h: Bug 5 — Loading-gate Deadlock + Listener Resilience
+
+> User report: "في مشاكل كتير في البرنامج. لما بسجل بيانات او اعدل بيانات
+> بيظهر رسالة في الاسفل بتقول البرنامج لسه بيحمل بيانات حاول تاني. دايماً
+> بتظهر بدون داعي."
+
+**ROOT CAUSE** — V19.57 safety gate in `App.jsx:3681+3904` refuses every
+upConfig if `partitionedLoaded` is false. The flag flips to true only
+when **all** partitioned listeners (10-11 of them) have fired at least
+once successfully (`firstFires[f] === true`). The V19.61 fix made the
+error handler NOT mark `firstFires=true` on error — to prevent cache
+wipes from transient errors.
+
+But this created a deadlock: if **any** listener has a TERMINAL error
+(missing firestore.rules rule, schema mismatch, etc.), `firstFires[f]`
+stays false forever → `partitionedLoaded` never flips → every upConfig
+refused. The user gets the toast "البرنامج لسه بيحمل بيانات" on every
+save, with no UI path to identify the broken listener (errors only
+surface in browser console + the hidden DiagnosticsPanel).
+
+Most likely trigger: V21.9.44 added `recurringTreasuryDocs` to
+`PARTITIONED_COLLECTIONS` but FORGOT to add the corresponding Firestore
+rule. Once `_partitionedRecurringV21944Done` migration ran, the listener
+subscription was denied → user stuck.
+
+**Fix** — 4 layers:
+
+1. **`firestore.rules`** — added `match /recurringTreasuryDocs/{id}` rule
+   (the immediate trigger).
+
+2. **Listener resilience** in `App.jsx` — for terminal error codes
+   (`permission-denied`, `failed-precondition`, `not-found`,
+   `unimplemented`), mark `firstFires[field] = true` so the gate
+   unblocks. The cached state is preserved (we don't call `rebuild()`
+   with empty data, so V19.61's wipe-prevention guarantee holds).
+
+3. **Top-bar banner** — visible to every user, polls
+   `window.__clarkListenerErrors` every 3s, shows exactly which
+   collection(s) have terminal errors. Click → opens Settings →
+   DiagnosticsPanel for full details.
+
+4. **CLAUDE.md §10 checklist** — 8-item checklist for adding any
+   partitioned/split field, with explicit "Deploy firestore.rules FIRST"
+   step. Prevents V21.9.44-style mistakes from recurring.
+
+**Anti-pattern entry**: any error handler that hangs the entire load
+gate must distinguish TERMINAL errors (need UX intervention) from
+TRANSIENT errors (will retry naturally). Pre-V21.9.46 they were lumped
+together as "don't mark loaded" — wrong for terminal cases.
+
 ### V21.9.45 — Phase 14g: Bug 4 — Confirmed Transfer Missing Legs
 
 > User report: "محاسب الخزنة ارسل ليا طلب تحويل من الرئيسية للفرعية.

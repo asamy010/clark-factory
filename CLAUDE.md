@@ -480,6 +480,53 @@ The changelog entry shape:
   bloats, the user can't see the source. ALWAYS enumerate
   `Object.keys(cfg).filter(isArray)` and tag legacy fields explicitly.
 
+### Migration safety — CHECKLIST for adding a partitioned/split field
+
+**Adding a new partitioned collection (per-id docs) — V21.9.44 lesson:**
+
+⚠️ MUST do ALL of these. Skipping any one creates the "البرنامج لسه بيحمل
+بيانات" hang that blocks every user save (V21.9.46 root cause).
+
+1. ✅ Register in `src/utils/partitionedCollections.js`:
+   ```js
+   PARTITIONED_COLLECTIONS.<field> = "<collection>Docs";
+   PARTITIONED_FIELDS_V<XXXXX> = ["<field>"];
+   PARTITIONED_FLAG_V<XXXXX>  = "_partitioned<X>V<XXXXX>Done";
+   // + add to stripPartitionedArrays
+   ```
+2. ✅ Hydrate in `src/App.jsx` upConfig (search for `PARTITIONED_FLAG_V2192`,
+   add a parallel block):
+   ```js
+   if(prev[PARTITIONED_FLAG_V<XXXXX>]){
+     for(const f of PARTITIONED_FIELDS_V<XXXXX>){
+       next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+       partFieldsActive.push(f);
+     }
+   }
+   ```
+3. ✅ Add to merge logic in `App.jsx` data useMemo (same pattern)
+4. ✅ Add flag to BOTH safety gates in `App.jsx` (lines ~3681 + ~3904)
+5. ✅ **CRITICAL — Add `firestore.rules` match clause** before deploying:
+   ```
+   match /<collection>Docs/{id} {
+     allow read:  if isAnyUser();   // or isHRRole(), etc.
+     allow write: if isManagerPlus(); // or appropriate scope
+   }
+   ```
+6. ✅ Create migration endpoint `api/maintenance/migrate-<field>.js`
+   following the V21.9.42/V21.9.44 pattern (backup → dry-run → idempotent)
+7. ✅ Add client wrapper in `shopifyClient.js` with appropriate timeout
+8. ✅ Add UI banner in `DiagnosticsPanel.jsx` with migration trigger
+
+**Deployment order:**
+1. **Deploy `firestore.rules` FIRST** (or in parallel) before any client code
+   that subscribes to the new collection. Otherwise the listener fails with
+   `permission-denied` → V21.9.46 resilience kicks in (treats as
+   loaded-empty + shows top-bar banner), but data WILL be invisible until
+   rules deploy.
+2. Then deploy the client code (App.jsx + UI + endpoints).
+3. Run the migration from `DiagnosticsPanel`.
+
 ### Migration safety
 - ❌ Destructive migration without **3 layers of safety**: dry-run mode
   → user-confirmation popup with stats → atomic transaction. ANY of

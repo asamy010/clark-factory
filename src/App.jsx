@@ -591,6 +591,29 @@ export default function App(){
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
+  /* V21.9.46: poll window.__clarkListenerErrors every 3s so the top-bar
+     listener-health banner re-renders when terminal errors appear/clear.
+     Same pattern as DiagnosticsPanel's autoListenerErrors poller. */
+  const[terminalListenerErrors,setTerminalListenerErrors]=useState([]);
+  useEffect(()=>{
+    const tick=()=>{
+      try{
+        if(typeof window!=="undefined" && window.__clarkListenerErrors){
+          const errs=Object.entries(window.__clarkListenerErrors)
+            .filter(([,info])=>info && info.terminal===true)
+            .map(([col,info])=>({col,...info}));
+          setTerminalListenerErrors(prev=>{
+            /* skip re-render if no change */
+            if(prev.length===errs.length && prev.every((p,i)=>p.col===errs[i]?.col && p.code===errs[i]?.code)) return prev;
+            return errs;
+          });
+        }
+      }catch(_){}
+    };
+    tick();/* initial */
+    const id=setInterval(tick,3000);
+    return ()=>clearInterval(id);
+  },[]);
   useEffect(()=>{
     const checkReal=async()=>{try{const r=await fetch("https://firestore.googleapis.com",{method:"HEAD",mode:"no-cors",cache:"no-store"});setIsOnline(p=>{if(!p)setJustReconnected(true);return true})}catch(e){setIsOnline(false);setJustReconnected(false)}};
     const on=()=>checkReal();const off=()=>{setIsOnline(false);setJustReconnected(false)};
@@ -3238,14 +3261,37 @@ export default function App(){
            hang happens, the loaded flag's only effect is gating writes (which is
            desirable — don't write before successfully reading). */
         /* V21.9.23: expose error to DiagnosticsPanel for clear UX */
+        const errCode = err?.code || "unknown";
+        /* V21.9.46 RESILIENCE FIX (same shape as the partitioned listener
+           above) — if the listener has a TERMINAL error (rule denied,
+           collection not found, etc.), unblock writes by marking the field
+           as loaded-empty. The cached state is preserved (we never call
+           rebuild() with empty maps here). Banner in TopBar/DiagnosticsPanel
+           surfaces the broken field so the user can fix it. */
+        const TERMINAL_ERR_CODES = new Set([
+          "permission-denied",
+          "failed-precondition",
+          "not-found",
+          "unimplemented",
+        ]);
+        const isTerminal = TERMINAL_ERR_CODES.has(errCode);
+        if(isTerminal && !firstFires[field]){
+          console.warn(`[V21.9.46] Terminal split-listener error on ${collName} (${errCode}) — marking as loaded-empty so upConfig can proceed. Fix the underlying issue to restore data flow.`);
+          firstFires[field] = true;
+          if(SPLIT_FIELDS.every(f => firstFires[f])){
+            setSplitLoaded(true);
+          }
+        }
         try {
           if(typeof window!=="undefined"){
             window.__clarkListenerErrors = window.__clarkListenerErrors || {};
             window.__clarkListenerErrors[collName] = {
-              code: err?.code || "unknown",
+              code: errCode,
               message: err?.message || String(err),
               at: new Date().toISOString(),
               field,
+              terminal: isTerminal,
+              treatedAsLoaded: isTerminal,
             };
           }
         } catch(_){}
@@ -3538,14 +3584,60 @@ export default function App(){
            DiagnosticsPanel can detect "rules not deployed" and show a clear
            actionable banner. Pre-V21.9.23 these errors were console-only —
            the user only saw "0 customers" after refresh with no explanation. */
+        const errCode = err?.code || "unknown";
+        /* V21.9.46 RESILIENCE FIX — root cause of the "البرنامج لسه بيحمل
+           بيانات" hang reported by Ahmed on 2026-05-16:
+           Pre-V21.9.46 a permanent listener error (e.g., a missing Firestore
+           rule like the V21.9.44 recurringTreasuryDocs gap) kept
+           firstFires[field] FALSE forever → partitionedLoaded never flipped
+           to true → upConfig safety gate refused EVERY save → user got the
+           toast on every save, with no way out except identifying the failing
+           rule manually.
+
+           Now: for terminal errors (permission-denied, failed-precondition,
+           not-found, unimplemented), we mark firstFires[field]=true so the
+           rest of the app can function. The data state is NOT wiped (V19.61
+           guarantee preserved — we don't call rebuild() with empty docsById
+           here; the cached/last-good values stay in partitionedData).
+
+           The error remains visible via __clarkListenerErrors → the V21.9.46
+           top-bar banner shows the user exactly which collection is broken.
+           When they fix it (deploy the missing rule, etc.) and refresh, the
+           listener succeeds normally and the banner clears.
+
+           Safety: this only unblocks writes when the listener has a
+           TERMINAL error. Transient errors (unavailable, deadline-exceeded)
+           are NOT treated as loaded — they're expected to retry naturally. */
+        const TERMINAL_ERR_CODES = new Set([
+          "permission-denied",
+          "failed-precondition",
+          "not-found",
+          "unimplemented",
+        ]);
+        const isTerminal = TERMINAL_ERR_CODES.has(errCode);
+        if(isTerminal && !firstFires[field]){
+          console.warn(`[V21.9.46] Terminal listener error on ${collName} (${errCode}) — marking as loaded-empty so app can proceed. Fix the underlying issue (likely missing firestore.rules rule) to restore data.`);
+          firstFires[field] = true;
+          /* IMPORTANT: do NOT call rebuild() here — rebuild() would call
+             setPartitionedData with empty docsById for this field, wiping
+             cached values. Instead, just unblock the gate. The cache stays
+             intact; if/when the listener succeeds later, the success path
+             will rebuild normally. */
+          /* But we DO need partitionedLoaded to flip, so check inline: */
+          if(PARTITIONED_FIELDS.every(f => firstFires[f])){
+            setPartitionedLoaded(true);
+          }
+        }
         try {
           if(typeof window!=="undefined"){
             window.__clarkListenerErrors = window.__clarkListenerErrors || {};
             window.__clarkListenerErrors[collName] = {
-              code: err?.code || "unknown",
+              code: errCode,
               message: err?.message || String(err),
               at: new Date().toISOString(),
               field,
+              terminal: isTerminal,
+              treatedAsLoaded: isTerminal,
             };
           }
         } catch(_){}
@@ -5357,6 +5449,43 @@ export default function App(){
         آخر مزامنة {fmtRelAr(lastSyncAt)}
       </span>}
     </div>}
+    {/* V21.9.46: Listener-health banner — appears under the topbar when one
+        or more Firestore listeners have a TERMINAL error (typically a missing
+        firestore.rules rule for a newly-added collection). Visible to ALL
+        users (not buried in Settings) so a broken collection is impossible
+        to miss. Clicking opens Settings (where DiagnosticsPanel lives).
+        Errors are polled every 3s via the terminalListenerErrors state above. */}
+    {terminalListenerErrors.length > 0 && (
+      <div style={{
+        padding: isMob ? "6px 12px" : "7px 24px",
+        background: "#FEE2E2",
+        borderBottom: "1px solid #FCA5A5",
+        color: "#7F1D1D",
+        fontSize: isMob ? 12 : 13,
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexShrink: 0,
+        direction: "rtl",
+        cursor: "pointer",
+      }}
+      onClick={() => { setTab("settings"); }}
+      title="اضغط لفتح Diagnostics + تفاصيل الخطأ"
+      >
+        <span style={{ fontSize: 14 }}>🚨</span>
+        <span>
+          مشكلة في تحميل {terminalListenerErrors.length === 1 ? "بيانات" : terminalListenerErrors.length + " مجموعات بيانات"}:
+          <code style={{ marginInlineStart: 6, padding: "1px 5px", background: "rgba(127,29,29,0.1)", borderRadius: 3, fontSize: isMob ? 10 : 11 }}>
+            {terminalListenerErrors.slice(0, 3).map(e => e.col).join(" · ")}
+            {terminalListenerErrors.length > 3 && " · …"}
+          </code>
+        </span>
+        <span style={{ marginInlineStart: "auto", fontSize: 11, fontWeight: 600, opacity: 0.85 }}>
+          🩺 اضغط للتشخيص
+        </span>
+      </div>
+    )}
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}

@@ -400,6 +400,18 @@ service cloud.firestore {
       allow write: if isSalesScope();
     }
 
+    /* V21.9.44 — Recurring treasury rules (per-id partitioned collection).
+       Read = any authenticated user (so the TreasuryPg recurring tab loads).
+       Write = purchase-scope (treasury actions, matches existing recurring tx
+       creation permissions). MISSING this rule was the root cause of the
+       "البرنامج لسه بيحمل بيانات" toast hang post-V21.9.44 migration:
+       listener subscription would be denied → firstFires[recurringTreasury]
+       stayed false → partitionedLoaded stuck at false → every upConfig refused. */
+    match /recurringTreasuryDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isPurchaseScope();
+    }
+
     /* V21.9.18 — Shopify pending orders, split daily */
     match /shopifyOrdersDays/{day} {
       allow read:  if isAnyUser();
