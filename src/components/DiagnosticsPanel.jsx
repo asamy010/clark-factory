@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, repairConfirmedTransfers } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -42,6 +42,10 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   /* V21.9.44: recurring treasury migration (cfg.recurringTreasury → recurringTreasuryDocs/{id}) */
   const [recurringBusy, setRecurringBusy] = useState(false);
   const [recurringResult, setRecurringResult] = useState(null);
+  /* V21.9.45: repair confirmed transfers — legs recovery */
+  const [transferRepairBusy, setTransferRepairBusy] = useState(false);
+  const [transferRepairResult, setTransferRepairResult] = useState(null);
+  const [transferRepairScan, setTransferRepairScan] = useState(null);
   /* V21.9.23: Firestore rules deployment test — detects "rules not published"
      bug where partitioned collections (customersDocs / productsDocs / etc.)
      get permission-denied on the client even though they exist on server. */
@@ -229,6 +233,57 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
       }
     } catch(e){ showToast("⛔ " + e.message); }
     finally { setDedupeBusy(false); }
+  };
+
+  /* V21.9.45: Confirmed-transfers leg-recovery handler.
+     Two-phase: (1) scan-only dryRun to count missing legs, (2) run repair on confirm.
+     Idempotent — only writes missing legs. */
+  const scanTransferRepair = async () => {
+    if(!canEdit) return;
+    setTransferRepairBusy(true);
+    try {
+      const r = await repairConfirmedTransfers({ dryRun: true }, user);
+      setTransferRepairScan(r);
+      if(!r?.ok){
+        showToast("⛔ " + (r?.error || "فشل scan"));
+        return;
+      }
+      if(r.transfers_with_missing_legs === 0){
+        showToast("✨ كل التحويلات سليمة — مفيش legs ناقصة");
+        return;
+      }
+      /* User confirms before running real repair */
+      const yes = await ask(
+        "🔧 إصلاح التحويلات المعتمدة الناقصة",
+        `لقينا ${r.transfers_with_missing_legs} تحويل معتمد لكن مفقود الـ legs الخاصة بيهم (debit/credit).\n\n` +
+        `📊 التفاصيل:\n` +
+        `• تحويلات اتفحصت: ${r.transfers_scanned}\n` +
+        `• تحويلات ناقصها legs: ${r.transfers_with_missing_legs}\n` +
+        `• Legs محتاجة إنشاء: ${r.legs_to_create}\n` +
+        `  → Out (debit): ${r.legs_out_to_create}\n` +
+        `  → In (credit): ${r.legs_in_to_create}\n` +
+        `• أيام متأثرة: ${r.days_affected}\n\n` +
+        `${r.sample_repaired?.length ? "🔍 عينة من التحويلات:\n" + r.sample_repaired.slice(0, 5).map(t =>
+          `• ${t.amount} ج.م من ${t.from} → ${t.to} (${t.date}) — ناقص ${t.missing}`
+        ).join("\n") + "\n\n" : ""}` +
+        `✅ آمن:\n` +
+        `• Idempotent — لو ضغطت مرتين، الـ legs المضافة ما تتـ duplicate-ـش\n` +
+        `• الـ legs بـ تتـ merge مع entries اليوم الموجودة (مش overwrite)\n` +
+        `• كل leg مُعلَّم بـ repairedAt + repairReason للـ audit trail\n\n` +
+        `تأكيد إنشاء الـ legs الناقصة؟`
+      );
+      if(!yes) return;
+
+      const real = await repairConfirmedTransfers({ dryRun: false }, user);
+      setTransferRepairResult(real);
+      if(real?.ok){
+        showToast(`✅ تم! 🔧 ${real.legs_created} leg (${real.legs_out_created} debit + ${real.legs_in_created} credit) لـ ${real.transfers_with_missing_legs} تحويل`);
+        setTimeout(() => runCheck(), 1500);
+      } else {
+        showToast("⛔ " + (real?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setTransferRepairBusy(false); }
   };
 
   /* V21.9.44: Recurring treasury migration handler.
@@ -1851,6 +1906,56 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
           )}
         </div>
       )}
+
+      {/* V21.9.45: Confirmed Transfers Repair — on-demand maintenance tool.
+          Detects approved transfers that lost their treasury legs to a silent
+          syncAllSplitChanges failure. Always available as a tool — runs a fast
+          scan when invoked. */}
+      <div style={{
+        padding: 12,
+        marginBottom: 12,
+        background: transferRepairResult?.ok ? T.ok + "10" : T.brd + "12",
+        border: "1.5px solid " + (transferRepairResult?.ok ? T.ok : T.brd),
+        borderRadius: 10,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800, color: transferRepairResult?.ok ? T.ok : T.text, fontSize: FS }}>
+              {transferRepairResult?.ok
+                ? "✅ تم إصلاح التحويلات الناقصة"
+                : "🔧 إصلاح التحويلات المعتمدة بـ legs ناقصة"}
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+              {transferRepairResult?.ok
+                ? `أنشأنا ${transferRepairResult.legs_created} leg جديد (${transferRepairResult.legs_out_created} debit + ${transferRepairResult.legs_in_created} credit) لـ ${transferRepairResult.transfers_with_missing_legs} تحويل. الـ legs دلوقتي في السجلات.`
+                : `لو وافقت على transfer لكن مظهرش في السجلات (السيناريو: tf.status="confirmed" بس الـ legs مفقودة)، اضغط الزر لـ scan + إصلاح. الـ Tool يقرأ كل التحويلات المعتمدة، يحدد المفقودين، ويـ create الـ legs مع merge آمن (مش overwrite). Idempotent — آمن لو ضغطته مرتين.`}
+            </div>
+            {transferRepairScan && !transferRepairResult?.ok && (
+              <div style={{ marginTop: 6, padding: 6, background: T.brd + "20", borderRadius: 6, fontSize: FS - 3 }}>
+                آخر scan: {transferRepairScan.transfers_scanned} transfer اتفحصوا · {transferRepairScan.transfers_with_missing_legs} ناقصها legs · {transferRepairScan.legs_to_create} leg محتاج إنشاء
+              </div>
+            )}
+          </div>
+          {!transferRepairResult?.ok && (
+            <LoadingBtn loading={transferRepairBusy} loadingText="جاري الفحص..." onClick={scanTransferRepair} disabled={!canEdit} small
+              style={{ background: T.text, color: "#fff", border: "none", fontWeight: 800 }}>
+              🔧 فحص + إصلاح
+            </LoadingBtn>
+          )}
+        </div>
+        {transferRepairResult?.ok && transferRepairResult.legs_created > 0 && transferRepairResult.sample_repaired && (
+          <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+            🔍 عينة من التحويلات اللي اتصلحت:
+            <ul style={{ marginTop: 4, paddingInlineStart: 20 }}>
+              {transferRepairResult.sample_repaired.slice(0, 5).map((t, i) => (
+                <li key={i} style={{ marginTop: 2 }}>
+                  <b>{t.amount}</b> ج.م — {t.from} → {t.to} ({t.date}) <span style={{ color: T.textMut }}>[{t.missing}]</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* V21.9.44: Recurring Treasury Migration banner.
           Addresses cross-device stale-write loss of recurringTreasury rules. */}

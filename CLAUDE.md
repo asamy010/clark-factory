@@ -487,6 +487,17 @@ The changelog entry shape:
   `api/maintenance/migrate-legacy-orders.js` (V21.9.42) — backup doc
   before any write, per-batch best-effort with failure tracking, flag
   set ONLY if zero failures.
+- ❌ **Self-healing migration gated only on a pre-state flag** (e.g.,
+  `!data._splitDaysV1952Done`). Once that flag is set, the auto-repair
+  never fires again — even though similar broken state can recur from
+  future silent write failures. V21.9.45 root cause: the
+  `transfers-repair` migration in `App.jsx` was guarded by
+  `!_splitDaysV1952Done`, so post-V19.52 installs had NO recovery path
+  when `approveTransfer`'s `syncAllSplitChanges` failed silently. ALWAYS
+  pair one-shot migrations with an **on-demand repair endpoint** in
+  `api/maintenance/repair-*.js` that scans the current state and fixes
+  drift, regardless of any flag. Pattern: `repair-confirmed-transfers.js`
+  (V21.9.45) — idempotent, merge-not-overwrite, audit-trail per leg.
 
 ### Git / deployment
 - ❌ Including `node_modules/` or `dist/` in zip / git

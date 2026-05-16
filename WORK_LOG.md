@@ -365,6 +365,63 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.45 — Phase 14g: Bug 4 — Confirmed Transfer Missing Legs
+
+> User report: "محاسب الخزنة ارسل ليا طلب تحويل من الرئيسية للفرعية.
+> عملت موافقة على الطلب ولكن ماظهرش في السجلات لاي خزنة"
+
+**ROOT CAUSE** — `approveTransfer` in `TreasuryPg.jsx` does an atomic
+upConfig that:
+1. Sets `tf.status = "confirmed"` (lands in `treasuryTransfersDays/{date}`
+   via V19.52 split)
+2. Pushes 2 treasury legs (out + in) into `d.treasury` (lands in
+   `treasuryDays/{tf.date}` via V16.74 split)
+
+The commit flow:
+- `setDoc(factory/config)` for the stripped doc ✅
+- `syncAllSplitChanges` for the day docs ⚠️
+
+If `syncAllSplitChanges` silently fails for the treasury day doc
+(network blip, listener race, Firestore transient deny), the result is:
+- ✅ `tf.status = "confirmed"` (committed)
+- ❌ 2 legs missing in `treasuryDays/{tf.date}`
+
+The user sees the transfer with status "confirmed" in the transfers
+tab, but ZERO entries in any account log.
+
+**Gap in self-healing**: `App.jsx:857-881` has the `transfers-repair`
+migration that DOES scan + recreate missing legs, but it's gated by
+`!data._splitDaysV1952Done`. Once V19.52 ran, the auto-repair NEVER
+fires — even for newly-broken transfers.
+
+**Fix** — on-demand repair endpoint that works regardless of flag state:
+
+1. **`api/maintenance/repair-confirmed-transfers.js`** (NEW, ~270 lines)
+   - Loads transfers from both split (`treasuryTransfersDays/*`) and
+     legacy (`cfg.treasuryTransfers`) — handles all install ages
+   - Loads treasury entries from both split and legacy
+   - Indexes treasury legs by `transferId` for O(N) scan
+   - For each `tf.status === "confirmed"`:
+     - If `out` leg missing + `fromAccount` set → queue construction
+     - If `in` leg missing + `toAccount` set → queue construction
+   - Writes per-day with **MERGE not overwrite** — reads existing entries,
+     prepends new legs, writes back via `{ merge: true }`
+   - Per-leg audit trail: `repairedAt`, `repairedBy`, `repairReason`
+   - Dry-run mode returns scan stats + sample (10 entries)
+
+2. **UI banner in `DiagnosticsPanel.jsx`** — always-visible "🔧 فحص +
+   إصلاح" button. Click → automatic dry-run → confirmation popup with
+   stats + sample → real run → result toast + diagnostics refresh.
+
+3. **Client wrapper `repairConfirmedTransfers`** in `shopifyClient.js`
+   with 3-minute timeout for installs with thousands of transfers.
+
+**Anti-pattern entry (CLAUDE.md §10)**: any one-shot migration that
+implements self-healing logic MUST be paired with an on-demand repair
+endpoint. The pre-state flag guards prevent the auto-repair from
+re-running, which is correct for idempotency — but leaves no recovery
+path when the failure scenario recurs post-migration.
+
 ### V21.9.44 — Phase 14f: Bug 3 — Cross-device Stale-Write Loss of Recurring Rules
 
 > User report: "امبارح سجلت في الدفعات المتكررة في الخزنة بندين جداد من

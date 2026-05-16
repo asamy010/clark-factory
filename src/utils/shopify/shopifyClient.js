@@ -40,6 +40,9 @@ const LONG_OPERATIONS = {
   /* V21.9.44: recurring treasury rules migration — small + fast, but allow
      headroom for slow networks. */
   "/api/maintenance/migrate-recurring-treasury": 120000,
+  /* V21.9.45: confirmed transfers leg-recovery — scans transfers + treasuryDays.
+     Generous timeout for installs with thousands of transfers. */
+  "/api/maintenance/repair-confirmed-transfers": 180000,
   "/api/shopify/campaign-prepare-run":    180000,
 };
 function getTimeoutForPath(path){
@@ -360,6 +363,17 @@ export function migrateLegacyOrders(opts, user){
    → { ok, rules_migrated, rules_skipped_existing, freed_kb, backup_doc_id, ... } */
 export function migrateRecurringTreasury(opts, user){
   return call("POST", "/api/maintenance/migrate-recurring-treasury", opts || {}, user);
+}
+
+/* V21.9.45 — Recover missing treasury legs for confirmed transfers. Addresses
+   the case where approveTransfer set tf.status="confirmed" successfully but
+   the syncAllSplitChanges write for the 2 treasury legs silently failed —
+   leaving the user with a confirmed transfer but no debit/credit entries in
+   any account log. Idempotent — skips transfers whose legs are already present.
+   { dryRun? } — ALWAYS run with dryRun:true first.
+   → { ok, transfers_scanned, transfers_with_missing_legs, legs_created, ... } */
+export function repairConfirmedTransfers(opts, user){
+  return call("POST", "/api/maintenance/repair-confirmed-transfers", opts || {}, user);
 }
 
 /* V21.9.28 — Migration Log inspector + backup restore.
