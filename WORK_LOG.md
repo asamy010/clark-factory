@@ -365,6 +365,52 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.49 — Phase 14k: Auto-Run Migrations on App Boot
+
+> User request: "ممكن انت تعمل ميجريشان بمجرد مايفتح التحديث. بلاش انا
+> اعمله يحصل مشاكل" (Can you run the migrations automatically when the
+> update opens? Don't make me do it — might cause problems.)
+
+**Goal**: replace the manual "open Diagnostics → click banner" UX for the
+V21.9.42 + V21.9.44 + V21.9.45 migrations with a transparent auto-run
+that fires once per session after listeners settle.
+
+**New utility** `src/utils/autoMigrations.js` (~200 lines):
+- `AUTO_MIGRATIONS` manifest — list of entries each with
+  `{id, label, shouldRun, run, successMsg, loadingMsg}`
+- `shouldAttemptAutoMigrations({userRole, isOnline, listenersLoaded})`
+  — safety gates: admin role, online, listeners ready, no concurrent
+  lock from another tab
+- `runAllPendingMigrations({configDoc, data, user, onProgress, onResult})`
+  — sequential orchestrator with localStorage lock, progress callbacks
+- `acquireAutoMigrationLock` / `releaseAutoMigrationLock` —
+  cross-tab race prevention (5-minute TTL)
+- `runOneMigration(entry, user)` — wraps a single endpoint call with
+  logging + structured `{ok, result, error}` return
+
+**App.jsx integration**:
+- Import `runAllPendingMigrations` + `shouldAttemptAutoMigrations`
+- State `autoMigrationProgress` + `autoMigrationResults`
+- Ref `autoMigrationRanRef` (prevents re-run on re-render)
+- useEffect with deps `[user, configDoc, splitLoaded, partitionedLoaded, isOnline]`
+- Inline user role compute (since `getUserRole` is defined much later)
+- 3-second delay before starting (lets the app feel responsive first)
+- 5-second auto-dismiss of progress banner after completion
+
+**UI Banners** (sticky under topbar):
+- **Loading** (blue, with spinner): `🔄 الـ Migrations التلقائية (1/3): ...`
+- **Success** (green, auto-dismiss): `✅ الـ Migrations التلقائية اتمت بنجاح: ...`
+
+**Idempotency guarantees**:
+- Each underlying endpoint checks its flag server-side and returns
+  `skipped: true` if already done
+- `autoMigrationRanRef` prevents re-run within the session
+- `localStorage._clark_automigration_lock` prevents concurrent tab races
+- Sequential execution (one in flight at a time)
+
+**Fallback**: DiagnosticsPanel banners stay as manual triggers. If
+auto-run fails for any reason, the user can still click the buttons.
+
 ### V21.9.47 — Phase 14i: Health Monitor + Topbar Pill
 
 > Continuation of the V21.9.46 architectural recommendations — Priority 3

@@ -19,6 +19,9 @@ import { enforceDataLimits } from "./utils/dataLimits.js";
 /* V21.9.47: unified health-check utility — runs all known issue detectors
    and surfaces results via the topbar "🩺" pill. */
 import { evaluateHealthIssues, summarizeHealth, SEVERITY_COLORS, SEVERITY_EMOJI } from "./utils/healthCheck.js";
+/* V21.9.49: auto-run pending migrations on app boot (admin only).
+   Replaces the manual "click banner" UX from V21.9.42 + V21.9.44 + V21.9.45. */
+import { runAllPendingMigrations, shouldAttemptAutoMigrations } from "./utils/autoMigrations.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
@@ -602,6 +605,13 @@ export default function App(){
      user sees the actionable hint immediately on first load. Subsequent
      toggles persist within the session. */
   const[listenerBannerExpanded,setListenerBannerExpanded]=useState(true);
+  /* V21.9.49: auto-migration progress state. Updates as each migration
+     in the manifest runs sequentially. Surfaced via the top-bar banner
+     so the user can see what's happening (especially the legacy-orders
+     one which can take 2-3 minutes). */
+  const[autoMigrationProgress,setAutoMigrationProgress]=useState(null);
+  const[autoMigrationResults,setAutoMigrationResults]=useState([]);
+  const autoMigrationRanRef=useRef(false);/* prevent re-run on re-render */
   /* V21.9.47: full health-issues state (terminal listeners + pending migrations
      + size warnings + data sanity). Updates every 30s + on configDoc change.
      Pre-V21.9.47 the user couldn't see "what's wrong" at a glance — they had
@@ -628,6 +638,79 @@ export default function App(){
     const id=setInterval(tick,3000);
     return ()=>clearInterval(id);
   },[]);
+  /* V21.9.49: auto-run pending migrations on app boot.
+     Replaces the manual "open Diagnostics → click banner" flow with a
+     transparent auto-run that fires once per session after all listeners
+     have settled. The user (Ahmed) requested this on 2026-05-16:
+       "ممكن انت تعمل ميجريشان بمجرد مايفتح التحديث. بلاش انا اعمله
+        يحصل مشاكل" (Can you run migrations automatically when the
+        update opens? Don't make me do it — might cause problems.)
+
+     Safety:
+     • Admin role required — non-admins are no-op
+     • Gated by a ref to prevent re-runs on re-render
+     • Each underlying migration endpoint is idempotent + checks its own
+       flag, so even if this effect somehow fires twice, the server says
+       skipped:true and exits quickly
+     • Sequential — never two migrations in flight at once
+     • localStorage lock prevents concurrent tabs from both running
+
+     Deps: user, configDoc, splitLoaded, partitionedLoaded, isOnline
+     The effect runs once per session via the autoMigrationRanRef. */
+  useEffect(()=>{
+    if(autoMigrationRanRef.current) return;
+    if(!user||!configDoc) return;
+    if(!splitLoaded||!partitionedLoaded) return;
+    if(!isOnline) return;
+    /* Compute role inline — getUserRole() is defined much later. */
+    let role = "viewer";
+    if(configDoc.users && configDoc.users[user.uid]){
+      const r = configDoc.users[user.uid];
+      role = typeof r === "string" ? r : (r?.role || "viewer");
+    } else {
+      const byEmail = (configDoc.usersList||[]).find(u => u.email === user?.email);
+      if(byEmail) role = byEmail.role;
+    }
+    const gate = shouldAttemptAutoMigrations({
+      userRole: role,
+      isOnline: true,
+      listenersLoaded: true,
+    });
+    if(!gate.ok){
+      console.log(`[V21.9.49 auto-migration] gated: ${gate.reason}`);
+      autoMigrationRanRef.current = true;/* lock so we don't keep checking */
+      return;
+    }
+    autoMigrationRanRef.current = true;
+    /* Give the app 3 seconds to settle before starting migrations. The
+       user can see CLARK is usable; only THEN do we start any heavy
+       background work. Avoids race-feeling of "I just opened the app
+       and it's already busy". */
+    const timeoutId = setTimeout(async () => {
+      try {
+        const tfSource = (splitDataRef.current?.treasuryTransfers)
+                      || (configDoc?.treasuryTransfers)
+                      || [];
+        const synthData = { treasuryTransfers: tfSource };
+        await runAllPendingMigrations({
+          configDoc,
+          data: synthData,
+          user,
+          onProgress: (p) => setAutoMigrationProgress(p),
+          onResult: (id, outcome) => {
+            setAutoMigrationResults(prev => [...prev, { id, ...outcome }]);
+          },
+        });
+        /* Done — clear progress banner after 5 seconds so the user can
+           still see the final state, then it auto-dismisses. */
+        setTimeout(() => setAutoMigrationProgress(null), 5000);
+      } catch(e){
+        console.error("[V21.9.49 auto-migration] orchestrator threw:", e);
+        setAutoMigrationProgress(null);
+      }
+    }, 3000);
+    return ()=>clearTimeout(timeoutId);
+  },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
   /* V21.9.47: evaluate full health every 15s + on configDoc change.
      We can't depend on `data` here because it changes very frequently
      (every snapshot fire re-creates the merged data object via useMemo).
@@ -5698,6 +5781,76 @@ export default function App(){
         </div>
       );
     })()}
+    {/* V21.9.49: Auto-migration progress banner.
+        Surfaces while the background migration orchestrator is running
+        (admin only). Tells the user what's happening so the app feels
+        deliberate, not "stuck on something". Auto-dismisses 5 seconds
+        after the final migration completes. */}
+    {autoMigrationProgress && autoMigrationProgress.total > 0 && (
+      <div style={{
+        padding: isMob ? "8px 12px" : "10px 24px",
+        background: "#DBEAFE",
+        borderBottom: "1px solid #93C5FD",
+        color: "#1E3A8A",
+        fontSize: isMob ? 12 : 13,
+        fontWeight: 600,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexShrink: 0,
+        direction: "rtl",
+      }}>
+        <div style={{
+          width: 16, height: 16,
+          border: "2px solid #1E3A8A",
+          borderTopColor: "transparent",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }}/>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <span>
+          <b>🔄 الـ Migrations التلقائية ({autoMigrationProgress.step} / {autoMigrationProgress.total}):</b>
+          {autoMigrationProgress.currentLabel ? " " + autoMigrationProgress.currentLabel : ""}
+        </span>
+        <span style={{ marginInlineStart: "auto", fontSize: 11, opacity: 0.8 }}>
+          مفيش حاجة محتاجة منك — جاري الفحص + الإصلاح في الـ background
+        </span>
+      </div>
+    )}
+    {/* V21.9.49: Auto-migration completion notice — appears briefly after
+        the orchestrator finishes. Shows what was done so the user has
+        confidence the system did the right thing. */}
+    {autoMigrationProgress
+       && autoMigrationProgress.total > 0
+       && autoMigrationProgress.step === autoMigrationProgress.total
+       && autoMigrationProgress.statusEntries
+       && autoMigrationProgress.statusEntries.length > 0
+       && autoMigrationProgress.statusEntries.some(s => s.outcome?.ok) && (
+      <div style={{
+        padding: isMob ? "8px 12px" : "10px 24px",
+        background: "#D1FAE5",
+        borderBottom: "1px solid #6EE7B7",
+        color: "#065F46",
+        fontSize: isMob ? 12 : 13,
+        fontWeight: 600,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexShrink: 0,
+        direction: "rtl",
+        flexWrap: "wrap",
+      }}>
+        <span style={{ fontSize: 16 }}>✅</span>
+        <span>
+          <b>الـ Migrations التلقائية اتمت بنجاح:</b>
+          {autoMigrationProgress.statusEntries
+            .filter(s => s.outcome?.ok && !s.outcome?.result?.skipped)
+            .map(s => s.entry.successMsg ? s.entry.successMsg(s.outcome.result) : s.entry.label)
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      </div>
+    )}
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
