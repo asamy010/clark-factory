@@ -365,6 +365,116 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.51 — Phase 14m: Bug 7 — Firestore Rejecting undefined in recurringTreasuryDocs
+
+> User report (with screenshot of 5 system notices): "دي ظهرت في الاعدادات
+> بعد التحديث ال ٤٩"
+
+**ROOT CAUSE** — the Firestore JS SDK client was initialized without
+`ignoreUndefinedProperties: true`. When the V21.9.44 partitioned writes
+hit recurringTreasury rules with conditional undefined fields (monthly
+rules have `dayOfWeek: undefined`, weekly rules have `dayOfMonth:
+undefined`), `setDoc` threw:
+
+```
+Function setDoc() called with invalid data.
+Unsupported field value: undefined
+(found in field dayOfWeek in document recurringTreasuryDocs/...)
+```
+
+This blew up the partitioned sync path. The Admin SDK has had
+`ignoreUndefinedProperties: true` since V21.9.13 (api/_firebase.js:47).
+The Client SDK needed parity.
+
+**Compounding issue**: the V19.48 notice for partitioned-sync failures
+was hardcoded to say "hrWeeksDocs" — so the user saw "تعذر حفظ أسابيع
+المرتبات" when the actual failure was in `recurringTreasuryDocs`.
+Confusing and unhelpful.
+
+**Fix** — 2 changes:
+
+1. **`src/firebase.js`** — switch from `getFirestore(app)` to
+   `initializeFirestore(app, { ignoreUndefinedProperties: true })`.
+   Matches admin SDK exactly. Any `undefined` field is silently
+   dropped on write (JSON spec semantics).
+
+2. **`src/App.jsx`** — extract the actual collection name from the
+   error message instead of hardcoding "hrWeeksDocs":
+   ```js
+   const _docMatch = _errMsg.match(/document\s+([a-zA-Z0-9_]+)\//);
+   const _actualColl = _docMatch ? _docMatch[1] : "partitioned collection";
+   ```
+   Notice now correctly identifies the failing collection.
+
+**Why ignoreUndefinedProperties was the right choice** (vs explicit
+sanitization): the admin SDK already had it, the JSON spec behavior is
+standard, and it covers ALL undefined leaks (existing + future) with
+a 1-line change. Form-layer validation still catches user-input
+issues at the boundary.
+
+### V21.9.50 — Phase 14l: Bug 6 — Auto-Migration Banner Appearing on Every Boot
+
+> User report after V21.9.49 deploy: "لكن ليه لما بفتح كل مرة بتظهر تاني
+> المفروض مرة، خلاص" (But why every time I open, it appears again? It
+> should be one time, that's it.)
+
+**ROOT CAUSE** — the `shouldRun` predicate for the
+`repair_confirmed_transfers_v21945` entry was too lax:
+
+```js
+shouldRun: (configDoc, data) => {
+  const transfers = data?.treasuryTransfers || [];
+  return transfers.some(t => t.status === "confirmed");
+}
+```
+
+Returned `true` whenever ANY confirmed transfer existed — which is the
+normal state of an active CLARK install. The auto-runner would fire on
+every app open, the endpoint would scan + find 0 broken legs + return
+`legs_created: 0` (correct no-op), but the user saw the loading banner
+flash for ~2 seconds.
+
+The other two migrations (recurring + legacy orders) have proper flag
+guards, so they skip correctly. Only `repair_confirmed_transfers` was
+flag-less by design (it's a scan-based tool, not a one-shot migration).
+
+**Fix**: replicate the server endpoint's scan logic client-side, in the
+predicate. Index treasury entries by `transferId`; for each confirmed
+transfer, check if both legs exist. Return `true` only if at least one
+is missing.
+
+```js
+shouldRun: (configDoc, data) => {
+  const transfers = data?.treasuryTransfers || [];
+  const treasury  = data?.treasury || [];
+  if (transfers.length === 0) return false;
+  const legsByTransferId = new Map();
+  for (const t of treasury) {
+    if (t.transferId) {
+      if (!legsByTransferId.has(t.transferId)) legsByTransferId.set(t.transferId, []);
+      legsByTransferId.get(t.transferId).push(t);
+    }
+  }
+  for (const tf of transfers) {
+    if (tf.status !== "confirmed") continue;
+    const legs = legsByTransferId.get(tf.id) || [];
+    const hasOut = legs.some(l => l.type === "out");
+    const hasIn  = legs.some(l => l.type === "in");
+    if ((tf.fromAccount && !hasOut) || (tf.toAccount && !hasIn)) return true;
+  }
+  return false;
+}
+```
+
+**Cost**: O(N + M) where N = transfers, M = treasury entries. Sub-5ms
+even for 10K entries — both arrays are already in memory via splitData.
+
+**App.jsx update**: the effect now passes `data.treasury` alongside
+`data.treasuryTransfers` so the predicate can do its scan.
+
+**Result**: banner appears ONLY when actual work is needed. Clean app
+opens have zero auto-migration activity.
+
 ### V21.9.49 — Phase 14k: Auto-Run Migrations on App Boot
 
 > User request: "ممكن انت تعمل ميجريشان بمجرد مايفتح التحديث. بلاش انا

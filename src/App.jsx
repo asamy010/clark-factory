@@ -688,10 +688,21 @@ export default function App(){
        and it's already busy". */
     const timeoutId = setTimeout(async () => {
       try {
+        /* V21.9.50: include treasury alongside treasuryTransfers so the
+           smart shouldRun for repair_confirmed_transfers can pre-check
+           whether ANY leg is actually missing before triggering the
+           banner. Without treasury here, the predicate would have no
+           way to detect missing legs and would always return true. */
         const tfSource = (splitDataRef.current?.treasuryTransfers)
                       || (configDoc?.treasuryTransfers)
                       || [];
-        const synthData = { treasuryTransfers: tfSource };
+        const trSource = (splitDataRef.current?.treasury)
+                      || (configDoc?.treasury)
+                      || [];
+        const synthData = {
+          treasuryTransfers: tfSource,
+          treasury: trSource,
+        };
         await runAllPendingMigrations({
           configDoc,
           data: synthData,
@@ -4011,9 +4022,18 @@ export default function App(){
           }
           if(syncErr){
             console.error("[V16.75] Failed to sync partitioned docs after 3 retries:",syncErr);
+            /* V21.9.51: extract the actual failing collection name from the error
+               message instead of hardcoding "hrWeeksDocs". Pre-V21.9.51 the notice
+               always said "خطأ في كتابة hrWeeksDocs بعد 3 محاولات" even when the
+               real failure was in recurringTreasuryDocs (the V21.9.44 root cause
+               surfaced by the user on 2026-05-16). The Firebase error message
+               always includes the collection name in `document <coll>/<id>`. */
+            const _errMsg = String(syncErr?.message || syncErr || "");
+            const _docMatch = _errMsg.match(/document\s+([a-zA-Z0-9_]+)\//);
+            const _actualColl = _docMatch ? _docMatch[1] : "partitioned collection";
             noticeWarn(
-              "تعذر حفظ أسابيع المرتبات في الـcollection المنفصلة",
-              "خطأ في كتابة hrWeeksDocs بعد 3 محاولات. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+(syncErr.message||String(syncErr)).slice(0,200)
+              `تعذر حفظ البيانات في ${_actualColl}`,
+              "خطأ في كتابة "+_actualColl+" بعد 3 محاولات. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+_errMsg.slice(0,200)
             );
           }
         }

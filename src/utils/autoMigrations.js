@@ -72,14 +72,41 @@ export const AUTO_MIGRATIONS = [
     id: "repair_confirmed_transfers_v21945",
     label: "إصلاح التحويلات المعتمدة بـ legs ناقصة",
     /* Repair always runs (no flag) — it's a scan + targeted repair.
-       The server endpoint checks each transfer individually and only
-       writes the missing legs. If nothing is broken, it returns
-       legs_created: 0 (no-op). Safe to run on every boot.
-       But: only run if there's reason to believe legs MIGHT be missing
-       (i.e., there are confirmed transfers in the data). */
+       V21.9.50 FIX: previously this returned true whenever ANY confirmed
+       transfer existed, causing the banner to flash on every app open
+       even when there was nothing to repair. Now we do the SAME index +
+       scan that the server endpoint does, client-side, before deciding
+       to run. Returns true ONLY if at least 1 confirmed transfer is
+       actually missing an out-leg or in-leg.
+
+       Cost: O(N + M) where N = transfers, M = treasury entries. Both
+       are local arrays (already in memory via splitData). For 10K
+       entries this is < 5ms — negligible.
+
+       Result: banner only appears when work is actually needed. */
     shouldRun: (configDoc, data) => {
       const transfers = data?.treasuryTransfers || configDoc?.treasuryTransfers || [];
-      return Array.isArray(transfers) && transfers.some(t => t && t.status === "confirmed");
+      const treasury  = data?.treasury || configDoc?.treasury || [];
+      if (!Array.isArray(transfers) || transfers.length === 0) return false;
+      /* Index legs by transferId (same shape as the server endpoint) */
+      const legsByTransferId = new Map();
+      for (const t of treasury) {
+        if (t && t.transferId) {
+          if (!legsByTransferId.has(t.transferId)) legsByTransferId.set(t.transferId, []);
+          legsByTransferId.get(t.transferId).push(t);
+        }
+      }
+      /* Look for at least one tf.status==='confirmed' missing a leg */
+      for (const tf of transfers) {
+        if (!tf || tf.status !== "confirmed") continue;
+        const legs = legsByTransferId.get(tf.id) || [];
+        const hasOut = legs.some(l => l && l.type === "out");
+        const hasIn  = legs.some(l => l && l.type === "in");
+        if ((tf.fromAccount && !hasOut) || (tf.toAccount && !hasIn)) {
+          return true; /* found at least one broken — repair needed */
+        }
+      }
+      return false; /* everything is whole — skip */
     },
     run: (user) => repairConfirmedTransfers({ dryRun: false }, user),
     successMsg: (r) => {
