@@ -16,6 +16,9 @@ import { setUpConfigCallback as registerAutoPostCallback } from "./utils/account
 import { prefetchIpInfo } from "./utils/device.js";
 import { startClockSync } from "./utils/serverTime.js";
 import { enforceDataLimits } from "./utils/dataLimits.js";
+/* V21.9.47: unified health-check utility — runs all known issue detectors
+   and surfaces results via the topbar "🩺" pill. */
+import { evaluateHealthIssues, summarizeHealth, SEVERITY_COLORS, SEVERITY_EMOJI } from "./utils/healthCheck.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
@@ -595,6 +598,17 @@ export default function App(){
      listener-health banner re-renders when terminal errors appear/clear.
      Same pattern as DiagnosticsPanel's autoListenerErrors poller. */
   const[terminalListenerErrors,setTerminalListenerErrors]=useState([]);
+  /* V21.9.48: expandable banner state — start expanded by default so the
+     user sees the actionable hint immediately on first load. Subsequent
+     toggles persist within the session. */
+  const[listenerBannerExpanded,setListenerBannerExpanded]=useState(true);
+  /* V21.9.47: full health-issues state (terminal listeners + pending migrations
+     + size warnings + data sanity). Updates every 30s + on configDoc change.
+     Pre-V21.9.47 the user couldn't see "what's wrong" at a glance — they had
+     to navigate to Settings → Maintenance → Diagnostics and run multiple
+     audits. Now a "🩺" pill in the topbar surfaces the count + clicks open
+     Settings directly. */
+  const[healthIssues,setHealthIssues]=useState([]);
   useEffect(()=>{
     const tick=()=>{
       try{
@@ -614,6 +628,49 @@ export default function App(){
     const id=setInterval(tick,3000);
     return ()=>clearInterval(id);
   },[]);
+  /* V21.9.47: evaluate full health every 15s + on configDoc change.
+     We can't depend on `data` here because it changes very frequently
+     (every snapshot fire re-creates the merged data object via useMemo).
+     Tying to configDoc + a 15s tick gives stable updates without thrash. */
+  useEffect(()=>{
+    if(!configDoc) return;
+    let mounted = true;
+    const evaluate=()=>{
+      if(!mounted) return;
+      try{
+        const listenerErrors=(typeof window!=="undefined" && window.__clarkListenerErrors)||{};
+        /* V21.9.47: synthesize the subset of `data` that healthCheck needs,
+           pulling from refs that we KNOW have current values. We don't use
+           the `data` useMemo directly because it's not yet defined at this
+           point in the component (declaration order in the function body) —
+           but the underlying refs are. The healthCheck only reads:
+             - data.treasury (from splitDataRef)
+             - data.treasuryTransfers (from splitDataRef)
+             - data.treasuryAccounts (from configDoc directly, NOT split) */
+        const synthesizedData = {
+          treasury: (splitDataRef.current?.treasury) || configDoc.treasury || [],
+          treasuryTransfers: (splitDataRef.current?.treasuryTransfers) || configDoc.treasuryTransfers || [],
+          treasuryAccounts: configDoc.treasuryAccounts || [],
+        };
+        const issues=evaluateHealthIssues({
+          data: synthesizedData,
+          configDoc,
+          listenerErrors,
+          /* cfgSizeBytes intentionally omitted — would require an estimate
+             pass over the whole doc on every evaluation. The DiagnosticsPanel
+             handles this separately via /api/diagnostics. */
+        });
+        setHealthIssues(prev=>{
+          /* shallow compare to avoid noisy re-renders */
+          if(prev.length===issues.length && prev.every((p,i)=>p.kind===issues[i]?.kind && p.severity===issues[i]?.severity)) return prev;
+          return issues;
+        });
+      }catch(e){console.warn("[V21.9.47] health-check threw:",e?.message||e);}
+    };
+    evaluate();/* initial */
+    const id=setInterval(evaluate,15_000);
+    return ()=>{mounted=false;clearInterval(id);};
+  },[configDoc]);
   useEffect(()=>{
     const checkReal=async()=>{try{const r=await fetch("https://firestore.googleapis.com",{method:"HEAD",mode:"no-cors",cache:"no-store"});setIsOnline(p=>{if(!p)setJustReconnected(true);return true})}catch(e){setIsOnline(false);setJustReconnected(false)}};
     const on=()=>checkReal();const off=()=>{setIsOnline(false);setJustReconnected(false)};
@@ -5279,8 +5336,8 @@ export default function App(){
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"⊘ أوفلاين · قراءة فقط"}
           </span>
           {/* V19.48: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
-          <span 
-            onClick={()=>setShowAboutVersion(true)} 
+          <span
+            onClick={()=>setShowAboutVersion(true)}
             title="عرض سجل التحديثات"
             style={{
               fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7,
@@ -5295,6 +5352,38 @@ export default function App(){
             onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
             onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
           >{APP_VERSION} <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+          {/* V21.9.47: Health pill — visible only when there are issues.
+              Click → opens Settings (where DiagnosticsPanel lives). The
+              count + severity color tells the user at a glance how bad
+              things are. Updates every 15s via the healthIssues effect. */}
+          {(() => {
+            if (!healthIssues || healthIssues.length === 0) return null;
+            const summary = summarizeHealth(healthIssues);
+            const color = SEVERITY_COLORS[summary.worst] || SEVERITY_COLORS.warning;
+            const emoji = SEVERITY_EMOJI[summary.worst] || "🩺";
+            return (
+              <span
+                onClick={() => setTab("settings")}
+                title={`${summary.total} مشكلة (${summary.counts.critical} حرجة، ${summary.counts.error} خطأ، ${summary.counts.warning} تحذير). اضغط لفتح Diagnostics.`}
+                style={{
+                  fontSize: FS - 3,
+                  color: "#fff",
+                  background: color,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  marginInlineStart: 4,
+                }}
+              >
+                <span>{emoji}</span>
+                <span>{summary.total}</span>
+              </span>
+            );
+          })()}
         </div>}
         {isMob&&<>
           <span title={lastSyncAt?"آخر مزامنة "+fmtRelAr(lastSyncAt):""} style={{fontSize:9,padding:"2px 6px",borderRadius:5,fontWeight:700,background:isOnline?"#10B98120":"#F59E0B22",color:isOnline?"#10B981":"#B45309"}}>{isOnline?"●":"⊘ قراءة"}</span>
@@ -5449,43 +5538,166 @@ export default function App(){
         آخر مزامنة {fmtRelAr(lastSyncAt)}
       </span>}
     </div>}
-    {/* V21.9.46: Listener-health banner — appears under the topbar when one
-        or more Firestore listeners have a TERMINAL error (typically a missing
-        firestore.rules rule for a newly-added collection). Visible to ALL
-        users (not buried in Settings) so a broken collection is impossible
-        to miss. Clicking opens Settings (where DiagnosticsPanel lives).
-        Errors are polled every 3s via the terminalListenerErrors state above. */}
-    {terminalListenerErrors.length > 0 && (
-      <div style={{
-        padding: isMob ? "6px 12px" : "7px 24px",
-        background: "#FEE2E2",
-        borderBottom: "1px solid #FCA5A5",
-        color: "#7F1D1D",
-        fontSize: isMob ? 12 : 13,
-        fontWeight: 700,
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        flexShrink: 0,
-        direction: "rtl",
-        cursor: "pointer",
-      }}
-      onClick={() => { setTab("settings"); }}
-      title="اضغط لفتح Diagnostics + تفاصيل الخطأ"
-      >
-        <span style={{ fontSize: 14 }}>🚨</span>
-        <span>
-          مشكلة في تحميل {terminalListenerErrors.length === 1 ? "بيانات" : terminalListenerErrors.length + " مجموعات بيانات"}:
-          <code style={{ marginInlineStart: 6, padding: "1px 5px", background: "rgba(127,29,29,0.1)", borderRadius: 3, fontSize: isMob ? 10 : 11 }}>
-            {terminalListenerErrors.slice(0, 3).map(e => e.col).join(" · ")}
-            {terminalListenerErrors.length > 3 && " · …"}
-          </code>
-        </span>
-        <span style={{ marginInlineStart: "auto", fontSize: 11, fontWeight: 600, opacity: 0.85 }}>
-          🩺 اضغط للتشخيص
-        </span>
-      </div>
-    )}
+    {/* V21.9.46 → V21.9.48: Listener-health banner — appears under the topbar
+        when one or more Firestore listeners have a TERMINAL error (typically
+        a missing firestore.rules rule for a newly-added collection).
+
+        V21.9.48 enhancement: banner now expandable with actionable details:
+          - Compact form (collapsed): collection names + chevron
+          - Expanded form: error code + recommended action + commands
+        Click anywhere on banner toggles expansion; "🩺 افتح Diagnostics" link
+        is an opt-in escape hatch to the full panel. Pre-V21.9.48 the click
+        navigated directly to Settings, but the actionable info wasn't visible
+        until the user scrolled — confusing for users like Ahmed who reported
+        "البانر لسه ظاهر ومفيش تفاصيل واضحة". */}
+    {terminalListenerErrors.length > 0 && (() => {
+      /* Group errors by error code for cleaner display */
+      const byCode = {};
+      for (const e of terminalListenerErrors) {
+        if (!byCode[e.code]) byCode[e.code] = [];
+        byCode[e.code].push(e.col);
+      }
+      /* Map error code → Arabic explanation + recommended action */
+      const ACTION_BY_CODE = {
+        "permission-denied": {
+          why: "🔒 الـ Firestore rules ناقصة أو غير محدّثة على Firebase Console",
+          action: "اعمل deploy لـ firestore.rules:",
+          cmd: "firebase deploy --only firestore:rules",
+          alt: "أو من Firebase Console → Firestore → Rules → الصق ملف firestore.rules → Publish",
+        },
+        "failed-precondition": {
+          why: "⚠️ الـ collection لها index ناقص في Firestore",
+          action: "افتح الـ console link في الـ error message + create the index. ثم refresh.",
+          cmd: "",
+          alt: "",
+        },
+        "not-found": {
+          why: "🔍 الـ collection اسمها غلط أو ما اتـ create-تش بعد",
+          action: "اتأكد من collection name في الـ partitionedCollections.js",
+          cmd: "",
+          alt: "",
+        },
+        "unimplemented": {
+          why: "⛔ الـ feature مش supported في الـ Firestore client version",
+          action: "حدّث الـ firebase SDK في package.json",
+          cmd: "npm install firebase@latest",
+          alt: "",
+        },
+      };
+      return (
+        <div style={{
+          padding: isMob ? "8px 12px" : "10px 24px",
+          background: "#FEE2E2",
+          borderBottom: "1px solid #FCA5A5",
+          color: "#7F1D1D",
+          fontSize: isMob ? 12 : 13,
+          fontWeight: 600,
+          flexShrink: 0,
+          direction: "rtl",
+        }}>
+          {/* Top row — collapsible toggle */}
+          <div
+            onClick={() => setListenerBannerExpanded(prev => !prev)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+            title="اضغط لإظهار/إخفاء التفاصيل"
+          >
+            <span style={{ fontSize: 14 }}>🚨</span>
+            <span style={{ fontWeight: 700 }}>
+              مشكلة في تحميل {terminalListenerErrors.length === 1 ? "بيانات" : terminalListenerErrors.length + " مجموعات بيانات"}:
+              <code style={{ marginInlineStart: 6, padding: "1px 5px", background: "rgba(127,29,29,0.1)", borderRadius: 3, fontSize: isMob ? 10 : 11 }}>
+                {terminalListenerErrors.slice(0, 3).map(e => e.col).join(" · ")}
+                {terminalListenerErrors.length > 3 && " · …"}
+              </code>
+            </span>
+            <span style={{ marginInlineStart: "auto", fontSize: 11, fontWeight: 600, opacity: 0.85, display: "flex", alignItems: "center", gap: 6 }}>
+              {listenerBannerExpanded ? "▲ إخفاء التفاصيل" : "▼ التفاصيل + الحل"}
+            </span>
+          </div>
+          {/* Expanded details — actionable info per error code */}
+          {listenerBannerExpanded && (
+            <div style={{
+              marginTop: 8,
+              padding: 10,
+              background: "rgba(255,255,255,0.6)",
+              borderRadius: 6,
+              border: "1px solid rgba(127,29,29,0.2)",
+              fontSize: isMob ? 11 : 12,
+              fontWeight: 500,
+              lineHeight: 1.7,
+            }}>
+              {Object.entries(byCode).map(([code, collections], idx) => {
+                const info = ACTION_BY_CODE[code] || {
+                  why: `❓ خطأ غير معروف: ${code}`,
+                  action: "اضغط 'افتح Diagnostics' للتفاصيل الكاملة",
+                  cmd: "",
+                  alt: "",
+                };
+                return (
+                  <div key={code} style={{ marginBottom: idx < Object.keys(byCode).length - 1 ? 12 : 0 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      <code style={{ background: "rgba(127,29,29,0.15)", padding: "1px 6px", borderRadius: 3, fontSize: isMob ? 10 : 11 }}>{code}</code>
+                      <span style={{ marginInlineStart: 8 }}>({collections.length}): {collections.slice(0, 5).join(" · ")}{collections.length > 5 && " · …"}</span>
+                    </div>
+                    <div style={{ marginBottom: 4 }}>{info.why}</div>
+                    <div style={{ marginBottom: info.cmd ? 4 : 0 }}>
+                      <b>الحل:</b> {info.action}
+                    </div>
+                    {info.cmd && (
+                      <div style={{ marginBottom: info.alt ? 4 : 0 }}>
+                        <code style={{
+                          display: "inline-block",
+                          background: "#1F2937",
+                          color: "#A7F3D0",
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          fontSize: isMob ? 10 : 12,
+                          fontFamily: "monospace",
+                          direction: "ltr",
+                        }}>{info.cmd}</code>
+                      </div>
+                    )}
+                    {info.alt && (
+                      <div style={{ fontSize: isMob ? 10 : 11, opacity: 0.85 }}>
+                        💡 {info.alt}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{
+                marginTop: 10,
+                paddingTop: 8,
+                borderTop: "1px solid rgba(127,29,29,0.2)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}>
+                <span
+                  onClick={() => { setTab("settings"); setListenerBannerExpanded(false); }}
+                  style={{
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    color: "#7F1D1D",
+                    textDecoration: "underline",
+                  }}
+                >
+                  🩺 افتح Diagnostics للفحص الكامل
+                </span>
+                <span style={{ marginInlineStart: "auto", fontSize: 11, opacity: 0.7 }}>
+                  V21.9.48: الـ resilience fix بـ يـ unblock الـ writes حتى مع الخطأ ده
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    })()}
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}

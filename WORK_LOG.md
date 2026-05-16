@@ -365,6 +365,50 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.47 — Phase 14i: Health Monitor + Topbar Pill
+
+> Continuation of the V21.9.46 architectural recommendations — Priority 3
+> (Health monitor dashboard). User feedback: "كمل بالترتيب المشاكل"
+
+**Goal**: surface ALL known system-health issues in one place (topbar pill)
+so the user doesn't need to navigate to Settings → Maintenance →
+Diagnostics and run multiple separate audits.
+
+**New utility** `src/utils/healthCheck.js` (~210 lines):
+- Pure function `evaluateHealthIssues({data, configDoc, listenerErrors})`
+- 12+ check categories: listener health, pending migrations, doc size,
+  data sanity, transfer leg integrity
+- Returns flat list of `{kind, severity, title, detail, hint, navigateTo?}`
+- Severity levels: critical | error | warning | info
+- Helpers: `summarizeHealth`, `SEVERITY_COLORS`, `SEVERITY_EMOJI`
+
+**App.jsx integration**:
+- Import healthCheck
+- State `healthIssues` next to `terminalListenerErrors`
+- useEffect runs evaluation on configDoc change + every 15s
+- Synthesizes `data` subset from `splitDataRef.current` + `configDoc` (the
+  `data` useMemo isn't defined at this point in the function body, but the
+  underlying refs are)
+- Shallow-compare before setState to avoid render thrash
+
+**Topbar Pill** (next to APP_VERSION pill, only visible when issues > 0):
+- Background colored by worst severity
+- Emoji + count: `🚨 5` for critical, `❌ 3` for error, etc.
+- Tooltip shows breakdown by severity
+- Click navigates to Settings tab → DiagnosticsPanel
+
+**Extensibility**: adding a new check is a one-liner inside
+`evaluateHealthIssues()`. Pill + DiagnosticsPanel summary update
+automatically.
+
+**Remaining priorities from V21.9.46 plan** (deferred):
+- Priority 1: Partitionize `treasuryAccounts` / `printTemplates` / `coa`
+  (low impact in practice — these are rarely concurrently edited)
+- Priority 2: Auto-detection of stale-write risk in `upConfig`
+  (needs careful design — risk of false positives blocking legitimate writes)
+- Priority 4: Expand `syncAllSplitChanges` auto-retry coverage
+  (current 3-retry mostly handles real-world transient failures)
+
 ### V21.9.46 — Phase 14h: Bug 5 — Loading-gate Deadlock + Listener Resilience
 
 > User report: "في مشاكل كتير في البرنامج. لما بسجل بيانات او اعدل بيانات
