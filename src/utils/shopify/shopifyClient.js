@@ -37,6 +37,9 @@ const LONG_OPERATIONS = {
   /* V21.9.42: legacy orders migration. Per-order parallel reads + batched
      writes — can take 2-3 min on a 1000-order legacy array. */
   "/api/maintenance/migrate-legacy-orders":      300000,
+  /* V21.9.44: recurring treasury rules migration — small + fast, but allow
+     headroom for slow networks. */
+  "/api/maintenance/migrate-recurring-treasury": 120000,
   "/api/shopify/campaign-prepare-run":    180000,
 };
 function getTimeoutForPath(path){
@@ -347,6 +350,16 @@ export function recoverLegacyData(opts, user){
    → { ok, orders_migrated, orders_skipped_existing, freed_kb, backup_doc_id, ... } */
 export function migrateLegacyOrders(opts, user){
   return call("POST", "/api/maintenance/migrate-legacy-orders", opts || {}, user);
+}
+
+/* V21.9.44 — Migrate recurringTreasury rules from factory/config array to
+   recurringTreasuryDocs/{ruleId} partitioned collection. Addresses cross-device
+   stale-write loss reported in V21.9.44 debugging session ("registered rules
+   on mobile, disappeared on PC"). Idempotent (flag _partitionedRecurringV21944Done).
+   { dryRun? } — ALWAYS run with dryRun:true first.
+   → { ok, rules_migrated, rules_skipped_existing, freed_kb, backup_doc_id, ... } */
+export function migrateRecurringTreasury(opts, user){
+  return call("POST", "/api/maintenance/migrate-recurring-treasury", opts || {}, user);
 }
 
 /* V21.9.28 — Migration Log inspector + backup restore.

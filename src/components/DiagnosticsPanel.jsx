@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -39,6 +39,9 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   /* V21.9.42: legacy orders migration (factory/config.orders → seasons/.../orders) */
   const [legacyOrdersBusy, setLegacyOrdersBusy] = useState(false);
   const [legacyOrdersResult, setLegacyOrdersResult] = useState(null);
+  /* V21.9.44: recurring treasury migration (cfg.recurringTreasury → recurringTreasuryDocs/{id}) */
+  const [recurringBusy, setRecurringBusy] = useState(false);
+  const [recurringResult, setRecurringResult] = useState(null);
   /* V21.9.23: Firestore rules deployment test — detects "rules not published"
      bug where partitioned collections (customersDocs / productsDocs / etc.)
      get permission-denied on the client even though they exist on server. */
@@ -228,6 +231,60 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     finally { setDedupeBusy(false); }
   };
 
+  /* V21.9.44: Recurring treasury migration handler.
+     Moves cfg.recurringTreasury[] → recurringTreasuryDocs/{id} per-id collection.
+     Pattern matches V21.9.42 — dry-run first → confirmation → real run. */
+  const runRecurringMigration = async () => {
+    if(!canEdit) return;
+    setRecurringBusy(true);
+    try {
+      const dry = await migrateRecurringTreasury({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      if(dry.rules_count === 0){
+        showToast("✨ مفيش recurring rules — كله مهاجر بالفعل");
+        setRecurringResult({ ok: true, dryRun: true, rules_count: 0 });
+        return;
+      }
+      const yes = await ask(
+        "🔁 نقل قواعد الـ Recurring Treasury — حل لمشكلة 'اختفاء البنود بين الأجهزة'",
+        `هـ يتـ نقل ${dry.rules_count} قاعدة من factory/config.recurringTreasury[] إلى recurringTreasuryDocs/{id} (per-id collection).\n\n` +
+        `📊 Stats:\n` +
+        `• حجم factory/config: ${dry.before_kb} KB\n` +
+        `• حجم الـ rules array: ${dry.rules_kb} KB\n\n` +
+        `🔍 Sample analysis (${dry.sample_size} من ${dry.rules_count}):\n` +
+        `• جديد للـ collection: ${dry.sample_new}\n` +
+        `• موجود بالفعل (يـ skip): ${dry.sample_exist}\n` +
+        `• بدون id (يـ generate): ${dry.sample_idless}\n\n` +
+        `💾 بعد الـ migration: ~${dry.after_kb_estimate} KB ← هـ نوفّر ${dry.will_free_kb} KB\n\n` +
+        `✅ آمن جداً:\n` +
+        `• Backup كامل للـ rules array قبل أي كتابة\n` +
+        `• Idempotent — لو ran مرة تاني يـ skip اللي اتـ migrate-ـت\n` +
+        `• لو رول موجود بـ updatedAt أحدث، ما يتـ overwrite-ـش\n` +
+        `• الـ flag مش بـ يتسطّ لو فيه أي failure\n\n` +
+        `هذا الإجراء يحل مشكلة اختفاء الـ recurring rules لما تـ سجلهم من موبيل ثم تفتح على PC. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await migrateRecurringTreasury({ dryRun: false }, user);
+      setRecurringResult(r);
+      if(r?.ok){
+        if(r.skipped){
+          showToast("ℹ️ الـ migration مطبّق بالفعل");
+        } else {
+          showToast(`✅ تم! 🔁 ${r.rules_migrated} قاعدة · ${r.rules_skipped_existing} موجودة بالفعل · وفّرنا ${r.freed_kb} KB`);
+          setTimeout(() => runCheck(), 1500);
+        }
+      } else if(r?.partial){
+        showToast(`⚠️ ${r.message || "migration partial — راجع الـ logs"}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setRecurringBusy(false); }
+  };
+
   /* V21.9.42: Legacy orders migration handler.
      Moves cfg.orders[] → seasons/{season}/orders/{docId} subcollection.
      ALWAYS dry-run first → present summary → confirm → real run.
@@ -306,6 +363,13 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const showLegacyOrdersButton = !legacyOrdersMigrated && (
     (legacyOrdersArrSize && legacyOrdersArrSize.count > 0) || reportFlaggedLegacyOrders
   );
+  /* V21.9.44: Recurring treasury migration flag.
+     Show banner whenever migration flag is unset (regardless of whether the
+     array has entries — empty installs benefit from setting the flag too, so
+     subsequent recurring rule saves go directly to the per-id collection). */
+  const recurringMigrated = !!data?._partitionedRecurringV21944Done;
+  const recurringArrEntries = Array.isArray(data?.recurringTreasury) ? data.recurringTreasury.length : 0;
+  const showRecurringButton = !recurringMigrated;
 
   /* V21.9.23: Test Firestore rules deployment by attempting to read 1 doc
      from each critical collection. The server (admin SDK) bypasses rules so
@@ -1783,6 +1847,57 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                   Backup: <code>{ordersResult.backup_doc_id}</code>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.44: Recurring Treasury Migration banner.
+          Addresses cross-device stale-write loss of recurringTreasury rules. */}
+      {(showRecurringButton || recurringResult?.ok) && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: recurringResult?.ok ? T.ok + "10" : T.warn + "12",
+          border: "1.5px solid " + (recurringResult?.ok ? T.ok : T.warn) + "60",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, color: recurringResult?.ok ? T.ok : T.warn, fontSize: FS }}>
+                {recurringResult?.ok
+                  ? "✅ تم نقل قواعد الـ Recurring Treasury"
+                  : "🔁 قواعد الـ Recurring Treasury لسه في factory/config — معرّضة للاختفاء بين الأجهزة"}
+              </div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                {recurringResult?.ok
+                  ? `الـ rules اتنقلوا لـ recurringTreasuryDocs/{id} (per-id collection). الكتابات من device تاني ما تقدرش تـ overwrite الـ rules دلوقتي.`
+                  : `الـ array \`factory/config.recurringTreasury\` فيه ${recurringArrEntries} قاعدة. الـ field ده مش محمي بـ split ولا partitioned، فلو حد سجل قاعدة جديدة من موبيل وفي نفس الوقت device تاني عمل save بـ stale config، الـ قاعدة الجديدة بـ تتمسح (السيناريو اللي حصل قبل V21.9.44). اضغط الزر لنقلهم لـ per-id collection (آمن + idempotent + backup).`}
+              </div>
+            </div>
+            {!recurringResult?.ok && (
+              <LoadingBtn loading={recurringBusy} loadingText="جاري النقل..." onClick={runRecurringMigration} disabled={!canEdit} small
+                style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 800 }}>
+                🔁 ابدأ نقل القواعد
+              </LoadingBtn>
+            )}
+          </div>
+          {recurringResult?.ok && recurringResult.rules_migrated >= 0 && (
+            <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              🔁 قواعد اتنقلت: <b>{recurringResult.rules_migrated}</b>
+              {" · "}موجودة بالفعل: <b>{recurringResult.rules_skipped_existing}</b>
+              {" · "}وفّرنا <b style={{ color: T.ok }}>{recurringResult.freed_kb} KB</b>
+              {recurringResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{recurringResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+          {recurringResult?.partial && (
+            <div style={{ marginTop: 10, padding: 8, background: T.warn + "10", borderRadius: 6, fontSize: FS - 2, color: T.warn }}>
+              ⚠️ Migration partial — flag NOT set.
+              نجح: <b>{recurringResult.rules_migrated}</b> · فشل: <b>{recurringResult.rules_failed}</b>
             </div>
           )}
         </div>

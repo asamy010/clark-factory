@@ -42,8 +42,8 @@ import {
   syncAllPartitionedChanges, stripPartitionedArrays,
   PARTITIONED_COLLECTIONS, PARTITIONED_FIELDS,
   /* V19.57: master-data groups + flag for selective stripping */
-  PARTITIONED_FIELDS_V1675, PARTITIONED_FIELDS_V1957,
-  PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957,
+  PARTITIONED_FIELDS_V1675, PARTITIONED_FIELDS_V1957, PARTITIONED_FIELDS_V21944,
+  PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957, PARTITIONED_FLAG_V21944,
   /* V21.9.2: Shopify products + customers partition */
   PARTITIONED_FIELDS_V2192, PARTITIONED_FLAG_V2192,
 } from "./utils/partitionedCollections.js";
@@ -440,6 +440,14 @@ export default function App(){
     /* V21.9.2: Shopify products + customers split — same merge pattern */
     if(configDoc[PARTITIONED_FLAG_V2192]){
       for(const f of PARTITIONED_FIELDS_V2192){
+        merged[f]=partitionedData[f]||[];
+      }
+    }
+    /* V21.9.44: recurringTreasury split — same merge pattern.
+       Pre-V21.9.44 this lived as a plain cfg.recurringTreasury[] array, vulnerable
+       to stale-write overwrite from concurrent devices (see CLAUDE.md §10). */
+    if(configDoc[PARTITIONED_FLAG_V21944]){
+      for(const f of PARTITIONED_FIELDS_V21944){
         merged[f]=partitionedData[f]||[];
       }
     }
@@ -3670,7 +3678,7 @@ export default function App(){
        Shopify split, never the master-data V1675/V1957 splits), the pre-V21.9.39 guard would
        silently skip and let upConfig wipe shopifyProductsDocs/shopifyCustomersDocs before they
        finished loading. */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192])&&!partitionedLoaded){
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
@@ -3691,7 +3699,7 @@ export default function App(){
        never ran, and Shopify data couldn't be synced. More commonly: when ALL three
        are set, the V2192 fields were missing from newPart, causing the silent
        wipe of shopifyCustomersDocs/shopifyProductsDocs on every upConfig call. */
-    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957])||Boolean(configDoc?.[PARTITIONED_FLAG_V2192]);
+    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957])||Boolean(configDoc?.[PARTITIONED_FLAG_V2192])||Boolean(configDoc?.[PARTITIONED_FLAG_V21944]);
     const splitAfter=splitActive?precomputedNewSplit:null;
     const partAfter=partActive?precomputedNewPart:null;
     /* Strip the precomputed next */
@@ -3893,7 +3901,7 @@ export default function App(){
     }
     /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
        Same V2192 parity fix as the upConfigTx guard above. */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192])&&!partitionedLoaded){
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return;
@@ -4047,6 +4055,19 @@ export default function App(){
          operation. Same pattern as the V19.62 V1957 bug — exact same fix. */
       if(prev[PARTITIONED_FLAG_V2192]){
         for(const f of PARTITIONED_FIELDS_V2192){
+          next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+          partFieldsActive.push(f);
+        }
+      }
+      /* V21.9.44 CRITICAL HYDRATION — recurringTreasury.
+         Same pattern as V21.9.33 fix for V2192: must hydrate this field's
+         partitioned data before fn() runs, otherwise syncAllPartitionedChanges
+         will see oldArr=listener-state vs newArr=undefined→[] and DELETE all
+         recurring rules on every save. The user-reported bug was the SAME
+         shape (stale-write loss) but cross-device — this hydration also
+         protects against single-device re-render races. */
+      if(prev[PARTITIONED_FLAG_V21944]){
+        for(const f of PARTITIONED_FIELDS_V21944){
           next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
           partFieldsActive.push(f);
         }

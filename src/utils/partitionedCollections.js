@@ -41,6 +41,10 @@ export const PARTITIONED_COLLECTIONS = {
   /* V21.9.2 — Shopify products + customers (were 80% of factory/config doc size) */
   shopifyProducts:  "shopifyProductsDocs",
   shopifyCustomers: "shopifyCustomersDocs",
+  /* V21.9.44 — Recurring treasury rules (was vulnerable to cross-device stale-write
+     overwrite, see CLAUDE.md §10 and WORK_LOG V21.9.44). Per-id collection means
+     each rule survives concurrent saves to factory/config from other devices. */
+  recurringTreasury: "recurringTreasuryDocs",
 };
 
 /* مفاتيح الـfields */
@@ -56,10 +60,16 @@ export const PARTITIONED_FIELDS_V1957 = [
 ];
 /* V21.9.2 — split Shopify Products + Customers (were 80% of factory/config) */
 export const PARTITIONED_FIELDS_V2192 = ["shopifyProducts", "shopifyCustomers"];
+/* V21.9.44 — Partition recurringTreasury to immunize against cross-device
+   stale-write loss. The field was previously a plain factory/config array →
+   concurrent saves from another device with a stale base could silently
+   overwrite recent additions. Per-id collection isolates each rule. */
+export const PARTITIONED_FIELDS_V21944 = ["recurringTreasury"];
 
-export const PARTITIONED_FLAG_V1675 = "_partitionedV1675Done";
-export const PARTITIONED_FLAG_V1957 = "_partitionedV1957Done";
-export const PARTITIONED_FLAG_V2192 = "_partitionedV2192Done";
+export const PARTITIONED_FLAG_V1675  = "_partitionedV1675Done";
+export const PARTITIONED_FLAG_V1957  = "_partitionedV1957Done";
+export const PARTITIONED_FLAG_V2192  = "_partitionedV2192Done";
+export const PARTITIONED_FLAG_V21944 = "_partitionedRecurringV21944Done";
 
 /* ════════════════════════════════════════════════════════════════════════
    READ
@@ -190,6 +200,9 @@ export function stripPartitionedArrays(configObj) {
   }
   if (configObj[PARTITIONED_FLAG_V2192]) {
     for (const field of PARTITIONED_FIELDS_V2192) delete stripped[field];
+  }
+  if (configObj[PARTITIONED_FLAG_V21944]) {
+    for (const field of PARTITIONED_FIELDS_V21944) delete stripped[field];
   }
   return stripped;
 }

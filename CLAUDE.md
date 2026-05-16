@@ -435,6 +435,17 @@ The changelog entry shape:
   writes fail with "حجم البيانات تجاوز الحد" (V21.9.42 root cause). Use
   `seasons/{season}/orders/{id}` subcollection ONLY. The legacy array
   must be migrated via `/api/maintenance/migrate-legacy-orders`.
+- ❌ **Plain `cfg.<field>[]` arrays for data saved from multiple devices**.
+  App.jsx:3711-3714 explicitly accepts "concurrent writes overwrite each
+  other" — this is FINE for split/partitioned fields (they have their
+  own consistency layer) but DEADLY for plain cfg fields. V21.9.44 root
+  cause: `recurringTreasury` was a plain array; mobile saved 2 rules,
+  PC's stale base overwrote them on next save → rules disappeared (but
+  the generated treasury txs survived in `treasuryDays/` because THOSE
+  were split). Decision rule for any new growing array:
+  - Daily-timestamped entries? → daily split (`treasuryDays` pattern)
+  - Stable per-id objects? → per-id partitioned (`customersDocs` pattern)
+  - Settings only (single-device writes)? → cfg is fine
 - ❌ Reading `order.fabricA.colors` (colors are in `order.colorsA`)
 - ❌ Reading `order.sizes` (sizes come from `order.sizeSetId` → `data.sizeSets`)
 - ❌ Adding a new growing array to `factory/config` without registering

@@ -365,6 +365,58 @@ doc over the 1 MB cap.
    - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
      with 5-minute timeout
 
+### V21.9.44 — Phase 14f: Bug 3 — Cross-device Stale-Write Loss of Recurring Rules
+
+> User report: "امبارح سجلت في الدفعات المتكررة في الخزنة بندين جداد من
+> الموبيل وظهروا تمام لكن لما جيت اشتغلت ع الكمبيوتر لقيت البندين دول مش
+> موجودين اختفو من قايمة التكرار ولكن موجودين بسجل الخزنة"
+
+**ROOT CAUSE** — `recurringTreasury` lived as a plain `cfg.recurringTreasury[]`
+array. It was never registered in `SPLIT_FIELDS` or `PARTITIONED_FIELDS`, so
+the cross-device stale-write race documented in `App.jsx:3711-3714` was free
+to wipe it:
+
+```
+T=0   📱 Mobile: cfg.recurringTreasury = [A..I] (9 rules)
+T=1   📱 Mobile: save rule J → upConfig → Firestore: [A..I, J] ✅
+        + treasury tx → treasuryDays/2026-05-15 (SPLIT — protected)
+T=2   📱 Mobile: save rule K → Firestore: [A..I, J, K] ✅
+T=10  💻 PC opens app, onSnapshot listener still catching up.
+        configDocRef.current = STALE [A..I]
+T=11  💻 PC user does ANY save → upConfig clones stale base →
+        setDoc(factory/config, stripped, {merge:false}) →
+        Firestore.recurringTreasury reverted to [A..I] 🚨
+        BUT: treasuryDays/2026-05-15 still has the generated txs
+```
+
+This is exactly why the user saw the treasury entries in the log but not
+in the recurring rules list.
+
+**Fix** — promote to a per-id partitioned collection (same pattern as
+V19.57 customers/suppliers and V21.9.2 shopifyProducts):
+
+1. **`src/utils/partitionedCollections.js`**: register `recurringTreasury →
+   recurringTreasuryDocs`, new `PARTITIONED_FIELDS_V21944` + flag
+2. **`src/App.jsx`**: 3 surgical edits:
+   - Merge: `if(configDoc[PARTITIONED_FLAG_V21944]) merge from partitionedData`
+   - Hydration in upConfig (CRITICAL — without this, every save would
+     wipe all rules; same shape as V21.9.33 fix for V2192)
+   - Safety gate: refuse upConfig until partitionedData loaded
+3. **`api/maintenance/migrate-recurring-treasury.js`** (NEW, ~230 lines):
+   dry-run + backup + per-id write + idempotent + conflict-avoidance
+4. **`src/components/DiagnosticsPanel.jsx`**: warning banner + button
+5. **`src/utils/shopify/shopifyClient.js`**: `migrateRecurringTreasury`
+   wrapper with 2-minute timeout
+
+Post-migration, each rule is its own Firestore document — stale-write
+from another device targets only `factory/config`, leaving the rules
+untouched. Same protection model as customers/products.
+
+**Anti-pattern entry (CLAUDE.md §10)**: any growing array that's saved
+from multiple devices MUST be either daily-split or per-id partitioned
+from day 1. Plain `cfg.<field>[]` is acceptable ONLY for single-device
+settings.
+
 ### V21.9.43 — Phase 14e: Documentation Pass
 
 - 📜 CLAUDE.md §10 expanded with 4 new anti-pattern categories:
