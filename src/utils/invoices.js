@@ -628,18 +628,33 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
   const resolvedPrice = resolveReturnUnitPrice(d, customerId, order.id, date);
   const unitPrice = resolvedPrice > 0 ? resolvedPrice : (Number(order.sellPrice) || 0);
   const qty       = Number(returnEntry.qty) || 0;
-  const lineTotal = unitPrice * qty;
+  /* V21.9.52 ROOT-CAUSE FIX: wrap all credit-note arithmetic in r2() to match
+     the V19.66 hardening that was applied to sales invoices but never
+     backported here. Pre-V21.9.52 the credit-note total would drift
+     ±0.05 EGP per return, accumulating to ±60 EGP/year of unexplained
+     balance drift in the customer ledger. */
+  const lineTotal = r2(unitPrice * qty);
   const customerDiscountPct = Number(customer?.discount) || 0;
-  const discount = lineTotal * (customerDiscountPct / 100);
-  const total    = lineTotal - discount;
+  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  const total    = r2(lineTotal - discount);
 
-  /* Try to find the original invoice this return relates to */
-  const linkedInv = (d.salesInvoices||[]).find(i =>
-    i.deliveryRef &&
-    i.deliveryRef.orderId === order.id &&
-    i.deliveryRef.custId === returnEntry.custId &&
-    i.status !== "void"
-  );
+  /* Try to find the original invoice this return relates to.
+     V21.9.52: also check deliveryRefs[] (the V18.65 plural form), since
+     consolidated invoices have NO singular deliveryRef. Pre-V21.9.52 the
+     linkedInvoiceId stayed null for any consolidated parent, breaking
+     the audit trail from return → invoice. */
+  const linkedInv = (d.salesInvoices||[]).find(i => {
+    if(i.status === "void") return false;
+    /* Legacy singular */
+    if(i.deliveryRef
+       && i.deliveryRef.orderId === order.id
+       && i.deliveryRef.custId === returnEntry.custId) return true;
+    /* V18.65 plural — also check */
+    if(Array.isArray(i.deliveryRefs) && i.deliveryRefs.some(r =>
+      r && r.orderId === order.id && r.custId === returnEntry.custId
+    )) return true;
+    return false;
+  });
 
   const ref = {
     orderId: order.id,
@@ -711,7 +726,8 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
     );
     if(matchedItem){
       matchedItem.qty = (Number(matchedItem.qty) || 0) + qty;
-      matchedItem.lineTotal = matchedItem.qty * Number(matchedItem.unitPrice);
+      /* V21.9.52: r2() wrap on line total — drift fix (matches V19.66 sales-invoice pattern) */
+      matchedItem.lineTotal = r2(matchedItem.qty * Number(matchedItem.unitPrice));
     } else {
       existing.items.push({
         orderId: order.id,
@@ -719,26 +735,26 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
         modelDesc: order.modelDesc || "",
         qty,
         unitPrice,
-        lineTotal: qty * unitPrice,
+        lineTotal: r2(qty * unitPrice),/* V21.9.52 */
       });
     }
     if(!Array.isArray(existing.returnRefs)){
       existing.returnRefs = existing.returnRef ? [existing.returnRef] : [];
     }
     existing.returnRefs.push(ref);
-    /* Recompute totals */
-    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
+    /* Recompute totals — V21.9.52: route through r2 to prevent accumulated drift */
+    existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
     existing.discountPct = customerDiscountPct;
-    existing.discount = existing.subtotal * (customerDiscountPct / 100);
-    existing.total = existing.subtotal - existing.discount;
+    existing.discount = r2(existing.subtotal * (customerDiscountPct / 100));
+    existing.total = r2(existing.subtotal - existing.discount);
     return { creditNote: existing, isNew: false };
   }
 
   /* Create new draft credit note */
   const creditNoteNo = reserveCreditNoteNo(d);
-  const lineTotal = unitPrice * qty;
-  const discount = lineTotal * (customerDiscountPct / 100);
-  const total = lineTotal - discount;
+  const lineTotal = r2(unitPrice * qty);/* V21.9.52 */
+  const discount = r2(lineTotal * (customerDiscountPct / 100));/* V21.9.52 */
+  const total = r2(lineTotal - discount);/* V21.9.52 */
   /* Try to find the original invoice this return relates to */
   const linkedInv = (d.salesInvoices||[]).find(i =>
     i.customerId === customerId && i.status !== "void" &&
@@ -1027,16 +1043,18 @@ export function upsertDebitNoteFromReturn(d, returnEntry, supplier, userName){
       );
       if(matched){
         matched.qty = (Number(matched.qty) || 0) + inc.qty;
-        matched.lineTotal = matched.qty * Number(matched.unitPrice);
+        /* V21.9.52: r2() to prevent debit-note drift (matches purchase-invoice V19.66 pattern) */
+        matched.lineTotal = r2(matched.qty * Number(matched.unitPrice));
       } else {
         existing.items.push(inc);
       }
     }
-    /* Recompute totals */
-    existing.subtotal = existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
-    existing.discount = (Number(existing.discount) || 0) + incomingDiscount;
-    existing.total = existing.subtotal - existing.discount;
-    existing.discountPct = existing.subtotal > 0 ? (existing.discount / existing.subtotal * 100) : 0;
+    /* Recompute totals — V21.9.52: route through r2 to prevent accumulated drift.
+       Mirrors the credit-note fix in upsertCreditNoteFromReturn above. */
+    existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
+    existing.discount = r2((Number(existing.discount) || 0) + incomingDiscount);
+    existing.total = r2(existing.subtotal - existing.discount);
+    existing.discountPct = existing.subtotal > 0 ? r2(existing.discount / existing.subtotal * 100) : 0;
     if(returnEntry.notes && returnEntry.notes.trim()){
       existing.notes = existing.notes
         ? existing.notes + "\n— " + returnEntry.notes.trim()
@@ -1047,8 +1065,8 @@ export function upsertDebitNoteFromReturn(d, returnEntry, supplier, userName){
 
   /* New draft */
   const debitNoteNo = reserveDebitNoteNo(d);
-  const subtotal = incomingItems.reduce((s, it) => s + it.lineTotal, 0);
-  const total = subtotal - incomingDiscount;
+  const subtotal = r2(incomingItems.reduce((s, it) => s + it.lineTotal, 0));/* V21.9.52 */
+  const total = r2(subtotal - incomingDiscount);/* V21.9.52 */
 
   const linkedInv = returnEntry.linkedInvoiceId
     ? (d.purchaseInvoices||[]).find(i => i.id === returnEntry.linkedInvoiceId && i.status !== "void")

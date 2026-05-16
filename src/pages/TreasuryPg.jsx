@@ -3100,6 +3100,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           /* V19.70.10: snapshot the check BEFORE the upConfig mutation so we can
              fire checkCollected / checkBounced events with full details. */
           const _statusSnapshot = (data.checks||[]).find(c=>c.id===id);
+          /* V21.9.53: capture treasury legs for accounting post/reverse.
+             ROOT CAUSE: pre-V21.9.53 updateStatus created/removed treasury
+             entries WITHOUT calling autoPost — so Trial Balance Cash account
+             drifted away from actual cash entries. Now we capture:
+             • _oldLegsToReverse: any existing leg being removed (line 3108
+               filter) — these need autoPost.reverse since their JE persists
+             • _newLegToPost: the new in/out leg created (لو حالة محصل/مدفوع) */
+          const _oldLegsToReverse = ((data.treasury)||[]).filter(t => t.checkId === id);
+          let _newLegToPost = null;
           upConfig(d=>{
             const ch=(d.checks||[]).find(c=>c.id===id);
             if(!ch)return;
@@ -3117,7 +3126,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                Otherwise fall back to the bank name (legacy behavior) or MAIN CASH. */
             const targetAccount=chosenAccount||ch.bank||"MAIN CASH";
             if(status==="محصل"){
-              d.treasury.unshift({
+              /* V21.9.53: capture the new leg for post-commit autoPost */
+              _newLegToPost = {
                 id:gid(),type:"in",amount:Number(ch.amount)||0,
                 desc:"تحصيل شيك من "+(ch.party||"")+det,
                 category:chkCat,account:targetAccount,season:d.activeSeason||"",
@@ -3126,10 +3136,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
                 sourceType:"check_collect",checkId:ch.id,
                 by:userName,createdAt:nowISO()
-              });
+              };
+              d.treasury.unshift(_newLegToPost);
             }
             if(status==="مدفوع"){
-              d.treasury.unshift({
+              /* V21.9.53: capture the new leg for post-commit autoPost */
+              _newLegToPost = {
                 id:gid(),type:"out",amount:Number(ch.amount)||0,
                 desc:"صرف شيك لـ "+(ch.party||"")+det,
                 category:chkCat,account:targetAccount,season:d.activeSeason||"",
@@ -3138,7 +3150,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 supplierId:ch.type==="payable"?ch.partyId||null:null,
                 sourceType:"check_pay",checkId:ch.id,
                 by:userName,createdAt:nowISO()
-              });
+              };
+              d.treasury.unshift(_newLegToPost);
             }
             /* V16.34: Bounce — only meaningful for receivable. The original
                check is invalidated, the customer balance is reset (they still
@@ -3157,6 +3170,26 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               });
             }
           });
+          /* V21.9.53: post-commit accounting integration.
+             Reverse any old legs that were filtered out (idempotent re-toggle
+             of check status) — autoPost.reverse looks up by sourceType+sourceId,
+             returns reversed:false silently if no JE exists, so safe to over-fire.
+             Then post the new leg if one was created (محصل / مدفوع).
+             ⚠️ ROOT CAUSE: pre-V21.9.53 these calls were missing entirely →
+             Trial Balance Cash account drifted away from actual cash flow
+             every time a check was collected/paid/reverted. */
+          _oldLegsToReverse.forEach(_oldLeg => {
+            try{
+              const _r = autoPost.reverse(data, _oldLeg.sourceType || "treasury", _oldLeg.id, _oldLeg.date, "تغيير حالة شيك", userName);
+              if(_r && typeof _r.then==="function") _r.catch(()=>{});
+            }catch(e){console.warn("[V21.9.53] autoPost.reverse (check leg) threw:",e?.message||e);}
+          });
+          if(_newLegToPost){
+            try{
+              const _r = autoPost.treasury(data, _newLegToPost, userName);
+              if(_r && typeof _r.then==="function") _r.catch(()=>{});
+            }catch(e){console.warn("[V21.9.53] autoPost.treasury (check leg) threw:",e?.message||e);}
+          }
           showToast(status==="مرتد"?"❌ تم تسجيل الشيك كمرتد":status==="محصل"?"✅ تم التحصيل":status==="مدفوع"?"✅ تم الدفع":"✓ تم التحديث");
           /* V19.70.10/.11: instant status-change events for receivable checks.
              Detects:
@@ -3271,6 +3304,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             openConfirm({title:"⛔ لا يمكن حذف الشيك",message:msg,variant:"danger",onConfirm:()=>{}});
             return;
           }
+          /* V21.9.53: capture treasury legs being deleted so we can reverse the JE after upConfig commits */
+          const _checkLegsToReverse = ((data.treasury)||[]).filter(t => t.checkId === id);
           upConfig(d=>{
           /* V15.9: Also remove linked treasury entries (if check was collected/paid) */
           const ch=(d.checks||[]).find(c=>c.id===id);
@@ -3280,7 +3315,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           }
           /* V16.33: Also remove endorsed-check supplier payments linked to this check */
           if(ch)d.supplierPayments=(d.supplierPayments||[]).filter(p=>p.checkId!==id||p.method!=="endorsed_check");
-        });showToast("✓ تم حذف الشيك")};
+        });
+        /* V21.9.53: reverse the JE for any check legs deleted above.
+           ROOT CAUSE: pre-V21.9.53 delCheck removed treasury rows but didn't
+           call autoPost.reverse → orphan JEs accumulate in accountingDays
+           → Trial Balance Cash account drifts. Idempotent — no-op if no JE. */
+        _checkLegsToReverse.forEach(_oldLeg => {
+          try{
+            const _r = autoPost.reverse(data, _oldLeg.sourceType || "treasury", _oldLeg.id, _oldLeg.date, "حذف شيك", userName);
+            if(_r && typeof _r.then==="function") _r.catch(()=>{});
+          }catch(e){console.warn("[V21.9.53] autoPost.reverse (delCheck leg) threw:",e?.message||e);}
+        });
+        showToast("✓ تم حذف الشيك")};
         const filteredChecks=chkFilter==="الكل"?checks:checks.filter(c=>chkFilter==="أوراق قبض"?c.type==="receivable":c.type==="payable");
         const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","مُظهّر":"#8B5CF6",مرتجع:"#EF4444","مرتد":"#DC2626",ملغي:"#94A3B8"};
         /* V16.33: Endorse a customer check to a supplier.

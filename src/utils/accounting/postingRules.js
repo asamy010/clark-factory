@@ -412,7 +412,19 @@ export function buildTreasuryEntry(tx, coa, rules, categoryMap, config){
      Without this whitelist, every weekly_other_expense treasury entry created in
      approveWeek silently fell through with `return null` → no journal posting →
      trial balance permanently understated cash outflows. */
-  const _genericSources = ["manual", "hr_other_expense", "hr_other_expense_supplier"];
+  /* V21.9.53: extend whitelist to include check_collect + check_pay.
+     ROOT CAUSE (Treasury Audit #1-2): pre-V21.9.53, when user marks a check
+     as "محصل" or "مدفوع" via TreasuryPg.updateStatus, a treasury entry is
+     created with sourceType="check_collect" / "check_pay". buildTreasuryEntry
+     would return null (whitelist exclusion) → no journal entry → Trial Balance
+     Cash account understated/overstated. Same shape as V21.9.40's hr_other_expense
+     fix. The actual posting uses the existing category-to-account mapping
+     (دفعة عميل → AR, دفعة مورد → AP) which is exactly what we want. */
+  const _genericSources = [
+    "manual",
+    "hr_other_expense", "hr_other_expense_supplier",
+    "check_collect", "check_pay",
+  ];
   if(tx.sourceType && !_genericSources.includes(tx.sourceType)) return null;
   const amt = _r2(tx.amount);
   if(amt<=0) return null;
@@ -578,7 +590,11 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
   const r = resolveRules(rules);
   const total = _r2(Number(invoice.total)||0);
   if(total <= 0) return null;
-  const ap     = ensureLeaf(coa, "2110", "موردون خامات");
+  /* V21.9.54 (Audit Acct #2): use the configured purchaseInvoice rule's
+     supplierAccount instead of the hardcoded "2110" so that user CoA
+     overrides take effect. Mirrors the pattern in buildPurchaseReturnEntry
+     (line 767) which already uses r.purchaseReturn.supplierAccount. */
+  const ap     = ensureLeaf(coa, r.purchaseInvoice?.supplierAccount || "2110", "موردون خامات");
   const date = invoice.date || new Date().toISOString().split("T")[0];
   const isService = invoice.subtype === "service";
 
@@ -615,14 +631,12 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
     };
   }
 
-  /* Decide which inventory account to use based on item types — bulk by majority */
-  const items = invoice.items || [];
-  const fabricCount    = items.filter(it => it.itemType === "fabric" || it.itemType === "core_fabric").length;
-  const accessoryCount = items.filter(it => it.itemType === "accessory" || it.itemType === "core_accessory").length;
-  /* For mixed receipts, default to materials inventory */
-  const invCode = fabricCount > accessoryCount
-    ? (r.workshopPurchase?.materialsAccount || "1310")
-    : (r.workshopPurchase?.materialsAccount || "1310");
+  /* V21.9.54 (Audit Acct #4): simplified — both branches of the previous
+     fabricCount/accessoryCount conditional returned the same `materialsAccount`,
+     making the conditional dead code. If/when distinct fabric vs accessory
+     inventory accounts are added to the rule schema, this can be expanded.
+     For now: use the configured materials account. */
+  const invCode = r.workshopPurchase?.materialsAccount || "1310";
   const invAcc = ensureLeaf(coa, invCode, "مخزون خامات");
 
   return {
