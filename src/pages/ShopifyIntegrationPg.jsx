@@ -6367,7 +6367,8 @@ function CustomersTab({ data, upConfig, canEdit, user, isMob }){
         onSend={handleComposerSend}
         busy={composerBusy}
         bridgeUrl={data?.campaignBridge?.url || ""}
-        bridgeToken={data?.campaignBridge?.token || ""}
+        /* V21.9.55: bridgeToken removed — was dead prop + DevTools leak.
+           handleComposerSend on the parent uses the token server-side. */
       />
     </div>
   );

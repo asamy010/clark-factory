@@ -269,18 +269,67 @@ export async function buildAudience(cfg, audience){
 }
 
 /* Apply dedup based on previous campaign runs.
-   Returns { fresh: [...], skipped: [...] } */
-export async function dedupAudience(cfg, audience, dedupWindowDays){
+   Returns { fresh: [...], skipped: [...] }
+
+   V21.9.55 (Audit B6) ROOT CAUSE FIX: pre-V21.9.55 this only checked the
+   customer's `last_contacted_at` field, which was set on the CUSTOMER doc
+   only when a WhatsApp button was manually clicked from CustomerPg. The
+   field was NEVER updated by campaign runs themselves — so if you ran
+   the same campaign on day 1 and day 5 (within 7-day dedup window), BOTH
+   runs hit the same recipients. Customer received the same template twice.
+
+   The fix: ALSO check `whatsappCampaignRuns` collection (V21.9.8 split) for
+   runs targeting this customer's phone within the dedup window. If any
+   prior run exists, treat the customer as recently-contacted and skip.
+
+   Cost: one extra Firestore read on the daily-split collection. Acceptable
+   for the campaign-prepare-run flow which is admin-initiated. */
+export async function dedupAudience(cfg, audience, dedupWindowDays, getDb){
   if(!dedupWindowDays || dedupWindowDays <= 0){
     return { fresh: audience, skipped: [] };
   }
   const cutoff = Date.now() - dedupWindowDays * 86400000;
+
+  /* Collect prior campaign-run phone-contacts within window (V21.9.55) */
+  const priorContacts = new Set();
+  if (typeof getDb === "function") {
+    try {
+      const db = getDb();
+      const fromDay = new Date(cutoff).toISOString().slice(0,10);
+      /* Read whatsappCampaignRunsDays for days >= fromDay */
+      const snap = await db.collection("whatsappCampaignRunsDays").get();
+      snap.forEach(daySnap => {
+        const dayId = daySnap.id; /* YYYY-MM-DD */
+        if (dayId < fromDay) return;
+        const data = daySnap.data();
+        const entries = Array.isArray(data?.entries) ? data.entries : [];
+        for (const e of entries) {
+          /* Skip runs that failed (those customers can be re-targeted) */
+          if (e && e.phone && e.status !== "failed" && e.status !== "error") {
+            /* Normalize phone for matching */
+            const digits = String(e.phone).replace(/[^0-9]/g, "");
+            if (digits) priorContacts.add(digits);
+          }
+        }
+      });
+    } catch (e) {
+      console.warn("[V21.9.55] dedupAudience: failed to read whatsappCampaignRunsDays:", e?.message || e);
+      /* Continue with customer.last_contacted_at only — partial dedup is better than none */
+    }
+  }
+
   const fresh = [];
   const skipped = [];
   for(const c of audience){
+    /* Legacy check: customer-level last_contacted_at */
     const lastContact = c.last_contacted_at ? new Date(c.last_contacted_at).getTime() : 0;
-    if(lastContact >= cutoff) skipped.push(c);
-    else fresh.push(c);
+    if (lastContact >= cutoff) { skipped.push(c); continue; }
+
+    /* V21.9.55: also dedup via prior campaign runs to this phone */
+    const cDigits = c.phone ? String(c.phone).replace(/[^0-9]/g, "") : "";
+    if (cDigits && priorContacts.has(cDigits)) { skipped.push(c); continue; }
+
+    fresh.push(c);
   }
   return { fresh, skipped };
 }

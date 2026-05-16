@@ -55,7 +55,10 @@ export default async function handler(req, res){
     let fresh = audience;
     let skipped = [];
     if(campaign.skip_already_contacted){
-      const dedup = await dedupAudience(cfg, audience, campaign.dedup_window_days);
+      /* V21.9.55: pass getDb so dedupAudience can also check whatsappCampaignRuns
+         (not just the customer's last_contacted_at field). Closes the gap where
+         same campaign on day 1 + day 5 hit the same recipients. */
+      const dedup = await dedupAudience(cfg, audience, campaign.dedup_window_days, getDb);
       fresh = dedup.fresh;
       skipped = dedup.skipped.map(c => ({ id: c.id, name: c.name, phone: c.phone, reason: "متواصل قبل كده" }));
     }

@@ -988,6 +988,214 @@ function computeNextFireTime(recurrence, afterIso, occurrenceCount){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   V21.9.55 (Audit B1): Check status-change events backfill scan
+   ───────────────────────────────────────────────────────────────────────
+   Pre-V21.9.55 the 4 events checkCollected / checkBounced / checkEndorsed /
+   checkPaymentIssued were ONLY fired from the client (TreasuryPg.updateStatus,
+   endorseCheck, saveCheck). If the client-side fetch failed (Vercel timeout,
+   network drop, browser closed mid-flight), the event was silently lost —
+   no cron retry path existed.
+
+   This unified scan iterates checks once and fires any missing status-event
+   based on the check's CURRENT state + `statusDate` (when status was last
+   changed). Each fire uses an idempotency key tied to the check id, so
+   re-runs are no-ops. The atomic-claim mechanism in processEvent prevents
+   races with the client-side instant fire.
+
+   Skipped: checkRePresented (status went from مرتد → معلق) requires
+   transition history we don't track server-side. Stays client-only.
+
+   Per-tick limit: 30 checks scanned across all 4 events.
+   ─────────────────────────────────────────────────────────────────────── */
+async function scanCheckStatusEvents(db, cfg, eventTriggers, cairoDate, ordersCache){
+  const out = {
+    checkCollected:     { scanned: 0, fired: 0, skipped: 0 },
+    checkBounced:       { scanned: 0, fired: 0, skipped: 0 },
+    checkEndorsed:      { scanned: 0, fired: 0, skipped: 0 },
+    checkPaymentIssued: { scanned: 0, fired: 0, skipped: 0 },
+  };
+
+  let checks = [];
+  if (cfg._splitDaysV1949Done) {
+    checks = await readSplitCollection("checksDays");
+  } else {
+    checks = Array.isArray(cfg.checks) ? cfg.checks : [];
+  }
+  if (checks.length === 0) return out;
+
+  const customersList = await readPartitionedCollection("customersDocs");
+  const customersById = {};
+  customersList.forEach(c => { if (c && c.id) customersById[c.id] = c; });
+
+  let suppliersList = [];
+  try {
+    suppliersList = await readPartitionedCollection("suppliersDocs");
+  } catch (_) {
+    suppliersList = Array.isArray(cfg.suppliers) ? cfg.suppliers : [];
+  }
+  const suppliersById = {};
+  suppliersList.forEach(s => { if (s && s.id) suppliersById[s.id] = s; });
+
+  const yesterday = new Date(Date.parse(cairoDate) - 86400000).toISOString().slice(0, 10);
+  let processed = 0;
+  const PER_TICK_LIMIT = 30;
+
+  for (const c of checks) {
+    if (!c || !c.id) continue;
+    if (processed >= PER_TICK_LIMIT) break;
+
+    const statusDate = String(c.statusDate || c.date || "").slice(0, 10);
+    if (!statusDate || statusDate < yesterday) continue;
+
+    const customer = (c.type === "receivable" && c.partyId) ? (customersById[c.partyId] || {}) : null;
+    const supplier = (c.type === "payable" && c.partyId) ? (suppliersById[c.partyId] || null) :
+                     (c.endorsedToId ? (suppliersById[c.endorsedToId] || null) : null);
+    const office = customer
+      ? (customer.companyName || customer.company || customer.office || customer.businessName || "")
+      : "";
+    const supplierOffice = supplier
+      ? (supplier.companyName || supplier.company || supplier.office || supplier.businessName || "")
+      : "";
+
+    /* ── checkCollected ── */
+    if (
+      c.type === "receivable" && c.status === "محصل" &&
+      eventTriggers.events?.checkCollected?.enabled
+    ) {
+      out.checkCollected.scanned++;
+      processed++;
+      const ea = await ensureEnabledAt(db, "checkCollected", eventTriggers.events.checkCollected.enabledAt);
+      if (!ea.justSet) {
+        const enabledTs = Date.parse(ea.enabledAt);
+        const ts = entityTs({ ts: c.statusDate, createdAt: c.createdAt });
+        if (ts && ts >= enabledTs) {
+          const r = await processEvent(db, {
+            eventType: "checkCollected",
+            payload: {
+              customerName: customer?.name || c.party || "—",
+              amount: Number(c.amount) || 0,
+              bank: c.bank || "—",
+              checkNo: c.checkNo || c.id,
+              originalDate: c.dueDate || "—",
+              collectedDate: statusDate,
+              office, balance: 0,
+            },
+            customerPhone: customer?.phone || null,
+            idempotencyKey: `checkCollected:${c.id}`, force: false, source: "cron",
+            cfgCache: cfg,
+          });
+          if (r.body?.sent) out.checkCollected.fired++; else out.checkCollected.skipped++;
+        }
+      }
+      continue;
+    }
+
+    /* ── checkBounced ── */
+    if (
+      c.type === "receivable" && c.status === "مرتد" &&
+      eventTriggers.events?.checkBounced?.enabled
+    ) {
+      out.checkBounced.scanned++;
+      processed++;
+      const ea = await ensureEnabledAt(db, "checkBounced", eventTriggers.events.checkBounced.enabledAt);
+      if (!ea.justSet) {
+        const enabledTs = Date.parse(ea.enabledAt);
+        const ts = entityTs({ ts: c.statusDate || c.bouncedAt, createdAt: c.createdAt });
+        if (ts && ts >= enabledTs) {
+          const r = await processEvent(db, {
+            eventType: "checkBounced",
+            payload: {
+              customerName: customer?.name || c.party || "—",
+              amount: Number(c.amount) || 0,
+              bank: c.bank || "—",
+              checkNo: c.checkNo || c.id,
+              dueDate: c.dueDate || "—",
+              bouncedDate: statusDate,
+              office, balance: 0,
+            },
+            customerPhone: customer?.phone || null,
+            idempotencyKey: `checkBounced:${c.id}`, force: false, source: "cron",
+            cfgCache: cfg,
+          });
+          if (r.body?.sent) out.checkBounced.fired++; else out.checkBounced.skipped++;
+        }
+      }
+      continue;
+    }
+
+    /* ── checkEndorsed (uses endorsedToId → supplier) ── */
+    if (
+      c.type === "receivable" && c.status === "مُظهَّر" &&
+      eventTriggers.events?.checkEndorsed?.enabled
+    ) {
+      out.checkEndorsed.scanned++;
+      processed++;
+      const ea = await ensureEnabledAt(db, "checkEndorsed", eventTriggers.events.checkEndorsed.enabledAt);
+      if (!ea.justSet) {
+        const enabledTs = Date.parse(ea.enabledAt);
+        const ts = entityTs({ ts: c.endorsedAt || c.statusDate, createdAt: c.createdAt });
+        if (ts && ts >= enabledTs && supplier?.phone) {
+          const r = await processEvent(db, {
+            eventType: "checkEndorsed",
+            payload: {
+              customerName: customer?.name || c.party || "—",
+              supplierName: supplier?.name || c.endorsedTo || "—",
+              amount: Number(c.amount) || 0,
+              bank: c.bank || "—",
+              checkNo: c.checkNo || c.id,
+              dueDate: c.dueDate || "—",
+              customerOffice: office, office: supplierOffice, balance: 0,
+            },
+            supplierPhone: supplier?.phone,
+            idempotencyKey: `checkEndorsed:${c.id}`, force: false, source: "cron",
+            cfgCache: cfg,
+          });
+          if (r.body?.sent) out.checkEndorsed.fired++; else out.checkEndorsed.skipped++;
+        }
+      }
+      continue;
+    }
+
+    /* ── checkPaymentIssued ── */
+    if (
+      c.type === "payable" && c.status === "معلق" &&
+      eventTriggers.events?.checkPaymentIssued?.enabled
+    ) {
+      out.checkPaymentIssued.scanned++;
+      processed++;
+      const ea = await ensureEnabledAt(db, "checkPaymentIssued", eventTriggers.events.checkPaymentIssued.enabledAt);
+      if (!ea.justSet) {
+        const enabledTs = Date.parse(ea.enabledAt);
+        const ts = entityTs(c);
+        if (ts && ts >= enabledTs && supplier?.phone) {
+          const batchInfo = (c.batchId && c.batchTotal && c.batchTotal > 1)
+            ? `(شيك ${c.batchIdx || "?"} من ${c.batchTotal})` : "";
+          const r = await processEvent(db, {
+            eventType: "checkPaymentIssued",
+            payload: {
+              supplierName: supplier?.name || c.party || "—",
+              amount: Number(c.amount) || 0,
+              bank: c.bank || "—",
+              checkNo: c.checkNo || c.id,
+              dueDate: c.dueDate || "—",
+              batchInfo, office: supplierOffice, balance: 0,
+              date: c.date || statusDate,
+            },
+            supplierPhone: supplier?.phone,
+            idempotencyKey: `checkPaymentIssued:${c.id}`, force: false, source: "cron",
+            cfgCache: cfg,
+          });
+          if (r.body?.sent) out.checkPaymentIssued.fired++; else out.checkPaymentIssued.skipped++;
+        }
+      }
+      continue;
+    }
+  }
+
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    V19.70.4: Scheduled-campaigns scan
    ───────────────────────────────────────────────────────────────────────
    For each `data.scheduledCampaigns[]` entry where:
@@ -1292,12 +1500,23 @@ export default async function handler(req, res) {
     const eventTriggers = (cfg.automation || {}).eventTriggers || {};
     const mode = eventTriggers.mode || "auto";
 
-    /* ── A. Pending drain (auto mode only) ── */
+    /* ── A. Pending drain (auto mode only) ──
+       V21.9.55 (Audit B2 + B9):
+       • B2: move exhausted entries (attempts ≥ MAX_ATTEMPTS) to a FINAL_FAILED
+         state instead of leaving them silently in `pending[]` forever. This
+         keeps the pending queue accurate (only entries with retry potential)
+         and surfaces failures to the UI for manual cleanup/replay.
+       • B9: bumped drain cap from 10 → 30 per tick (5 min cron interval).
+         A queue of 100 entries now drains in ~10 min instead of ~50 min,
+         improving recovery time after a bridge outage. */
+    const MAX_ATTEMPTS = 5;
+    const DRAIN_CAP_PER_TICK = 30;
     if (mode === "auto") {
       const pending = Array.isArray(eventTriggers.pending) ? eventTriggers.pending : [];
-      const drainable = pending.filter(p => (p.attempts || 0) < 5);
+      const drainable = pending.filter(p => (p.attempts || 0) < MAX_ATTEMPTS);
+      const exhausted = pending.filter(p => (p.attempts || 0) >= MAX_ATTEMPTS);
       let drained = 0, drainFailed = 0;
-      for (const p of drainable.slice(0, 10)) {/* cap at 10 per tick */
+      for (const p of drainable.slice(0, DRAIN_CAP_PER_TICK)) {
         try {
           const r = await processEvent(db, {
             eventType: p.eventType,
@@ -1314,8 +1533,42 @@ export default async function handler(req, res) {
           result.errors.push({ type: "pendingDrain", id: p.id, error: e.message });
         }
       }
+      /* V21.9.55 (B2): move exhausted entries to failed queue + remove from pending.
+         The failed queue (`et.failed`) is capped at 200 so it can't grow unbounded.
+         UI can show these to admin for inspection / manual replay / clear. */
+      if (exhausted.length > 0) {
+        try {
+          const ref = db.collection("factory").doc("config");
+          await db.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            const fresh = snap.exists ? snap.data() : {};
+            const fEt = (fresh.automation || {}).eventTriggers || {};
+            const freshPending = Array.isArray(fEt.pending) ? fEt.pending : [];
+            const freshFailed = Array.isArray(fEt.failed) ? fEt.failed : [];
+            const exhaustedIds = new Set(exhausted.map(e => e.idempotencyKey));
+            /* Remove exhausted from pending */
+            const newPending = freshPending.filter(p =>
+              !exhaustedIds.has(p.idempotencyKey) || (p.attempts || 0) < MAX_ATTEMPTS
+            );
+            /* Append exhausted to failed (with timestamp + final state marker) */
+            const movedAt = new Date().toISOString();
+            const newFailedEntries = exhausted.map(e => ({
+              ...e,
+              finalState: "failed-exhausted",
+              movedAt,
+            }));
+            const newFailed = [...newFailedEntries, ...freshFailed].slice(0, 200);
+            const newEt = { ...fEt, pending: newPending, failed: newFailed };
+            const newAuto = { ...(fresh.automation || {}), eventTriggers: newEt };
+            tx.set(ref, { automation: newAuto }, { merge: true });
+          });
+          result.actions.push({ type: "exhaustedMoved", count: exhausted.length });
+        } catch (mvErr) {
+          console.warn("[V21.9.55] failed to move exhausted entries:", mvErr?.message || mvErr);
+        }
+      }
       if (drainable.length > 0) {
-        result.actions.push({ type: "pendingDrain", attempted: drainable.length, drained, failed: drainFailed });
+        result.actions.push({ type: "pendingDrain", attempted: drainable.length, drained, failed: drainFailed, cap: DRAIN_CAP_PER_TICK });
       }
     }
 
@@ -1384,6 +1637,30 @@ export default async function handler(req, res) {
       } catch (e) { result.errors.push({ type: "checkDue", error: e.message }); }
     }
 
+    /* ── E2. V21.9.55 (Audit B1): Check status-change events backfill ──
+       Fires checkCollected / checkBounced / checkEndorsed / checkPaymentIssued
+       for any check whose CURRENT status matches and whose statusDate is recent
+       (within 24h). Closes the gap where the client-side instant fire failed
+       and no retry path existed. */
+    const _anyCheckStatusEnabled = !!(
+      eventTriggers.events?.checkCollected?.enabled ||
+      eventTriggers.events?.checkBounced?.enabled ||
+      eventTriggers.events?.checkEndorsed?.enabled ||
+      eventTriggers.events?.checkPaymentIssued?.enabled
+    );
+    if (_anyCheckStatusEnabled) {
+      try {
+        const r = await scanCheckStatusEvents(db, cfg, eventTriggers, cairo.date, ordersCache);
+        const totalScanned = (r.checkCollected.scanned||0) + (r.checkBounced.scanned||0)
+                           + (r.checkEndorsed.scanned||0) + (r.checkPaymentIssued.scanned||0);
+        const totalFired   = (r.checkCollected.fired||0)   + (r.checkBounced.fired||0)
+                           + (r.checkEndorsed.fired||0)   + (r.checkPaymentIssued.fired||0);
+        if (totalScanned > 0 || totalFired > 0) {
+          result.actions.push({ type: "checkStatusEvents", ...r, totalScanned, totalFired });
+        }
+      } catch (e) { result.errors.push({ type: "checkStatusEvents", error: e.message }); }
+    }
+
     /* ── F. V19.70.4: Scheduled campaigns scan (run one due campaign per tick) ── */
     if (Array.isArray(cfg.scheduledCampaigns) && cfg.scheduledCampaigns.length > 0) {
       try {
@@ -1392,6 +1669,74 @@ export default async function handler(req, res) {
           result.actions.push({ type: "scheduledCampaign", ...r });
         }
       } catch (e) { result.errors.push({ type: "scheduledCampaign", error: e.message }); }
+    }
+
+    /* ── G. V21.9.55 (Audit B3): Bridge heartbeat ──
+       Ping the bridge /status endpoint each tick and persist the result to
+       factory/config.bridgeHeartbeat. This catches the "silent bridge death"
+       scenario: bridge crashes mid-operation, the client thinks sends are
+       working (because they're queueing in the local app), but actually
+       nothing's being delivered.
+
+       The persisted state:
+         { lastPingAt, lastStatus: "ok"|"error", lastError, consecutiveFailures }
+
+       UI can read this to show a "bridge offline" banner when consecutiveFailures
+       crosses a threshold (e.g., ≥ 2 ticks = 10 min of being down).
+
+       Cost: 1 HTTP call (~500ms typical, 5s timeout) per 5-min tick. Negligible.
+       Skipped if campaignBridge.url not configured (no bridge installed). */
+    const bridgeUrl = (cfg.campaignBridge || {}).url || "";
+    const bridgeToken = (cfg.campaignBridge || {}).token || "";
+    if (bridgeUrl) {
+      const pingStart = Date.now();
+      let pingResult = null;
+      let pingError = null;
+      try {
+        const ctrl = new AbortController();
+        const timeoutId = setTimeout(() => ctrl.abort(), 5000);
+        try {
+          const r = await fetch(String(bridgeUrl).replace(/\/+$/, "") + "/status", {
+            method: "GET",
+            headers: bridgeToken ? { "Authorization": "Bearer " + bridgeToken } : {},
+            signal: ctrl.signal,
+          });
+          clearTimeout(timeoutId);
+          if (r.ok) {
+            pingResult = await r.json().catch(() => ({}));
+          } else {
+            pingError = "HTTP " + r.status;
+          }
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      } catch (e) {
+        pingError = e?.name === "AbortError"
+          ? "timeout-5s"
+          : (e?.message || String(e)).slice(0, 100);
+      }
+      const pingDuration = Date.now() - pingStart;
+      const okState = !pingError && pingResult;
+      /* Persist to factory/config.bridgeHeartbeat */
+      try {
+        const cfgRef = db.collection("factory").doc("config");
+        const prevHb = (cfg.bridgeHeartbeat || {});
+        const newConsecutiveFailures = okState ? 0 : ((prevHb.consecutiveFailures || 0) + 1);
+        const newHb = {
+          lastPingAt: new Date().toISOString(),
+          lastStatus: okState ? "ok" : "error",
+          lastError: okState ? null : pingError,
+          lastWaReady: okState ? !!pingResult.waReady : (prevHb.lastWaReady ?? null),
+          lastQueueSize: okState ? (pingResult.queue || pingResult.queueSize || 0) : (prevHb.lastQueueSize ?? null),
+          lastQueuePaused: okState ? !!pingResult.queuePaused : (prevHb.lastQueuePaused ?? null),
+          lastPingDurationMs: pingDuration,
+          consecutiveFailures: newConsecutiveFailures,
+        };
+        await cfgRef.set({ bridgeHeartbeat: newHb }, { merge: true });
+        result.actions.push({ type: "bridgeHeartbeat", state: okState ? "ok" : "error", consecutiveFailures: newConsecutiveFailures, durationMs: pingDuration });
+      } catch (hbErr) {
+        result.errors.push({ type: "bridgeHeartbeat", error: hbErr?.message || String(hbErr) });
+      }
     }
 
     return res.status(200).json(result);

@@ -251,7 +251,37 @@ export function buildEventMessages(eventType, eventCfg, payload, phones, recipie
     }
   }
 
-  return messages;
+  /* V21.9.55 (Audit B7): server-side enforcement of WhatsApp's 4096 char limit.
+     The composer enforces this client-side, but server-side path was unguarded —
+     long template substitutions (e.g., a customer with very long {balance} or
+     concatenated {customerName} via partyName) could blow past 4096, and the
+     bridge would either truncate mid-message or reject. We truncate at 4093
+     and append "…" so the message is at least delivered with an indicator. */
+  const WA_MAX_CHARS = 4096;
+  for (const m of messages) {
+    if (m.message && m.message.length > WA_MAX_CHARS) {
+      const truncatedAt = m.message.length;
+      m.message = m.message.slice(0, WA_MAX_CHARS - 1) + "…";
+      m._truncated = { original: truncatedAt, final: m.message.length };
+    }
+  }
+
+  /* V21.9.55 (Audit B8): dedup messages targeting the same phone.
+     Pre-V21.9.55 if a phone appeared twice in ownerPhones (admin error),
+     OR if salesperson phone == owner phone, the customer received the
+     same message twice. Keep the FIRST occurrence (priority: customer →
+     supplier → owner → salesperson order). */
+  const seenPhones = new Set();
+  const dedupedMessages = [];
+  for (const m of messages) {
+    if (!m.phone) continue;
+    const phoneKey = String(m.phone).replace(/[^0-9]/g, ""); /* canonical for dedup */
+    if (seenPhones.has(phoneKey)) continue;
+    seenPhones.add(phoneKey);
+    dedupedMessages.push(m);
+  }
+
+  return dedupedMessages;
 }
 
 /* ── Validate a payload has required fields for the event type ──

@@ -293,9 +293,23 @@ export function isAlreadyFired(et, idempotencyKey){
   return hist.some(h => h.idempotencyKey === idempotencyKey && h.success);
 }
 
-/* ─── Resolve owner phones ─── */
+/* ─── Resolve owner phones ───
+   V21.9.55 (Audit B8): dedupe by canonical digits-only form. If admin enters
+   the same number twice (e.g., once with country code, once without), we
+   normalize first then dedupe so the owner receives ONE message instead of N.
+   Empty/whitespace entries dropped. */
 export function resolveOwnerPhones(et){
-  return (et?.ownerPhones || []).filter(p => typeof p === "string" && p.trim());
+  const raw = (et?.ownerPhones || []).filter(p => typeof p === "string" && p.trim());
+  const seen = new Set();
+  const out = [];
+  for (const phone of raw) {
+    const digits = phone.replace(/[^0-9]/g, "");
+    if (!digits) continue;
+    if (seen.has(digits)) continue;
+    seen.add(digits);
+    out.push(phone); /* keep original format (with + etc.) for the bridge */
+  }
+  return out;
 }
 
 /* ═══ MAIN: process one event ═══════════════════════════════════════════

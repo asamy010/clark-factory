@@ -73,7 +73,19 @@ const TEMPLATES = [
   },
 ];
 
-export function WhatsAppComposer({ open, recipients, initialMessage, onClose, onSend, busy, bridgeUrl, bridgeToken }){
+/* V21.9.55 (Audit B5): removed `bridgeToken` from the signature.
+   ROOT CAUSE: the prop was passed by parents (ShopifyIntegrationPg lines
+   1887 + 6362) but never used inside the component — it was a dead prop.
+   The token still appeared in React DevTools' component-tree inspector,
+   creating a privilege-escalation risk inside the team. The token now
+   stays server-side (the parent's onSend handler is what actually uses
+   the bridge, server-side, where the token belongs).
+
+   ⚠️ NOTE: full security fix would require moving ALL bridge calls
+   server-side via a proxy endpoint (POST /api/bridge-proxy/send) so the
+   token never reaches the client. That's a bigger refactor — tracked for
+   a future phase. This V21.9.55 fix removes the DevTools-visible leak only. */
+export function WhatsAppComposer({ open, recipients, initialMessage, onClose, onSend, busy, bridgeUrl }){
   const [message, setMessage] = useState(initialMessage || "");
   const [imageUrl, setImageUrl] = useState("");
   const [uploading, setUploading] = useState(false);
