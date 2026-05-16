@@ -11,15 +11,56 @@
 
 import { buildEventMessages, validateEventPayload, EVENT_VARIABLES } from "./_eventBuilder.js";
 
-/* ─── Bridge call ─── */
+/* ─── Bridge call ───
+   V21.9.41 ROOT CAUSE FIX: pre-V21.9.41 this fetch had NO timeout. If the bridge
+   hangs > Vercel's function limit (~10s hobby / 60s pro), Vercel KILLS the
+   serverless function BEFORE the success-side recordResult() runs at line 369.
+   Result: eventHistory entry stuck on { inFlight:true, success:false } even
+   though the bridge actually delivered the message. After INFLIGHT_LOCK_MS
+   the cron tick reclaims the "stale" lock and fires AGAIN → customer gets
+   TWO identical WhatsApp messages on the same phone.
+
+   Fix: AbortController with 8s timeout — comfortably under Vercel's 10s hobby
+   limit. If the bridge is slow/dead, we abort cleanly, bridgeSend throws,
+   the try/catch at line 350 runs recordResult({success:false}), and the
+   atomic claim record gets a FINAL state instead of orphaned inFlight.
+   The atomic claim's idempotencyKey is preserved, so the cron retry that
+   follows will see the failed-recorded entry, requeue via queuePending,
+   and the message will fire exactly once on next bridge availability.
+
+   Anti-pattern: external HTTP calls inside serverless functions WITHOUT
+   an explicit timeout < function-kill timeout. Always set AbortController. */
+const BRIDGE_SEND_TIMEOUT_MS = 8_000;
+
 export async function bridgeSend(bridgeUrl, bridgeToken, messages){
   const url = String(bridgeUrl || "").replace(/\/+$/, "") + "/send";
   const headers = { "Content-Type": "application/json" };
   if (bridgeToken) headers["Authorization"] = "Bearer " + bridgeToken;
-  const r = await fetch(url, { method: "POST", headers, body: JSON.stringify({ messages }) });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
-  return data;
+  /* V21.9.41: AbortController so the fetch can't outlive Vercel's function
+     timeout — without this, recordResult would be skipped and the cron
+     would later reclaim the stale inFlight lock and double-fire. */
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), BRIDGE_SEND_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ messages }),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  } catch (e) {
+    /* V21.9.41: surface AbortError as a meaningful Arabic message so the
+       Vercel log + eventHistory entry says exactly what happened. */
+    if (e?.name === "AbortError") {
+      throw new Error("Bridge timeout بعد " + (BRIDGE_SEND_TIMEOUT_MS/1000) + "s");
+    }
+    throw e;
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 /* ─── Compact summary for history view ─── */
@@ -34,20 +75,50 @@ export function summarizePayload(eventType, p){
   return "";
 }
 
-/* ─── V19.76.3: Stale in-flight claim timeout (ms) ───
+/* ─── V19.76.3 → V21.9.41: Stale in-flight claim timeout (ms) ───
    If a claim is older than this and never reached recordResult (e.g. serverless
-   instance crashed mid-bridge), the next caller can reclaim it. Bridge typing
-   delay is at most 25s for /send, so 60s is comfortably above the worst case. */
-const INFLIGHT_LOCK_MS = 60_000;
+   instance crashed mid-bridge), the next caller can reclaim it.
 
-/* ─── V19.76.8: Content-based dedupe window ───
+   V21.9.41 ROOT CAUSE FIX: pre-V21.9.41 this was 60s. The Vercel cron
+   `automation-tick` runs every 5 minutes. If recordResult got skipped (Vercel
+   function killed mid-bridgeSend, network drop between fetch return + Firestore
+   write, etc.), the eventHistory entry remained `inFlight:true` indefinitely.
+   At T+60s the lock expired; at T+5min the cron reclaimed and re-fired the
+   bridge → customer received TWO identical messages.
+
+   Fix: bump to 5 minutes — strictly longer than the cron interval + buffer for
+   bridge worst case (typing simulation up to 25s × N messages). Combined with
+   the V21.9.41 bridgeSend AbortController above, recordResult is now guaranteed
+   to run within 8s of the bridge call (success or abort), so this generous
+   lock window is purely defensive.
+
+   ⚠️ NEVER set this BELOW the cron interval — it re-opens the race that
+   V19.76.3 was designed to close.
+
+   Anti-pattern: stale-claim timeout < async retry interval (cron tick). */
+const INFLIGHT_LOCK_MS = 300_000;
+
+/* ─── V19.76.8 → V21.9.41: Content-based dedupe window ───
    Last-resort safety net for duplicate WhatsApp messages. If the SAME content
    (eventType + recipient phone + payloadSummary) was claimed/fired within this
-   window — even with a different idempotencyKey — refuse. This catches cases
-   where two custPayments end up with different IDs but the same content
-   (e.g. a sync race that double-records, or an edit that fires anew within
-   seconds), something the per-key idempotency check misses. */
-const CONTENT_DEDUPE_MS = 30_000;
+   window — even with a different idempotencyKey — refuse.
+
+   V21.9.41: bumped 30s → 15min. Reason: the original 30s window was tuned for
+   the race between client instant fire + cron tick happening near-simultaneously.
+   But the real-world race we saw was: instant fire succeeded at T=0, recordResult
+   skipped (Vercel kill), cron retries at T=300s with a NEW idempotencyKey (when
+   the user edited then re-saved the payment, OR when the cron rescanned the
+   day-split doc which gets the payment-doc rewritten on every cust_payment edit).
+   30s was useless against that timing. 15min comfortably beats every cron tick
+   and any reasonable edit-then-resave cadence.
+
+   Tradeoff: legitimate sequential events to the same customer (e.g., 2 different
+   payments within 15min) MIGHT collide on contentSig if amounts + balance happen
+   to match the prior payload's summarizePayload exactly. summarizePayload for
+   paymentReceived is `${customerName} • ${amount}` — same customer + same amount
+   in 15min would collide. We accept this — the user can use `force:true` to
+   bypass for legitimate identical re-fires (rare). */
+const CONTENT_DEDUPE_MS = 900_000;
 
 /* ─── Append OR update existing eventHistory entry + maintain pending queue ───
    V19.76.3: now updates the in-flight entry written by claimEvent (instead of
@@ -345,39 +416,76 @@ export async function processEvent(db, params){
   }
   console.log("[event-trigger] FIRING bridge", { eventType, idempotencyKey, source, recipientCount: messages.length });
 
-  /* Fire */
-  let bridgeResult;
+  /* V21.9.41: track whether recordResult got committed. If we exit this function
+     WITHOUT calling it, the eventHistory entry stays { inFlight:true } forever
+     and the cron tick will reclaim it after INFLIGHT_LOCK_MS → duplicate WA send.
+     The finally block below uses this flag to fire a last-ditch failure record.
+     Anti-pattern: claim-then-fire without guaranteed result write closes the
+     happy path but leaves orphans on crash. ALWAYS finalize the claim. */
+  let _recordCommitted = false;
+  let _bridgeResult;
+  let _bridgeError = null;
+
   try {
-    bridgeResult = await bridgeSend(bridgeUrl, bridgeToken,
-      messages.map(m => ({ phone: m.phone, message: m.message })));
-  } catch (e) {
-    await queuePending(db, {
-      id: "p_" + Date.now().toString(36),
-      idempotencyKey, eventType, payload, customerPhone,
-      createdAt: new Date().toISOString(),
-      attempts: 1,
-      lastError: e.message,
-    });
+    /* Fire */
+    try {
+      _bridgeResult = await bridgeSend(bridgeUrl, bridgeToken,
+        messages.map(m => ({ phone: m.phone, message: m.message })));
+    } catch (e) {
+      _bridgeError = e;
+      await queuePending(db, {
+        id: "p_" + Date.now().toString(36),
+        idempotencyKey, eventType, payload, customerPhone,
+        createdAt: new Date().toISOString(),
+        attempts: 1,
+        lastError: e.message,
+      });
+      await recordResult(db, {
+        idempotencyKey, eventType, payload,
+        success: false, error: e.message, source: source || "unknown",
+      });
+      _recordCommitted = true;
+      return { ok: false, status: 502, body: { ok: false, error: "bridge: " + e.message, queued: true } };
+    }
+
+    /* Success */
     await recordResult(db, {
       idempotencyKey, eventType, payload,
-      success: false, error: e.message, source: source || "unknown",
+      success: true, recipientCount: messages.length, source: source || "unknown",
     });
-    return { ok: false, status: 502, body: { ok: false, error: "bridge: " + e.message, queued: true } };
-  }
+    _recordCommitted = true;
 
-  /* Success */
-  await recordResult(db, {
-    idempotencyKey, eventType, payload,
-    success: true, recipientCount: messages.length, source: source || "unknown",
-  });
-
-  return {
-    ok: true,
-    status: 200,
-    body: {
+    return {
       ok: true,
-      sent: messages.length,
-      accepted: bridgeResult?.queued || bridgeResult?.accepted || messages.length,
-    },
-  };
+      status: 200,
+      body: {
+        ok: true,
+        sent: messages.length,
+        accepted: _bridgeResult?.queued || _bridgeResult?.accepted || messages.length,
+      },
+    };
+  } finally {
+    /* V21.9.41 SAFETY NET: if we're exiting without a committed result (Firestore
+       transaction conflict on recordResult, an unexpected throw inside the success
+       path, etc.), do a best-effort failure record so the inFlight lock has SOME
+       final state. The bridge may have delivered — we record failure to be safe;
+       the user can see the entry in eventHistory and decide whether to resend.
+       Without this, the cron would reclaim and re-fire 5 minutes later. */
+    if (!_recordCommitted) {
+      try {
+        await recordResult(db, {
+          idempotencyKey, eventType, payload,
+          success: false,
+          error: "unrecorded: " + (_bridgeError?.message || "result-write-failed"),
+          source: (source || "unknown") + "-finally",
+        });
+        console.warn("[event-trigger] FINALLY recordResult (last-ditch)", { idempotencyKey, eventType });
+      } catch (recErr) {
+        /* If even the finally recordResult fails, log loudly — the inFlight lock
+           will eventually expire after INFLIGHT_LOCK_MS (5 min). The cron retry
+           will then surface as "DEDUPED: in-flight" until then. */
+        console.error("[event-trigger] FINALLY recordResult also failed:", recErr?.message || recErr);
+      }
+    }
+  }
 }

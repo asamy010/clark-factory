@@ -146,47 +146,116 @@ export default async function handler(req, res){
     });
   }
 
-  /* Per-array breakdown — figure out which arrays are biggest */
-  const arrayKeys = [
-    { key: "orders",                 label: "أوامر القص (orders)" },
-    { key: "shopifyPendingOrders",   label: "طلبات Shopify (pending)" },
-    { key: "shopifyProducts",        label: "منتجات Shopify" },
-    { key: "shopifyCustomers",       label: "عملاء Shopify" },
-    { key: "shopifyAbandonedCarts",  label: "Carts متروكة" },
-    { key: "shopifyDiscounts",       label: "أكواد خصم" },
-    { key: "shopifyInvoices",        label: "فواتير Shopify" },
-    { key: "shopifyReturns",         label: "مرتجعات" },
-    { key: "stockReservations",      label: "حجوزات مخزون" },
-    { key: "inventoryItems",         label: "مخزون CLARK" },
-    { key: "fabrics",                label: "خامات" },
-    { key: "rolls",                  label: "رولات" },
-    { key: "movements",              label: "حركات" },
-    { key: "purchases",              label: "مشتريات" },
-    { key: "bostaIntegrationLogs",   label: "logs Bosta" },
-    { key: "shopifyIntegrationLogs", label: "logs Shopify" },
-  ];
-  for(const a of arrayKeys){
-    const v = cfg[a.key];
+  /* ─── V21.9.42: per-array breakdown — enumerate ALL arrays in cfg, not
+     a hardcoded list. Pre-V21.9.42 this was 16 hardcoded keys, which meant
+     any non-listed field that grew (treasury legacy, custPayments legacy,
+     auditLog before split, etc.) was invisible to the user even when it
+     was the root cause of the 1MB error.
+
+     ROOT CAUSE: the V21.9.41 debugging session for "محاسب الخزنة...رفض
+     يسجل" traced the bloat to `cfg.orders[]` — which WAS in the hardcoded
+     list — but the surface had no way to flag IT specifically as legacy
+     (vs. an actively-used array). The fix below also tags arrays as
+     "legacy" if the data SHOULD live elsewhere (e.g., orders should be
+     in seasons/{season}/orders/).
+
+     Anti-pattern: diagnostics hardcoded to a small set of fields.
+     Always enumerate Object.keys to surface unknown growth. */
+  /* Human-readable labels for known fields; unknown fields fall back to the key name. */
+  const KNOWN_LABELS = {
+    orders:                "أوامر القص (orders) — ⚠️ Legacy (المفروض في seasons/.../orders)",
+    shopifyPendingOrders:  "طلبات Shopify (pending)",
+    shopifyProducts:       "منتجات Shopify — ⚠️ Legacy (المفروض في shopifyProductsDocs)",
+    shopifyCustomers:      "عملاء Shopify — ⚠️ Legacy (المفروض في shopifyCustomersDocs)",
+    shopifyAbandonedCarts: "Carts متروكة",
+    shopifyDiscounts:      "أكواد خصم",
+    shopifyInvoices:       "فواتير Shopify",
+    shopifyReturns:        "مرتجعات Shopify",
+    stockReservations:     "حجوزات مخزون",
+    inventoryItems:        "مخزون CLARK",
+    fabrics:               "خامات",
+    accessories:           "إكسسوارات",
+    rolls:                 "رولات",
+    movements:             "حركات (legacy)",
+    purchases:             "مشتريات",
+    bostaIntegrationLogs:  "logs Bosta",
+    shopifyIntegrationLogs:"logs Shopify",
+    customers:             "عملاء CLARK — ⚠️ Legacy (المفروض في customersDocs)",
+    suppliers:             "موردين — ⚠️ Legacy (المفروض في suppliersDocs)",
+    workshops:             "ورش — ⚠️ Legacy (المفروض في workshopsDocs)",
+    employees:             "موظفين — ⚠️ Legacy (المفروض في employeesDocs)",
+    treasury:              "خزنة — ⚠️ Legacy (المفروض في treasuryDays/)",
+    auditLog:              "سجل أحداث — ⚠️ Legacy (المفروض في auditDays/)",
+    hrLog:                 "سجل HR — ⚠️ Legacy (المفروض في hrLogDays/)",
+    custPayments:          "دفعات عملاء — ⚠️ Legacy (المفروض في custPaymentsDays/)",
+    supplierPayments:      "دفعات موردين — ⚠️ Legacy (المفروض في supplierPaymentsDays/)",
+    wsPayments:            "دفعات ورش — ⚠️ Legacy (المفروض في wsPaymentsDays/)",
+    checks:                "شيكات — ⚠️ Legacy (المفروض في checksDays/)",
+    salesInvoices:         "فواتير مبيعات — ⚠️ Legacy (المفروض في salesInvoicesDays/)",
+    purchaseInvoices:      "فواتير مشتريات — ⚠️ Legacy (المفروض في purchaseInvoicesDays/)",
+    salesCreditNotes:      "إشعارات دائنة — ⚠️ Legacy (المفروض في salesCreditNotesDays/)",
+    purchaseDebitNotes:    "إشعارات مدينة — ⚠️ Legacy (المفروض في purchaseDebitNotesDays/)",
+    notifications:         "إشعارات — ⚠️ Legacy (المفروض في notificationsDays/)",
+  };
+  /* Skip fields that are NOT data arrays (config blocks, flags, settings).
+     These have legitimate reasons to be in factory/config and we don't want
+     to scare the user about them. */
+  const SKIP_FIELDS = new Set([
+    /* permission / role config */
+    "permissions", "roles", "users",
+    /* automation config */
+    "automation", "campaignBridge", "bridgeStatus",
+    /* shopify/bosta/judgeme connection config */
+    "shopifyConfig", "bostaConfig", "judgemeConfig", "shippingProviders",
+    /* misc settings (not arrays of growing data) */
+    "factoryName", "logo", "activeSeason", "themeMode",
+    "printTemplates", "accountingSettings", "coa",
+    /* counters + flags */
+    "invoiceCounters", "creditNoteCounters", "debitNoteCounters",
+  ]);
+  for(const key of Object.keys(cfg)){
+    const v = cfg[key];
     if(!Array.isArray(v)) continue;
+    if(key.startsWith("_")) continue;        /* internal flags / tombstones */
+    if(SKIP_FIELDS.has(key)) continue;
     const bytes = approxBytes(v);
+    if(bytes < 1024 && v.length < 10) continue;  /* trivial arrays — skip */
     const pctOfDoc = docBytes > 0 ? (bytes / docBytes) * 100 : 0;
     const pctOfMax = (bytes / FIRESTORE_DOC_HARD_CAP) * 100;
     const sev = severityOfPct(pctOfMax * 1.5); /* arrays should stay <30% of cap */
+    const label = KNOWN_LABELS[key] || key;
+    const isLegacy = /Legacy/.test(label);
     report.storage.arrays.push({
-      name: a.key,
-      label: a.label,
+      name: key,
+      label,
       count: v.length,
       est_bytes: bytes,
       pct_of_doc: Math.round(pctOfDoc * 10) / 10,
       pct_of_max: Math.round(pctOfMax * 10) / 10,
       severity: sev,
+      legacy: isLegacy,
     });
     if(sev === "error" || sev === "critical"){
       report.critical.push({
         kind: "array_too_large",
-        message: `مصفوفة ${a.label} (${v.length} عنصر, ${(bytes/1024).toFixed(0)} KB) قاربت تتعدى الحد — تحتاج split-collection storage`,
+        message: `مصفوفة ${label} (${v.length} عنصر, ${(bytes/1024).toFixed(0)} KB) قاربت تتعدى الحد — تحتاج split-collection storage`,
         severity: sev,
-        array: a.key,
+        array: key,
+        legacy: isLegacy,
+      });
+    }
+    /* V21.9.42: special call-out for `orders` — even if it's "small" by
+       byte count, ANY entries here are a 1MB risk because every upConfig
+       rewrites the doc with them included. Surface even at low severity. */
+    if(key === "orders" && v.length > 0 && !cfg._legacyOrdersMigratedV2110){
+      report.critical.push({
+        kind: "legacy_orders_present",
+        message: `factory/config.orders فيها ${v.length} طلب (${(bytes/1024).toFixed(0)} KB) — لازم تتنقل لـ seasons/${cfg.activeSeason||"WS26"}/orders/. شغّل migration legacy-orders.`,
+        severity: bytes > 200_000 ? "critical" : "warn",
+        array: "orders",
+        legacy: true,
+        action: "/api/maintenance/migrate-legacy-orders",
+        kb: Math.round(bytes / 1024),
       });
     }
   }

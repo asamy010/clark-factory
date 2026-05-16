@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -36,6 +36,9 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const [ordersResult, setOrdersResult] = useState(null);
   const [dedupeBusy, setDedupeBusy] = useState(false);
   const [dedupeResult, setDedupeResult] = useState(null);
+  /* V21.9.42: legacy orders migration (factory/config.orders → seasons/.../orders) */
+  const [legacyOrdersBusy, setLegacyOrdersBusy] = useState(false);
+  const [legacyOrdersResult, setLegacyOrdersResult] = useState(null);
   /* V21.9.23: Firestore rules deployment test — detects "rules not published"
      bug where partitioned collections (customersDocs / productsDocs / etc.)
      get permission-denied on the client even though they exist on server. */
@@ -225,6 +228,63 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
     finally { setDedupeBusy(false); }
   };
 
+  /* V21.9.42: Legacy orders migration handler.
+     Moves cfg.orders[] → seasons/{season}/orders/{docId} subcollection.
+     ALWAYS dry-run first → present summary → confirm → real run.
+     Anti-pattern: destructive migration without dry-run confirmation. */
+  const runLegacyOrdersMigration = async () => {
+    if(!canEdit) return;
+    setLegacyOrdersBusy(true);
+    try {
+      const dry = await migrateLegacyOrders({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      if(dry.orders_count === 0){
+        showToast("✨ مفيش legacy orders — كله مهاجر بالفعل");
+        setLegacyOrdersResult({ ok: true, dryRun: true, orders_count: 0 });
+        return;
+      }
+      const yes = await ask(
+        "📦 نقل الـ Legacy Orders — حل لمشكلة 'الملف ١ ميجا'",
+        `هـ يتـ نقل ${dry.orders_count} طلب من factory/config.orders[] إلى الـ subcollection seasons/.../orders/{id}.\n\n` +
+        `📊 الـ Stats:\n` +
+        `• حجم factory/config الحالي: ${dry.before_kb} KB\n` +
+        `• حجم الـ orders array: ${dry.orders_kb} KB\n` +
+        `• الـ active season: ${dry.active_season}\n\n` +
+        `🔍 Sample analysis (${dry.sample_size} من ${dry.orders_count}):\n` +
+        `• جديد للـ subcollection: ~${dry.sample_estimated_new}\n` +
+        `• موجود بالفعل (يـ skip): ~${dry.sample_estimated_already_in_subcol}\n` +
+        `• بدون season/id (يـ generate id): ~${dry.sample_seasonless_or_idless}\n\n` +
+        `💾 بعد الـ migration: ~${dry.after_kb_estimate} KB ← هـ نوفّر ${dry.will_free_kb} KB\n\n` +
+        `✅ آمن جداً:\n` +
+        `• Backup كامل للـ orders array قبل الـ migration\n` +
+        `• Idempotent — لو ran مرة تاني يـ skip اللي اتـ migrate-ـت\n` +
+        `• الـ orders الموجودة في الـ subcollection بـ updatedAt أحدث ما تتـ overwrite-ـش\n` +
+        `• لو فيه أي failure، flag الـ migration مش بـ يتسطّ + cfg.orders بـ يفضل كما هو\n\n` +
+        `هذا الإجراء هو الحل لرسالة "حجم البيانات تجاوز الحد" اللي بـ تظهر للمحاسب. تأكيد؟`
+      );
+      if(!yes) return;
+      const r = await migrateLegacyOrders({ dryRun: false }, user);
+      setLegacyOrdersResult(r);
+      if(r?.ok){
+        if(r.skipped){
+          showToast("ℹ️ الـ migration مطبّق بالفعل");
+        } else {
+          showToast(`✅ تم! 📦 ${r.orders_migrated} طلب · 🔁 ${r.orders_skipped_existing} موجود بالفعل · وفّرنا ${r.freed_kb} KB`);
+          setTimeout(() => runCheck(), 1500);
+        }
+      } else if(r?.partial){
+        /* Migration had failures — flag NOT set, cfg.orders preserved. */
+        showToast(`⚠️ ${r.message || "migration partial — راجع الـ logs"}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setLegacyOrdersBusy(false); }
+  };
+
   const docPct = report?.storage?.config_doc_pct_of_max || 0;
   const splitDone = !!data?._partitionedV2192Done;
   const showSplitWarning = docPct >= 50 && !splitDone;
@@ -233,6 +293,19 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
   const ordersSplitDone = !!data?._splitDaysV2199Done;
   const pendingOrdersArrSize = (report?.storage?.arrays || []).find(a => a.name === "shopifyPendingOrders");
   const showOrdersForceButton = pendingOrdersArrSize && pendingOrdersArrSize.count > 0;
+  /* V21.9.42: detect legacy orders that need migration to seasons/.../orders subcollection.
+     ROOT CAUSE: pre-V18.60 installs have cfg.orders[] still populated. Every upConfig
+     rewrites the doc with this array → factory/config bloats to 1MB → writes fail with
+     "حجم البيانات تجاوز الحد". This was the user-reported "محاسب الخزنة رفض يسجل" bug.
+     Show banner if EITHER:
+       1. Migration flag not set AND cfg.orders has entries
+       2. Diagnostics report flagged it explicitly */
+  const legacyOrdersMigrated = !!data?._legacyOrdersMigratedV2110;
+  const legacyOrdersArrSize = (report?.storage?.arrays || []).find(a => a.name === "orders");
+  const reportFlaggedLegacyOrders = (report?.critical || []).some(c => c?.kind === "legacy_orders_present");
+  const showLegacyOrdersButton = !legacyOrdersMigrated && (
+    (legacyOrdersArrSize && legacyOrdersArrSize.count > 0) || reportFlaggedLegacyOrders
+  );
 
   /* V21.9.23: Test Firestore rules deployment by attempting to read 1 doc
      from each critical collection. The server (admin SDK) bypasses rules so
@@ -1709,6 +1782,67 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
                 <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
                   Backup: <code>{ordersResult.backup_doc_id}</code>
                 </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.42: Legacy Orders Migration banner — HIGHEST PRIORITY when active.
+          This addresses the user-reported "factory/config = 1MB → writes fail" bug.
+          Show whenever the legacy array still has entries (regardless of doc%) so
+          users can proactively migrate before hitting the wall. */}
+      {(showLegacyOrdersButton || legacyOrdersResult?.ok) && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: legacyOrdersResult?.ok ? T.ok + "10" : "#DC2626" + "12",
+          border: "1.5px solid " + (legacyOrdersResult?.ok ? T.ok : "#DC2626") + "60",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, color: legacyOrdersResult?.ok ? T.ok : "#DC2626", fontSize: FS }}>
+                {legacyOrdersResult?.ok
+                  ? "✅ تم نقل الـ Legacy Orders"
+                  : "🚨 Legacy Orders في factory/config — السبب الجذري لمشكلة 'الملف ١ ميجا'"}
+              </div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                {legacyOrdersResult?.ok
+                  ? `الطلبات اتنقلوا لـ seasons/{season}/orders/{id} subcollection. الـ factory/config ما هـ يضرب الـ 1MB تاني بسبب الـ orders.`
+                  : `الـ array \`factory/config.orders\` فيه ${legacyOrdersArrSize?.count || "؟"} طلب (${legacyOrdersArrSize ? Math.round(legacyOrdersArrSize.est_bytes / 1024) : "؟"} KB). الـ orders المفروض تعيش في \`seasons/{season}/orders/{id}\` subcollection منذ V18.60، لكن الـ array الـ legacy لسه موجود وبـ يكبر مع كل save. هذا هو السبب اللي بـ يخلي محاسب الخزنة بـ يـ get "حجم البيانات تجاوز الحد". اضغط الزر لتشغيل الـ migration (آمن + dry-run + backup كامل + idempotent).`}
+              </div>
+            </div>
+            {!legacyOrdersResult?.ok && (
+              <LoadingBtn loading={legacyOrdersBusy} loadingText="جاري النقل..." onClick={runLegacyOrdersMigration} disabled={!canEdit} small
+                style={{ background: "#DC2626", color: "#fff", border: "none", fontWeight: 800 }}>
+                📦 ابدأ نقل الـ Orders
+              </LoadingBtn>
+            )}
+          </div>
+          {legacyOrdersResult?.ok && legacyOrdersResult.orders_migrated > 0 && (
+            <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              📦 طلبات اتنقلت: <b>{legacyOrdersResult.orders_migrated}</b>
+              {" · "}🔁 موجود بالفعل: <b>{legacyOrdersResult.orders_skipped_existing}</b>
+              {" · "}وفّرنا <b style={{ color: T.ok }}>{legacyOrdersResult.freed_kb} KB</b>
+              {" "}({legacyOrdersResult.freed_pct}%)
+              {legacyOrdersResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{legacyOrdersResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+          {legacyOrdersResult?.partial && (
+            <div style={{ marginTop: 10, padding: 8, background: T.warn + "10", borderRadius: 6, fontSize: FS - 2, color: T.warn }}>
+              ⚠️ Migration partial — flag NOT set, cfg.orders preserved.
+              نجح: <b>{legacyOrdersResult.orders_migrated}</b> · فشل: <b>{legacyOrdersResult.orders_failed}</b>
+              {legacyOrdersResult.sample_failures?.length > 0 && (
+                <ul style={{ marginTop: 6, paddingInlineStart: 20, fontSize: FS - 3 }}>
+                  {legacyOrdersResult.sample_failures.slice(0, 5).map((f, i) => (
+                    <li key={i} style={{ color: T.err }}><code>{f}</code></li>
+                  ))}
+                </ul>
               )}
             </div>
           )}

@@ -427,12 +427,57 @@ The changelog entry shape:
 
 ## 10. Anti-patterns to NEVER repeat
 
+### Client-side
 - ❌ `window.open(url)` after `await` (popup blocker drops it)
 - ❌ Reading `cfg.orders` (orders live in `seasons/{season}/orders/`)
+- ❌ **Writing to `cfg.orders[]`** — legacy array from pre-V18.60. Every
+  upConfig rewrites the doc with it → factory/config approaches 1MB →
+  writes fail with "حجم البيانات تجاوز الحد" (V21.9.42 root cause). Use
+  `seasons/{season}/orders/{id}` subcollection ONLY. The legacy array
+  must be migrated via `/api/maintenance/migrate-legacy-orders`.
 - ❌ Reading `order.fabricA.colors` (colors are in `order.colorsA`)
 - ❌ Reading `order.sizes` (sizes come from `order.sizeSetId` → `data.sizeSets`)
 - ❌ Adding a new growing array to `factory/config` without registering
   it in `SPLIT_COLLECTIONS` or `PARTITIONED_COLLECTIONS`
+- ❌ Silent truncation of legacy data without migration awareness — warn
+  via `console.warn` first, never `arr.slice()` silently. Losing data is
+  worse than the 1MB error.
+
+### Server-side automation
+- ❌ **External HTTP `fetch` inside a serverless function WITHOUT an
+  `AbortController` + explicit timeout < function-kill timeout** — if the
+  bridge/upstream hangs > Vercel's 10s hobby limit, the function gets
+  killed BEFORE the success-side cleanup runs. Result: orphaned state
+  (e.g., `eventHistory` entry stuck on `inFlight:true`) → cron tick
+  reclaims after lock expires → duplicate side effect (V21.9.41 root
+  cause for double WhatsApp). ALWAYS use `AbortController` with timeout
+  set to ~80% of the function-kill window.
+- ❌ **`INFLIGHT_LOCK_MS < cron tick interval`** — the cron will reclaim
+  claims that are still genuinely in-flight, re-firing the same side
+  effect. Lock duration must be `cronInterval + bridgeWorstCase + buffer`.
+  In CLARK: cron = 5 min → lock = 5 min minimum.
+- ❌ **Claim-then-fire pattern without `finally`-guaranteed result write**
+  — if anything between `claimEvent` and `recordResult` throws, the lock
+  stays orphaned. ALWAYS wrap in `try/finally` with a last-ditch failure
+  record in the finally block.
+
+### Diagnostics / observability
+- ❌ **Hardcoded list of array keys in diagnostics**. The CLARK Phase 14d
+  audit (V21.9.42) found that 30+ fields (`treasury`, `custPayments`,
+  `salesInvoices`, etc.) were INVISIBLE in the diagnostics UI because
+  `api/diagnostics.js` only scanned 16 hardcoded keys. If any of them
+  bloats, the user can't see the source. ALWAYS enumerate
+  `Object.keys(cfg).filter(isArray)` and tag legacy fields explicitly.
+
+### Migration safety
+- ❌ Destructive migration without **3 layers of safety**: dry-run mode
+  → user-confirmation popup with stats → atomic transaction. ANY of
+  them missing = data loss risk. Pattern: see
+  `api/maintenance/migrate-legacy-orders.js` (V21.9.42) — backup doc
+  before any write, per-batch best-effort with failure tracking, flag
+  set ONLY if zero failures.
+
+### Git / deployment
 - ❌ Including `node_modules/` or `dist/` in zip / git
 - ❌ Using `git add .` (always stage specific files)
 - ❌ Skipping commit hooks with `--no-verify`

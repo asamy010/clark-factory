@@ -52,7 +52,8 @@ function _migratedFields(d){
 }
 
 /* Call this inside any upConfig callback to keep data trim.
-   V19.65: skips fields that have migrated to day-split collections. */
+   V19.65: skips fields that have migrated to day-split collections.
+   V21.9.42: also surfaces legacy `orders[]` bloat (the 1MB-error culprit). */
 export function enforceDataLimits(d){
   if(!d)return;
   const skip = _migratedFields(d);
@@ -82,6 +83,53 @@ export function enforceDataLimits(d){
       }
     }
   });
+
+  /* V21.9.42: legacy-orders safety net.
+     ROOT CAUSE: pre-V18.60, orders lived in d.orders[] (flat array on
+     factory/config). From V18.60 they live in seasons/{season}/orders/
+     subcollection. The legacy array was NEVER stripped on old installs,
+     and every upConfig rewrites the full doc → factory/config bloats
+     to 1MB → writes fail with "حجم البيانات تجاوز الحد".
+
+     This fix:
+     1. Detects when migration has run (flag _legacyOrdersMigratedV2110)
+        AND d.orders still has entries — means something (legacy code path
+        we missed) is writing back to it. Log loudly so we can find the
+        offender. We do NOT truncate because losing orders silently is
+        worse than the 1MB error.
+
+     2. Detects when migration has NOT run AND d.orders is unusually
+        large (>50 entries, ~150 KB+). Warn in console — the user should
+        run /api/maintenance/migrate-legacy-orders.
+
+     Anti-pattern: silent truncation of legacy data without migration
+     awareness. Always WARN first, never DELETE. */
+  if(Array.isArray(d.orders) && d.orders.length > 0){
+    if(d._legacyOrdersMigratedV2110){
+      /* Migration done but legacy field still being written — find the
+         caller from the stack trace. This should never happen if all
+         legacy code paths were caught. */
+      console.warn(
+        "[V21.9.42] cfg.orders has " + d.orders.length + " entries AFTER " +
+        "legacy-orders migration. Something is writing back to the legacy " +
+        "array. Find the caller — orders should go to seasons/" +
+        (d.activeSeason || "WS26") + "/orders/{id} instead.",
+        new Error("call-site").stack
+      );
+    } else if(d.orders.length > 50){
+      /* Legacy orders present, migration not run — likely the user's
+         1MB-error root cause. Warn once per session (avoid spam). */
+      if(!window.__clark_legacyOrdersWarned){
+        window.__clark_legacyOrdersWarned = true;
+        console.warn(
+          "[V21.9.42] cfg.orders has " + d.orders.length + " legacy entries. " +
+          "Run /api/maintenance/migrate-legacy-orders (dry-run first) to " +
+          "move them to seasons/" + (d.activeSeason || "WS26") + "/orders/ " +
+          "and free factory/config space."
+        );
+      }
+    }
+  }
 }
 
 export{LIMITS};

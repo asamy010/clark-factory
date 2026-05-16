@@ -266,6 +266,117 @@ The `contact_count` + `last_contacted_at` data was already collected from V20.2 
 - 📜 WORK_LOG.md created — comprehensive phase history
 - 📜 README.md created — project overview
 
+### V21.9.11–V21.9.40 — Phases 12 + 13 + 14a/b (gap fill summary)
+
+> **Note**: full per-version entries live in `AboutVersionModal.jsx`. Highlights:
+
+- **V21.9.11–V21.9.20**: Bug-fix passes after V21.9.9 audit landed (Bosta link
+  preservation, sync-products race, partition listener `id` fallback)
+- **V21.9.21–V21.9.24**: Treasury dedupe (race in pre-V21.9.14 transfer save),
+  audit-state endpoint, fix-flags safety net, permissions surface
+- **V21.9.25–V21.9.30**: Dynamic role scopes, Phase 13 bridge + bot integration
+- **V21.9.31–V21.9.38**: WhatsApp Bridge (Cisco-grade reliability work), CLARK
+  assistant bot, `upConfig` wipe bug for partitioned collections (V21.9.33)
+- **V21.9.39 — Phase 14a**: ROOT CAUSE for treasury entries + credit notes +
+  Shopify returns getting silently wiped on every save. Cause: V21.9.4's
+  hydration block stopped at SPLIT_FIELDS_V1953; the new V2195/V2197/V2198/V2199
+  fields were never hydrated → `syncAllSplitChanges` saw `newArr=[]` and
+  deleted every entry from the day docs.
+- **V21.9.40 — Phase 14b**: HR module had no `autoPost.*` calls (since V18.35).
+  Every salary/advance/workshop-payment was hitting treasury + hrLog but
+  NEVER posting to the journal. 5 functions in `HRPg.jsx` updated to fire
+  `autoPost.hr / workshopPay / treasury` after upConfig commit. Whitelist
+  for `hr_other_expense` sourceType in `postingRules.buildTreasuryEntry`.
+
+### V21.9.41 — Phase 14c: Bug 2 — Double WhatsApp on Customer Payment
+
+> User report: "لما بنسجل دفعة وارد من عميل بيبعت للعميل رسالتين واتس اب
+> عبر البريدج" — same customer phone, same content, twice.
+
+**ROOT CAUSE** — race between client instant-fire and cron tick in the atomic
+claim:
+
+```
+T=0       TreasuryPg → POST /api/event-trigger (fire-and-forget)
+T=0.1s    claimEvent → eventHistory: { inFlight:true, success:false }
+T=0.5s    bridgeSend → bridge delivers message ✅ (msg 1)
+T=8-10s   ⚠️ Vercel function killed BEFORE recordResult runs
+          → eventHistory STILL inFlight:true (never finalized)
+T=60s     INFLIGHT_LOCK_MS expires (pre-V21.9.41 = 60_000)
+T=300s    cron tick → scanRecentPayments → claimEvent sees stale lock
+          (age 300s ≥ 60s) → RECLAIM → bridgeSend → msg 2 🚨
+```
+
+**Fix** — 4 layers in `api/_eventProcessor.js`:
+
+1. **AbortController + 8s timeout** on `bridgeSend` (the critical fix).
+   Below Vercel's 10s hobby limit → bridgeSend either completes or aborts
+   cleanly → the success-side `recordResult` ALWAYS runs.
+2. **`INFLIGHT_LOCK_MS`: 60s → 5min (300_000)** — strictly longer than
+   cron interval. Even with edge-case skips, cron can't reclaim within
+   the window.
+3. **`CONTENT_DEDUPE_MS`: 30s → 15min (900_000)** — content-based safety
+   net for any residual race where `idempotencyKey` differs but the
+   recipient + payload match.
+4. **Finally-guarded `recordResult`** in `processEvent` — last-ditch
+   failure write if the success path throws for any other reason.
+
+### V21.9.42 — Phase 14d: Bug 1 — Legacy Orders Migration ("الملف ١ ميجا")
+
+> User report: "محاسب الخزنة بيسجل حركات وارد للخزنة اشتغل شوية تسجيل
+> وبعد كده رفض يسجل تاني وبيظهر رسالة تم ملئ البيانات الملف ١ ميجا"
+
+**ROOT CAUSE** — pre-V18.60 installs have `factory/config.orders[]` as a
+flat legacy array containing every order + every nested
+`customerDeliveries`/`customerReturns`/etc. From V18.60 onward, orders
+live in `seasons/{seasonId}/orders/{docId}` subcollection — BUT the legacy
+array was never stripped on old installs. Every `upConfig` rewrites the
+whole doc with the legacy orders → factory/config bloats to ~900 KB →
+writes fail with "حجم البيانات تجاوز الحد".
+
+The treasury writes themselves are fine (they go to `treasuryDays/`) —
+but every save also rewrites the orders array, which is what tips the
+doc over the 1 MB cap.
+
+**Fix** — 4 layers:
+
+1. **Migration endpoint** `api/maintenance/migrate-legacy-orders.js`
+   (~280 lines):
+   - Idempotent via flag `_legacyOrdersMigratedV2110`
+   - Dry-run mode with sample-50 stats
+   - Backup → `backups/pre-legacy-orders-migration-{ts}`
+   - Per-batch best-effort (50/batch) with failure tracking
+   - Conflict-avoidance: don't overwrite subcollection if its `updatedAt`
+     is newer than legacy
+   - Flag set ONLY if zero failures
+
+2. **Diagnostics overhaul** `api/diagnostics.js`:
+   - Replaced 16 hardcoded array keys → `Object.keys(cfg).filter(isArray)`
+   - Legacy tagging via `KNOWN_LABELS` (30+ fields)
+   - Special call-out for `orders` even at low byte count
+
+3. **Safety net** `src/utils/dataLimits.js`:
+   - `console.warn` if `cfg.orders` populated after migration flag set
+     (catches legacy code paths writing back)
+   - Warn-once-per-session if >50 entries pre-migration
+
+4. **UI banner** `DiagnosticsPanel.jsx`:
+   - Highest-priority red banner when migration available
+   - Client wrapper `migrateLegacyOrders` in `shopifyClient.js`
+     with 5-minute timeout
+
+### V21.9.43 — Phase 14e: Documentation Pass
+
+- 📜 CLAUDE.md §10 expanded with 4 new anti-pattern categories:
+  - Server-side automation (`AbortController`, `INFLIGHT_LOCK_MS`,
+    finally-guarded result write)
+  - Diagnostics blind-spots (always enumerate, never hardcode)
+  - Migration safety (3-layer pattern)
+  - Legacy `cfg.orders[]` write ban
+- 📜 WORK_LOG.md gap-filled for V21.9.11 → V21.9.40 + new entries
+  for V21.9.41/.42/.43
+- 📜 README.md version badge bumped to V21.9.43
+
 ---
 
 ## 🏗 Architectural Decisions (the "why")

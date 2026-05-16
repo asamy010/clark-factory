@@ -34,6 +34,9 @@ const LONG_OPERATIONS = {
   "/api/shopify/push-customer-tags":      300000,
   "/api/maintenance/split-shopify-collections":  300000,
   "/api/maintenance/split-shopify-orders-daily": 300000,
+  /* V21.9.42: legacy orders migration. Per-order parallel reads + batched
+     writes — can take 2-3 min on a 1000-order legacy array. */
+  "/api/maintenance/migrate-legacy-orders":      300000,
   "/api/shopify/campaign-prepare-run":    180000,
 };
 function getTimeoutForPath(path){
@@ -335,6 +338,15 @@ export function usersPermissions(opts, user){
    action="scan_legacy"|"scan_backups"|"migrate_legacy"|"restore_from_backup" */
 export function recoverLegacyData(opts, user){
   return call("POST", "/api/maintenance/recover-legacy-data", opts || {}, user);
+}
+
+/* V21.9.42 — Migrate legacy factory/config.orders[] array to seasons/{season}/
+   orders/{docId} subcollection. Addresses the "1MB limit reached" error
+   reported by treasury accountants. Idempotent (flag _legacyOrdersMigratedV2110).
+   { dryRun? } — ALWAYS run with dryRun:true first on production data.
+   → { ok, orders_migrated, orders_skipped_existing, freed_kb, backup_doc_id, ... } */
+export function migrateLegacyOrders(opts, user){
+  return call("POST", "/api/maintenance/migrate-legacy-orders", opts || {}, user);
 }
 
 /* V21.9.28 — Migration Log inspector + backup restore.
