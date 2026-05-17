@@ -19,6 +19,11 @@ import { enforceDataLimits } from "./utils/dataLimits.js";
 /* V21.9.47: unified health-check utility — runs all known issue detectors
    and surfaces results via the topbar "🩺" pill. */
 import { evaluateHealthIssues, summarizeHealth, SEVERITY_COLORS, SEVERITY_EMOJI } from "./utils/healthCheck.js";
+/* V21.9.61: per-role expected-denial map. Used to suppress the top-bar
+   listener-health banner for collections the user's role is correctly
+   denied on (warehouse_keeper on HR/payments, etc.) — surfacing only
+   UNEXPECTED denials. See utils/firestoreScopes.js for details. */
+import { isExpectedDenial } from "./utils/firestoreScopes.js";
 /* V21.9.49: auto-run pending migrations on app boot (admin only).
    Replaces the manual "click banner" UX from V21.9.42 + V21.9.44 + V21.9.45. */
 import { runAllPendingMigrations, shouldAttemptAutoMigrations } from "./utils/autoMigrations.js";
@@ -750,6 +755,12 @@ export default function App(){
           data: synthesizedData,
           configDoc,
           listenerErrors,
+          /* V21.9.61: pass current role + denial predicate so the health
+             check skips legitimate role-based read restrictions. Without
+             these, warehouse_keeper saw "Listener معطل" for every HR/
+             payment collection — alarming but not actually a problem. */
+          userRole: userRoleRef.current,
+          isExpectedDenial,
           /* cfgSizeBytes intentionally omitted — would require an estimate
              pass over the whole doc on every evaluation. The DiagnosticsPanel
              handles this separately via /api/diagnostics. */
@@ -5049,6 +5060,11 @@ export default function App(){
      Both paths now return "viewer" — admins must be explicitly added to usersList. */
   const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"viewer"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"viewer"};
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
+  /* V21.9.61: stable ref to userRole so the health-check evaluate() loop
+     (declared earlier in the body, runs on a 15s interval) can read the
+     fresh role without re-subscribing every render. */
+  const userRoleRef=useRef(userRole);
+  useEffect(()=>{userRoleRef.current=userRole},[userRole]);
   /* V19.44: DEFAULT_PERMS, role list, and tab catalog moved to src/utils/permissions.js
      (single source of truth — see file header for rationale). The code below is now a
      thin wrapper that delegates to the registry's pure functions. The runtime linter
@@ -5659,10 +5675,19 @@ export default function App(){
         navigated directly to Settings, but the actionable info wasn't visible
         until the user scrolled — confusing for users like Ahmed who reported
         "البانر لسه ظاهر ومفيش تفاصيل واضحة". */}
-    {terminalListenerErrors.length > 0 && (() => {
+    {(() => {
+      /* V21.9.61: filter out denials that are CORRECT-BY-DESIGN for the
+         user's role (e.g., warehouse_keeper denied on HR/payment collections).
+         These are not bugs and shouldn't alarm the user. The raw list still
+         drives DiagnosticsPanel for admins who want the full picture. */
+      const surfacedListenerErrors = terminalListenerErrors.filter(e => {
+        if (e.code !== "permission-denied") return true; /* only filter denials */
+        return !isExpectedDenial(userRole, e.col);
+      });
+      if (surfacedListenerErrors.length === 0) return null;
       /* Group errors by error code for cleaner display */
       const byCode = {};
-      for (const e of terminalListenerErrors) {
+      for (const e of surfacedListenerErrors) {
         if (!byCode[e.code]) byCode[e.code] = [];
         byCode[e.code].push(e.col);
       }
@@ -5718,10 +5743,10 @@ export default function App(){
           >
             <span style={{ fontSize: 14 }}>🚨</span>
             <span style={{ fontWeight: 700 }}>
-              مشكلة في تحميل {terminalListenerErrors.length === 1 ? "بيانات" : terminalListenerErrors.length + " مجموعات بيانات"}:
+              مشكلة في تحميل {surfacedListenerErrors.length === 1 ? "بيانات" : surfacedListenerErrors.length + " مجموعات بيانات"}:
               <code style={{ marginInlineStart: 6, padding: "1px 5px", background: "rgba(127,29,29,0.1)", borderRadius: 3, fontSize: isMob ? 10 : 11 }}>
-                {terminalListenerErrors.slice(0, 3).map(e => e.col).join(" · ")}
-                {terminalListenerErrors.length > 3 && " · …"}
+                {surfacedListenerErrors.slice(0, 3).map(e => e.col).join(" · ")}
+                {surfacedListenerErrors.length > 3 && " · …"}
               </code>
             </span>
             <span style={{ marginInlineStart: "auto", fontSize: 11, fontWeight: 600, opacity: 0.85, display: "flex", alignItems: "center", gap: 6 }}>

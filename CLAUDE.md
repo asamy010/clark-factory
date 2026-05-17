@@ -186,25 +186,33 @@ git repo folder before committing.
 - **NEVER** commit secrets (shpat_, shpss_, atkn_ tokens, .env files)
 - **NEVER** delete user data without explicit confirmation
 - Always create NEW commits rather than amending (--amend can destroy work)
-- **ALWAYS rename the source folder to match the new version** before zipping.
-  Ahmed's standing rule (V21.9.60): the folder name MUST always equal the
-  current `APP_VERSION`. Example: after bumping to V21.9.61, rename
-  `clark-v21.9.60` → `clark-v21.9.61` BEFORE running the zip command, so
-  the folder inside the zip carries the new name too. Never leave a
-  mismatched `clark-vX.Y.Z` folder containing a different version's code.
+- **DO NOT rename the source folder** (Ahmed's standing rule from V21.9.60
+  onward — renaming mid-session broke cwd continuity). Keep the source
+  folder name stable across versions; only bump `APP_VERSION`,
+  `package.json`, and the `AboutVersionModal` changelog inside.
 
-  **Mac (current dev host) command:**
+- **BUT the folder INSIDE the zip MUST match the version**
+  (Ahmed's clarification from V21.9.61). The zip output is the
+  deliverable distributed to others — it should NEVER carry a stale
+  folder name. So every release: build the zip from a temporary copy
+  renamed to the new version, then delete the copy.
+
+  **Mac standing command (executed on every version bump, no need to ask):**
   ```bash
   cd "/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics" && \
-    mv "clark-v<OLD>" "clark-v<NEW>" && \
+    TMPDIR=$(mktemp -d) && \
+    rsync -a \
+      --exclude=node_modules --exclude=dist --exclude=.vercel \
+      --exclude=.git --exclude='*.log' \
+      "<source-folder-name>/" "$TMPDIR/clark-v<NEW>/" && \
     rm -f "clark-v<NEW>.zip" && \
-    zip -rq "clark-v<NEW>.zip" "clark-v<NEW>" \
-      -x "clark-v<NEW>/node_modules/*" -x "clark-v<NEW>/dist/*" \
-      -x "clark-v<NEW>/.vercel/*" -x "clark-v<NEW>/.git/*" -x "*.log"
+    (cd "$TMPDIR" && zip -rq "/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics/clark-v<NEW>.zip" "clark-v<NEW>") && \
+    rm -rf "$TMPDIR"
   ```
 
-  **Windows (legacy desktop host):** rename the folder in PowerShell with
-  `Rename-Item` before invoking the zip command in §1 Step 6.
+  Result: source folder unchanged on disk, zip's inner folder = version,
+  zip filename = version. Three names stay in sync (zip name + inner
+  folder + APP_VERSION) without ever touching the live source.
 
 ---
 

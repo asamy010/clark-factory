@@ -32,18 +32,32 @@ const SEVERITY_RANK = { info: 0, warning: 1, error: 2, critical: 3 };
  * @param {Object} args.data — the merged data object (from App.jsx useMemo)
  * @param {Object} args.configDoc — the raw factory/config doc (for flag checks)
  * @param {Object} args.listenerErrors — window.__clarkListenerErrors map
+ * @param {string} [args.userRole] — current user's role (V21.9.61: used to
+ *   suppress expected-by-design denials per firestoreScopes.js)
+ * @param {Function} [args.isExpectedDenial] — predicate(role, col) → bool
+ *   (V21.9.61: injected to avoid pulling the scope map into healthCheck)
  * @param {number} [args.cfgSizeBytes] — pre-computed estimate of cfg doc size
  * @returns {Array<{kind, severity, title, detail, hint, navigateTo?, runAction?}>}
  */
-export function evaluateHealthIssues({ data, configDoc, listenerErrors, cfgSizeBytes }) {
+export function evaluateHealthIssues({ data, configDoc, listenerErrors, cfgSizeBytes, userRole, isExpectedDenial }) {
   const issues = [];
   const cfg = configDoc || {};
 
   /* ═══ 1. Listener-health checks ═══════════════════════════════
      V21.9.46 added terminal/transient distinction. Surface BOTH
-     here so the user sees the full picture. */
+     here so the user sees the full picture.
+     V21.9.61: if userRole + isExpectedDenial predicate are provided,
+     suppress permission-denied entries that are CORRECT by design
+     (e.g., warehouse_keeper on HR/payment collections). */
   for (const [colName, info] of Object.entries(listenerErrors || {})) {
     if (!info) continue;
+    /* V21.9.61: skip expected denials so the "🩺" health pill doesn't
+       flag legitimate role-based access restrictions as critical issues. */
+    if (info.terminal && info.code === "permission-denied"
+        && typeof isExpectedDenial === "function"
+        && isExpectedDenial(userRole, colName)) {
+      continue;
+    }
     if (info.terminal) {
       issues.push({
         kind: "listener_terminal",
