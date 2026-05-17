@@ -706,10 +706,38 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const SESS_STATUSES=["جاري التجهيز","تم الشحن","تم التسليم"];
   const updateSessStatus=(sessId,status)=>{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0)d.custDeliverySessions[si].status=status})};
 
-  /* Returns */
-  const doReturn=()=>{if(!returnPopup||retQty<=0)return;const{orderId,custId,custName,sessId}=returnPopup;
-    updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""})});
-    setReturnPopup(null);setRetQty(0);setRetNote("");showToast("✓ تم تسجيل مرتجع "+retQty+" قطعة")};
+  /* Returns
+     V21.9.56 (Sales Audit L1): block over-returns. Pre-V21.9.56 a user
+     could register more returned qty than was ever delivered to this customer
+     (e.g., delivered 10 → return 20). This corrupts the order's net
+     delivery count + customer balance (negative net pieces).
+
+     Now: sum customerDeliveries.qty (this custId) − sum prior customerReturns.qty
+     (this custId) to get the net-deliverable headroom, then block if retQty > that.
+     The check inspects the merged data (cross-session) so it respects all
+     historical deliveries for the same custId on the same order. */
+  const doReturn=()=>{
+    if(!returnPopup||retQty<=0)return;
+    const{orderId,custId,custName,sessId}=returnPopup;
+    const order = (data.orders||[]).find(o => o.id === orderId);
+    if(order){
+      const dels = (order.customerDeliveries||[]).filter(d => d.custId === custId);
+      const rets = (order.customerReturns||[]).filter(r => r.custId === custId);
+      const totalDel = dels.reduce((s,d) => s + (Number(d.qty)||0), 0);
+      const totalRet = rets.reduce((s,r) => s + (Number(r.qty)||0), 0);
+      const maxReturnable = totalDel - totalRet;
+      if(retQty > maxReturnable){
+        showToast("⛔ لا يمكن إرجاع "+retQty+" قطعة. الكمية المتبقية: "+maxReturnable+" (المسلّم "+totalDel+" − المُرتجع "+totalRet+")");
+        return;
+      }
+    }
+    updOrder(orderId,o=>{
+      if(!o.customerReturns)o.customerReturns=[];
+      o.customerReturns.push({custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""});
+    });
+    setReturnPopup(null);setRetQty(0);setRetNote("");
+    showToast("✓ تم تسجيل مرتجع "+retQty+" قطعة");
+  };
 
   /* Sell price */
   const setSellPrice=(orderId,price)=>{updOrder(orderId,o=>{o.sellPrice=Number(price)||0})};

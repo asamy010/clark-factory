@@ -4794,6 +4794,12 @@ export default function App(){
   };
   const addOrder=async o=>{
     o.createdBy=userName;
+    /* V21.9.56 (Sales Audit L6): stamp season on the order document so it can
+       be filtered by season without knowing the Firestore path. Pre-V21.9.56
+       orders saved without `season` were invisible to queries like 'all WS26
+       orders' unless the caller walked all season subcollections. This also
+       makes legacy-orders migration to seasons/{season}/orders/{id} cleaner. */
+    if(!o.season) o.season = season || configDoc?.activeSeason || "";
     /* Fast local pre-check — gives immediate feedback before paying the network round-trip.
        The transaction below re-checks against fresh server data anyway. */
     const localCheck=checkStockAvailability(o,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});

@@ -427,21 +427,25 @@ export function deleteDraftInvoiceMutator(d, invoiceId, type){
    postInvoiceMutator + autoPost.salePost / purchasePost flows).
 */
 export function buildSalesServiceInvoice(d, payload, userName){
-  /* payload: {date, customerId?, customerNameAdHoc?, items:[{description,qty,unitPrice,accountId,accountName}], discountPct, notes} */
+  /* payload: {date, customerId?, customerNameAdHoc?, items:[{description,qty,unitPrice,accountId,accountName}], discountPct, notes}
+     V21.9.56 (Sales Audit F8+F1): wrap all arithmetic in r2() to match the
+     V19.66 hardening applied to non-service invoices. Pre-V21.9.56 service
+     invoice totals drifted ±0.0001 per line, accumulating to noticeable
+     amounts on multi-line invoices. */
   const invoiceNo = reserveInvoiceNo(d, "sales");
   const cust = payload.customerId ? (d.customers||[]).find(c => c.id === payload.customerId) : null;
   const items = (payload.items||[]).map(it => ({
     description: (it.description||"").trim(),
     qty: Number(it.qty)||1,
     unitPrice: Number(it.unitPrice)||0,
-    lineTotal: (Number(it.qty)||1) * (Number(it.unitPrice)||0),
+    lineTotal: r2((Number(it.qty)||1) * (Number(it.unitPrice)||0)),/* V21.9.56 */
     accountId: it.accountId||"",
     accountName: it.accountName||"",
   }));
-  const subtotal = items.reduce((s, it) => s + (it.lineTotal||0), 0);
+  const subtotal = r2(items.reduce((s, it) => s + (it.lineTotal||0), 0));/* V21.9.56 */
   const discountPct = Number(payload.discountPct)||0;
-  const discount = subtotal * (discountPct/100);
-  const total = subtotal - discount;
+  const discount = r2(subtotal * (discountPct/100));/* V21.9.56 */
+  const total = r2(subtotal - discount);/* V21.9.56 */
   return {
     id: "inv_svc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     invoiceNo,
@@ -463,21 +467,22 @@ export function buildSalesServiceInvoice(d, payload, userName){
 }
 
 export function buildPurchaseServiceInvoice(d, payload, userName){
-  /* payload: {date, supplierId?, supplierNameAdHoc?, items:[{description,qty,unitPrice,accountId,accountName}], discountPct, notes} */
+  /* payload: {date, supplierId?, supplierNameAdHoc?, items:[{description,qty,unitPrice,accountId,accountName}], discountPct, notes}
+     V21.9.56: r2() parity with buildSalesServiceInvoice above (same V19.66 hardening). */
   const invoiceNo = reserveInvoiceNo(d, "purchase");
   const sup = payload.supplierId ? (d.suppliers||[]).find(s => s.id === payload.supplierId) : null;
   const items = (payload.items||[]).map(it => ({
     description: (it.description||"").trim(),
     qty: Number(it.qty)||1,
     unitPrice: Number(it.unitPrice)||0,
-    lineTotal: (Number(it.qty)||1) * (Number(it.unitPrice)||0),
+    lineTotal: r2((Number(it.qty)||1) * (Number(it.unitPrice)||0)),/* V21.9.56 */
     accountId: it.accountId||"",
     accountName: it.accountName||"",
   }));
-  const subtotal = items.reduce((s, it) => s + (it.lineTotal||0), 0);
+  const subtotal = r2(items.reduce((s, it) => s + (it.lineTotal||0), 0));/* V21.9.56 */
   const discountPct = Number(payload.discountPct)||0;
-  const discount = subtotal * (discountPct/100);
-  const total = subtotal - discount;
+  const discount = r2(subtotal * (discountPct/100));/* V21.9.56 */
+  const total = r2(subtotal - discount);/* V21.9.56 */
   return {
     id: "pinv_svc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     invoiceNo,
@@ -959,21 +964,31 @@ export function buildDebitNoteFromReturn(d, returnEntry, supplier, userName){
       name: it.name || it.itemName || "",
       qty,
       unitPrice: resolved,
-      lineTotal: qty * resolved,
+      lineTotal: r2(qty * resolved),/* V21.9.56 (Audit F2) */
     };
   });
-  const subtotal = items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0);
-  const discount = Number(returnEntry.discount) || 0;
-  const total = subtotal - discount;
+  /* V21.9.56 (Audit F2): wrap subtotal/discount/total in r2() — same as
+     V21.9.52 fix for credit notes. Pre-V21.9.56 the debit note math drifted
+     ±0.05 per return → ±60 EGP/year of unexplained supplier-balance drift. */
+  const subtotal = r2(items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
+  const discount = r2(Number(returnEntry.discount) || 0);
+  const total = r2(subtotal - discount);
 
-  /* Try to find the original invoice this return relates to */
+  /* Try to find the original invoice this return relates to.
+     V21.9.56 (Audit F5): also check `receiptRefs[]` (V19.39 plural form),
+     since consolidated purchase invoices have NO singular receiptRef.
+     Mirrors the V21.9.52 fix to credit notes' deliveryRefs[] lookup. */
   const linkedInv = returnEntry.linkedInvoiceId
     ? (d.purchaseInvoices||[]).find(i => i.id === returnEntry.linkedInvoiceId && i.status !== "void")
-    : (d.purchaseInvoices||[]).find(i =>
-        i.supplierId === supplierId && i.status !== "void" &&
-        Array.isArray(i.items) && i.items.some(invIt =>
-          items.some(retIt => retIt.itemType === invIt.itemType && retIt.itemId === invIt.itemId))
-      );
+    : (d.purchaseInvoices||[]).find(i => {
+        if (i.status === "void") return false;
+        if (i.supplierId !== supplierId) return false;
+        /* Legacy + V19.39 plural — same item must match */
+        if (!Array.isArray(i.items)) return false;
+        return i.items.some(invIt =>
+          items.some(retIt => retIt.itemType === invIt.itemType && retIt.itemId === invIt.itemId)
+        );
+      });
 
   return {
     id: "dn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
@@ -985,7 +1000,7 @@ export function buildDebitNoteFromReturn(d, returnEntry, supplier, userName){
     linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
     items,
     subtotal,
-    discountPct: subtotal > 0 ? (discount / subtotal * 100) : 0,
+    discountPct: subtotal > 0 ? r2(discount / subtotal * 100) : 0,/* V21.9.56 (Audit F12) */
     discount,
     total,
     status: "draft",

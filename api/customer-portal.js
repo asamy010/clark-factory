@@ -256,7 +256,10 @@ export default async function handler(req, res) {
     payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
     /* Calculate balance */
-    const discPct = Number(customer.discount) || 0;
+    /* V21.9.56 (Sales Audit I8): clamp discount to 0..100 to prevent
+       data-entry errors (e.g., 150) from producing negative-discount math
+       that surfaces as inflated portal balance. */
+    const discPct = Math.max(0, Math.min(100, Number(customer.discount) || 0));
     const totalDelValue = deliveries.reduce((s, d) => s + d.value, 0);
     const totalRetValue = returns.reduce((s, r) => s + r.value, 0);
     const netSales = totalDelValue - totalRetValue;

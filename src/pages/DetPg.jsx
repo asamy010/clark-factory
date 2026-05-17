@@ -1449,16 +1449,19 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             if(x.costType==="perPiece")return amt;
             return cutQty>0?amt/cutQty:0;
           };
-          const extraTotal=extraCosts.reduce((s,x)=>s+ecTotal(x),0);
+          const extraTotal=r2(extraCosts.reduce((s,x)=>s+ecTotal(x),0));/* V21.9.56 (L3) */
           const settCost=Number(order.settlement?.cost)||0;
-          const totalAllCost=t.costAll+settCost+extraTotal;
-          const finalPer=order.deliveredQty>0?totalAllCost/order.deliveredQty:0;
+          const totalAllCost=r2(t.costAll+settCost+extraTotal);/* V21.9.56 (L3) */
+          /* V21.9.56 (Sales Audit L3): wrap per-piece calculations in r2() to
+             prevent float drift accumulating in cost summaries + downstream
+             pricing decisions. */
+          const finalPer=order.deliveredQty>0?r2(totalAllCost/order.deliveredQty):0;
           /* V19.76.7: per-piece for the grand total uses the same cutQty divisor as
              the other rows (materials/accessories/extras) — keeps the column
              consistent. Previously التكلفة الفعلية divided by deliveredQty which
              produced a different scale (e.g. 161,290 / 48 = 3361 vs the materials'
              95,090 / 400 = 237.73). User flagged that "الرقم لتكلفة القطعة مش صح". */
-          const totalAllPer = cutQty > 0 ? totalAllCost / cutQty : 0;
+          const totalAllPer = cutQty > 0 ? r2(totalAllCost / cutQty) : 0;/* V21.9.56 */
           return<><table style={{width:"100%",borderCollapse:"collapse",fontSize:FS+1}}><thead><tr>{["البند","التكلفة الكلية","تكلفة القطعة"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {/* V19.76.7: extras + settlement now appear BEFORE the total. The total
               row is the LAST row and sums everything above it. User report:

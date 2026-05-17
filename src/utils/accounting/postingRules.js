@@ -611,12 +611,38 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
       if(it.description) cur.descs.push(it.description);
       groups.set(key, cur);
     });
+    /* V21.9.56 (Audit F3 CRITICAL FIX): journal entry was IMBALANCED for
+       service purchase invoices with a discount.
+       Pre-V21.9.56:
+         debits = sum of lineTotal (= subtotal, BEFORE discount)
+         credit = invoice.total (= subtotal − discount, AFTER discount)
+         → debits ≠ credits when discount > 0 → Trial Balance broken.
+
+       Fix: distribute the discount proportionally across the expense lines
+       so the per-line debit = (group.total / subtotal) × invoice.total.
+       This keeps the discount mathematically baked into the expense ledger
+       (matches how Egyptian small businesses typically handle service-level
+       discounts: a single net cost line per account). The AP credit stays
+       at invoice.total, so the JE balances. */
     const lines = [];
+    const subtotalBeforeDisc = _r2(Number(invoice.subtotal) || 0);
+    const proportionFactor = subtotalBeforeDisc > 0 ? (total / subtotalBeforeDisc) : 1;
     for(const g of groups.values()){
       const acc = (coa||[]).find(a => a.id === g.accountId) || fallbackExp;
       const summary = g.descs.slice(0,2).join("، ") + (g.descs.length>2 ? ` و${g.descs.length-2} بنود أخرى` : "");
-      lines.push({accountId:acc.id, accountCode:acc.code, accountName:acc.name, debit:_r2(g.total), credit:0,
+      lines.push({accountId:acc.id, accountCode:acc.code, accountName:acc.name,
+                  debit: _r2(g.total * proportionFactor),/* V21.9.56: discounted */
+                  credit: 0,
                   note: summary || "خدمات"});
+    }
+    /* Adjust the LAST debit line so the rounded debits sum exactly to total,
+       compensating for fractional cents lost to per-line rounding. Without
+       this, a 3-line invoice with discount 7.333% could leave a 0.01 EGP
+       imbalance even after proportional distribution. */
+    const sumDebits = _r2(lines.reduce((s,l) => s + (l.debit||0), 0));
+    if (sumDebits !== total && lines.length > 0) {
+      const last = lines[lines.length - 1];
+      last.debit = _r2((last.debit||0) + (total - sumDebits));
     }
     lines.push({accountId:ap.id, accountCode:ap.code, accountName:ap.name, debit:0, credit:total,
                 partyId:supplier?.id||invoice.supplierId, partyName:supplier?.name||invoice.supplierName,

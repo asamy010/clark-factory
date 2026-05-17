@@ -371,12 +371,26 @@ export const autoPost = {
     return _buildAndPost("debitNote", "debitNote", buildDebitNotePostedEntry, [debitNote, supplier, getCoa(config), getRules(config)], config, createdBy);
   },
 
-  /* V19.40 — Reverse a debit note's journal entry when voided. */
-  debitNoteVoided(config, debitNote, createdBy){
+  /* V19.40 → V21.9.56 — Reverse a debit note's journal entry when voided.
+     V21.9.56 (Audit F10): accept sourceType param for parity with
+     creditNoteVoided (above). Pre-V21.9.56 this was hardcoded to "debitNote",
+     but if the underlying JE was posted with a different sourceType (e.g.
+     "purchaseReturn"), the reverse would silently no-op → orphan JE.
+     Falls back to "debitNote" if caller doesn't pass sourceType (backward
+     compatibility with existing call sites). */
+  debitNoteVoided(config, debitNote, sourceType, createdBy){
     if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     if(!debitNote.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
+    /* V21.9.56: support legacy 3-arg callers (config, debitNote, createdBy) by
+       detecting if `sourceType` looks like a username (no sourceType passed).
+       In practice, sourceType is one of "debitNote" | "purchaseReturn" etc. */
+    if (typeof sourceType === "string" && !createdBy && (sourceType.includes("@") || /\s/.test(sourceType))) {
+      createdBy = sourceType;
+      sourceType = "debitNote";
+    }
     const ref = debitNote.postedJournalRef;
-    return _reverse("debitNote", "debitNote", debitNote.id, ref.date, "إلغاء إشعار مدين "+debitNote.debitNoteNo, createdBy);
+    const sType = sourceType || "debitNote";
+    return _reverse(sType, sType, debitNote.id, ref.date, "إلغاء إشعار مدين "+debitNote.debitNoteNo, createdBy);
   },
 
   reverse(config, sourceType, sourceId, date, reason, createdBy){
