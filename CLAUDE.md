@@ -186,6 +186,25 @@ git repo folder before committing.
 - **NEVER** commit secrets (shpat_, shpss_, atkn_ tokens, .env files)
 - **NEVER** delete user data without explicit confirmation
 - Always create NEW commits rather than amending (--amend can destroy work)
+- **ALWAYS rename the source folder to match the new version** before zipping.
+  Ahmed's standing rule (V21.9.60): the folder name MUST always equal the
+  current `APP_VERSION`. Example: after bumping to V21.9.61, rename
+  `clark-v21.9.60` → `clark-v21.9.61` BEFORE running the zip command, so
+  the folder inside the zip carries the new name too. Never leave a
+  mismatched `clark-vX.Y.Z` folder containing a different version's code.
+
+  **Mac (current dev host) command:**
+  ```bash
+  cd "/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics" && \
+    mv "clark-v<OLD>" "clark-v<NEW>" && \
+    rm -f "clark-v<NEW>.zip" && \
+    zip -rq "clark-v<NEW>.zip" "clark-v<NEW>" \
+      -x "clark-v<NEW>/node_modules/*" -x "clark-v<NEW>/dist/*" \
+      -x "clark-v<NEW>/.vercel/*" -x "clark-v<NEW>/.git/*" -x "*.log"
+  ```
+
+  **Windows (legacy desktop host):** rename the folder in PowerShell with
+  `Rename-Item` before invoking the zip command in §1 Step 6.
 
 ---
 

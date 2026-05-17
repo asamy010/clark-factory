@@ -136,23 +136,34 @@ export const AUTO_MIGRATIONS = [
    Gate: user must be admin, app must be online, listeners loaded.
    The flag in localStorage prevents re-attempts within a 5-minute
    window if the previous attempt is in progress (browser refresh
-   while a migration is mid-flight). */
+   while a migration is mid-flight).
+
+   V21.9.58 (Automation Audit A6): the lock now stores a heartbeat
+   instead of just a static timestamp. The running tab updates the
+   heartbeat every 30s via setInterval (in acquireAutoMigrationLock).
+   New tabs check "is heartbeat fresh (< 90s)" — if YES, lock is alive
+   and they back off. If NO, the lock is considered stale (the original
+   tab crashed) and the new tab takes over. This eliminates the
+   "5-minute dead-lock after crash" UX issue. */
 export function shouldAttemptAutoMigrations({ userRole, isOnline, listenersLoaded }) {
   if (!isOnline) return { ok: false, reason: "offline" };
   if (!listenersLoaded) return { ok: false, reason: "listeners-not-loaded" };
   if (userRole !== "admin") return { ok: false, reason: "not-admin" };
 
-  /* Re-run lock: skip if a previous attempt is still considered "live" */
+  /* V21.9.58 A6: lock now has heartbeat. Stale if no heartbeat in 90s. */
   try {
     if (typeof window !== "undefined") {
       const lockKey = "_clark_automigration_lock";
       const lockedAt = window.localStorage?.getItem(lockKey);
       if (lockedAt) {
         const age = Date.now() - parseInt(lockedAt, 10);
-        if (age < 5 * 60 * 1000) {
-          /* Lock is fresh — another tab/refresh might be mid-run */
+        const STALE_THRESHOLD_MS = 90 * 1000;
+        if (age >= 0 && age < STALE_THRESHOLD_MS) {
+          /* Lock is fresh — another tab is actively heartbeating */
           return { ok: false, reason: "lock-fresh", age };
         }
+        /* Lock exists but no heartbeat → crash assumed → take over */
+        console.warn(`[V21.9.58 auto-migration] stale lock (age ${age}ms) — taking over`);
       }
     }
   } catch (_) {}
@@ -160,11 +171,28 @@ export function shouldAttemptAutoMigrations({ userRole, isOnline, listenersLoade
   return { ok: true };
 }
 
-/* ── Acquire the lock so concurrent tabs don't both run. ──────── */
+/* ── Heartbeat interval handle (module-level so release can clear it) ── */
+let _autoMigrationHeartbeatHandle = null;
+
+/* ── Acquire the lock so concurrent tabs don't both run.
+   V21.9.58 A6: starts a 30s heartbeat that updates the lock timestamp,
+   signaling "still alive" to other tabs. ──────────────────────────── */
 export function acquireAutoMigrationLock() {
   try {
     if (typeof window !== "undefined") {
-      window.localStorage?.setItem("_clark_automigration_lock", String(Date.now()));
+      const lockKey = "_clark_automigration_lock";
+      window.localStorage?.setItem(lockKey, String(Date.now()));
+      /* Clear any stale interval from prior failed release */
+      if (_autoMigrationHeartbeatHandle) {
+        clearInterval(_autoMigrationHeartbeatHandle);
+        _autoMigrationHeartbeatHandle = null;
+      }
+      /* Start heartbeat. Refresh every 30s; threshold above is 90s
+         (3× heartbeat) — survives a brief network hiccup. */
+      _autoMigrationHeartbeatHandle = setInterval(() => {
+        try { window.localStorage?.setItem(lockKey, String(Date.now())); }
+        catch (_) {}
+      }, 30 * 1000);
     }
   } catch (_) {}
 }
@@ -174,6 +202,10 @@ export function releaseAutoMigrationLock() {
   try {
     if (typeof window !== "undefined") {
       window.localStorage?.removeItem("_clark_automigration_lock");
+    }
+    if (_autoMigrationHeartbeatHandle) {
+      clearInterval(_autoMigrationHeartbeatHandle);
+      _autoMigrationHeartbeatHandle = null;
     }
   } catch (_) {}
 }

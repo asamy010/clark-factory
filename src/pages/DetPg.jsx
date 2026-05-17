@@ -25,7 +25,20 @@ import { StageProgressModal } from "../components/StageProgressModal.jsx";
 import { DefaultModelImg } from "../components/DefaultModelImg.jsx";
 import { ShopifyPushModal } from "../components/ShopifyPushModal.jsx";
 
-export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,statusCards,goHome,upConfig,user}){
+export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,canEditWarehouse,statusCards,goHome,upConfig,user}){
+  /* V21.9.59 (Reported Bug — أمين المخزن مش بـ يقدر يسجل استلامات):
+     `canEditWarehouse` is the warehouse-tab edit permission (separate from
+     `canEdit` which is the details-tab edit permission). Used to allow
+     warehouse-related actions inside the order detail page (e.g., the
+     "+ تسليم" stock-receipt button) without granting full edit on details.
+
+     Default warehouse_keeper permissions:
+       - details: "view"      → canEdit = false
+       - warehouse: "edit"    → canEditWarehouse = true
+     Pre-V21.9.59 every action in DetPg was gated only on `canEdit`, so
+     warehouse_keeper couldn't perform their core workflow (receiving items
+     from finishing into the finished-goods warehouse) without being granted
+     full edit on the entire details page — which is too broad. */
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
@@ -1331,7 +1344,16 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             else{canStock=true}
           }
           const stockDel=getConfirmedStock(order);const pendingDel=(order.deliveries||[]).filter(d=>d.status==="pending").reduce((s,d)=>s+(Number(d.qty)||0),0);const stockRemain=Math.max(0,t.cutQty-stockDel-pendingDel);
-          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canEdit&&canStock&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending",type:"series"});const newIdx=o.deliveries.length-1;/* V16.26: capture before setTimeout to avoid stale draft */setTimeout(()=>setEditStockIdx(newIdx),100)})}>+ تسليم</Btn>}>
+          /* V21.9.59 (Reported Bug fix): allow warehouse_keeper to add stock
+             receipts even with details:view, as long as they have warehouse:edit.
+             The "+ تسليم" button registers a finished-goods receipt — pure
+             warehouse activity that belongs to warehouse permission, not
+             order-details permission.
+             • canEditStockReceipts: gate for row-level edit/delete + edit button
+             • canDoStockReceipt: also requires canStock (workshop received items) */
+          const canEditStockReceipts = canEdit || canEditWarehouse;
+          const canDoStockReceipt = canEditStockReceipts && canStock;
+          return<Card title={"تسليم مخزن جاهز"+((order.deliveries||[]).some(d=>d.status==="pending")?" ⏳":"")} extra={canDoStockReceipt&&<Btn primary small onClick={()=>updOrder(sel,o=>{if(!o.deliveries)o.deliveries=[];o.deliveries.push({date:new Date().toISOString().split("T")[0],qty:0,notes:"",createdBy:userName||"",status:"pending",type:"series"});const newIdx=o.deliveries.length-1;/* V16.26: capture before setTimeout to avoid stale draft */setTimeout(()=>setEditStockIdx(newIdx),100)})}>+ تسليم</Btn>}>
             {!canStock&&<div style={{padding:10,background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:8,marginBottom:10,fontSize:FS,color:T.err,fontWeight:600}}>{blockMsg}</div>}
             <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <span style={{padding:"6px 12px",borderRadius:8,background:T.err+"12",color:T.err,fontWeight:700,fontSize:FS}}>{"كمية القص: "+t.cutQty}</span>
@@ -1341,8 +1363,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               {/* V18.21: Show series vs broken split */}
               {(()=>{const ser=(order.deliveries||[]).filter(d=>d.status!=="pending"&&(d.type||"series")==="series").reduce((s,d)=>s+(Number(d.qty)||0),0);const brk=(order.deliveries||[]).filter(d=>d.status!=="pending"&&d.type==="broken").reduce((s,d)=>s+(Number(d.qty)||0),0);return(ser>0||brk>0)?<><span style={{padding:"6px 12px",borderRadius:8,background:"#0EA5E912",color:"#0EA5E9",fontWeight:700,fontSize:FS}}>{"📦 سيري: "+ser}</span><span style={{padding:"6px 12px",borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700,fontSize:FS}}>{"🧩 كسر: "+brk}</span></>:null})()}
             </div>
-            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}><thead><tr>{["#","التاريخ","الكمية","النوع","الحالة","ملاحظات",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-            {(order.deliveries||[]).map((d,i)=>{const isEd=editStockIdx===i&&canEdit;
+            {/* V21.9.59: row controls use canEditStockReceipts (canEdit || canEditWarehouse)
+                so warehouse_keeper can edit/delete their own receipt rows even with
+                details:view permission. Stock-receipt rows are warehouse data, not
+                order-design data. */}
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}><thead><tr>{["#","التاريخ","الكمية","النوع","الحالة","ملاحظات",...(canEditStockReceipts?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+            {(order.deliveries||[]).map((d,i)=>{const isEd=editStockIdx===i&&canEditStockReceipts;
               const dType=d.type||"series";
               return<tr key={i} style={{background:isEd?T.warn+"06":"transparent"}}>
               <td style={TD}>{i+1}</td>
@@ -1352,12 +1378,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               <td style={{...TD,minWidth:90,textAlign:"center"}}>{isEd?<Sel value={dType} onChange={v=>updOrder(sel,o=>{o.deliveries[i].type=v})}><option value="series">📦 سيري</option><option value="broken">🧩 كسر</option></Sel>:<span style={{padding:"3px 8px",borderRadius:6,fontWeight:700,fontSize:FS-2,background:dType==="broken"?"#8B5CF615":"#0EA5E915",color:dType==="broken"?"#8B5CF6":"#0EA5E9"}}>{dType==="broken"?"🧩 كسر":"📦 سيري"}</span>}</td>
               <td style={{...TD,textAlign:"center"}}>{d.status==="pending"?<span style={{color:"#F59E0B",fontWeight:700,fontSize:FS-1}}>⏳ معلّق</span>:d.confirmedBy?<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>{"✅ "+d.confirmedBy}</span>:<span style={{color:"#10B981",fontWeight:700,fontSize:FS-1}}>✅ مؤكد</span>}</td>
               <td style={{...TD,minWidth:120}}>{isEd?<Inp value={d.notes} onChange={v=>updOrder(sel,o=>{o.deliveries[i].notes=v})} placeholder="ملاحظات"/>:(d.notes||"-")}</td>
-              {canEdit&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
+              {canEditStockReceipts&&<td style={{...TD,whiteSpace:"nowrap"}}><div style={{display:"flex",gap:3}}>
                 {isEd?<><Btn small primary onClick={()=>setEditStockIdx(null)} title="حفظ">💾</Btn><Btn small onClick={()=>{setEditStockIdx(null);printLabel("مخزن جاهز",order,"مخزن جاهز",d.qty,d.date,data.garmentTypes,{type:"deliver",delDate:d.date,delQty:d.qty})}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}} title="طباعة ليبل حراري">🏷️</Btn><Btn danger small onClick={()=>{updOrder(sel,o=>{o.deliveries.splice(i,1);o.deliveredQty=getConfirmedStock(o);o.status=recomputeStatus(o)});setEditStockIdx(null)}}>🗑️</Btn></>
                 :<Btn small onClick={()=>setEditStockIdx(i)} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>}
               </div></td>}
             </tr>})}
-            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEdit?7:6} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
+            {(!order.deliveries||order.deliveries.length===0)&&<tr><td colSpan={canEditStockReceipts?7:6} style={{...TD,textAlign:"center",color:T.textSec}}>لا توجد تسليمات</td></tr>}
           </tbody></table></div>
           </Card>})()}
 

@@ -65,10 +65,22 @@ export function getNextDueDate(rule, fromDate){
     const diff = (targetDow - fromDow + 7) % 7;
     candidate = _addDays(from, diff);
   } else if(rule.pattern === "monthly"){
-    const targetDom = Math.min(Math.max(Number(rule.dayOfMonth) || 1, 1), 28);
-    candidate = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), targetDom));
+    /* V21.9.58 (Automation Audit A1): allow dayOfMonth 1..31. Pre-V21.9.58
+       this silently capped to 28 — a "rent due on 31st" rule would always
+       fire on the 28th, confusing admins.
+       Now: clamp the requested day to the actual length of the target
+       month (e.g., 31st in February becomes 28/29 — the LAST day of that
+       month, which is the correct semantic for "end of month" rules). */
+    const requestedDom = Math.min(Math.max(Number(rule.dayOfMonth) || 1, 1), 31);
+    const lastDayOfMonth = (year, monthIdx) => new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+    let tYear = from.getUTCFullYear(), tMonth = from.getUTCMonth();
+    let targetDom = Math.min(requestedDom, lastDayOfMonth(tYear, tMonth));
+    candidate = new Date(Date.UTC(tYear, tMonth, targetDom));
     if(candidate < from){
-      candidate = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, targetDom));
+      tMonth += 1;
+      if(tMonth > 11){ tMonth = 0; tYear += 1; }
+      targetDom = Math.min(requestedDom, lastDayOfMonth(tYear, tMonth));
+      candidate = new Date(Date.UTC(tYear, tMonth, targetDom));
     }
   } else {
     return null;
@@ -93,12 +105,29 @@ export function getAllDueDatesBetween(rule, fromDate, toDate){
     /* advance cursor by 1 day past the matched date */
     cursor = _toIso(_addDays(_parseDate(next), 1));
   }
+  /* V21.9.58 (Automation Audit A12): if safety counter ran out, the rule
+     is producing same date repeatedly (bug in getNextDueDate or impossible
+     constraints). Log loudly so the issue surfaces — pre-V21.9.58 it
+     returned a truncated list silently, hiding the bug. */
+  if(safety <= 0){
+    console.warn("[recurring V21.9.58] getAllDueDatesBetween hit 5000-iteration safety cap for rule:",
+      rule?.id, rule?.name, "from", fromDate, "to", toDate,
+      "→ likely bug in rule schema or date math. Returning partial list.");
+  }
   return out;
 }
 
 /* For a list of rules, return pending instances that should be generated
    between (lastGeneratedDate or startDate) and today.
-   Output: [{rule, dueDates: [...]}] — only rules with at least 1 due date. */
+   Output: [{rule, dueDates: [...]}] — only rules with at least 1 due date.
+
+   V21.9.58 (Automation Audit A3): respect `lastResumedAt` to skip backfill
+   on rule re-enable. Pre-V21.9.58 if a rule was disabled for 2 weeks then
+   re-enabled, ALL 14 missed days were generated on next tick — which is
+   almost never what the admin wants (they disabled it intentionally).
+   Now: if `lastResumedAt > lastGeneratedDate`, use lastResumedAt as the
+   floor for backfill. The recurring rule edit UI should set this when
+   admin flips `active` from false → true. */
 export function calculatePending(rules, todayIsoDate){
   const out = [];
   (rules || []).forEach(rule => {
@@ -111,6 +140,12 @@ export function calculatePending(rules, todayIsoDate){
       cursorIso = _toIso(_addDays(last, 1));
     } else {
       cursorIso = rule.startDate;
+    }
+    /* V21.9.58 A3: if rule was re-activated after a pause, never go back
+       earlier than the resume date. */
+    if(rule.lastResumedAt){
+      const resumedIso = String(rule.lastResumedAt).slice(0, 10);
+      if(resumedIso > cursorIso) cursorIso = resumedIso;
     }
     const dueDates = getAllDueDatesBetween(rule, cursorIso, todayIsoDate);
     if(dueDates.length > 0){

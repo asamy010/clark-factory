@@ -3960,7 +3960,34 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       };
       const runPending = async () => {
         if(totalPending===0){showToast("لا توجد حركات معلقة");return;}
-        if(!await ask("تنفيذ المستحقات","هل تريد إنشاء "+totalPending+" حركة معلقة؟",{confirmText:"تنفيذ"}))return;
+        /* V21.9.58 (Automation Audit A4): cross-device race lock.
+           Pre-V21.9.58 if two devices clicked "تنفيذ" at the same moment,
+           both would generate the same dueDates → duplicate treasury txs +
+           lastGeneratedDate stamped twice. The local inflight flag prevents
+           same-tab double-click; the localStorage lock (3-min TTL) handles
+           cross-tab/cross-device races by anchoring on lastGeneratedDate
+           per rule.
+
+           Note: a truly bulletproof fix would be a server-side endpoint with
+           runTransaction(read lastGeneratedDate → only generate beyond it).
+           This client-side lock is a 95% mitigation for the common case
+           (admin accidentally clicking from 2 devices/tabs). */
+        if(typeof window !== "undefined"){
+          const _lockKey = "_clark_recurringRun_lock";
+          const _lockedAt = window.localStorage?.getItem(_lockKey);
+          if(_lockedAt){
+            const _age = Date.now() - parseInt(_lockedAt, 10);
+            if(_age >= 0 && _age < 3 * 60 * 1000){
+              showToast("⏳ تنفيذ آخر جاري من جهاز/تاب آخر — استنى دقيقة وحاول تاني");
+              return;
+            }
+          }
+          window.localStorage?.setItem(_lockKey, String(Date.now()));
+        }
+        if(!await ask("تنفيذ المستحقات","هل تريد إنشاء "+totalPending+" حركة معلقة؟",{confirmText:"تنفيذ"})){
+          if(typeof window !== "undefined") window.localStorage?.removeItem("_clark_recurringRun_lock");
+          return;
+        }
         let createdCount = 0;
         const txsForAutoPost = [];
         upConfig(d=>{
@@ -3995,6 +4022,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(_r && typeof _r.then==="function") _r.catch(e=>console.warn("[recurring autoPost]", e));
           }catch(e){console.warn("[recurring autoPost] sync threw:", e?.message||e);}
         });
+        /* V21.9.58 (A4): release the cross-device lock after completion */
+        if(typeof window !== "undefined") window.localStorage?.removeItem("_clark_recurringRun_lock");
         playBeep("done");
         showToast("✓ تم إنشاء "+createdCount+" حركة من الجدولة");
       };

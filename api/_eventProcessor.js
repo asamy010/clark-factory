@@ -361,9 +361,15 @@ export async function processEvent(db, params){
     return { ok: true, status: 200, body: { ok: true, deduped: true, reason: "already-fired" } };
   }
 
-  /* Disabled */
+  /* Disabled
+     V21.9.58 (Automation Audit C3): if a pending entry is being drained for
+     an event that's now disabled, the previous behavior just returned skipped
+     but LEFT the entry in pending[] forever. Now the caller (automation-tick
+     drain loop) knows to remove it from pending via the `dequeueIfPending`
+     flag in the response. This prevents orphan pending entries from accumulating
+     after admin disables an event mid-backlog. */
   if (!eventCfg.enabled) {
-    return { ok: true, status: 200, body: { ok: true, skipped: true, reason: "event-disabled" } };
+    return { ok: true, status: 200, body: { ok: true, skipped: true, reason: "event-disabled", dequeueIfPending: true } };
   }
 
   /* Resolve phones */
@@ -379,7 +385,7 @@ export async function processEvent(db, params){
   if (mode === "manual" && !force) {
     await queuePending(db, {
       id: "p_" + Date.now().toString(36),
-      idempotencyKey, eventType, payload, customerPhone,
+      idempotencyKey, eventType, payload, customerPhone, supplierPhone,/* V21.9.58 (C2) */
       createdAt: new Date().toISOString(),
       attempts: 0,
     });
@@ -401,7 +407,7 @@ export async function processEvent(db, params){
   if (!bridgeUrl) {
     await queuePending(db, {
       id: "p_" + Date.now().toString(36),
-      idempotencyKey, eventType, payload, customerPhone,
+      idempotencyKey, eventType, payload, customerPhone, supplierPhone,/* V21.9.58 (C2) */
       createdAt: new Date().toISOString(),
       attempts: 0,
       lastError: "bridge-not-configured",

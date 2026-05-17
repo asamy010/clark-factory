@@ -3,7 +3,7 @@
 > Garment factory ERP with full Shopify Two-Stage COD workflow + Bosta shipping integration.
 
 [![Deploy Status](https://img.shields.io/badge/Vercel-deployed-success)](https://clark-factory.vercel.app)
-[![Version](https://img.shields.io/badge/version-V21.9.57-blue)](./WORK_LOG.md)
+[![Version](https://img.shields.io/badge/version-V21.9.60-blue)](./WORK_LOG.md)
 [![Build](https://img.shields.io/badge/build-passing-success)](#)
 
 ---
@@ -239,7 +239,7 @@ Bug fixes always include:
 
 ## 📊 Current Stats
 
-- **Version**: V21.9.57
+- **Version**: V21.9.60
 - **Commits on main**: 30+
 - **API endpoints**: 50+
 - **UI components**: 40+
@@ -265,4 +265,4 @@ Private — proprietary CLARK Factory ERP system.
 
 ---
 
-*Last updated: V21.9.57 (2026-05-16)*
+*Last updated: V21.9.60 (2026-05-17)*

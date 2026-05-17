@@ -1156,6 +1156,47 @@ async function scanCheckStatusEvents(db, cfg, eventTriggers, cairoDate, ordersCa
       continue;
     }
 
+    /* ── checkRePresented (V21.9.58 Audit C1) ──
+       Status went from مرتد → معلق (re-presented to bank after bounce).
+       We detect this via: status="معلق" AND bouncedAt is set (was bounced
+       at some point) AND statusDate >= bouncedAt (status was changed AFTER
+       the bounce, indicating re-presentation, not initial creation).
+       Idempotency key includes statusDate so a 2nd re-presentation on a
+       later date fires as a new event. */
+    if (
+      c.type === "receivable" && c.status === "معلق" && c.bouncedAt &&
+      String(c.statusDate || "") >= String(c.bouncedAt || "") &&
+      String(c.statusDate || "") !== String(c.bouncedAt || "") &&
+      eventTriggers.events?.checkRePresented?.enabled
+    ) {
+      out.checkRePresented = out.checkRePresented || { scanned: 0, fired: 0, skipped: 0 };
+      out.checkRePresented.scanned++;
+      processed++;
+      const ea = await ensureEnabledAt(db, "checkRePresented", eventTriggers.events.checkRePresented.enabledAt);
+      if (!ea.justSet) {
+        const enabledTs = Date.parse(ea.enabledAt);
+        const ts = entityTs({ ts: c.statusDate, createdAt: c.createdAt });
+        if (ts && ts >= enabledTs && customer?.phone) {
+          const r = await processEvent(db, {
+            eventType: "checkRePresented",
+            payload: {
+              customerName: customer?.name || c.party || "—",
+              amount: Number(c.amount) || 0,
+              bank: c.bank || "—",
+              checkNo: c.checkNo || c.id,
+              dueDate: c.dueDate || "—",
+              office, balance: 0,
+            },
+            customerPhone: customer?.phone || null,
+            idempotencyKey: `checkRePresented:${c.id}:${statusDate}`,/* date-scoped for re-bounces */
+            force: false, source: "cron", cfgCache: cfg,
+          });
+          if (r.body?.sent) out.checkRePresented.fired++; else out.checkRePresented.skipped++;
+        }
+      }
+      continue;
+    }
+
     /* ── checkPaymentIssued ── */
     if (
       c.type === "payable" && c.status === "معلق" &&
@@ -1516,27 +1557,43 @@ export default async function handler(req, res) {
       const drainable = pending.filter(p => (p.attempts || 0) < MAX_ATTEMPTS);
       const exhausted = pending.filter(p => (p.attempts || 0) >= MAX_ATTEMPTS);
       let drained = 0, drainFailed = 0;
+      /* V21.9.58 (Audit C3): track entries to dequeue (event-disabled etc.)
+         so we can remove them from pending in the same transaction below. */
+      const dequeueIds = new Set();
       for (const p of drainable.slice(0, DRAIN_CAP_PER_TICK)) {
         try {
           const r = await processEvent(db, {
             eventType: p.eventType,
             payload: p.payload,
             customerPhone: p.customerPhone,
+            /* V21.9.58 (Audit C2): pass supplierPhone too — pre-V21.9.58 it was
+               dropped on drain, so supplier-targeted retries silently fired
+               with phones.supplier=null and the supplier never got their msg. */
+            supplierPhone: p.supplierPhone,
             idempotencyKey: p.idempotencyKey,
             force: false,
             source: "cron",
           });
           if (r.ok && r.body?.sent) drained++;
           else if (!r.ok) drainFailed++;
+          /* V21.9.58 (Audit C3): event was disabled mid-flight → dequeue */
+          if (r.body?.dequeueIfPending) dequeueIds.add(p.idempotencyKey);
         } catch (e) {
           drainFailed++;
           result.errors.push({ type: "pendingDrain", id: p.id, error: e.message });
         }
       }
-      /* V21.9.55 (B2): move exhausted entries to failed queue + remove from pending.
-         The failed queue (`et.failed`) is capped at 200 so it can't grow unbounded.
-         UI can show these to admin for inspection / manual replay / clear. */
-      if (exhausted.length > 0) {
+      /* V21.9.55 (B2) + V21.9.58 (C3 + C4):
+         (B2) move exhausted entries to failed queue + remove from pending.
+         (C3) ALSO remove disabled-dequeued entries from pending.
+         (C4) recompute the "exhausted" set INSIDE the transaction from
+              `freshPending` — pre-V21.9.58 it used the pre-transaction
+              `exhausted` list, which could miss entries that got their
+              attempts incremented by a concurrent tick.
+         The failed queue (`et.failed`) is capped at 200 so it can't grow
+         unbounded. UI can show these to admin for inspection/replay/clear. */
+      const hasPendingWork = exhausted.length > 0 || dequeueIds.size > 0;
+      if (hasPendingWork) {
         try {
           const ref = db.collection("factory").doc("config");
           await db.runTransaction(async (tx) => {
@@ -1545,26 +1602,32 @@ export default async function handler(req, res) {
             const fEt = (fresh.automation || {}).eventTriggers || {};
             const freshPending = Array.isArray(fEt.pending) ? fEt.pending : [];
             const freshFailed = Array.isArray(fEt.failed) ? fEt.failed : [];
-            const exhaustedIds = new Set(exhausted.map(e => e.idempotencyKey));
-            /* Remove exhausted from pending */
-            const newPending = freshPending.filter(p =>
-              !exhaustedIds.has(p.idempotencyKey) || (p.attempts || 0) < MAX_ATTEMPTS
-            );
-            /* Append exhausted to failed (with timestamp + final state marker) */
+            /* V21.9.58 (C4): recompute exhausted from FRESH state */
+            const freshExhausted = freshPending.filter(p => (p.attempts || 0) >= MAX_ATTEMPTS);
+            const freshExhaustedIds = new Set(freshExhausted.map(e => e.idempotencyKey));
+            /* Combined removal: exhausted + dequeued */
+            const removeIds = new Set([...freshExhaustedIds, ...dequeueIds]);
+            const newPending = freshPending.filter(p => !removeIds.has(p.idempotencyKey));
+            /* Build failed entries: exhausted (failed) + dequeued (disabled) */
             const movedAt = new Date().toISOString();
-            const newFailedEntries = exhausted.map(e => ({
-              ...e,
-              finalState: "failed-exhausted",
-              movedAt,
-            }));
+            const newFailedEntries = [
+              ...freshExhausted.map(e => ({ ...e, finalState: "failed-exhausted", movedAt })),
+              ...freshPending
+                .filter(p => dequeueIds.has(p.idempotencyKey) && !freshExhaustedIds.has(p.idempotencyKey))
+                .map(e => ({ ...e, finalState: "dequeued-disabled", movedAt })),
+            ];
             const newFailed = [...newFailedEntries, ...freshFailed].slice(0, 200);
             const newEt = { ...fEt, pending: newPending, failed: newFailed };
             const newAuto = { ...(fresh.automation || {}), eventTriggers: newEt };
             tx.set(ref, { automation: newAuto }, { merge: true });
           });
-          result.actions.push({ type: "exhaustedMoved", count: exhausted.length });
+          result.actions.push({
+            type: "drainCleanup",
+            exhaustedMoved: exhausted.length,
+            dequeuedDisabled: dequeueIds.size,
+          });
         } catch (mvErr) {
-          console.warn("[V21.9.55] failed to move exhausted entries:", mvErr?.message || mvErr);
+          console.warn("[V21.9.58] failed to move exhausted/dequeued entries:", mvErr?.message || mvErr);
         }
       }
       if (drainable.length > 0) {

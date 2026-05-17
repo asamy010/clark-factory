@@ -184,12 +184,17 @@ export const DEFAULT_PERMS = {
     accounting:"view", fixedAssets:"view",
     settings:"hide",
   },
+  /* V21.9.60 — Sales accountant: expanded default access to warehouse + customer DB.
+     The real-world workflow needs sales to: see what's available in stock before
+     promising delivery dates, look up customers/products from the DB, and check
+     piece status by QR. Previously they had view-only on warehouse/pieces and
+     no access to db at all — which forced warehouse/admin to be a bottleneck. */
   sales_accountant: {
-    dashboard:"view", details:"view", external:"hide", reports:"edit",
-    tasks:"edit", db:"hide", custDeliver:"edit",
+    dashboard:"view", details:"view", external:"view", reports:"edit",
+    tasks:"edit", db:"view", custDeliver:"edit",
     salesInvoices:"edit", creditNotes:"edit",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
-    warehouse:"view", pieces:"view", treasury:"hide",
+    warehouse:"edit", pieces:"edit", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"edit", automation:"hide", aiAgent:"edit", shopify:"edit", audit:"hide",
     accounting:"hide", fixedAssets:"hide",

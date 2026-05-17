@@ -173,7 +173,14 @@ export async function addCampaignRun(cfg, runEntry){
       const data = snap.exists ? (snap.data() || {}) : { date: day, entries: [] };
       const entries = Array.isArray(data.entries) ? data.entries.slice() : [];
       entries.unshift(runEntry);
-      tx.set(ref, { ...data, date: day, entries, count: entries.length }, { merge: true });
+      /* V21.9.58 (Automation Audit A2): cap per-day entries at 1000.
+         Pre-V21.9.58 the SPLIT path had NO cap (only the legacy non-split
+         path capped at 5000). For factories running multiple campaigns
+         per day with thousands of recipients, a single day doc could
+         exceed Firestore's 1MB limit. The legacy cap at line 188 was a
+         single-array safety net; this brings split-path parity. */
+      const capped = entries.slice(0, 1000);
+      tx.set(ref, { ...data, date: day, entries: capped, count: capped.length }, { merge: true });
     });
     return;
   }

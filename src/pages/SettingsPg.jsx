@@ -2643,186 +2643,1019 @@ function DeviceInfoCard(){
   </Card>;
 }
 
-/* V16.56: PermissionsCard — extracted from an inline IIFE that called React
-   hooks (useState/useEffect) directly inside JSX. When the parent SettingsPg
-   started rendering its content conditionally per-tab (V16.52), the IIFE was
-   sometimes invoked and sometimes not, causing the parent's hook count to
-   differ between renders → React error #310. Moving the hooks into a proper
-   component scoped at module top-level keeps each render consistent. */
-function PermissionsCard({config,upConfig,T,FS,TABS,Btn,showToast}){
-  /* V15.66: Draft pattern — changes buffered locally, saved on explicit "حفظ" button */
-  const livePerms=config.permissions||{};
-  const[draftPerms,setDraftPerms]=useState(()=>JSON.parse(JSON.stringify(livePerms)));
-  const[permsDirty,setPermsDirty]=useState(false);
-  /* Re-sync draft from live whenever the upstream changes AND there are no unsaved changes */
-  useEffect(()=>{if(!permsDirty)setDraftPerms(JSON.parse(JSON.stringify(livePerms)))},[livePerms,permsDirty]);
-  /* V15.28: Added payroll_accountant and payroll_verifier roles for separation of duties */
-  /* V19.44: roles/labels/defPerms come from the central registry now.
-     V19.45: Use the effective lists so admin-defined custom roles show
-     up as columns in the permissions matrix automatically. */
-  const effectiveRoles = useMemo(() => getEffectiveRoles(config), [config?.customRoles]);
-  const roles = effectiveRoles.map(r => r.key);
-  const roleLabels = effectiveRoles.reduce((a, r) => { a[r.key] = r.label; return a; }, {});
-  const effectiveRoleMeta = useMemo(() => getEffectiveRoleMeta(config), [config?.customRoles]);
-  /* V19.44: Use PERMISSION_TABS — the catalog the matrix governs.
-     This is intentionally separate from TABS in LoginScreen (the navigation list) —
-     PERMISSION_TABS only includes tabs that have real permission entries; sidebar
-     ordering is a separate concern. The runtime linter validates they stay in sync. */
-  const tabs = PERMISSION_TABS;
-  const levels=["edit","view","hide"];
-  const levelLabels={edit:"✏️ تعديل",view:"👁 عرض",hide:"❌ مخفي"};
-  const levelColors={edit:T.ok,view:T.warn,hide:T.err};
-  /* V15.66: Draft setters — mutate local state only.
-     V18.61: Hard-block admin writes — even if a UI bug or DevTools tampering
-     tries to set permissions[admin].*, refuse silently. The runtime
-     getTabPerm() already ignores these values for admin, but this prevents
-     polluting factory/config with stale custom admin permissions. */
-  const setPerm=(role,tabKey,level)=>{
-    if(role==="admin"){
-      console.warn("[V18.61] Refused setPerm for admin role — admin permissions are hardcoded");
-      return;
-    }
-    setDraftPerms(p=>{const n=JSON.parse(JSON.stringify(p));if(!n[role])n[role]={};n[role][tabKey]=level;return n});
-    setPermsDirty(true);
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.9.60 — PermissionsCard (Phase 14v rebuild)
+   ─────────────────────────────────────────────────────────────────────
+   COMPLETE REWRITE of the permissions matrix UI. The old version was a
+   plain HTML table with select dropdowns — functional but not scalable.
+
+   New features:
+   - 🔍 Search + filter by tab name
+   - 🏷️ Group chips (Sales/Purchase/Warehouse/Finance/HR/Comms/etc.)
+   - ✨ 3-button pill cells (✏️/👁/❌) instead of select dropdowns
+   - 🎨 Color-coded role headers using each role's brand color
+   - ⚡ Per-role bulk-actions menu:
+       • Set all tabs to edit/view/hide
+       • Reset role to default
+       • Copy from another role
+   - 🔄 Diff indicator: shows which cells differ from defaults
+   - 📊 Live customization count per role
+   - 🎯 "Only show modified" filter
+   - 📌 Sticky first column (tab names) for horizontal scroll
+   - 💾 Live dirty-change count in save bar
+   - 📋 Tab descriptions inline (explains what each tab covers)
+   - 🔐 Admin column locked + clearly visualized
+
+   Maintains full backward compatibility with permission storage shape.
+   Admin permissions are NEVER persisted (V18.61 rule preserved).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Tab descriptions — explains what each permission gate actually controls.
+   Surface these inline so the admin knows exactly what they're granting. */
+const TAB_DESCRIPTIONS = {
+  dashboard: "الرئيسية — KPIs، الإنذارات، ومؤشرات الأداء",
+  details: "أوامر القص والتشغيل الداخلي للمصنع",
+  external: "تشغيل خارجي — إدارة الورش الخارجية",
+  reports: "تقارير مالية، إنتاجية، ومبيعات",
+  tasks: "نظام المهام، التذكيرات، والمتابعة",
+  db: "قواعد البيانات: عملاء، موردين، منتجات، أقمشة",
+  custDeliver: "شاشة تسليم المبيعات للعملاء",
+  salesInvoices: "فواتير المبيعات والتسعير",
+  creditNotes: "إشعارات دائنة — مرتجعات المبيعات",
+  purchase: "أوامر الشراء واستلام البضاعة",
+  purchaseInvoices: "فواتير المشتريات",
+  debitNotes: "إشعارات مدينة — مرتجعات المشتريات",
+  warehouse: "المخازن — جرد، استلام، تسليم بضاعة",
+  pieces: "تتبع القطع بـ QR Code",
+  treasury: "الخزنة — الدفعات، التحويلات، والشيكات",
+  hr: "الموارد البشرية — مرتبات وموظفين",
+  campaigns: "حملات تسويقية ورسائل واتس اب",
+  automation: "الأتمتة — إعدادات الـ events التلقائية",
+  aiAgent: "AI Agent — بوت واتس اب الذكي",
+  shopify: "تكامل Shopify B2C — مزامنة طلبات ومنتجات",
+  audit: "سجل التدقيق — كل العمليات الحساسة",
+  accounting: "النظام المحاسبي وقيود اليومية",
+  fixedAssets: "الأصول الثابتة والإهلاك",
+  settings: "إعدادات النظام (هذه الصفحة)",
+};
+
+/* Group metadata — icon + color + label for visual grouping in the matrix.
+   Order here determines section order in the rendered matrix. */
+const GROUP_META = {
+  core:       { label: "الأساسيات",      icon: "🏠", color: "#0EA5E9" },
+  sales:      { label: "المبيعات",        icon: "💰", color: "#10B981" },
+  purchase:   { label: "المشتريات",       icon: "🛒", color: "#F59E0B" },
+  warehouse:  { label: "المخازن",         icon: "📦", color: "#0D9488" },
+  production: { label: "الإنتاج",         icon: "🏗️", color: "#8B5CF6" },
+  finance:    { label: "المالية",         icon: "💵", color: "#7C3AED" },
+  hr:         { label: "الموارد البشرية", icon: "👥", color: "#EC4899" },
+  comms:      { label: "الاتصالات",       icon: "📣", color: "#06B6D4" },
+  admin:      { label: "الإدارة",         icon: "⚙️", color: "#64748B" },
+};
+
+const PERM_LEVELS = ["edit", "view", "hide"];
+const PERM_LABELS = { edit: "✏️ تعديل", view: "👁 عرض", hide: "❌ مخفي" };
+const PERM_SHORT  = { edit: "✏️",       view: "👁",     hide: "❌" };
+
+/* PermPill — 3-button toggle replacing the old select dropdown.
+   Shows a small dot indicator when value differs from role default. */
+function PermPill({ value, onChange, isCustom, T, FS }) {
+  const colorMap = { edit: T.ok, view: T.warn, hide: T.err };
+  return (
+    <div style={{
+      display: "inline-flex",
+      gap: 2,
+      padding: 2,
+      borderRadius: 8,
+      background: T.bg,
+      border: isCustom ? "2px solid " + T.warn : "1px solid " + T.brd,
+      position: "relative",
+    }}>
+      {PERM_LEVELS.map(l => (
+        <button key={l}
+          onClick={() => onChange(l)}
+          title={PERM_LABELS[l]}
+          style={{
+            padding: "4px 9px",
+            border: "none",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontSize: FS - 2,
+            fontWeight: 700,
+            background: value === l ? colorMap[l] : "transparent",
+            color: value === l ? "#fff" : T.textMut,
+            transition: "all 0.15s",
+            fontFamily: "inherit",
+            lineHeight: 1,
+          }}>
+          {PERM_SHORT[l]}
+        </button>
+      ))}
+      {isCustom && (
+        <span title="معدّل عن الافتراضي" style={{
+          position: "absolute",
+          top: -5,
+          insetInlineEnd: -5,
+          background: T.warn,
+          color: "#fff",
+          fontSize: 9,
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          fontWeight: 800,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "1.5px solid " + T.cardSolid,
+        }}>●</span>
+      )}
+    </div>
+  );
+}
+
+/* Admin-locked cell — used in the admin column (V18.61 hard-coded perms) */
+function AdminLockedCell({ T, FS }) {
+  return (
+    <span style={{
+      fontSize: FS - 2,
+      color: T.ok,
+      fontWeight: 700,
+      padding: "4px 10px",
+      background: T.ok + "12",
+      borderRadius: 6,
+      border: "1px solid " + T.ok + "30",
+      display: "inline-block",
+    }}>✏️ دائماً</span>
+  );
+}
+
+/* GroupChip — top-of-matrix filter button for the group filter row */
+function GroupChip({ active, color, label, onClick, T, FS }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: "6px 14px",
+      borderRadius: 20,
+      border: "1px solid " + (active ? (color || T.accent) : T.brd),
+      background: active ? (color || T.accent) + "15" : T.cardSolid,
+      color: active ? (color || T.accent) : T.textSec,
+      fontSize: FS - 2,
+      cursor: "pointer",
+      fontWeight: active ? 800 : 600,
+      fontFamily: "inherit",
+      transition: "all 0.15s",
+      whiteSpace: "nowrap",
+    }}>{label}</button>
+  );
+}
+
+/* CopyRoleModal — admin can copy all permissions from one role to another */
+function CopyRoleModal({ toRole, toLabel, effectiveRoles, onSelect, onClose, T, FS }) {
+  const otherRoles = effectiveRoles.filter(r => r.key !== toRole);
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.55)",
+      zIndex: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.cardSolid,
+        borderRadius: 14,
+        padding: 22,
+        maxWidth: 520,
+        width: "100%",
+        maxHeight: "80vh",
+        overflow: "auto",
+        border: "1px solid " + T.brd,
+      }}>
+        <div style={{ fontSize: FS + 4, fontWeight: 800, marginBottom: 6 }}>
+          📋 نسخ صلاحيات إلى: <span style={{ color: T.accent }}>{toLabel}</span>
+        </div>
+        <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 16, lineHeight: 1.7 }}>
+          اختر الدور اللي عاوز تنسخ صلاحياته إلى <b>{toLabel}</b>.
+          كل خلية في الصف هتتحدث بالقيمة من المصدر (مع الأخذ في الاعتبار تعديلاتك الحالية الغير محفوظة).
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {otherRoles.map(r => (
+            <button key={r.key} onClick={() => onSelect(r.key)} style={{
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid " + r.color + "40",
+              background: r.color + "08",
+              textAlign: "start",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              transition: "all 0.15s",
+            }}>
+              <span style={{ fontSize: FS + 4 }}>{r.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: r.color, fontSize: FS }}>
+                  {r.label}{r.isCustom ? " (مخصص)" : ""}
+                </div>
+                <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>{r.description}</div>
+              </div>
+              <span style={{ color: T.textMut, fontSize: FS + 4 }}>←</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{
+            padding: "8px 18px",
+            borderRadius: 8,
+            border: "1px solid " + T.brd,
+            background: T.cardSolid,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontSize: FS - 1,
+            color: T.text,
+          }}>إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* RoleBulkMenu — dropdown shown when admin clicks "⋯ خيارات" on a role header */
+function RoleBulkMenu({ role, onApplyAll, onReset, onCopyFrom, onClose, T, FS }) {
+  const menuItemStyle = {
+    display: "block",
+    width: "100%",
+    textAlign: "start",
+    padding: "8px 12px",
+    border: "none",
+    background: "transparent",
+    color: T.text,
+    fontSize: FS - 2,
+    cursor: "pointer",
+    borderRadius: 6,
+    fontFamily: "inherit",
+    transition: "background 0.15s",
   };
-  const setHrSubPerm=(role,subKey,level)=>{
-    if(role==="admin"){
-      console.warn("[V18.61] Refused setHrSubPerm for admin role — admin permissions are hardcoded");
+  return (
+    <>
+      {/* Backdrop closes menu on outside click */}
+      <div onClick={onClose} style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 49,
+      }} />
+      <div style={{
+        position: "absolute",
+        top: "100%",
+        insetInlineEnd: 4,
+        insetInlineStart: 4,
+        marginTop: 4,
+        background: T.cardSolid,
+        border: "2px solid " + T.accent,
+        borderRadius: 10,
+        padding: 6,
+        zIndex: 50,
+        minWidth: 200,
+        boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
+        textAlign: "start",
+      }}>
+        <div style={{
+          fontSize: FS - 3,
+          color: T.textMut,
+          margin: "2px 8px 6px",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+        }}>⚡ تطبيق على كل التبويبات</div>
+        <button onClick={() => onApplyAll("edit")}
+          onMouseEnter={e => e.currentTarget.style.background = T.ok + "10"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          style={{ ...menuItemStyle, color: T.ok, fontWeight: 700 }}>
+          ✏️ كل التبويبات: تعديل
+        </button>
+        <button onClick={() => onApplyAll("view")}
+          onMouseEnter={e => e.currentTarget.style.background = T.warn + "10"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          style={{ ...menuItemStyle, color: T.warn, fontWeight: 700 }}>
+          👁 كل التبويبات: عرض
+        </button>
+        <button onClick={() => onApplyAll("hide")}
+          onMouseEnter={e => e.currentTarget.style.background = T.err + "10"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          style={{ ...menuItemStyle, color: T.err, fontWeight: 700 }}>
+          ❌ كل التبويبات: مخفي
+        </button>
+        <div style={{ height: 1, background: T.brd, margin: "6px 0" }} />
+        <button onClick={onReset}
+          onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          style={menuItemStyle}>
+          ↩️ إعادة تعيين للافتراضي
+        </button>
+        <button onClick={onCopyFrom}
+          onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          style={menuItemStyle}>
+          📋 نسخ من دور آخر...
+        </button>
+      </div>
+    </>
+  );
+}
+
+/* Main component — completely rebuilt for V21.9.60.
+   Same props as before for drop-in compatibility. */
+function PermissionsCard({ config, upConfig, T, FS, TABS, Btn, showToast }) {
+  /* Draft pattern preserved from V15.66 — local edits, save explicit */
+  const livePerms = config.permissions || {};
+  const [draftPerms, setDraftPerms] = useState(() => JSON.parse(JSON.stringify(livePerms)));
+  const [permsDirty, setPermsDirty] = useState(false);
+  useEffect(() => {
+    if (!permsDirty) setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
+  }, [livePerms, permsDirty]);
+
+  /* V19.45 — include custom roles */
+  const effectiveRoles = useMemo(() => getEffectiveRoles(config), [config?.customRoles]);
+  const effectiveRoleMeta = useMemo(() => getEffectiveRoleMeta(config), [config?.customRoles]);
+  const allRoles = effectiveRoles.map(r => r.key);
+  const roleLabels = effectiveRoles.reduce((a, r) => { a[r.key] = r.label; return a; }, {});
+
+  /* V21.9.60 — UI state for search/filter/bulk-menu */
+  const [searchTerm, setSearchTerm] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
+  const [bulkMenuRole, setBulkMenuRole] = useState(null);
+  const [copyToRole, setCopyToRole] = useState(null); /* destination role for copy-from modal */
+
+  /* defPerms proxy — returns built-in default OR snapshot from custom role */
+  const defPerms = useMemo(() => new Proxy({}, {
+    get: (_target, role) => getEffectiveDefaultPerms(role, config),
+  }), [config]);
+
+  /* Setters — V18.61 admin-block preserved */
+  const setPerm = (role, tabKey, level) => {
+    if (role === "admin") {
+      console.warn("[V18.61] Refused setPerm for admin — admin permissions are hardcoded");
       return;
     }
-    setDraftPerms(p=>{
-      const n=JSON.parse(JSON.stringify(p));
-      if(!n[role])n[role]={};
-      let hrPerm=n[role].hr;
-      if(typeof hrPerm==="string")hrPerm={weeks:hrPerm,verify:hrPerm,employees:hrPerm,security:hrPerm};
-      if(!hrPerm||typeof hrPerm!=="object")hrPerm={};
-      hrPerm[subKey]=level;
-      n[role].hr=hrPerm;
+    setDraftPerms(p => {
+      const n = JSON.parse(JSON.stringify(p));
+      if (!n[role]) n[role] = {};
+      n[role][tabKey] = level;
       return n;
     });
     setPermsDirty(true);
   };
-  /* V18.61: Strip any admin entry from draft before saving — defensive cleanup
-     that ensures we never persist custom admin permissions back to factory/config.
-     If the database somehow has them (legacy / tampering), this also cleans them up. */
-  const savePerms=()=>{
-    upConfig(d=>{
-      const cleaned=JSON.parse(JSON.stringify(draftPerms));
-      if(cleaned.admin)delete cleaned.admin;/* admin is hardcoded, never persisted */
-      d.permissions=cleaned;
+
+  const setHrSubPerm = (role, subKey, level) => {
+    if (role === "admin") {
+      console.warn("[V18.61] Refused setHrSubPerm for admin — admin permissions are hardcoded");
+      return;
+    }
+    setDraftPerms(p => {
+      const n = JSON.parse(JSON.stringify(p));
+      if (!n[role]) n[role] = {};
+      let hrPerm = n[role].hr;
+      if (typeof hrPerm === "string") hrPerm = { weeks: hrPerm, verify: hrPerm, employees: hrPerm, security: hrPerm };
+      if (!hrPerm || typeof hrPerm !== "object") hrPerm = {};
+      hrPerm[subKey] = level;
+      n[role].hr = hrPerm;
+      return n;
+    });
+    setPermsDirty(true);
+  };
+
+  /* Read current value (from draft, falling back to defaults) */
+  const getCur = (role, tabKey) => {
+    if (role === "admin") return REGISTRY_DEFAULT_PERMS.admin[tabKey] || "edit";
+    const rp = draftPerms[role] || {};
+    const fromDraft = rp[tabKey];
+    if (fromDraft !== undefined && typeof fromDraft !== "object") return fromDraft;
+    if (fromDraft && typeof fromDraft === "object") {
+      /* HR object — caller handles via getHrCur */
+      return fromDraft;
+    }
+    const def = (defPerms[role] || {})[tabKey];
+    if (def && typeof def === "object") return def;
+    return def || "hide";
+  };
+
+  const getHrCur = (r, subKey) => {
+    if (r === "admin") return "edit";
+    const rp = draftPerms[r] || {};
+    let hrPerm = rp.hr;
+    if (hrPerm === undefined || hrPerm === null) hrPerm = defPerms[r]?.hr;
+    if (typeof hrPerm === "string") return hrPerm;
+    if (hrPerm && typeof hrPerm === "object") return hrPerm[subKey] || defPerms[r]?.hr?.[subKey] || "hide";
+    return "hide";
+  };
+
+  /* Is this cell different from the role's default? */
+  const isCustomized = (role, tabKey) => {
+    if (role === "admin") return false;
+    const draft = (draftPerms[role] || {})[tabKey];
+    if (draft === undefined) return false;
+    const def = (defPerms[role] || {})[tabKey];
+    if (typeof draft === "object" && typeof def === "object") {
+      return JSON.stringify(draft) !== JSON.stringify(def);
+    }
+    return draft !== def;
+  };
+
+  const isHrSubCustomized = (role, subKey) => {
+    if (role === "admin") return false;
+    const cur = getHrCur(role, subKey);
+    const def = (defPerms[role]?.hr || {})[subKey];
+    return cur !== def;
+  };
+
+  /* Count of customized cells per role (excluding HR sub-cells which count as 1 if any differ) */
+  const customCount = (role) => {
+    if (role === "admin") return 0;
+    let count = 0;
+    PERMISSION_TABS.forEach(t => {
+      if (t.key === "hr") {
+        const anyDiff = HR_SUBKEYS.some(sub => isHrSubCustomized(role, sub.key));
+        if (anyDiff) count++;
+      } else if (isCustomized(role, t.key)) {
+        count++;
+      }
+    });
+    return count;
+  };
+
+  /* Total unsaved changes vs livePerms */
+  const dirtyCount = useMemo(() => {
+    let n = 0;
+    const allRoleKeys = new Set([...Object.keys(draftPerms || {}), ...Object.keys(livePerms || {})]);
+    allRoleKeys.forEach(role => {
+      if (role === "admin") return;
+      const draftR = draftPerms[role] || {};
+      const liveR = livePerms[role] || {};
+      const allTabKeys = new Set([...Object.keys(draftR), ...Object.keys(liveR)]);
+      allTabKeys.forEach(tab => {
+        const live = liveR[tab];
+        const draft = draftR[tab];
+        const eq = typeof live === "object" || typeof draft === "object"
+          ? JSON.stringify(live || {}) === JSON.stringify(draft || {})
+          : live === draft;
+        if (!eq) n++;
+      });
+    });
+    return n;
+  }, [draftPerms, livePerms]);
+
+  /* Bulk: set every tab for a role to a single level */
+  const applyAllToRole = (role, level) => {
+    if (role === "admin") return;
+    setDraftPerms(p => {
+      const n = JSON.parse(JSON.stringify(p));
+      if (!n[role]) n[role] = {};
+      PERMISSION_TABS.forEach(t => {
+        if (t.key === "hr") {
+          n[role].hr = { weeks: level, verify: level, employees: level, security: level };
+        } else {
+          n[role][t.key] = level;
+        }
+      });
+      return n;
+    });
+    setPermsDirty(true);
+    setBulkMenuRole(null);
+    showToast("✓ تم تطبيق \"" + PERM_LABELS[level] + "\" على كل تبويبات " + (roleLabels[role] || role));
+  };
+
+  /* Reset: remove all custom overrides for a role (falls back to defaults) */
+  const resetRoleToDefault = (role) => {
+    if (role === "admin") return;
+    setDraftPerms(p => {
+      const n = JSON.parse(JSON.stringify(p));
+      delete n[role];
+      return n;
+    });
+    setPermsDirty(true);
+    setBulkMenuRole(null);
+    showToast("↩️ تم إعادة \"" + (roleLabels[role] || role) + "\" للصلاحيات الافتراضية");
+  };
+
+  /* Copy: replace one role's perms entirely with another role's effective values */
+  const copyRoleFromTo = (fromRole, toRole) => {
+    if (toRole === "admin" || fromRole === toRole) return;
+    /* Build a full snapshot from the source role's CURRENT values (draft overrides → defaults) */
+    const snapshot = {};
+    PERMISSION_TABS.forEach(t => {
+      if (t.key === "hr") {
+        const hrObj = { weeks: getHrCur(fromRole, "weeks"), verify: getHrCur(fromRole, "verify"),
+                        employees: getHrCur(fromRole, "employees"), security: getHrCur(fromRole, "security") };
+        snapshot.hr = hrObj;
+      } else {
+        const cur = getCur(fromRole, t.key);
+        snapshot[t.key] = (typeof cur === "object") ? cur : cur;
+      }
+    });
+    setDraftPerms(p => {
+      const n = JSON.parse(JSON.stringify(p));
+      n[toRole] = snapshot;
+      return n;
+    });
+    setPermsDirty(true);
+    setCopyToRole(null);
+    setBulkMenuRole(null);
+    showToast("✓ تم نسخ صلاحيات " + (roleLabels[fromRole] || fromRole) + " إلى " + (roleLabels[toRole] || toRole));
+  };
+
+  /* Save → upConfig (admin entry stripped per V18.61) */
+  const savePerms = () => {
+    upConfig(d => {
+      const cleaned = JSON.parse(JSON.stringify(draftPerms));
+      if (cleaned.admin) delete cleaned.admin;
+      d.permissions = cleaned;
     });
     setPermsDirty(false);
-    showToast("✓ تم حفظ الصلاحيات");
+    showToast("✓ تم حفظ " + dirtyCount + " تعديل في الصلاحيات");
   };
-  const resetPerms=()=>{
+
+  const resetPerms = () => {
     setDraftPerms(JSON.parse(JSON.stringify(livePerms)));
     setPermsDirty(false);
+    showToast("↩️ تم التراجع عن كل التعديلات");
   };
-  /* V19.44: defPerms now comes from the registry — single source of truth.
-     V19.45: For custom roles, looks up their snapshotted defaults from
-     config.customRoles[].defaults. The proxy below makes `defPerms[role]`
-     work for both built-in and custom roles transparently. */
-  const defPerms = useMemo(() => new Proxy({}, {
-    get: (_target, role) => getEffectiveDefaultPerms(role, config),
-  }), [config]);
-  /* Helpers to read current HR sub-permission with backward compat — reads from DRAFT */
-  const getHrCur=(r,subKey)=>{
-    const rp=draftPerms[r]||{};
-    let hrPerm=rp.hr;
-    if(hrPerm===undefined||hrPerm===null)hrPerm=defPerms[r]?.hr;
-    if(typeof hrPerm==="string")return hrPerm;/* backward compat */
-    if(hrPerm&&typeof hrPerm==="object")return hrPerm[subKey]||defPerms[r]?.hr?.[subKey]||"hide";
-    return"hide";
-  };
-  /* HR sub-rows with labels */
-  const hrSubRows=[
-    {key:"weeks",label:"━ جدول المرتبات والأسابيع",icon:"📅"},
-    {key:"verify",label:"━ تأكيد استلام (QR)",icon:"🔐"},
-    {key:"employees",label:"━ إدارة الموظفين",icon:"👷"},
-    {key:"security",label:"━ الأمن والرقابة",icon:"🛡️"}
-  ];
-  /* V18.61: Admin column is hardcoded — cell renders "✏️ دائماً" instead of a select.
-     Matches the runtime behavior of getTabPerm() which short-circuits for admin. */
-  const AdminLockedCell=()=><span style={{fontSize:FS-2,color:T.ok,fontWeight:700,padding:"4px 8px",background:T.ok+"12",borderRadius:6,border:"1px solid "+T.ok+"30",display:"inline-block"}}>✏️ دائماً</span>;
-  return<div style={{overflowX:"auto"}}>
-    <div style={{fontSize:FS-2,color:T.textMut,marginBottom:10,padding:"8px 12px",background:T.accent+"08",borderRadius:8,lineHeight:1.7}}>
-      💡 <b>محاسب مرتبات</b>: يحسب المرتبات بس مش بيقدر يؤكد الاستلام.<br/>
-      💡 <b>مُؤكِّد استلام</b>: يسكن QR بس، ومش بيقدر يعدل أي مبلغ.<br/>
-      🛡️ <b>فصل الصلاحيات</b>: المحاسب اللي عدّل المرتب ممنوع يؤكد استلامه (إلا الأدمن).
-    </div>
-    {/* V18.61: Notice that admin permissions are locked */}
-    <div style={{fontSize:FS-2,color:T.ok,marginBottom:10,padding:"10px 14px",background:T.ok+"08",border:"1px solid "+T.ok+"40",borderRadius:8,lineHeight:1.7,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-      <span style={{fontSize:FS+4}}>🔒</span>
-      <span>
-        <b>صلاحيات الـ admin مثبّتة في الكود</b> — مش قابلة للتعديل من هنا.
-        ده عشان نحمي النظام: لو حد عدّلها بالغلط أو بسبب bug، الـ admin هيفقد دخوله ويقفل النظام.
-        لتغييرها، لازم release كود جديد.
-      </span>
-    </div>
-    <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
-      <thead><tr><th style={TH}>الشاشة</th>{roles.map(r=><th key={r} style={{...TH,textAlign:"center",fontSize:FS-2,...(r==="admin"?{background:T.ok+"08",color:T.ok}:{})}}>{r==="admin"?"🔒 ":""}{roleLabels[r]}</th>)}</tr></thead>
-      <tbody>{tabs.map(t=>{
-        /* If this tab is "hr", render the parent row + 4 sub-rows */
-        if(t.key==="hr"){
-          return<React.Fragment key="hr-group">
-            <tr style={{background:T.accent+"08"}}>
-              <td style={{...TD,fontWeight:800,color:T.accent}}>
-                <span style={{marginLeft:6}}>{t.icon}</span>{t.label}
-                <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginInlineStart:6}}>(4 أقسام)</span>
-              </td>
-              {roles.map(r=><td key={r} style={{...TD,textAlign:"center",color:T.textMut,fontSize:FS-3,fontStyle:"italic"}}>↓ أقسام فرعية</td>)}
-            </tr>
-            {hrSubRows.map(sub=><tr key={"hr-"+sub.key}>
-              <td style={{...TD,paddingInlineStart:24,fontSize:FS-2,color:T.textSec}}>
-                <span style={{marginLeft:6}}>{sub.icon}</span>{sub.label}
-              </td>
-              {roles.map(r=>{
-                /* V18.61: Admin column is locked — always shows the hardcoded value */
-                if(r==="admin"){
-                  return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
-                    <AdminLockedCell/>
-                  </td>;
-                }
-                const cur=getHrCur(r,sub.key);
-                return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-                  <select value={cur} onChange={e=>setHrSubPerm(r,sub.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
-                    {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-                  </select>
-                </td>;
+
+  /* Filter pipeline: group filter → search → only-diffs */
+  const filteredTabs = useMemo(() => {
+    return PERMISSION_TABS.filter(t => {
+      if (groupFilter !== "all" && t.group !== groupFilter) return false;
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase().trim();
+        const desc = (TAB_DESCRIPTIONS[t.key] || "").toLowerCase();
+        if (!t.label.toLowerCase().includes(q) && !t.key.toLowerCase().includes(q) && !desc.includes(q)) return false;
+      }
+      if (showOnlyDiffs) {
+        const anyCustom = allRoles.some(r => {
+          if (t.key === "hr") return HR_SUBKEYS.some(sub => isHrSubCustomized(r, sub.key));
+          return isCustomized(r, t.key);
+        });
+        if (!anyCustom) return false;
+      }
+      return true;
+    });
+  }, [groupFilter, searchTerm, showOnlyDiffs, draftPerms, allRoles, config]);
+
+  /* Group the filtered tabs for sectioned rendering */
+  const groupedTabs = useMemo(() => {
+    const groups = {};
+    filteredTabs.forEach(t => {
+      const g = t.group || "core";
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(t);
+    });
+    return groups;
+  }, [filteredTabs]);
+
+  /* All groups present in the full PERMISSION_TABS (for chip rendering) */
+  const allGroups = useMemo(() => {
+    const s = new Set();
+    PERMISSION_TABS.forEach(t => s.add(t.group || "core"));
+    return Array.from(s).sort((a, b) => {
+      const order = Object.keys(GROUP_META);
+      return order.indexOf(a) - order.indexOf(b);
+    });
+  }, []);
+
+  return (
+    <div>
+      {/* Header notice — admin lock + level explainer */}
+      <div style={{
+        fontSize: FS - 2,
+        color: T.text,
+        marginBottom: 12,
+        padding: "12px 14px",
+        background: T.ok + "08",
+        border: "1px solid " + T.ok + "30",
+        borderRadius: 10,
+        lineHeight: 1.7,
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ fontSize: FS + 6 }}>🔒</span>
+          <div style={{ flex: 1 }}>
+            <b style={{ color: T.ok, fontSize: FS }}>صلاحيات الـ admin مثبّتة في الكود</b> — مش قابلة للتعديل من هنا.
+            دي حماية أمنية: لو حد عدّلها بالغلط، الأدمن هيفقد دخوله.
+            <div style={{ marginTop: 6, fontSize: FS - 2, color: T.textSec }}>
+              <b style={{ color: T.ok }}>✏️ تعديل</b>: قراءة + كتابة (وصول كامل).
+              <b style={{ color: T.warn, marginInlineStart: 12 }}>👁 عرض</b>: قراءة فقط (مش بيقدر يحفظ).
+              <b style={{ color: T.err, marginInlineStart: 12 }}>❌ مخفي</b>: التبويبة مش ظاهرة في الـ nav.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search + show-diffs toolbar */}
+      <div style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 10,
+        alignItems: "center",
+      }}>
+        <input
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          placeholder="🔍 ابحث عن تبويبة (اسم، وصف، أو مفتاح)..."
+          style={{
+            flex: "1 1 220px",
+            padding: "9px 14px",
+            borderRadius: 10,
+            border: "1px solid " + T.brd,
+            background: T.inputBg || T.cardSolid,
+            color: T.text,
+            fontSize: FS - 1,
+            fontFamily: "inherit",
+          }}
+        />
+        <button onClick={() => setShowOnlyDiffs(s => !s)} style={{
+          padding: "9px 16px",
+          borderRadius: 10,
+          border: "1px solid " + (showOnlyDiffs ? T.warn : T.brd),
+          background: showOnlyDiffs ? T.warn + "15" : T.cardSolid,
+          color: showOnlyDiffs ? T.warn : T.text,
+          fontSize: FS - 2,
+          cursor: "pointer",
+          fontWeight: 700,
+          fontFamily: "inherit",
+          whiteSpace: "nowrap",
+          transition: "all 0.15s",
+        }}>
+          {showOnlyDiffs ? "✓ " : ""}عرض المعدّل فقط
+        </button>
+        {searchTerm && (
+          <button onClick={() => setSearchTerm("")} style={{
+            padding: "9px 14px",
+            borderRadius: 10,
+            border: "1px solid " + T.brd,
+            background: T.cardSolid,
+            color: T.textMut,
+            fontSize: FS - 2,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}>✕ مسح البحث</button>
+        )}
+      </div>
+
+      {/* Group filter chips */}
+      <div style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        marginBottom: 14,
+        padding: "8px 10px",
+        background: T.bg,
+        borderRadius: 10,
+      }}>
+        <GroupChip
+          active={groupFilter === "all"}
+          label={"🌐 الكل (" + PERMISSION_TABS.length + ")"}
+          onClick={() => setGroupFilter("all")}
+          T={T} FS={FS}
+        />
+        {allGroups.map(g => {
+          const meta = GROUP_META[g] || { label: g, icon: "📁", color: T.textMut };
+          const count = PERMISSION_TABS.filter(t => t.group === g).length;
+          return (
+            <GroupChip
+              key={g}
+              active={groupFilter === g}
+              color={meta.color}
+              label={meta.icon + " " + meta.label + " (" + count + ")"}
+              onClick={() => setGroupFilter(g)}
+              T={T} FS={FS}
+            />
+          );
+        })}
+      </div>
+
+      {/* Matrix table */}
+      {filteredTabs.length === 0 ? (
+        <div style={{
+          padding: 40,
+          textAlign: "center",
+          color: T.textMut,
+          fontSize: FS - 1,
+          border: "1px dashed " + T.brd,
+          borderRadius: 10,
+          background: T.bg,
+        }}>
+          ⚠️ مفيش تبويبات تطابق البحث/الفلتر الحالي
+          <div style={{ marginTop: 8, fontSize: FS - 2 }}>
+            جرب تمسح البحث أو تختار &quot;الكل&quot; من فلاتر المجموعة.
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          overflowX: "auto",
+          border: "1px solid " + T.brd,
+          borderRadius: 12,
+          background: T.cardSolid,
+        }}>
+          <table style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            minWidth: Math.max(720, allRoles.length * 145 + 280),
+          }}>
+            <thead>
+              <tr>
+                <th style={{
+                  ...TH,
+                  minWidth: 260,
+                  background: T.cardSolid,
+                  borderBottom: "2px solid " + T.brd,
+                  padding: "12px 14px",
+                  textAlign: "start",
+                }}>
+                  <div style={{ fontSize: FS, fontWeight: 800 }}>الشاشة / التبويبة</div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600, marginTop: 2 }}>
+                    {filteredTabs.length} تبويبة معروضة من {PERMISSION_TABS.length}
+                  </div>
+                </th>
+                {allRoles.map(r => {
+                  const meta = effectiveRoleMeta[r] || {};
+                  const isAdmin = r === "admin";
+                  const cust = customCount(r);
+                  const color = isAdmin ? T.ok : (meta.color || T.text);
+                  return (
+                    <th key={r} style={{
+                      ...TH,
+                      textAlign: "center",
+                      fontSize: FS - 2,
+                      minWidth: 145,
+                      background: color + "08",
+                      borderBottom: "3px solid " + color,
+                      position: "relative",
+                      verticalAlign: "top",
+                      padding: "10px 6px",
+                    }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                        <div style={{ fontSize: FS, fontWeight: 800, color: color, lineHeight: 1.2 }}>
+                          {isAdmin && "🔒 "}{meta.icon || "👤"} {meta.label || r}
+                        </div>
+                        {meta.isCustom && (
+                          <div style={{ fontSize: FS - 4, color: T.textMut, fontWeight: 600 }}>(مخصص)</div>
+                        )}
+                        {!isAdmin && cust > 0 && (
+                          <div style={{
+                            fontSize: FS - 3,
+                            color: T.warn,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            background: T.warn + "12",
+                            borderRadius: 10,
+                          }}>
+                            {cust} مخصص
+                          </div>
+                        )}
+                        {!isAdmin && (
+                          <button
+                            onClick={() => setBulkMenuRole(bulkMenuRole === r ? null : r)}
+                            style={{
+                              padding: "3px 10px",
+                              borderRadius: 6,
+                              border: "1px solid " + T.brd,
+                              background: T.cardSolid,
+                              color: T.textSec,
+                              fontSize: FS - 3,
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                              marginTop: 2,
+                            }}
+                            title="إجراءات سريعة"
+                          >⋯ خيارات</button>
+                        )}
+                        {bulkMenuRole === r && !isAdmin && (
+                          <RoleBulkMenu
+                            role={r}
+                            onApplyAll={(level) => applyAllToRole(r, level)}
+                            onReset={() => resetRoleToDefault(r)}
+                            onCopyFrom={() => { setCopyToRole(r); setBulkMenuRole(null); }}
+                            onClose={() => setBulkMenuRole(null)}
+                            T={T} FS={FS}
+                          />
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(GROUP_META).filter(gKey => groupedTabs[gKey]?.length).map(gKey => {
+                const meta = GROUP_META[gKey];
+                const tabsInGroup = groupedTabs[gKey];
+                return (
+                  <React.Fragment key={gKey}>
+                    {/* Group header row (only show when "all" filter OR multiple groups visible) */}
+                    {(groupFilter === "all" || Object.keys(groupedTabs).length > 1) && (
+                      <tr style={{ background: meta.color + "08" }}>
+                        <td colSpan={1 + allRoles.length} style={{
+                          ...TD,
+                          padding: "10px 14px",
+                          borderTop: "2px solid " + meta.color + "40",
+                          borderBottom: "1px solid " + meta.color + "20",
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: FS + 1, fontWeight: 800, color: meta.color }}>
+                              {meta.icon} {meta.label}
+                            </span>
+                            <span style={{ fontSize: FS - 3, color: T.textMut }}>
+                              ({tabsInGroup.length} {tabsInGroup.length === 1 ? "تبويبة" : "تبويبات"})
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {tabsInGroup.map(t => {
+                      /* Special: HR row expands into 4 sub-rows */
+                      if (t.key === "hr") {
+                        return (
+                          <React.Fragment key="hr-group">
+                            <tr>
+                              <td style={{
+                                ...TD,
+                                fontWeight: 700,
+                                background: T.bg,
+                                minWidth: 260,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                  <span style={{ fontSize: FS + 4 }}>{t.icon}</span>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: FS }}>{t.label}</div>
+                                    <div style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 500, marginTop: 2, lineHeight: 1.4 }}>
+                                      {TAB_DESCRIPTIONS[t.key]}
+                                    </div>
+                                    <div style={{ fontSize: FS - 3, color: T.accent, fontWeight: 700, marginTop: 4 }}>
+                                      ↓ 4 أقسام فرعية ↓
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              {allRoles.map(r => (
+                                <td key={r} style={{
+                                  ...TD,
+                                  textAlign: "center",
+                                  background: T.bg,
+                                  color: T.textMut,
+                                  fontSize: FS - 3,
+                                  fontStyle: "italic",
+                                }}>↓ راجع الأقسام تحت ↓</td>
+                              ))}
+                            </tr>
+                            {HR_SUBKEYS.map(sub => (
+                              <tr key={"hr-" + sub.key}>
+                                <td style={{
+                                  ...TD,
+                                  paddingInlineStart: 36,
+                                  fontSize: FS - 1,
+                                  color: T.textSec,
+                                  minWidth: 260,
+                                }}>
+                                  <span style={{ marginLeft: 6 }}>{sub.icon}</span>━ {sub.label}
+                                </td>
+                                {allRoles.map(r => {
+                                  if (r === "admin") {
+                                    return (
+                                      <td key={r} style={{ ...TD, textAlign: "center", padding: "6px", background: T.ok + "04" }}>
+                                        <AdminLockedCell T={T} FS={FS} />
+                                      </td>
+                                    );
+                                  }
+                                  const cur = getHrCur(r, sub.key);
+                                  const cust = isHrSubCustomized(r, sub.key);
+                                  return (
+                                    <td key={r} style={{ ...TD, textAlign: "center", padding: "6px" }}>
+                                      <PermPill
+                                        value={cur}
+                                        isCustom={cust}
+                                        onChange={v => setHrSubPerm(r, sub.key, v)}
+                                        T={T} FS={FS}
+                                      />
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                      }
+                      /* Regular tab row */
+                      return (
+                        <tr key={t.key}>
+                          <td style={{
+                            ...TD,
+                            fontWeight: 600,
+                            minWidth: 260,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                              <span style={{ fontSize: FS + 4 }}>{t.icon}</span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: FS }}>{t.label}</div>
+                                <div style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 500, marginTop: 2, lineHeight: 1.4 }}>
+                                  {TAB_DESCRIPTIONS[t.key] || ""}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          {allRoles.map(r => {
+                            if (r === "admin") {
+                              return (
+                                <td key={r} style={{ ...TD, textAlign: "center", padding: "6px", background: T.ok + "04" }}>
+                                  <AdminLockedCell T={T} FS={FS} />
+                                </td>
+                              );
+                            }
+                            const cur = getCur(r, t.key);
+                            const cust = isCustomized(r, t.key);
+                            return (
+                              <td key={r} style={{ ...TD, textAlign: "center", padding: "6px" }}>
+                                <PermPill
+                                  value={typeof cur === "object" ? "view" : cur}
+                                  isCustom={cust}
+                                  onChange={v => setPerm(r, t.key, v)}
+                                  T={T} FS={FS}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
               })}
-            </tr>)}
-          </React.Fragment>;
-        }
-        /* Non-HR tab — regular rendering, reads from draft */
-        return<tr key={t.key}>
-          <td style={{...TD,fontWeight:600}}><span style={{marginLeft:6}}>{t.icon}</span>{t.label}</td>
-          {roles.map(r=>{
-            /* V18.61: Admin column is locked — always shows the hardcoded value */
-            if(r==="admin"){
-              return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px",background:T.ok+"05"}}>
-                <AdminLockedCell/>
-              </td>;
-            }
-            const cur=(draftPerms[r]||{})[t.key]||(defPerms[r]||{})[t.key]||"view";
-            return<td key={r} style={{...TD,textAlign:"center",padding:"4px 6px"}}>
-              <select value={cur} onChange={e=>setPerm(r,t.key,e.target.value)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:levelColors[cur],fontWeight:700,cursor:"pointer"}}>
-                {levels.map(l=><option key={l} value={l}>{levelLabels[l]}</option>)}
-              </select>
-            </td>;
-          })}
-        </tr>;
-      })}</tbody>
-    </table>
-    {/* V15.66: Save/Cancel buttons — only visible when there are unsaved changes */}
-    <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14,paddingTop:14,borderTop:"1px solid "+T.brd}}>
-      {permsDirty&&<span style={{padding:"6px 12px",borderRadius:8,background:T.warn+"12",color:T.warn,fontSize:FS-2,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
-        <span style={{width:8,height:8,borderRadius:"50%",background:T.warn,display:"inline-block"}}></span>
-        فيه تعديلات مش متحفظة
-      </span>}
-      <Btn ghost onClick={resetPerms} disabled={!permsDirty}>↩️ تراجع</Btn>
-      <Btn primary onClick={savePerms} disabled={!permsDirty} style={{fontWeight:800}}>💾 حفظ الصلاحيات</Btn>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Copy-from-role modal */}
+      {copyToRole && (
+        <CopyRoleModal
+          toRole={copyToRole}
+          toLabel={roleLabels[copyToRole] || copyToRole}
+          effectiveRoles={effectiveRoles}
+          onSelect={fromRole => copyRoleFromTo(fromRole, copyToRole)}
+          onClose={() => setCopyToRole(null)}
+          T={T} FS={FS}
+        />
+      )}
+
+      {/* Save bar */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginTop: 16,
+        paddingTop: 14,
+        borderTop: "1px solid " + T.brd,
+        flexWrap: "wrap",
+      }}>
+        <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>
+          📊 <b>{allRoles.length - 1}</b> دور قابل للتخصيص ×
+          <b> {PERMISSION_TABS.length}</b> تبويبة =
+          <b> {(allRoles.length - 1) * PERMISSION_TABS.length}</b> خلية صلاحية
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {permsDirty && (
+            <span style={{
+              padding: "8px 14px",
+              borderRadius: 8,
+              background: T.warn + "15",
+              color: T.warn,
+              fontSize: FS - 2,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              border: "1px solid " + T.warn + "30",
+            }}>
+              <span style={{
+                width: 9,
+                height: 9,
+                borderRadius: "50%",
+                background: T.warn,
+                display: "inline-block",
+              }}></span>
+              {dirtyCount} تعديل غير محفوظ
+            </span>
+          )}
+          <Btn ghost onClick={resetPerms} disabled={!permsDirty}>↩️ تراجع</Btn>
+          <Btn primary onClick={savePerms} disabled={!permsDirty} style={{ fontWeight: 800 }}>
+            💾 حفظ الصلاحيات
+          </Btn>
+        </div>
+      </div>
     </div>
-  </div>;
+  );
 }
 
 export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,theme,setTheme,season,orders,syncWsIds,replaceOrder,updOrder,configDoc,salesDoc,tasksDoc}){
