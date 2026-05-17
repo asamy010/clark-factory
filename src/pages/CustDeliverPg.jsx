@@ -381,6 +381,38 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived})}});
     setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
+  /* V21.9.57 CRITICAL FIX (Reported Bug — '"تسوية جرد" مش بعرف احذف'):
+     `safeDelete` was referenced at line ~3116 inside the customer list
+     `DelBtn onConfirm` but NEVER DEFINED in this component (not in props,
+     not local, not imported). Clicking "تأكيد" threw a silent ReferenceError
+     and the customer record stayed forever.
+
+     This was masked because:
+     1. The button click handler is wrapped in onConfirm callback — exceptions
+        get swallowed by React error boundaries instead of surfacing as toast
+     2. Users assumed "delete is blocked by some reference" (the typical CLARK
+        behavior) instead of "delete code is missing"
+
+     Adopting the same pattern from DBPg.jsx:32 — moves to recycleBin so
+     accidental deletes are reversible. Defensively excludes pseudo-IDs that
+     start with "_" (like "_adjust" from inventory audit) from going to the
+     recycle bin since those are internal markers, not real records. */
+  const safeDelete=(collection,id,type)=>{
+    upConfig(d=>{
+      if(!d.recycleBin)d.recycleBin=[];
+      const arr=d[collection]||[];
+      const item=arr.find(x=>x.id===id);
+      /* Only archive REAL records — pseudo-IDs (_adjust, etc.) are
+         system-internal and shouldn't appear in the recycle bin. */
+      if(item && !String(id).startsWith("_")){
+        d.recycleBin.unshift({...item,_type:type,_collection:collection,_deletedAt:new Date().toISOString()});
+      }
+      d[collection]=arr.filter(x=>x.id!==id);
+      if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
+    });
+    showToast("✓ تم الحذف"+(String(id).startsWith("_")?"":" — يمكن الاستعادة من سلة المحذوفات"));
+  };
+
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
     const sess={id:gid(),date:cairoDateStr(),createdAt:nowISO(),modelIds:mIds,custIds:cIds,grid:{}};
@@ -3102,6 +3134,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <Btn small onClick={()=>setShowArchivedCusts(!showArchivedCusts)} style={{background:showArchivedCusts?T.err+"15":T.bg,color:showArchivedCusts?T.err:T.textSec,border:"1px solid "+(showArchivedCusts?T.err+"40":T.brd),whiteSpace:"nowrap"}} title="إظهار/إخفاء العملاء الموقوفين">{showArchivedCusts?"🔒 يظهر الموقوفين":"إظهار الموقوفين"}</Btn>
         </div>
         {(()=>{const fc=customers.filter(c=>{
+          /* V21.9.57 DEFENSIVE FILTER: hide pseudo-customers (id starts with "_")
+             from the customer list display. These are system-internal markers
+             (e.g., "_adjust" for inventory audit stock corrections) that should
+             never have been promoted to real customers, but the V21.9.57 fixes
+             to the recovery scan + safeDelete may not catch already-stuck records.
+             The data record stays in d.customers for backward compat (some screens
+             might still resolve the name via c.id lookup), but they're hidden
+             from the user-facing list. To clean up the record permanently, click
+             the × button — safeDelete will remove it. */
+          if(typeof c.id === "string" && c.id.startsWith("_")) return false;
           /* V18.16: Hide archived unless toggle is on */
           if(c.archived&&!showArchivedCusts)return false;
           if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)||(c.type||"").includes(q)
