@@ -29,7 +29,7 @@
    ════════════════════════════════════════════════════════════════════════ */
 
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch, runTransaction
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { noticeWarn } from "./storageNotices.js";
@@ -371,60 +371,76 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
   }
   
   const allDays = new Set([...addsByDay.keys(), ...removesByDay.keys()]);
-  
-  /* For each affected day: read current server state, apply delta, write back */
+
+  /* For each affected day: atomic read-modify-write via runTransaction.
+     V21.9.67 CRITICAL FIX — cross-device same-day stale-write loss:
+     Pre-V21.9.67 used `getDoc + setDoc` which is NOT atomic. If Device A and
+     Device B both wrote to the same day-doc within seconds:
+       1. Device A reads day → [a1, a2]
+       2. Device B reads day → [a1, a2]
+       3. Device A writes [a1, a2, new_A]
+       4. Device B writes [a1, a2, new_B]  ← new_A silently lost (last-writer-wins)
+     This was the SAME class of bug as V21.9.44 (recurringTreasury cross-device
+     loss) but for EVERY split collection: treasury, treasuryTransfers, checks,
+     custPayments, supplierPayments, wsPayments, hrLog, salesInvoices, etc.
+     User-visible symptom: "بيانات تتمسح من نفسها" — entry added on Device A,
+     never appears after Device B's next write hits the same day.
+
+     runTransaction re-runs the callback on contention (up to 5 retries by SDK).
+     On each retry, tx.get() returns the freshest server state, and we re-apply
+     our local diff (addsByDay/removesByDay are stable across retries — computed
+     before the transaction). End state: both devices' adds survive. */
   const writes = [];
   for (const date of allDays) {
     writes.push((async () => {
       const dayRef = doc(db, collectionName, date);
-      
-      /* Read current server state for this day */
-      let serverEntries = [];
-      try {
-        const snap = await getDoc(dayRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          serverEntries = Array.isArray(data?.entries) ? data.entries : [];
-        }
-      } catch (e) {
-        console.warn(`[splitCollections] Could not read ${collectionName}/${date}, treating as empty:`, e);
-      }
-      
-      /* Apply removes */
       const removeIds = removesByDay.get(date) || new Set();
-      let merged = removeIds.size > 0
-        ? serverEntries.filter(e => !removeIds.has(String(e?.id || "")))
-        : [...serverEntries];
-      
-      /* Apply adds/modifications: for each new entry, replace if exists else prepend (treasury/audit/hrLog use unshift pattern) */
       const addList = addsByDay.get(date) || [];
-      for (const newEntry of addList) {
-        const newId = String(newEntry?.id || "");
-        if (!newId) {
-          /* Already handled above (rejected) — defensive only */
-          continue;
-        }
-        const existingIdx = merged.findIndex(e => String(e?.id || "") === newId);
-        if (existingIdx >= 0) {
-          merged[existingIdx] = newEntry;  /* update in place */
-        } else {
-          merged.unshift(newEntry);  /* prepend new entry */
-        }
-      }
-      
-      /* Write the merged result */
-      if (merged.length === 0) {
-        await deleteDoc(dayRef);
-      } else {
-        await setDoc(dayRef, {
-          entries: merged,
-          count: merged.length,
-          updatedAt: new Date().toISOString(),
+      try {
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(dayRef);
+          let serverEntries = [];
+          if (snap.exists()) {
+            const data = snap.data();
+            serverEntries = Array.isArray(data?.entries) ? data.entries : [];
+          }
+          /* Apply removes against the FRESH server state */
+          let merged = removeIds.size > 0
+            ? serverEntries.filter(e => !removeIds.has(String(e?.id || "")))
+            : [...serverEntries];
+          /* Apply adds/modifications: for each new entry, replace if exists else
+             prepend (treasury/audit/hrLog use unshift pattern). */
+          for (const newEntry of addList) {
+            const newId = String(newEntry?.id || "");
+            if (!newId) continue;
+            const existingIdx = merged.findIndex(e => String(e?.id || "") === newId);
+            if (existingIdx >= 0) {
+              merged[existingIdx] = newEntry;
+            } else {
+              merged.unshift(newEntry);
+            }
+          }
+          /* Write the merged result inside the transaction */
+          if (merged.length === 0) {
+            tx.delete(dayRef);
+          } else {
+            tx.set(dayRef, {
+              entries: merged,
+              count: merged.length,
+              updatedAt: new Date().toISOString(),
+            });
+          }
         });
+      } catch (e) {
+        /* V21.9.67: surface the error so the upConfigTx retry loop can pick it up.
+           Pre-V21.9.67 errors were swallowed inside the inner async function and
+           Promise.all would resolve fine, hiding the failure. */
+        console.error(`[splitCollections] tx failed for ${collectionName}/${date}:`, e?.message || e);
+        throw e;
       }
     })());
   }
-  
+
   await Promise.all(writes);
   return writes.length;
 }

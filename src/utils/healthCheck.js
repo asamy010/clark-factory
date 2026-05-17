@@ -237,6 +237,45 @@ export function evaluateHealthIssues({ data, configDoc, listenerErrors, cfgSizeB
     }
   }
 
+  /* ═══ 6. V21.9.67: Unresolved accounting-post failures ═══════
+     Each autoPost.* call records to data.accountingPostFailures on failure
+     (see src/utils/accounting/autoPost.js:recordFailure). These represent
+     journal entries that SHOULD have been posted but weren't — meaning the
+     operational state (treasury, hrLog, wsPayments) and the accounting books
+     (accountingDays) are out of sync. Without this surface, admin has no idea
+     until they hit a Trial Balance mismatch.
+
+     V21.9.67 root context: this metric became MUCH more important when we
+     fixed Bug #2 (sequential autoPost + skip-on-upConfig-failure). Before,
+     orphans accumulated invisibly; now they're explicitly recorded — but only
+     useful if the admin can SEE them. */
+  if (Array.isArray(cfg.accountingPostFailures)) {
+    const unresolved = cfg.accountingPostFailures.filter(f => f && !f.resolvedAt);
+    if (unresolved.length > 0) {
+      /* Group by type for the detail message */
+      const byType = {};
+      for (const f of unresolved) {
+        const t = f.type || "unknown";
+        byType[t] = (byType[t] || 0) + 1;
+      }
+      const breakdown = Object.entries(byType)
+        .map(([t, n]) => `${t}:${n}`)
+        .slice(0, 5)
+        .join(", ");
+      /* Severity: error if >5 failures, warning otherwise. Critical never —
+         this is recoverable via Diagnostics → retry, not data-loss. */
+      const severity = unresolved.length > 5 ? "error" : "warning";
+      issues.push({
+        kind: "accounting_post_failures",
+        severity,
+        title: `${unresolved.length} entry مش متـ post في المحاسبة`,
+        detail: `الـ Trial Balance ممكن يكون مش matching مع الخزنة. الـ types: ${breakdown}${Object.keys(byType).length > 5 ? "…" : ""}`,
+        hint: "افتح Diagnostics → 'محاسبة' → 'إعادة محاولة'. الـ builders idempotent.",
+        navigateTo: "settings",
+      });
+    }
+  }
+
   /* ═══ Sort by severity DESC, then by kind alphabetically ═══ */
   issues.sort((a, b) => {
     const sa = SEVERITY_RANK[a.severity] || 0;

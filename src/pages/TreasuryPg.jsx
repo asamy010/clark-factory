@@ -847,7 +847,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     return Object.entries(cats).sort((a,b)=>(b[1].in+b[1].out)-(a[1].in+a[1].out))},[txns]);
 
   /* ── CRUD ── */
-  const saveTx=()=>{
+  const saveTx=async ()=>{
     /* V19.4 FIX: Double-click protection — bail out if a save is already in flight */
     if(savingTx)return;
     /* V19.7 FIX: Validation failures used to play just a beep with NO visible message,
@@ -955,7 +955,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const _instantSupplierPay_needed = (linkedSupplierId && txType==="out" && txCategory==="دفعة مورد" && !editId && !_isCheckMethod);
     const _instantSupplierPay_id = _instantSupplierPay_needed ? gid() : null;
     const _instantSupplierPay_supplier = _instantSupplierPay_needed ? suppliers.find(x=>x.id===linkedSupplierId) : null;
-    upConfig(d=>{if(!d.treasury)d.treasury=[];
+    /* V21.9.67: await + status check. Pre-V21.9.67 the autoPost.treasury fired
+       synchronously after upConfig returned, before the Firestore write actually
+       reached the server. If the write failed (split-sync error, 1MB limit), the
+       accountingDays entry was already created → orphan journal entry referring
+       to a treasury row that never landed. */
+    const _saveResult=await upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
           /* V17.3 FIX: Capture old empId BEFORE overwriting it, so we can sync hrLog */
@@ -1042,11 +1047,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         /* V18.35: stash for post-commit auto-posting */
         _newBaseEntry=baseEntry;
       }});
+    /* V21.9.67: if upConfig failed, bail out — don't run autoPost, instant-fires,
+       or any of the downstream "we saved successfully" code. */
+    if(_saveResult && _saveResult.ok === false){
+      console.error("[V21.9.67] saveTx: upConfig failed — skipping autoPost + instant fires:", _saveResult);
+      showToast("⛔ فشل حفظ الحركة — اعمل refresh وحاول تاني");
+      return;
+    }
     /* V18.35: auto-post journal entry for the new treasury row.
        We do this AFTER upConfig commits — uses fresh entry object built above.
        Only fires for plain treasury entries (not the linked ones — those
        have specific posting rules handled by their own hooks).
-       
+
        V19.8 CRITICAL FIX: Wrapped in try/catch and Promise.resolve to handle
        the case where autoPost.treasury() returns a plain object (when
        autoPostEnabled is false in accountingSettings). Calling .catch on a
@@ -1718,7 +1730,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        status check) caused the UI to revert to "pending" so user re-clicked
      The guard set ensures only one in-flight approval per tfId — the second
      click is a no-op until the first completes (success or error). */
-  const approveTransfer=(tfId)=>{
+  const approveTransfer=async (tfId)=>{
     if(!isAdmin)return;
     if(inflightTransferRef.current.has(tfId)){
       showToast("⏳ التأكيد جاري — استنى ثانية");
@@ -1730,10 +1742,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        AFTER upConfig commits. autoPost MUST run outside the upConfig fn
        because (a) it's async, (b) it writes to a different collection
        (accountingDays), (c) calling it inside the fn would re-fire on
-       every retry of the upConfig transaction. */
+       every retry of the upConfig transaction.
+
+       V21.9.67: AWAIT upConfig, then check {ok} status before firing autoPost.
+       Pre-V21.9.67: if the treasuryTransfers write failed (split-sync error,
+       1MB limit, etc.), the autoPost calls had already written to accountingDays
+       → orphan journal entries for transfer legs that never landed in treasury.
+       Now: skip autoPost on failure to keep books in sync. */
     let _outLeg=null;
     let _inLeg=null;
-    upConfig(d=>{
+    const _result=await upConfig(d=>{
       const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
       if(!tf||tf.status!=="pending")return;
       didMutate=true;
@@ -1765,25 +1783,24 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
       if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
     });
-    /* V21.9.14 (MEDIUM accounting fix): post the two transfer legs to the
-       journal so Trial Balance / Balance Sheet stay in sync. Pre-V21.9.14
-       approveTransfer wrote treasury rows but did NOT call autoPost — the
-       cash account on the journal side stayed stale relative to actual
-       ledger. saveTx (line ~1056) and editTx do call autoPost; the
-       transfer flow was missed.
-       Same defensive try/catch pattern as saveTx — a failed autoPost must
-       NOT leak into the user-visible flow. */
+    /* V21.9.14 → V21.9.67: post the two transfer legs to the journal only if
+       upConfig succeeded. Pre-V21.9.67 fired regardless → orphan postings on
+       split-sync failures. */
+    if(_result && _result.ok === false){
+      console.error("[V21.9.67] approveTransfer: upConfig failed — skipping autoPost:", _result);
+      showToast("⛔ فشل تأكيد التحويل — اعمل refresh وحاول تاني");
+      setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
+      return;
+    }
     if(_outLeg){
       try{
-        const _r1=autoPost.treasury(data,_outLeg,userName);
-        if(_r1&&typeof _r1.then==="function") _r1.catch(()=>{});
-      }catch(e){console.warn("[V21.9.14] autoPost.treasury (out leg) threw:",e?.message||e);}
+        await autoPost.treasury(data,_outLeg,userName);
+      }catch(e){console.warn("[V21.9.67] autoPost.treasury (out leg) threw:",e?.message||e);}
     }
     if(_inLeg){
       try{
-        const _r2=autoPost.treasury(data,_inLeg,userName);
-        if(_r2&&typeof _r2.then==="function") _r2.catch(()=>{});
-      }catch(e){console.warn("[V21.9.14] autoPost.treasury (in leg) threw:",e?.message||e);}
+        await autoPost.treasury(data,_inLeg,userName);
+      }catch(e){console.warn("[V21.9.67] autoPost.treasury (in leg) threw:",e?.message||e);}
     }
     /* Release the guard after a generous delay so the listener round-trip
        has time to commit before another click is allowed. 2s is enough for

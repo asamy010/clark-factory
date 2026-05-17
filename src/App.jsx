@@ -3996,7 +3996,7 @@ export default function App(){
     if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
       console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
-      return;
+      return {ok:false, error:"split-not-loaded", phase:"gate"};/* V21.9.67 */
     }
     /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
        V21.9.39 adds V2192 (shopifyProducts/shopifyCustomers) — defensive parity with the V21.9.33
@@ -4007,7 +4007,7 @@ export default function App(){
     if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
-      return;
+      return {ok:false, error:"partitioned-not-loaded", phase:"gate"};/* V21.9.67 */
     }
     /* V19.49: dynamic splitBefore covering ALL split fields */
     const splitBefore=explicitSplitBefore||Object.fromEntries(
@@ -4086,6 +4086,10 @@ export default function App(){
               const _detail = (syncErr?.message||String(syncErr)||"").slice(0,80);
               showToast("⛔ فشل حفظ البيانات على السيرفر — حاول مرة تانية ("+_detail+")");
             } catch(_){}
+            /* V21.9.67: surface failure to caller so downstream autoPost can be skipped.
+               Pre-V21.9.67 we returned void here — caller couldn't know the split sync
+               failed, autoPost still fired → orphan accountingDays entries. */
+            return {ok:false, error:syncErr?.message||String(syncErr), phase:"split-sync"};
           }
         }
         /* V16.75: sync partitioned docs */
@@ -4118,9 +4122,11 @@ export default function App(){
               `تعذر حفظ البيانات في ${_actualColl}`,
               "خطأ في كتابة "+_actualColl+" بعد 3 محاولات. البيانات الأساسية محفوظة، لكن الـpartitioned docs قد لا تكون متزامنة. التفاصيل: "+_errMsg.slice(0,200)
             );
+            /* V21.9.67: surface failure to caller so autoPost can be skipped. */
+            return {ok:false, error:_errMsg, phase:"partitioned-sync"};
           }
         }
-        return;/* success */
+        return {ok:true};/* V21.9.67: explicit success status */
       }catch(e){
         lastErr=e;
         const code=e?.code||"";
@@ -4155,13 +4161,14 @@ export default function App(){
         });
         console.error(forensic);
         showToast("⛔ فشل حفظ بعض البيانات (sync): "+(cat.arabic||""));
-        return;
+        return {ok:false, error:syncErr?.message||String(syncErr), phase:"fallback-sync"};/* V21.9.67 */
       }
       try{
         await setDoc(ref,stripped,{merge:false});
         markSynced(); /* V19.48: fallback DID reach server */
         /* Quiet success — don't alarm user. The data IS saved, no need for warnings. */
         console.warn("[V19.48] upConfig recovered via fallback setDoc");
+        return {ok:true, recoveredViaFallback:true};/* V21.9.67 */
       }catch(er){
         const cat = categorizeWriteError(er);
         const docSize = estimateDocSize(stripped);
@@ -4175,11 +4182,13 @@ export default function App(){
         });
         console.error(forensic);
         showToast("⛔ فشل حفظ البيانات: "+(cat.arabic||"خطأ غير معروف")+(docSize > FIRESTORE_DOC_WARN_BYTES ? " (حجم البيانات: "+formatBytes(docSize)+")" : ""));
+        return {ok:false, error:er?.message||String(er), phase:"fallback-config"};/* V21.9.67 */
       }
     }catch(fallbackErr){
       const cat = categorizeWriteError(fallbackErr);
       console.error("[V19.48] upConfig fallback unexpected error:", fallbackErr);
       showToast("⚠️ تعذر الحفظ: "+(cat.arabic||((fallbackErr.message||String(fallbackErr)).substring(0,80))));
+      return {ok:false, error:fallbackErr?.message||String(fallbackErr), phase:"fallback-unexpected"};/* V21.9.67 */
     }
     };/* end of _doWrite */
     /* V19.55: chain onto the per-doc write queue. Each call's setDoc starts only
@@ -4201,7 +4210,7 @@ export default function App(){
     if(!isOnlineRef.current){
       console.warn("[V19.48] Refusing upConfig — device is offline");
       showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع");
-      return;
+      return {ok:false, error:"offline", phase:"gate"};/* V21.9.67 */
     }
     /* V18.60 CRITICAL SAFETY: refuse all writes if config not loaded from server yet.
        Previously, writes could happen with INIT_CONFIG as base (during the brief
@@ -4210,7 +4219,7 @@ export default function App(){
     if(!configLoaded){
       console.error("[V18.60 SAFETY] Refusing upConfig — configDoc not loaded from server yet");
       showToast("⏳ البيانات لسه بتتحمّل من السيرفر — استنى ثانيتين وحاول تاني");
-      return;
+      return {ok:false, error:"config-not-loaded", phase:"gate"};/* V21.9.67 */
     }
     /* V21.9.16 CRITICAL SAFETY: refuse all writes when the user bypassed the
        loading gate with config STILL missing. configDoc is INIT_CONFIG
@@ -4219,27 +4228,27 @@ export default function App(){
     if(forcedBypass){
       console.error("[V21.9.16 SAFETY] Refusing upConfig — read-only mode (forcedBypass after config stall)");
       showToast("⛔ وضع القراءة فقط — الإعدادات لسه ما حملتش من السيرفر. أعد فتح التطبيق.");
-      return;
+      return {ok:false, error:"forced-bypass", phase:"gate"};/* V21.9.67 */
     }
     /* V18.60 CRITICAL SAFETY: refuse writes if config has known error state.
        Writing on top of an error could corrupt data further. */
     if(configError){
       console.error("[V18.60 SAFETY] Refusing upConfig — configError is set:",configError);
       showToast("⛔ فيه مشكلة في تحميل الإعدادات — اقفل وافتح التطبيق أو اتصل بالدعم");
-      return;
+      return {ok:false, error:"config-error", phase:"gate"};/* V21.9.67 */
     }
     /* V16.75 SAFETY: refuse if split/partitioned data not loaded */
     if(configDoc&&configDoc._splitDaysV1674Done&&!splitLoaded){
       console.error("[V16.75 SAFETY] Refusing upConfig — splitData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
-      return;
+      return {ok:false, error:"split-not-loaded", phase:"gate"};/* V21.9.67 */
     }
     /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
        Same V2192 parity fix as the upConfigTx guard above. */
     if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
-      return;
+      return {ok:false, error:"partitioned-not-loaded", phase:"gate"};/* V21.9.67 */
     }
     /* V16.75 FIX: capture PRE-mutation snapshots NOW, pass them explicitly to upConfigTx.
        The optimistic update below mutates splitDataRef.current, so by the time
@@ -4421,7 +4430,7 @@ export default function App(){
       if(!isSafeWrite(prev,next)){
         console.error("[V18.60 BLOCKED] Write refused — would wipe critical data. prev/next:",{prev,next});
         showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات مهمة. اتصل بالدعم لو محتاج العملية دي فعلاً.");
-        return;/* abort the optimistic update entirely */
+        return {ok:false, error:"unsafe-write-blocked", phase:"safety"};/* V21.9.67 */
       }
       if(splitActive){
         /* V19.49: build newSplit only for fields whose flag is on */
@@ -4442,15 +4451,20 @@ export default function App(){
       if(partActive)stripped=stripPartitionedArrays(stripped);
     }catch(e){
       console.error("[upConfig] fn threw, aborting optimistic update:",e);
-      return;
+      return {ok:false, error:e?.message||String(e), phase:"fn-threw"};/* V21.9.67 */
     }
     /* V19.62/63 SAFETY NET: detect mass wipes of any partitioned OR split field.
        Pre-V19.62 the explicitPartBefore-only-has-hrWeeks bug caused EVERY sale to
        wipe customers/suppliers/etc. to []. V19.62 caught V19.57 master data; V19.63
        extends coverage to ALL partitioned fields (incl. hrWeeks) AND all split fields
-       (treasury, custPayments, salesInvoices, packages, tasks, etc.). Same threshold
-       (≥5 → 0) — high enough to never catch single-item edits, low enough to catch
-       any future regression of the V19.62 shape across the entire write path. */
+       (treasury, custPayments, salesInvoices, packages, tasks, etc.).
+
+       V21.9.67: threshold lowered from ≥5 to ≥2. The original ≥5 left collections
+       with 2-4 entries unprotected — small fresh collections (e.g., a few recurring
+       rules, the first 2-3 fabrics added) could be silently wiped by the SAME class
+       of bug that V19.62/63 caught. Real-world usage doesn't legitimately wipe
+       multi-entry collections to 0 in a single upConfig — bulk delete UIs operate
+       per-item. Setting ≥2 covers small collections without false positives. */
     if(newPart||newSplit){
       const wipes=[];
       /* All partitioned fields (V1675 hrWeeks + V1957 master data) */
@@ -4459,7 +4473,7 @@ export default function App(){
           if(!(f in newPart))continue;/* only check fields included in this write */
           const before=(partitionedDataRef.current[f]||[]).length;
           const after=(newPart[f]||[]).length;
-          if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (partitioned)`);
+          if(before>=2&&after===0)wipes.push(`${f}: ${before} → 0 (partitioned)`);
         }
       }
       /* All split fields (treasury, hrLog, custPayments, salesInvoices, etc.) */
@@ -4468,7 +4482,7 @@ export default function App(){
           if(!(f in newSplit))continue;
           const before=(splitDataRef.current[f]||[]).length;
           const after=(newSplit[f]||[]).length;
-          if(before>=5&&after===0)wipes.push(`${f}: ${before} → 0 (split)`);
+          if(before>=2&&after===0)wipes.push(`${f}: ${before} → 0 (split)`);
         }
       }
       if(wipes.length>0){
@@ -4478,7 +4492,7 @@ export default function App(){
           "\npartitionedDataRef counts:",Object.fromEntries(PARTITIONED_FIELDS.map(f=>[f,(partitionedDataRef.current[f]||[]).length])),
           "\nsplitDataRef counts:",Object.fromEntries(SPLIT_FIELDS.map(f=>[f,(splitDataRef.current[f]||[]).length])));
         showToast("⛔ تم منع تعديل خطير: ممكن يمسح بيانات ("+wipes.join("، ")+"). اتصل بالدعم لو محتاج العملية دي فعلاً.");
-        return;
+        return {ok:false, error:"mass-wipe-blocked", phase:"safety", wipes};/* V21.9.67 */
       }
     }
     /* Apply state updates (each runs exactly once, even in Strict Mode) */
