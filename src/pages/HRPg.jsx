@@ -1629,40 +1629,22 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     if(setSavingOverlay)setSavingOverlay({message:"جاري حساب المرتبات والخصومات...",progress:40});
     setTimeout(()=>{
     if(setSavingOverlay)setSavingOverlay({message:"جاري تسجيل الحركات في الخزنة...",progress:60});
-    setTimeout(async ()=>{
+    setTimeout(()=>{
     /* V15.87: Wrap upConfig in try/catch to surface any unexpected exception that was
        previously silenced by the try/catch inside upConfig (App.jsx line 613). */
-    /* V21.9.40 ROOT CAUSE FIX: pre-V21.9.40 every entry created in approveWeek
-       (salary records, weekly_advance, weekly_ws_payment, weekly_other_expense,
-       supplier payments) was written to hrLog/treasury/wsPayments/supplierPayments
-       but NEVER posted to the journal. Net effect: every Thursday close created a
-       gap between operational state (cash physically left) and accounting books
-       (journal showed nothing). Trial Balance / Income Statement / Cash account
-       all drifted from reality. Fix: collect every new entry in queues while
-       upConfig runs, then call autoPost.* per entry after the commit succeeds.
-       postEntry is idempotent on (sourceType, sourceId, date) so re-runs are safe.
+    /* V21.9.40: collect every new entry in queues while upConfig runs, then call
+       autoPost.* per entry after upConfig returns (fire-and-forget). postEntry
+       is idempotent on (sourceType, sourceId, date) so re-runs are safe.
 
-       V21.9.67 — Bug #2 + Bug #4 fix:
-       (a) AWAIT upConfig. Pre-V21.9.67 upConfig was fire-and-forget — autoPost
-           fired in the same tick before the Firestore write completed. If the
-           write failed (1MB limit, network, validation), the autoPost calls
-           had already hit accountingDays → orphan journal entries for salaries
-           that never landed in treasury. Symptom: "بيانات الأسبوع ماتترحلش
-           بعد الغلق" — user sees post entries but no treasury rows.
-       (b) Check the {ok} status before firing autoPost — if upConfig failed,
-           skip autoPost entirely so accounting stays in sync with treasury.
-       (c) SEQUENTIALIZE autoPost loops — pre-V21.9.67 the forEach loops fired
-           N concurrent transactions on accountingDays/{date}, causing severe
-           contention (each runTransaction retries up to 5×) for week closures
-           with 10+ employees → many failures end up in accountingPostFailures
-           invisible to admin. Sequential loop processes one entry at a time,
-           each transaction completing before the next starts. */
+       V21.9.70 REVERT — restored pre-V21.9.67 sync behavior (see protocol
+       note in TreasuryPg.saveTx). V21.9.67's await+sequential pattern caused
+       UI delays + possible regressions. Orphan postings (rare) are caught by
+       audit-orphan-accounting endpoint + the accountingPostFailures health pill. */
     const _autoPostHrLogs=[];     /* {log, emp} — for autoPost.hr (type "salary"|"weekly_advance") */
     const _autoPostWsPays=[];     /* {payment, ws} — for autoPost.workshopPay */
     const _autoPostOtherExp=[];   /* {tx} — for autoPost.treasury (hr_other_expense) */
-    let _upConfigResult=null;
     try{
-    _upConfigResult=await upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
+    upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
       /* V15.88 FIX: Declare wAdvs HERE (outside if/else) — was declared inside else block at 
          line 1493 but USED in snapshot code at line 1627 (outside block) → ReferenceError that
          caused silent save failures. Bug from V15.24. */
@@ -1992,40 +1974,28 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           user:userName,severity:backdated?"warning":"info",
           notes:backdated?"⚠️ إقفال بتاريخ مختلف عن التاريخ الحقيقي ("+actualCloseDate+")":"إقفال أسبوع"});
       }});
-      /* V21.9.40 → V21.9.67: AUTO-POST every entry created during week closure to the journal.
+      /* V21.9.40 → V21.9.70: AUTO-POST every entry created during week closure to the journal.
          Each builder is idempotent on (sourceType, sourceId, date) so re-runs after
-         partial failures are safe. Failures are recorded into data.accountingPostFailures
-         via the autoPost layer for later review/retry.
-
-         V21.9.67 changes:
-         (a) Skip the entire block if upConfig FAILED — no point posting accounting
-             entries for treasury rows that never landed. Pre-V21.9.67 fired regardless
-             → orphan accountingDays entries.
-         (b) SEQUENTIAL loops (for…of with await) instead of parallel forEach. Pre-V21.9.67
-             a 30-employee week fired 30+ concurrent runTransactions on the same
-             accountingDays/{date} doc → severe contention, retries exhausted for many,
-             silent failures in accountingPostFailures. Sequential = one at a time. */
-      if(_upConfigResult && _upConfigResult.ok === false){
-        console.error("[V21.9.67] approveWeek: upConfig failed — skipping autoPost to prevent orphan accounting entries:", _upConfigResult);
-        /* Toast already shown by upConfigTx fallback. Add an explicit "do not retry without refresh" hint. */
-        showToast("⛔ فشل إقفال الأسبوع — اعمل refresh قبل المحاولة تاني علشان ما تتعملش entries مكررة");
-      } else {
-        for(const {log,emp} of _autoPostHrLogs){
-          try{
-            await autoPost.hr(data,log,emp,userName);
-          }catch(e){console.warn("[V21.9.67 approveWeek autoPost.hr]",log?.type,e?.message||e);}
-        }
-        for(const {payment,ws} of _autoPostWsPays){
-          try{
-            await autoPost.workshopPay(data,payment,ws,userName);
-          }catch(e){console.warn("[V21.9.67 approveWeek autoPost.workshopPay]",e?.message||e);}
-        }
-        for(const {tx} of _autoPostOtherExp){
-          try{
-            await autoPost.treasury(data,tx,userName);
-          }catch(e){console.warn("[V21.9.67 approveWeek autoPost.treasury other_expense]",e?.message||e);}
-        }
-      }
+         partial failures are safe. Fire-and-forget — failures are recorded into
+         data.accountingPostFailures via the autoPost layer for later review/retry. */
+      _autoPostHrLogs.forEach(({log,emp})=>{
+        try{
+          const _r=autoPost.hr(data,log,emp,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.hr]",log?.type,e?.message||e);}
+      });
+      _autoPostWsPays.forEach(({payment,ws})=>{
+        try{
+          const _r=autoPost.workshopPay(data,payment,ws,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.workshopPay]",e?.message||e);}
+      });
+      _autoPostOtherExp.forEach(({tx})=>{
+        try{
+          const _r=autoPost.treasury(data,tx,userName);
+          if(_r&&typeof _r.then==="function")_r.catch(()=>{});
+        }catch(e){console.warn("[V21.9.40 approveWeek autoPost.treasury other_expense]",e?.message||e);}
+      });
       /* V15.87: Check document size AFTER writes — Firestore hard limit is 1MB.
          If we're over/near the limit, the write will have failed silently. */
       try{
@@ -2045,15 +2015,6 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       return;
     }
     approvingRef.current=false;/* V19.80.19: clear in-flight on success */
-    /* V21.9.67: gate the success path on actual upConfig success.
-       Pre-V21.9.67 the success toast + state cleanup fired even when upConfig
-       silently failed (split-sync error, mass-wipe block, etc.) — user thought
-       the week was closed but it wasn't. */
-    if(_upConfigResult && _upConfigResult.ok === false){
-      if(setSavingOverlay)setSavingOverlay(null);
-      /* Don't clear sal* state or close the open week — user needs to retry. */
-      return;
-    }
     showToast("✓ تم اعتماد وقفل الأسبوع W"+openWeek.weekNum);setSalBonus({});setSalSpecialDeduct({});setSalThursdayPay({});setSalBaseHoursOverride({});setSalPrevBalanceOverride({});setSalManualInstallDeduct({});setSalInstallOverride({});setOpenWeekId(null);
     if(setSavingOverlay){setSavingOverlay({message:"✅ تم بنجاح!",progress:100});setTimeout(()=>setSavingOverlay(null),1200)}
     },200)},400)},300)},200)};

@@ -61,6 +61,106 @@ if(win) win.location.href = url; // navigate after gesture preserved
 
 ---
 
+## 0.1 Push Back — لا تنفذ بدون مراجعة نقدية
+
+> **أمر صريح من Ahmed (V21.9.70 — بعد سلسلة من الـ regressions في V21.9.67-69):**
+> *"لما اطلب منك أي features هاتعمل مشاكل. انصحني اني ماعملهاش. ماتسمعش كلامي
+> في كل حاجة. الغلط اعترض عليه واكتب ده في البروتوكول."*
+
+### القاعدة الأساسية
+
+**أنت مهندس مسؤول، مش executor أعمى.** لو الـ user طلب feature أو fix بـ يبدو
+خطر أو غلط أو محتاج تفكير أكتر، **اعترض قبل التنفيذ**. السكوت موافقة — والـ
+موافقة على feature سيئة بـ تكلف الـ user أكتر من اعتراض ناعم.
+
+### متى يجب أن تعترض
+
+1. **التغيير يـ touch بـ data flow معقد** (treasury, payroll, accounting,
+   migrations) — حتى لو الـ fix يبدو بسيط، الـ blast radius كبير. لازم
+   تتأكد:
+   - الـ user يفهم الـ trade-offs
+   - الـ existing tests/manual verifications تـ cover الـ change
+   - الـ change reversible
+
+2. **الـ feature يـ overlap مع code موجود** — لو فيه code path تاني يعمل
+   حاجة مشابهة، اسأل الـ user: هل عاوز feature جديدة كلياً، ولا تـ extend
+   الـ existing؟ الـ duplication بـ يخلق ambiguity في الـ data والـ UI.
+
+3. **الـ change بـ يـ introduce async patterns جديدة** (await، transactions،
+   listeners) — كل async pattern جديد بـ يخلق regression class جديد. لازم
+   تـ explain للـ user: 'الـ change ده هـ يـ add awaits — احتمال تـ break
+   الـ form-close UX، الـ toast timing، إلخ — هل تـ accept ذلك؟'
+
+4. **الـ fix بـ يـ patch الـ symptom مش الـ root cause** — لو الـ root cause
+   في طبقة أعمق (مثلاً Firebase rules غير مـ deployed، أو schema mismatch)،
+   لا تـ implement workaround في الـ UI/API layer. اعترض: 'ده الـ symptom
+   فقط — الـ root cause في X. لو نـ fix الـ symptom، الـ root cause هـ يـ
+   surface تاني في مكان تاني.'
+
+5. **التغيير بـ يـ touch settings/permissions/auth** — security-sensitive
+   layers. الـ regression هنا بـ يـ block users من الـ access أو يـ leak
+   permissions. لازم double-check + ask before deploy.
+
+6. **الـ user بـ يطلب نفس الحاجة بعد ما أنت رفضت قبل** — لو رفضت لـ سبب
+   وجيه (مثلاً 'الـ feature ده بـ يـ break الـ data integrity')، الـ user
+   مش لازم يقبل الـ تكرار. اعترض ثاني وضّح الـ سبب بشكل أوضح.
+
+### إزاي تعترض (بشكل احترافي مش مزعج)
+
+❌ **لا تفعل:** الـ سكوت + تنفيذ. أو تـ implement مع warning مدفون في
+الـ console.
+
+✅ **افعل:**
+```
+⚠️ قبل أبدأ، عاوز ألفت نظرك لـ N مخاطر في الـ approach ده:
+
+1. [risk #1 — concrete impact]
+2. [risk #2 — concrete impact]
+
+البدائل اللي أراها أأمن:
+A. [alternative #1 + trade-off]
+B. [alternative #2 + trade-off]
+
+عاوزني أكمل بالـ approach الأصلي، أو نختار بديل، أو نناقش أكتر؟
+```
+
+### عدم التضامن مع رغبات الـ user الـ technically-wrong
+
+الـ user مهندس بـ خبرة بس مش معصوم. لو طلب فعل غلط (مثلاً 'احذف
+الـ migration logic علشان مزعج' — والـ migration بـ تـ protect data):
+- اعترض بـ وضوح
+- اشرح الـ سبب
+- اقترح بديل
+- لو الـ user أصر بعد التوضيح، نفّذ مع warning واضح + مكتوب في الكود
+
+### الأنماط اللي يجب أن تعترض عليها فوراً
+
+1. **'اعمل الـ feature ده بدون tests/verification'** → اعترض: الـ data
+   integrity أهم من الـ velocity.
+2. **'احذف الـ safety check ده'** → اعترض: الـ safety check موجود لـ سبب،
+   راجع الـ git history وافهم قبل ما تشيل.
+3. **'دمج N changes في واحدة'** → اعترض: كل change منفصل عشان الـ regression
+   detection يكون ممكن.
+4. **'اعمل الـ deploy فوراً'** → اعترض: deploy بدون verification = regression
+   متوقع.
+
+### Lessons من الـ V21.9.67-69 sequence (السبب اللي اتسجل عشانه ده)
+
+في session واحد، نفذت ٦ "fixes" لـ data integrity متلاحقة:
+- V21.9.67 (data integrity) → introduced popup-stuck regression
+- V21.9.68 (popup fix) → introduced toast-delay regression
+- V21.9.69 (toast fix) → user reported another regression (entry resurrection)
+
+كل fix كان بـ يحل bug ويـ introduce واحد جديد. الـ root cause: **اتسرعت في
+الـ implementation بدون ما أوقف وأقول للـ user: 'الـ changes دي معاد تـ
+audit الـ async patterns في الـ app — هـ تـ require manual verification
+خطوة بخطوة قبل ما نـ ship'**.
+
+الـ user كان لازم يقول-لي 'بطل'. وأنا كان لازم أقول-له من البداية: 'الـ
+changes دي risky — هـ نـ ship-ها على stages أو نـ test كل واحدة'.
+
+---
+
 ## 1. Build → Test → Commit → Push → Zip (mandatory after every update)
 
 Per Ahmed's standing directive (the founding protocol of this project):

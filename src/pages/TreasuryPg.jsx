@@ -847,7 +847,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     return Object.entries(cats).sort((a,b)=>(b[1].in+b[1].out)-(a[1].in+a[1].out))},[txns]);
 
   /* ── CRUD ── */
-  const saveTx=async ()=>{
+  const saveTx=()=>{
     /* V19.4 FIX: Double-click protection — bail out if a save is already in flight */
     if(savingTx)return;
     /* V19.7 FIX: Validation failures used to play just a beep with NO visible message,
@@ -975,22 +975,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const _instantSupplierPay_needed = (linkedSupplierId && txType==="out" && txCategory==="دفعة مورد" && !editId && !_isCheckMethod);
     const _instantSupplierPay_id = _instantSupplierPay_needed ? gid() : null;
     const _instantSupplierPay_supplier = _instantSupplierPay_needed ? suppliers.find(x=>x.id===linkedSupplierId) : null;
-    /* V21.9.68: OPTIMISTIC UI — close the form / apply sticky reset BEFORE the
-       upConfig await. Pre-V21.9.68 (since V21.9.67 introduced the await) the
-       form stayed open 2-5 seconds while the Firestore write committed —
-       confusing for users who expected the popup to close instantly on click.
-
-       For sticky-continue: keep form open, reset only fields that should not
-       persist between repeats. The existing sticky-reset block further down
-       in the function is preserved as-is; we just pre-clear the fields here
-       so the user sees the reset immediately. (Calling setState twice on the
-       same value is a React no-op — safe to run both pre- and post-await.)
-
-       For non-sticky: close the form + reset all fields. The post-await error
-       handler (below) re-shows an error toast if the save fails — at which
-       point the form is closed but the user has a clear "اعمل refresh وحاول
-       تاني" CTA. Failure is rare after V21.9.67 fixes; the optimistic-close
-       UX win outweighs the rare-failure UX cost. */
+    /* V21.9.70: OPTIMISTIC UI — close the form / apply sticky reset BEFORE the
+       upConfig call. Pre-V21.9.68 the form-close ran at the END of saveTx, which
+       (since V21.9.67's await) meant a 2-5s wait before the popup disappeared.
+       V21.9.70: keep the pre-close optimistic UI, but REVERT the await (see
+       protocol note below). The autoPost calls below run fire-and-forget like
+       pre-V21.9.67. */
     const _isStickyContinue = stickyMode && stickyMode.count > 1 && !editId;
     if(!_isStickyContinue){
       setShowForm(false);
@@ -998,12 +988,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       setTxType("in");setTxPartyId("");setTxPartyType("");setTxMethod("نقدي كاش");
       setEditId(null);
     }
-    /* V21.9.67: await + status check. Pre-V21.9.67 the autoPost.treasury fired
-       synchronously after upConfig returned, before the Firestore write actually
-       reached the server. If the write failed (split-sync error, 1MB limit), the
-       accountingDays entry was already created → orphan journal entry referring
-       to a treasury row that never landed. */
-    const _saveResult=await upConfig(d=>{if(!d.treasury)d.treasury=[];
+    /* V21.9.70 PROTOCOL-DRIVEN REVERT — restore pre-V21.9.67 sync behavior.
+       V21.9.67 added `await upConfig(...)` to prevent autoPost firing before
+       the Firestore commit. The intent was correct (avoid orphan accountingDays
+       entries on commit failure), but the await introduced:
+       • Toast delay of 2-5s (user-visible regression)
+       • Possible data-resurrection on rapid save+delete (user-reported in V21.9.69)
+       • Form-stuck UX even with V21.9.68 optimistic-UI patch
+       Trade-off accepted in V21.9.70: revert to fire-and-forget autoPost.
+       Orphans are still preventable via:
+       1. The audit-orphan-accounting endpoint (V21.9.67 cleanup tool)
+       2. The accountingPostFailures health pill (V21.9.67 visibility)
+       3. The runTransaction in syncSplitCollection (kept — the BIGGEST data-
+          integrity fix) reduces upConfig failures to nearly zero. */
+    upConfig(d=>{if(!d.treasury)d.treasury=[];
       if(editId){const tx=d.treasury.find(t=>t.id===editId);
         if(tx){
           /* V17.3 FIX: Capture old empId BEFORE overwriting it, so we can sync hrLog */
@@ -1090,13 +1088,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         /* V18.35: stash for post-commit auto-posting */
         _newBaseEntry=baseEntry;
       }});
-    /* V21.9.67: if upConfig failed, bail out — don't run autoPost, instant-fires,
-       or any of the downstream "we saved successfully" code. */
-    if(_saveResult && _saveResult.ok === false){
-      console.error("[V21.9.67] saveTx: upConfig failed — skipping autoPost + instant fires:", _saveResult);
-      showToast("⛔ فشل حفظ الحركة — اعمل refresh وحاول تاني");
-      return;
-    }
+    /* V21.9.70 REVERT: pre-V21.9.67 fire-and-forget autoPost — no error gate.
+       Errors land in accountingPostFailures (V21.9.67 health pill surfaces them). */
     /* V18.35: auto-post journal entry for the new treasury row.
        We do this AFTER upConfig commits — uses fresh entry object built above.
        Only fires for plain treasury entries (not the linked ones — those
@@ -1776,7 +1769,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        status check) caused the UI to revert to "pending" so user re-clicked
      The guard set ensures only one in-flight approval per tfId — the second
      click is a no-op until the first completes (success or error). */
-  const approveTransfer=async (tfId)=>{
+  const approveTransfer=(tfId)=>{
     if(!isAdmin)return;
     if(inflightTransferRef.current.has(tfId)){
       showToast("⏳ التأكيد جاري — استنى ثانية");
@@ -1790,20 +1783,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        (accountingDays), (c) calling it inside the fn would re-fire on
        every retry of the upConfig transaction.
 
-       V21.9.67: AWAIT upConfig, then check {ok} status before firing autoPost.
-       Pre-V21.9.67: if the treasuryTransfers write failed (split-sync error,
-       1MB limit, etc.), the autoPost calls had already written to accountingDays
-       → orphan journal entries for transfer legs that never landed in treasury.
-       Now: skip autoPost on failure to keep books in sync. */
+       V21.9.70 REVERT: removed the V21.9.67 await + V21.9.69 result-promise
+       pattern. upConfig is called sync; the mutator runs synchronously so
+       didMutate/_outLeg/_inLeg are set immediately. Toast shows instantly.
+       autoPost runs fire-and-forget. Trade-off: if upConfig's Firestore write
+       fails, accountingDays might have orphan entries — but those are caught
+       by audit-orphan-accounting endpoint + accountingPostFailures health pill. */
     let _outLeg=null;
     let _inLeg=null;
-    /* V21.9.69: fire upConfig WITHOUT await first — the mutator runs synchronously
-       and populates didMutate/_outLeg/_inLeg immediately. Then we show the optimistic
-       toast based on the just-set didMutate flag (the user sees instant feedback),
-       and finally we await the Firestore commit to handle errors. Pre-V21.9.69 the
-       success toast fired AFTER the 2-3s upConfig await — user reported 'بعد التحويل
-       ب ٣ ثواني تظهر تم التحويل ده طبيعي؟' */
-    const _resultPromise=upConfig(d=>{
+    upConfig(d=>{
       const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
       if(!tf||tf.status!=="pending")return;
       didMutate=true;
@@ -1835,38 +1823,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
       if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
     });
-    /* V21.9.69: OPTIMISTIC TOAST — the mutator above ran synchronously inside
-       upConfig, so didMutate/_outLeg/_inLeg are already set. Show feedback NOW
-       (user expects instant response) and await the Firestore commit afterward
-       for error handling. */
+    /* V21.9.70: instant toast (mutator ran sync inside upConfig). */
     if(didMutate){
       showToast("✅ تم تأكيد التحويل");
     }else{
       showToast("ℹ️ التحويل ده اتأكد من قبل — تحديث الشاشة");
     }
-    /* V21.9.14 → V21.9.67: post the two transfer legs to the journal only if
-       upConfig succeeded. Pre-V21.9.67 fired regardless → orphan postings on
-       split-sync failures. */
-    const _result=await _resultPromise;
-    if(_result && _result.ok === false){
-      console.error("[V21.9.67] approveTransfer: upConfig failed — skipping autoPost:", _result);
-      showToast("⛔ فشل تأكيد التحويل — اعمل refresh وحاول تاني");
-      setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
-      return;
-    }
+    /* V21.9.14 → V21.9.70: fire-and-forget autoPost for both legs. */
     if(_outLeg){
       try{
-        await autoPost.treasury(data,_outLeg,userName);
-      }catch(e){console.warn("[V21.9.67] autoPost.treasury (out leg) threw:",e?.message||e);}
+        const _r1=autoPost.treasury(data,_outLeg,userName);
+        if(_r1&&typeof _r1.then==="function") _r1.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (out leg) threw:",e?.message||e);}
     }
     if(_inLeg){
       try{
-        await autoPost.treasury(data,_inLeg,userName);
-      }catch(e){console.warn("[V21.9.67] autoPost.treasury (in leg) threw:",e?.message||e);}
+        const _r2=autoPost.treasury(data,_inLeg,userName);
+        if(_r2&&typeof _r2.then==="function") _r2.catch(()=>{});
+      }catch(e){console.warn("[V21.9.14] autoPost.treasury (in leg) threw:",e?.message||e);}
     }
     /* Release the guard after a generous delay so the listener round-trip
-       has time to commit before another click is allowed. 2s is enough for
-       Firestore commit + listener fire on typical connections. */
+       has time to commit before another click is allowed. */
     setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
   };
 
