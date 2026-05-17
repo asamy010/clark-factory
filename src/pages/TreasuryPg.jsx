@@ -1797,7 +1797,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        Now: skip autoPost on failure to keep books in sync. */
     let _outLeg=null;
     let _inLeg=null;
-    const _result=await upConfig(d=>{
+    /* V21.9.69: fire upConfig WITHOUT await first — the mutator runs synchronously
+       and populates didMutate/_outLeg/_inLeg immediately. Then we show the optimistic
+       toast based on the just-set didMutate flag (the user sees instant feedback),
+       and finally we await the Firestore commit to handle errors. Pre-V21.9.69 the
+       success toast fired AFTER the 2-3s upConfig await — user reported 'بعد التحويل
+       ب ٣ ثواني تظهر تم التحويل ده طبيعي؟' */
+    const _resultPromise=upConfig(d=>{
       const tf=(d.treasuryTransfers||[]).find(t=>t.id===tfId);
       if(!tf||tf.status!=="pending")return;
       didMutate=true;
@@ -1829,9 +1835,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(tf.sentByEmail){d.notifications.unshift({id:gid(),type:"transfer_approved",msg:"✅ تمت الموافقة على تحويلك "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+" → "+tf.toAccount,toEmail:tf.sentByEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
       if(toAcc&&typeof toAcc==="object"&&toAcc.ownerEmail){d.notifications.unshift({id:gid(),type:"treasury_transfer",msg:"💸 وصلك تحويل "+fmt(tf.amount)+" ج.م من "+tf.fromAccount+(tf.note?" — "+tf.note:""),toEmail:toAcc.ownerEmail,transferId:tf.id,read:false,by:userName,createdAt:nowISO()})}
     });
+    /* V21.9.69: OPTIMISTIC TOAST — the mutator above ran synchronously inside
+       upConfig, so didMutate/_outLeg/_inLeg are already set. Show feedback NOW
+       (user expects instant response) and await the Firestore commit afterward
+       for error handling. */
+    if(didMutate){
+      showToast("✅ تم تأكيد التحويل");
+    }else{
+      showToast("ℹ️ التحويل ده اتأكد من قبل — تحديث الشاشة");
+    }
     /* V21.9.14 → V21.9.67: post the two transfer legs to the journal only if
        upConfig succeeded. Pre-V21.9.67 fired regardless → orphan postings on
        split-sync failures. */
+    const _result=await _resultPromise;
     if(_result && _result.ok === false){
       console.error("[V21.9.67] approveTransfer: upConfig failed — skipping autoPost:", _result);
       showToast("⛔ فشل تأكيد التحويل — اعمل refresh وحاول تاني");
@@ -1852,11 +1868,6 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        has time to commit before another click is allowed. 2s is enough for
        Firestore commit + listener fire on typical connections. */
     setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
-    if(didMutate){
-      showToast("✅ تم تأكيد التحويل");
-    }else{
-      showToast("ℹ️ التحويل ده اتأكد من قبل — تحديث الشاشة");
-    }
   };
 
   /* V16.13: Admin rejects a pending transfer → deletes the request.

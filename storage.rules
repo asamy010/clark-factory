@@ -53,14 +53,27 @@ service firebase.storage {
         : u.get('role', 'viewer');
     }
 
-    function hasRole(roles) {
+    /* V21.9.69: DYNAMIC SCOPES (parity with firestore.rules V21.9.32) — read
+       admin-customized role-to-scope assignments from factory/roleScopes.
+       Pre-V21.9.69 these were hardcoded inline, meaning admin's customizations
+       in Diagnostics → Role Scopes Editor (or via V21.9.63 auto-sync) did NOT
+       affect Storage permissions. A custom role granted upload access in
+       Firestore would still be denied at Storage. Now both layers stay in sync. */
+    function inScope(scopeName, fallbackRoles) {
+      let scopesPath = /databases/(default)/documents/factory/roleScopes;
+      let scopesData = firestore.exists(scopesPath)
+        ? firestore.get(scopesPath).data
+        : null;
+      let roles = scopesData != null
+        ? scopesData.get(scopeName, fallbackRoles)
+        : fallbackRoles;
       return isAuthed() && (isBootstrapAdmin() || getRole() in roles);
     }
 
-    function isAdmin()         { return hasRole(['admin']); }
-    function isManagerPlus()   { return hasRole(['admin', 'manager']); }
-    function isSalesScope()    { return hasRole(['admin','manager','sales_accountant']); }
-    function isPurchaseScope() { return hasRole(['admin','manager','purchase_accountant']); }
+    function isAdmin()         { return inScope('isAdmin', ['admin']); }
+    function isManagerPlus()   { return inScope('isManagerPlus', ['admin', 'manager']); }
+    function isSalesScope()    { return inScope('isSalesScope', ['admin','manager','sales_accountant']); }
+    function isPurchaseScope() { return inScope('isPurchaseScope', ['admin','manager','purchase_accountant','warehouse_keeper']); }
 
     /* ── Content-type + size guards ── */
     function isUnderSize() {
