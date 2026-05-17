@@ -76,19 +76,35 @@ export const COLLECTION_READ_SCOPE = {
 /* Predicate: is this collection EXPECTED to be denied for this role?
    Returns true if the user's role is NOT in the scope that owns this
    collection — meaning the denial is intentional (security-by-design)
-   and the banner should suppress it. */
-export function isExpectedDenial(role, collectionName) {
+   and the banner should suppress it.
+
+   V21.9.62: now takes an optional `liveScopes` arg — the data from
+   `factory/roleScopes` doc. If provided, lookups go through that first
+   (so admin customizations are honored), falling back to hardcoded
+   defaults only when the doc has no entry. Pre-V21.9.62 the check used
+   hardcoded defaults only, which gave false negatives for users who had
+   customized scopes (e.g., Ahmed removed `manager` from `isHRRole` so
+   his production manager wouldn't see salaries — but the banner still
+   showed because the hardcoded list still had manager).
+*/
+export function isExpectedDenial(role, collectionName, liveScopes) {
   if (!role || !collectionName) return false;
-  /* Admin is in every scope — denials are never expected */
+  /* Admin is in every scope (auto-protection from V21.9.32 — never demoted) */
   if (role === "admin") return false;
-  /* Custom roles are not in this hardcoded map. Treat their denials as
-     UNEXPECTED so the admin sees them in the banner and knows to update
-     factory/roleScopes via Diagnostics → Role Scopes Editor. */
-  const knownRoles = SCOPE_ROLES.isAnyUser;
-  if (!knownRoles.includes(role)) return false;
 
   const scope = COLLECTION_READ_SCOPE[collectionName];
   if (!scope) return false; /* collection not in our map = treat as unexpected */
-  const allowedRoles = SCOPE_ROLES[scope] || [];
+
+  /* Prefer live scopes from factory/roleScopes; fall back to hardcoded */
+  const live = liveScopes && typeof liveScopes === "object" ? liveScopes[scope] : null;
+  const allowedRoles = Array.isArray(live) ? live : (SCOPE_ROLES[scope] || []);
+
+  /* Custom roles created via the UI may not appear in any scope (admin
+     hasn't mapped them yet). Treat their denials as UNEXPECTED so the
+     banner surfaces and prompts the admin to update roleScopes.
+     Built-in roles, when not in the allowed list, are intentional denials. */
+  const isKnownBuiltIn = SCOPE_ROLES.isAnyUser.includes(role);
+  if (!isKnownBuiltIn) return false;
+
   return !allowedRoles.includes(role);
 }

@@ -602,6 +602,28 @@ export default function App(){
   const[statusNotif,setStatusNotif]=useState(null);const prevStatuses=useRef({});
   /* Online/Offline status */
   const[isOnline,setIsOnline]=useState(navigator.onLine);const[justReconnected,setJustReconnected]=useState(false);
+  /* V21.9.62: subscribe to factory/roleScopes so the listener-health banner
+     filter can honor admin customizations (e.g., manager removed from isHRRole
+     because Ahmed uses 'manager' role as 'production manager'). Pre-V21.9.62
+     the filter used hardcoded defaults, so even with manager removed from
+     HR in the live doc, the banner still treated manager as 'has access' →
+     unsuppressed denials → confusing red banner for production managers.
+     Doc is admin-writable + any-authed-readable (see firestore.rules). */
+  const[liveRoleScopes,setLiveRoleScopes]=useState(null);
+  useEffect(()=>{
+    if(!user)return;
+    const ref=doc(db,"factory","roleScopes");
+    const unsub=onSnapshot(ref,snap=>{
+      setLiveRoleScopes(snap.exists()?(snap.data()||null):null);
+    },err=>{
+      /* Doc missing or rules deny → fall back to hardcoded defaults
+         in firestoreScopes.js. Don't surface this as a banner error;
+         the doc is optional (V21.9.32 fallback behavior). */
+      console.warn("[V21.9.62] roleScopes listener:",err?.code||err?.message||err);
+      setLiveRoleScopes(null);
+    });
+    return()=>unsub();
+  },[user]);
   /* V21.9.46: poll window.__clarkListenerErrors every 3s so the top-bar
      listener-health banner re-renders when terminal errors appear/clear.
      Same pattern as DiagnosticsPanel's autoListenerErrors poller. */
@@ -758,9 +780,11 @@ export default function App(){
           /* V21.9.61: pass current role + denial predicate so the health
              check skips legitimate role-based read restrictions. Without
              these, warehouse_keeper saw "Listener معطل" for every HR/
-             payment collection — alarming but not actually a problem. */
+             payment collection — alarming but not actually a problem.
+             V21.9.62: also pass liveRoleScopes so the predicate honors
+             admin customizations from factory/roleScopes. */
           userRole: userRoleRef.current,
-          isExpectedDenial,
+          isExpectedDenial: (role, col) => isExpectedDenial(role, col, liveRoleScopesRef.current),
           /* cfgSizeBytes intentionally omitted — would require an estimate
              pass over the whole doc on every evaluation. The DiagnosticsPanel
              handles this separately via /api/diagnostics. */
@@ -5065,6 +5089,10 @@ export default function App(){
      fresh role without re-subscribing every render. */
   const userRoleRef=useRef(userRole);
   useEffect(()=>{userRoleRef.current=userRole},[userRole]);
+  /* V21.9.62: same ref pattern for liveRoleScopes so health check honors
+     admin customizations to factory/roleScopes without re-subscribing. */
+  const liveRoleScopesRef=useRef(liveRoleScopes);
+  useEffect(()=>{liveRoleScopesRef.current=liveRoleScopes},[liveRoleScopes]);
   /* V19.44: DEFAULT_PERMS, role list, and tab catalog moved to src/utils/permissions.js
      (single source of truth — see file header for rationale). The code below is now a
      thin wrapper that delegates to the registry's pure functions. The runtime linter
@@ -5676,13 +5704,16 @@ export default function App(){
         until the user scrolled — confusing for users like Ahmed who reported
         "البانر لسه ظاهر ومفيش تفاصيل واضحة". */}
     {(() => {
-      /* V21.9.61: filter out denials that are CORRECT-BY-DESIGN for the
-         user's role (e.g., warehouse_keeper denied on HR/payment collections).
-         These are not bugs and shouldn't alarm the user. The raw list still
-         drives DiagnosticsPanel for admins who want the full picture. */
+      /* V21.9.61 → V21.9.62: filter out denials that are CORRECT-BY-DESIGN
+         for the user's role. V21.9.62 passes liveRoleScopes so the filter
+         respects admin customizations from factory/roleScopes (e.g., Ahmed
+         removed 'manager' from isHRRole because his manager role is actually
+         used as production manager who shouldn't see salaries). Without
+         liveRoleScopes, the predicate falls back to hardcoded defaults in
+         firestoreScopes.js. The raw list still drives DiagnosticsPanel. */
       const surfacedListenerErrors = terminalListenerErrors.filter(e => {
         if (e.code !== "permission-denied") return true; /* only filter denials */
-        return !isExpectedDenial(userRole, e.col);
+        return !isExpectedDenial(userRole, e.col, liveRoleScopes);
       });
       if (surfacedListenerErrors.length === 0) return null;
       /* Group errors by error code for cleaner display */
