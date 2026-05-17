@@ -26,6 +26,11 @@ import {
   getEffectiveRoleMeta,
   getEffectiveDefaultPerms,
 } from "../utils/permissions.js";
+/* V21.9.63: auto-sync UI perms → Firestore roleScopes on save.
+   When admin clicks 💾 in PermissionsCard, the computed scopes are
+   written to factory/roleScopes in the same flow. Eliminates the gap
+   that was causing "permission-denied" banner reports. */
+import { syncRoleScopesToFirestore } from "../utils/syncRoleScopes.js";
 /* V19.44: Inspector — admin tool to see what a user can actually do */
 import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
 /* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
@@ -3166,15 +3171,42 @@ function PermissionsCard({ config, upConfig, T, FS, TABS, Btn, showToast }) {
     showToast("✓ تم نسخ صلاحيات " + (roleLabels[fromRole] || fromRole) + " إلى " + (roleLabels[toRole] || toRole));
   };
 
-  /* Save → upConfig (admin entry stripped per V18.61) */
-  const savePerms = () => {
+  /* Save → upConfig (admin entry stripped per V18.61)
+     V21.9.63: ALSO auto-sync to factory/roleScopes so Firestore rules
+     reflect the new UI permissions immediately. No more "I edited perms
+     but the banner is still showing" gap (Ahmed's repeated complaint). */
+  const savePerms = async () => {
+    /* Step 1: persist UI perms to config */
+    const cleaned = JSON.parse(JSON.stringify(draftPerms));
+    if (cleaned.admin) delete cleaned.admin;
     upConfig(d => {
-      const cleaned = JSON.parse(JSON.stringify(draftPerms));
-      if (cleaned.admin) delete cleaned.admin;
       d.permissions = cleaned;
     });
     setPermsDirty(false);
-    showToast("✓ تم حفظ " + dirtyCount + " تعديل في الصلاحيات");
+
+    /* Step 2: auto-sync the implied Firestore scopes. Pass cleaned
+       (not draftPerms) so we don't leak admin overrides into the
+       computation. Non-fatal on failure (rules might deny non-admins). */
+    showToast("⏳ بـ يـ sync مع Firestore rules...");
+    try {
+      const r = await syncRoleScopesToFirestore(cleaned, config, null);
+      if (r.ok && r.written) {
+        showToast("✓ تم حفظ " + dirtyCount + " تعديل + sync مع Firestore (" + Object.keys(r.scopes || {}).length + " scopes)");
+      } else if (r.ok && !r.written) {
+        showToast("✓ تم حفظ " + dirtyCount + " تعديل — الـ Firestore scopes ما اتغيّرت-ـش");
+      } else {
+        /* Sync failed — UI perms still saved. Show clear non-blocking warning. */
+        const errCode = r.code || "unknown";
+        if (errCode === "permission-denied") {
+          showToast("⚠ تم الحفظ بس الـ Firestore sync اتـ block — لازم admin");
+        } else {
+          showToast("⚠ تم الحفظ بس الـ Firestore sync فشل (" + errCode + ") — راجع Diagnostics");
+        }
+      }
+    } catch (e) {
+      console.error("[V21.9.63] roleScopes sync error:", e);
+      showToast("⚠ تم الحفظ بس الـ sync فشل — راجع console");
+    }
   };
 
   const resetPerms = () => {
@@ -3247,6 +3279,30 @@ function PermissionsCard({ config, upConfig, T, FS, TABS, Btn, showToast }) {
               <b style={{ color: T.warn, marginInlineStart: 12 }}>👁 عرض</b>: قراءة فقط (مش بيقدر يحفظ).
               <b style={{ color: T.err, marginInlineStart: 12 }}>❌ مخفي</b>: التبويبة مش ظاهرة في الـ nav.
             </div>
+          </div>
+        </div>
+      </div>
+      {/* V21.9.63 — Auto-sync notice */}
+      <div style={{
+        fontSize: FS - 2,
+        color: T.text,
+        marginBottom: 12,
+        padding: "10px 14px",
+        background: T.accent + "10",
+        border: "1px solid " + T.accent + "30",
+        borderRadius: 10,
+        lineHeight: 1.7,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+      }}>
+        <span style={{ fontSize: FS + 4 }}>🔄</span>
+        <div style={{ flex: 1 }}>
+          <b style={{ color: T.accent, fontSize: FS }}>Auto-sync مع Firestore rules</b> (V21.9.63)
+          <div style={{ marginTop: 4, fontSize: FS - 2, color: T.textSec }}>
+            لما تـ حفظ الصلاحيات هنا، الـ Firestore rules بـ تتـ update تلقائياً —
+            مفيش حاجة تعملها يدوياً. التغيير بـ يـ take effect فوراً لكل المستخدمين
+            (يحتاجوا refresh). الـ admin دايماً محمي.
           </div>
         </div>
       </div>
