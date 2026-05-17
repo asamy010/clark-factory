@@ -40,7 +40,14 @@ export const SCOPE_ROLES = {
 
 /* Collection name → required read scope. Only collections that DON'T use
    `isAnyUser()` for read appear here. Anything not in this map is assumed
-   readable by everyone (so a denial = unexpected = banner-worthy). */
+   readable by everyone (so a denial = unexpected = banner-worthy).
+
+   V21.9.66: added the missing post-V19.50 collections that were causing
+   phantom banners for users who legitimately don't have access (Bossy
+   Mostafa case — banner showed salesCreditNotesDays + purchaseDebitNotesDays
+   denials because the map didn't know they were scope-restricted).
+   Also covers the AI Agent collections. Keep this in sync with
+   firestore.rules whenever a new collection is added. */
 export const COLLECTION_READ_SCOPE = {
   /* HR / payroll — restricted to HR scope */
   hrLogDays:       "isHRRole",
@@ -62,12 +69,23 @@ export const COLLECTION_READ_SCOPE = {
   purchaseOrdersDays:     "isPurchaseScope",
   purchaseReceiptsDays:   "isPurchaseScope",
   treasuryTransfersDays:  "isPurchaseScope",
+  /* V21.9.66: purchase debit notes (V21.9.5) — purchase-scope read */
+  purchaseDebitNotesDays: "isPurchaseScope",
 
   /* Sales-scope */
   salesInvoicesDays: "isSalesScope",
+  /* V21.9.66: sales credit notes (V21.9.5) — sales-scope read */
+  salesCreditNotesDays: "isSalesScope",
 
   /* Manager+ */
-  auditDays: "isManagerPlus",
+  auditDays:                "isManagerPlus",
+  /* V21.9.66: AI Agent collections (V19.71+) — manager-only by design */
+  aiAgentConversations:     "isManagerPlus",
+  aiAgentEscalations:       "isManagerPlus",
+  aiAgentSuggestions:       "isManagerPlus",
+  aiAgentAnalytics:         "isManagerPlus",
+  /* V21.9.66: AI sales notifications — sales-scope */
+  aiAgentSalesNotifications: "isSalesScope",
 
   /* Admin only */
   backups: "isAdmin",

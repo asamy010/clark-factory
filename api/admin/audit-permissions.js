@@ -120,25 +120,33 @@ const TAB_COLLECTIONS = {
 
 const ROLES = ["admin", "manager", "sales_accountant", "purchase_accountant", "warehouse_keeper", "payroll_accountant", "payroll_verifier", "viewer"];
 
-function ruleAllowsRead(role, collection) {
+/* V21.9.64: accept an `effectiveScopes` arg so we honor admin customizations
+   from factory/roleScopes. Without this, the audit reports FALSE POSITIVES
+   whenever admin has edited scopes (e.g., added sales_accountant to
+   isPurchaseScope via the V21.9.63 auto-sync) — the hardcoded SCOPES map
+   would still show the role as denied, even though the live rules allow.
+   This was Ahmed's "بعد ما حفظت الصلاحيات لسه فيه 14 conflict" complaint. */
+function ruleAllowsRead(role, collection, effectiveScopes) {
   const rule = COLLECTION_RULES[collection];
   if (!rule) return null; /* unknown collection */
+  const scopes = effectiveScopes || SCOPES;
   const readScope = rule.read;
   if (readScope === "isSalesScope_or_Purchase") {
-    return SCOPES.isSalesScope.includes(role) || SCOPES.isPurchaseScope.includes(role);
+    return (scopes.isSalesScope || []).includes(role) || (scopes.isPurchaseScope || []).includes(role);
   }
-  const allowedRoles = SCOPES[readScope] || [];
+  const allowedRoles = scopes[readScope] || [];
   return allowedRoles.includes(role);
 }
 
-function ruleAllowsWrite(role, collection) {
+function ruleAllowsWrite(role, collection, effectiveScopes) {
   const rule = COLLECTION_RULES[collection];
   if (!rule) return null;
+  const scopes = effectiveScopes || SCOPES;
   const writeScope = rule.write;
   if (writeScope === "isSalesScope_or_Purchase") {
-    return SCOPES.isSalesScope.includes(role) || SCOPES.isPurchaseScope.includes(role);
+    return (scopes.isSalesScope || []).includes(role) || (scopes.isPurchaseScope || []).includes(role);
   }
-  const allowedRoles = SCOPES[writeScope] || [];
+  const allowedRoles = scopes[writeScope] || [];
   return allowedRoles.includes(role);
 }
 
@@ -172,6 +180,28 @@ async function handleAudit(res, body) {
   const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
   const permissions = cfg.permissions || {};
 
+  /* V21.9.64: read the live factory/roleScopes doc and merge over the
+     hardcoded SCOPES defaults. The Firestore rules read this doc at runtime
+     (firestore.rules:inScope), so the audit MUST use the same view of
+     truth — otherwise admin customizations via Diagnostics → Role Scopes
+     Editor or via the V21.9.63 auto-sync produce false-positive conflicts.
+
+     Pre-V21.9.64: hardcoded SCOPES only → after admin adds sales_accountant
+     to isPurchaseScope, the live rules allow but audit still says deny → 14
+     phantom conflicts in the panel even though everything works. */
+  let effectiveScopes = { ...SCOPES };
+  try {
+    const scopesSnap = await db.collection("factory").doc("roleScopes").get();
+    if (scopesSnap.exists) {
+      const live = scopesSnap.data() || {};
+      for (const k of Object.keys(SCOPES)) {
+        if (Array.isArray(live[k])) effectiveScopes[k] = live[k];
+      }
+    }
+  } catch (e) {
+    console.warn("[V21.9.64 audit] could not read factory/roleScopes — falling back to hardcoded defaults:", e?.message || e);
+  }
+
   /* The role-to-tab matrix per cfg.permissions */
   const matrix = {};
   for (const role of ROLES) {
@@ -188,13 +218,14 @@ async function handleAudit(res, body) {
       const matrixVal = (matrix[role] || {})[tab];
       const effectiveMatrix = matrixVal === undefined ? null : (typeof matrixVal === "object" ? "object" : matrixVal);
 
-      /* For each collection this tab depends on, check rules */
+      /* For each collection this tab depends on, check rules using
+         effectiveScopes (live + defaults), not just hardcoded. */
       let canReadAll = true, canWriteAll = true;
       const deniedReads = [];
       const deniedWrites = [];
       for (const coll of collections) {
-        const r = ruleAllowsRead(role, coll);
-        const w = ruleAllowsWrite(role, coll);
+        const r = ruleAllowsRead(role, coll, effectiveScopes);
+        const w = ruleAllowsWrite(role, coll, effectiveScopes);
         if (r === false) { canReadAll = false; deniedReads.push(coll); }
         if (w === false) { canWriteAll = false; deniedWrites.push(coll); }
       }
@@ -279,6 +310,22 @@ async function handleAutofix(res, auth, body) {
   const cfg = cfgSnap.exists ? (cfgSnap.data() || {}) : {};
   const permissions = { ...(cfg.permissions || {}) };
 
+  /* V21.9.64: same live-scopes merge as handleAudit. Without this, autofix
+     would propose downgrades for cells where admin has legitimately granted
+     access via scope customization — undoing the admin's intent silently. */
+  let effectiveScopes = { ...SCOPES };
+  try {
+    const scopesSnap = await db.collection("factory").doc("roleScopes").get();
+    if (scopesSnap.exists) {
+      const live = scopesSnap.data() || {};
+      for (const k of Object.keys(SCOPES)) {
+        if (Array.isArray(live[k])) effectiveScopes[k] = live[k];
+      }
+    }
+  } catch (e) {
+    console.warn("[V21.9.64 autofix] could not read factory/roleScopes:", e?.message || e);
+  }
+
   /* Re-run audit logic */
   const changes = [];
   for (const role of ROLES) {
@@ -292,8 +339,8 @@ async function handleAutofix(res, auth, body) {
 
       let canReadAll = true, canWriteAll = true;
       for (const coll of collections) {
-        const r = ruleAllowsRead(role, coll);
-        const w = ruleAllowsWrite(role, coll);
+        const r = ruleAllowsRead(role, coll, effectiveScopes);
+        const w = ruleAllowsWrite(role, coll, effectiveScopes);
         if (r === false) canReadAll = false;
         if (w === false) canWriteAll = false;
       }
