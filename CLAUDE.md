@@ -87,9 +87,17 @@ if(win) win.location.href = url; // navigate after gesture preserved
    الـ existing؟ الـ duplication بـ يخلق ambiguity في الـ data والـ UI.
 
 3. **الـ change بـ يـ introduce async patterns جديدة** (await، transactions،
-   listeners) — كل async pattern جديد بـ يخلق regression class جديد. لازم
+   listeners، **cross-service rule helpers زي `firestore.exists` في
+   storage.rules**) — كل pattern جديد بـ يخلق regression class جديد. لازم
    تـ explain للـ user: 'الـ change ده هـ يـ add awaits — احتمال تـ break
    الـ form-close UX، الـ toast timing، إلخ — هل تـ accept ذلك؟'
+
+   **خاصة الـ rules cross-service helpers** — Firestore rules vs Storage rules
+   لهم CEL مختلف. الـ helper اللي بـ يشتغل في firestore.rules ممكن يـ throw
+   silent error في storage.rules → default-deny → كل operations تفشل. **لو
+   الـ user مفيش local test environment، ارفض الـ change ده تماماً** —
+   الـ blast radius too high. (V21.9.69 incident — storage.rules dynamic
+   scopes broke all uploads even though syntax validated and deployed.)
 
 4. **الـ fix بـ يـ patch الـ symptom مش الـ root cause** — لو الـ root cause
    في طبقة أعمق (مثلاً Firebase rules غير مـ deployed، أو schema mismatch)،
