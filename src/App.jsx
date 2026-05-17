@@ -608,19 +608,60 @@ export default function App(){
      the filter used hardcoded defaults, so even with manager removed from
      HR in the live doc, the banner still treated manager as 'has access' →
      unsuppressed denials → confusing red banner for production managers.
-     Doc is admin-writable + any-authed-readable (see firestore.rules). */
+     Doc is admin-writable + any-authed-readable (see firestore.rules).
+
+     V21.9.64: when liveRoleScopes meaningfully changes, ALSO:
+       (a) clear stale `permission-denied` entries from window.__clarkListenerErrors,
+       (b) bump listenerEpoch to force the 4 collection-listener useEffects to
+           tear down + re-subscribe — the Firestore SDK does NOT auto-retry a
+           listener that hit a terminal error, so without this the failed
+           listeners stay broken even after admin grants access.
+     This is the root cause of the V21.9.60-63 "edited perms but banner is
+     still showing" report: after auto-sync (V21.9.63) re-added manager to
+     isHRRole, the manager's hrLogDays listener (which had failed BEFORE the
+     scope update) stayed in its failed state forever — `__clarkListenerErrors`
+     kept the denial entry, and the filter (correctly) said "manager IS in
+     scope per live, so this denial is UNEXPECTED" → banner showed. */
   const[liveRoleScopes,setLiveRoleScopes]=useState(null);
+  const[listenerEpoch,setListenerEpoch]=useState(0);
+  const prevScopesSigRef=useRef(null);
   useEffect(()=>{
     if(!user)return;
     const ref=doc(db,"factory","roleScopes");
     const unsub=onSnapshot(ref,snap=>{
-      setLiveRoleScopes(snap.exists()?(snap.data()||null):null);
+      const newScopes=snap.exists()?(snap.data()||null):null;
+      setLiveRoleScopes(newScopes);
+      /* V21.9.64: detect a real change (ignore first fire) and act. */
+      const sigNew=newScopes?JSON.stringify(newScopes):"";
+      const sigPrev=prevScopesSigRef.current;
+      if(sigPrev!==null && sigPrev!==sigNew){
+        /* Clear stale permission-denied entries — they were captured under
+           the OLD scopes and may no longer apply. We keep non-denial errors
+           (e.g., failed-precondition for missing indexes) since those aren't
+           fixed by scope changes. */
+        try{
+          if(typeof window!=="undefined" && window.__clarkListenerErrors){
+            const cleaned={};
+            for(const[col,info]of Object.entries(window.__clarkListenerErrors)){
+              if(info && info.code!=="permission-denied") cleaned[col]=info;
+            }
+            window.__clarkListenerErrors=cleaned;
+          }
+        }catch(_){}
+        /* Force re-subscribe of all collection listeners — SDK doesn't auto-retry
+           after terminal errors, so we MUST tear down and re-create the listeners
+           for them to pick up the new rules state. */
+        setListenerEpoch(n=>n+1);
+        console.log("[V21.9.64] roleScopes changed — cleared stale permission-denied + re-subscribing listeners");
+      }
+      prevScopesSigRef.current=sigNew;
     },err=>{
       /* Doc missing or rules deny → fall back to hardcoded defaults
          in firestoreScopes.js. Don't surface this as a banner error;
          the doc is optional (V21.9.32 fallback behavior). */
       console.warn("[V21.9.62] roleScopes listener:",err?.code||err?.message||err);
       setLiveRoleScopes(null);
+      prevScopesSigRef.current="";
     });
     return()=>unsub();
   },[user]);
@@ -3489,7 +3530,10 @@ export default function App(){
       subscribeCol(f,SPLIT_COLLECTIONS[f]);
     }
     return()=>{unsubs.forEach(u=>u())};
-  },[user]);
+  /* V21.9.64: include listenerEpoch so re-subscribe fires when admin changes
+     factory/roleScopes — failed listeners (permission-denied) get a fresh
+     chance now that rules may allow them. */
+  },[user,listenerEpoch]);
 
   /* ═══════════════════════════════════════════════════════════════════
      V19.51: SALES-DOC SPLIT LISTENERS
@@ -3564,7 +3608,8 @@ export default function App(){
       subscribeCol(f,SALES_SPLIT_COLLECTIONS[f]);
     }
     return()=>{unsubs.forEach(u=>u())};
-  },[user]);
+  /* V21.9.64: include listenerEpoch — re-subscribe when scopes change. */
+  },[user,listenerEpoch]);
 
   /* ═══════════════════════════════════════════════════════════════════
      V19.51: TASKS-DOC SPLIT LISTENERS
@@ -3638,7 +3683,8 @@ export default function App(){
       subscribeCol(f,TASKS_SPLIT_COLLECTIONS[f]);
     }
     return()=>{unsubs.forEach(u=>u())};
-  },[user]);
+  /* V21.9.64: include listenerEpoch — re-subscribe when scopes change. */
+  },[user,listenerEpoch]);
 
   /* ═══════════════════════════════════════════════════════════════════
      V19.53: USER NOTIFICATION STATE LISTENER
@@ -3835,7 +3881,9 @@ export default function App(){
       subscribeCol(f,PARTITIONED_COLLECTIONS[f]);
     }
     return()=>{unsubs.forEach(u=>u())};
-  },[user]);
+  /* V21.9.64: include listenerEpoch — re-subscribe when scopes change so
+     listeners that previously failed with permission-denied get retried. */
+  },[user,listenerEpoch]);
 
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false);setListenerStatus(s=>({...s,orders:true}))},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false);setListenerStatus(s=>({...s,lastError:"orders: "+(err?.code||err?.message||"unknown")}))});return()=>unsub()},[user,season]);
 

@@ -30,7 +30,7 @@ import {
    When admin clicks 💾 in PermissionsCard, the computed scopes are
    written to factory/roleScopes in the same flow. Eliminates the gap
    that was causing "permission-denied" banner reports. */
-import { syncRoleScopesToFirestore } from "../utils/syncRoleScopes.js";
+import { syncRoleScopesToFirestore, computeRoleScopes } from "../utils/syncRoleScopes.js";
 /* V19.44: Inspector — admin tool to see what a user can actually do */
 import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
 /* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
@@ -39,7 +39,7 @@ import { CustomRolesManager } from "../components/CustomRolesManager.jsx";
    that helps users (and admins) diagnose silent save failures. */
 import { WriteSelfTestCard } from "../components/WriteSelfTestCard.jsx";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateProfile } from "firebase/auth";
-import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { createComprehensiveBackup, readComprehensiveBackup, deleteComprehensiveBackup, estimateComprehensiveBackupSize } from "../utils/comprehensiveBackup.js";
 import { Btn, Card, DelBtn, Inp, Sel, Spinner } from "../components/ui.jsx";
 import { TABS } from "../components/LoginScreen.jsx";
@@ -3174,7 +3174,16 @@ function PermissionsCard({ config, upConfig, T, FS, TABS, Btn, showToast }) {
   /* Save → upConfig (admin entry stripped per V18.61)
      V21.9.63: ALSO auto-sync to factory/roleScopes so Firestore rules
      reflect the new UI permissions immediately. No more "I edited perms
-     but the banner is still showing" gap (Ahmed's repeated complaint). */
+     but the banner is still showing" gap (Ahmed's repeated complaint).
+     V21.9.64: BEFORE writing, fetch the live factory/roleScopes doc and
+     diff against the computed scopes. If admin has manually customized
+     scopes via Diagnostics → Role Scopes Editor (e.g., removed `manager`
+     from `isHRRole` for a production-manager use case), our computed
+     scopes — driven by UI defaults — would silently UNDO those edits.
+     V21.9.63 had this bug: every save re-added manager to isHRRole
+     because manager's default `hr` perm is "view", which `computeRoleScopes`
+     interpreted as "needs HR read access". Now we show a clear diff and
+     ask the admin to confirm before overwriting their manual scope edits. */
   const savePerms = async () => {
     /* Step 1: persist UI perms to config */
     const cleaned = JSON.parse(JSON.stringify(draftPerms));
@@ -3184,18 +3193,73 @@ function PermissionsCard({ config, upConfig, T, FS, TABS, Btn, showToast }) {
     });
     setPermsDirty(false);
 
-    /* Step 2: auto-sync the implied Firestore scopes. Pass cleaned
-       (not draftPerms) so we don't leak admin overrides into the
-       computation. Non-fatal on failure (rules might deny non-admins). */
+    /* Step 2: compute what the auto-sync WOULD write, then diff against
+       the current live roleScopes doc. */
+    let currentScopes = null;
+    try {
+      const ref = doc(db, "factory", "roleScopes");
+      const snap = await getDoc(ref);
+      if (snap.exists()) currentScopes = snap.data() || null;
+    } catch (e) {
+      console.warn("[V21.9.64] could not read factory/roleScopes for diff:", e?.message || e);
+      /* fall through — diff will treat current as null = first-time write */
+    }
+    const computed = computeRoleScopes(cleaned, config);
+
+    /* Build a human-readable diff: per scope, which roles were added (+role)
+       and which would be removed (-role). Only show scopes where something
+       changes. Track hasRemovals as a flag (more robust than re-parsing). */
+    const diffLines = [];
+    let hasRemovals = false;
+    const allScopeKeys = new Set([...Object.keys(computed), ...(currentScopes ? Object.keys(currentScopes) : [])]);
+    for (const scope of allScopeKeys) {
+      const before = new Set((currentScopes && Array.isArray(currentScopes[scope])) ? currentScopes[scope] : []);
+      const after  = new Set(Array.isArray(computed[scope]) ? computed[scope] : []);
+      const added   = [...after].filter(r => !before.has(r)).sort();
+      const removed = [...before].filter(r => !after.has(r)).sort();
+      if (added.length === 0 && removed.length === 0) continue;
+      const parts = [];
+      if (added.length)   parts.push("+" + added.join(", +"));
+      if (removed.length) { parts.push("−" + removed.join(", −")); hasRemovals = true; }
+      diffLines.push("• " + scope + ": " + parts.join("  "));
+    }
+
+    /* Step 3: if there's no diff, skip the sync entirely. */
+    if (diffLines.length === 0) {
+      showToast("✓ تم حفظ " + dirtyCount + " تعديل — الـ Firestore scopes ما اتغيّرت-ـش");
+      return;
+    }
+
+    /* Step 4: if there ARE removals (i.e., we'd undo manual edits OR remove
+       a role from a scope), confirm with the admin first. Pure additions
+       (no removals) are auto-applied — those usually reflect new perms
+       the admin just granted via the UI, no surprise there. */
+    if (hasRemovals) {
+      const ok = await ask(
+        "⚠ تعديل صلاحيات Firestore",
+        "الـ auto-sync هـ يـ write الـ التغييرات دي على factory/roleScopes:\n\n" +
+        diffLines.join("\n") +
+        "\n\nالـ '−' معناها هـ يـ تشيل دور من الـ scope. لو انت عملت تعديل يدوي قبل كده " +
+        "في Diagnostics → Role Scopes Editor، التعديل ده هـ يـ overwrite.\n\n" +
+        "تأكيد الـ sync؟ (الـ UI perms اتـ حفظت بالفعل)",
+        { confirmText: "نعم — write الـ scopes", cancelText: "لا — احتفظ بالحالية", danger: true }
+      );
+      if (!ok) {
+        showToast("✓ تم حفظ " + dirtyCount + " تعديل — الـ Firestore scopes ما اتـ overwrite-ـتش (manual edits محفوظة)");
+        return;
+      }
+    }
+
+    /* Step 5: write the computed scopes. Pass currentScopes so the helper
+       can short-circuit if nothing changed (defense in depth). */
     showToast("⏳ بـ يـ sync مع Firestore rules...");
     try {
-      const r = await syncRoleScopesToFirestore(cleaned, config, null);
+      const r = await syncRoleScopesToFirestore(cleaned, config, currentScopes);
       if (r.ok && r.written) {
-        showToast("✓ تم حفظ " + dirtyCount + " تعديل + sync مع Firestore (" + Object.keys(r.scopes || {}).length + " scopes)");
+        showToast("✓ تم حفظ " + dirtyCount + " تعديل + sync مع Firestore (" + diffLines.length + " scope" + (diffLines.length === 1 ? "" : "s") + " اتغيّر)");
       } else if (r.ok && !r.written) {
         showToast("✓ تم حفظ " + dirtyCount + " تعديل — الـ Firestore scopes ما اتغيّرت-ـش");
       } else {
-        /* Sync failed — UI perms still saved. Show clear non-blocking warning. */
         const errCode = r.code || "unknown";
         if (errCode === "permission-denied") {
           showToast("⚠ تم الحفظ بس الـ Firestore sync اتـ block — لازم admin");
