@@ -877,8 +877,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        matchWorkshopFromDesc still prevents wrong links. */
     let _autoLinkedWs=null;
     let _autoLinkAttempted=false;
-    if(!linkedWsName&&txType==="out"&&(txCategory==="تشغيل خارجي"||txCategory==="مشتريات")){
+    /* V21.9.68: narrow the auto-workshop-link to "تشغيل خارجي" only.
+       Pre-V21.9.68 this also fired for "مشتريات" — but "مشتريات" is overloaded:
+       it can mean workshop-side purchases (raw materials for the workshop) OR
+       generic supplier purchases (office supplies, fabric from a wholesaler, etc.).
+       Forcing a workshop warning on every مشتريات produced a misleading
+       "حُفظ بدون ربط بورشة" toast even when the user clearly wanted a
+       generic purchase. Now we ONLY auto-link مشتريات IF the user wrote a
+       workshop name in the desc (best-effort, no warning if no match). */
+    if(!linkedWsName&&txType==="out"&&txCategory==="تشغيل خارجي"){
       _autoLinkAttempted=true;
+      const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
+      _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
+      if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
+    }else if(!linkedWsName&&txType==="out"&&txCategory==="مشتريات"){
+      /* Best-effort workshop match for مشتريات — no warning if no match found. */
       const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
       _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
       if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
@@ -908,7 +921,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        Important: We use minNameLength=3 to avoid matching very short customer
        names (like "أ", "م") that would be substrings of almost any text. */
     let _autoLinkedParty=null;
-    if(!editId&&!linkedCustId&&!linkedSupplierId&&!linkedEmpId){
+    if(!editId&&!linkedCustId&&!linkedSupplierId&&!linkedEmpId&&!linkedWsName){
       const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
       if(txType==="in"&&txCategory==="دفعة عميل"&&customers.length>0){
         const m=matchPartyFromDesc(_haystack,customers,{minNameLength:3});
@@ -920,6 +933,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _emps=(data.employees||[]).filter(e=>!e.inactive);
         const m=matchPartyFromDesc(_haystack,_emps,{minNameLength:3});
         if(m){linkedEmpId=m.id;_autoLinkedParty={kind:"employee",name:m.name}}
+      } else if(txType==="out"&&txCategory==="مشتريات"&&suppliers.length>0){
+        /* V21.9.68: try supplier auto-link for مشتريات when no workshop matched.
+           Without this, a "مشتريات" + supplier name in desc would save without
+           any party link → invisible in supplier statement. Now we get a free
+           supplier link from the desc, same way as "دفعة مورد". */
+        const m=matchPartyFromDesc(_haystack,suppliers,{minNameLength:3});
+        if(m){linkedSupplierId=m.id;_autoLinkedParty={kind:"supplier",name:m.name}}
       }
     }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
@@ -955,6 +975,29 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const _instantSupplierPay_needed = (linkedSupplierId && txType==="out" && txCategory==="دفعة مورد" && !editId && !_isCheckMethod);
     const _instantSupplierPay_id = _instantSupplierPay_needed ? gid() : null;
     const _instantSupplierPay_supplier = _instantSupplierPay_needed ? suppliers.find(x=>x.id===linkedSupplierId) : null;
+    /* V21.9.68: OPTIMISTIC UI — close the form / apply sticky reset BEFORE the
+       upConfig await. Pre-V21.9.68 (since V21.9.67 introduced the await) the
+       form stayed open 2-5 seconds while the Firestore write committed —
+       confusing for users who expected the popup to close instantly on click.
+
+       For sticky-continue: keep form open, reset only fields that should not
+       persist between repeats. The existing sticky-reset block further down
+       in the function is preserved as-is; we just pre-clear the fields here
+       so the user sees the reset immediately. (Calling setState twice on the
+       same value is a React no-op — safe to run both pre- and post-await.)
+
+       For non-sticky: close the form + reset all fields. The post-await error
+       handler (below) re-shows an error toast if the save fails — at which
+       point the form is closed but the user has a clear "اعمل refresh وحاول
+       تاني" CTA. Failure is rare after V21.9.67 fixes; the optimistic-close
+       UX win outweighs the rare-failure UX cost. */
+    const _isStickyContinue = stickyMode && stickyMode.count > 1 && !editId;
+    if(!_isStickyContinue){
+      setShowForm(false);
+      setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");
+      setTxType("in");setTxPartyId("");setTxPartyType("");setTxMethod("نقدي كاش");
+      setEditId(null);
+    }
     /* V21.9.67: await + status check. Pre-V21.9.67 the autoPost.treasury fired
        synchronously after upConfig returned, before the Firestore write actually
        reached the server. If the write failed (split-sync error, 1MB limit), the
@@ -1257,7 +1300,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     } else {
       showToast("✓ تم الحفظ");
     }
-    setShowForm(false);setTxAmount("");setTxDesc("");setTxNotes("");setTxCategory("");setTxType("in");setTxPartyId("");setTxPartyType("");setTxMethod("نقدي كاش");setEditId(null);};
+    /* V21.9.68: form-close moved to PRE-await block (see "OPTIMISTIC UI"
+       above). Pre-V21.9.68 this line ran AFTER the 2-5s upConfig await,
+       which made the popup stay open until the Firestore write completed. */
+    };
   /* Detect treasury entries that were auto-created from an external source
      (salary approval, check collection/payment, advance, transfer, workshop payment).
      These entries should NOT be directly deletable from treasury — go to source. */
