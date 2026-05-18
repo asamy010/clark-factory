@@ -27,6 +27,25 @@
 import { getAccountByCode } from "./coa.js";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "./coaDefaults.js";
 import { resolveTreasuryAccountByName, FALLBACK_CASH_CODE, FALLBACK_BANK_CODE } from "./treasuryMapping.js";
+import { calcOrder } from "../orders.js";
+
+/* V21.9.87 (Accounting audit Bug #2 + #4): local copy of resolveUnitCost
+   to avoid the circular import autoPost.js → postingRules.js → autoPost.js.
+   Keep this LOGIC IDENTICAL to autoPost.js:resolveUnitCost. If you change
+   one, change the other. */
+function _resolveUnitCost(order, config){
+  if(!order) return 0;
+  const source = (config?.accountingSettings?.cogsCostSource) || "auto";
+  const manual = Number(order.costPrice) || 0;
+  let computed = 0;
+  try {
+    const calc = calcOrder(order);
+    computed = Number(calc?.costPer) || 0;
+  } catch(e){ computed = 0; }
+  if(source === "manual") return manual;
+  if(source === "computed") return computed;
+  return manual > 0 ? manual : computed;
+}
 
 /* Resolve rules with fallback to defaults. The user may override individual
    account codes — anything missing falls back to defaults. */
@@ -552,19 +571,29 @@ export function buildSalesInvoiceCogsEntry(invoice, order, coa, rules, config){
 
   /* Compute total cost across all items using order's cost structure.
      For simple 1:1 invoice (one delivery → one invoice), items[0] is the
-     row we care about. We use the order's per-piece cost. */
+     row we care about. We use the order's per-piece cost.
+     V21.9.87 (Accounting audit Bug #2): use _resolveUnitCost to honor
+     accountingSettings.cogsCostSource ('manual'|'computed'|'auto'). Pre-
+     V21.9.87 only manual costPrice was used → COGS=0 when 'computed' mode
+     was set → Trial Balance imbalance vs the delivery flow that uses the
+     computed cost. */
+  const perPiece = _resolveUnitCost(order, config);
   let totalCost = 0;
   (invoice.items||[]).forEach(it => {
     const qty = Number(it.qty)||0;
-    /* Try costPrice (manual), then computed via calcOrder fallback */
-    const perPiece = Number(order.costPrice) || 0;
     totalCost += qty * perPiece;
   });
   totalCost = _r2(totalCost);
   if(totalCost <= 0) return null;
 
   const cogs = ensureLeaf(coa, r.saleCogs?.cogsAccount || "5100", "تكلفة البضاعة المباعة");
-  const inv  = ensureLeaf(coa, r.saleCogs?.inventoryAccount || "1320", "مخزون منتج تام");
+  /* V21.9.87 (Accounting audit Bug #1): use finishedAccount (matching the
+     delivery-path builder buildSaleCogsEntry:158). Pre-V21.9.87 this used
+     a separate `inventoryAccount` key that didn't exist in the default
+     rules → fallback "1320" was applied. The delivery path used
+     finishedAccount, so the two flows credited different accounts. Now
+     unified to finishedAccount. */
+  const inv  = ensureLeaf(coa, r.saleCogs?.finishedAccount || "1320", "مخزون منتج تام");
   const date = invoice.date || new Date().toISOString().split("T")[0];
 
   return {
@@ -752,18 +781,24 @@ export function buildCreditNoteCogsEntry(creditNote, order, coa, rules, config){
   if(accSettings.cogsEnabled === false) return null;
   const r = resolveRules(rules);
 
+  /* V21.9.87 (Accounting audit Bug #4): use _resolveUnitCost so credit
+     note COGS matches the cost basis used on the original sale. Pre-
+     V21.9.87 only manual costPrice was used → return COGS=0 when computed
+     mode is set → inventory perpetual balance undervalued (debited on
+     sale at computed cost, credited on return at 0). */
+  const perPiece = _resolveUnitCost(order, config);
   let totalCost = 0;
   (creditNote.items||[]).forEach(it => {
     const qty = Number(it.qty)||0;
-    const perPiece = Number(order.costPrice) || 0;
     totalCost += qty * perPiece;
   });
   totalCost = _r2(totalCost);
   if(totalCost <= 0) return null;
 
-  /* Reverse direction: Dr inventory / Cr COGS */
+  /* Reverse direction: Dr inventory / Cr COGS.
+     V21.9.87 (Accounting audit Bug #1): unified to finishedAccount. */
   const cogs = ensureLeaf(coa, r.saleCogs?.cogsAccount || "5100", "تكلفة البضاعة المباعة");
-  const inv  = ensureLeaf(coa, r.saleCogs?.inventoryAccount || "1320", "مخزون منتج تام");
+  const inv  = ensureLeaf(coa, r.saleCogs?.finishedAccount || "1320", "مخزون منتج تام");
   const date = creditNote.date || new Date().toISOString().split("T")[0];
 
   return {

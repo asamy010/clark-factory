@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.87",
+    date: "2026-05-18",
+    types: ["fix", "architectural"],
+    title: "📊 Phase 17e — Accounting Audit (Batch 5/6)",
+    changes: [
+      { type: "fix", text: "🔴 [Acct Bug #1 — inventoryAccount vs finishedAccount mismatch (CRITICAL)]\n\n**Root Cause:** `buildSalesInvoiceCogsEntry` كان بـ يستخدم `r.saleCogs?.inventoryAccount`، بينما `buildSaleCogsEntry` (delivery path) يستخدم `r.saleCogs.finishedAccount`. الـ key الأول مش موجود في الـ DEFAULT_POSTING_RULES → fallback لـ '1320'. النتيجة: لو الـ rules تـ customize → الـ delivery flow + invoice flow بـ يـ credit accounts مختلفة → Trial Balance imbalance.\n\n**Fix (postingRules.js:567, 795):** unified لـ `finishedAccount` في الـ invoice + credit note builders." },
+      { type: "fix", text: "🔴 [Acct Bug #2 — Invoice COGS يـ ignore cogsCostSource (CRITICAL)]\n\n**Root Cause:** `buildSalesInvoiceCogsEntry` كان بـ يستخدم `Number(order.costPrice) || 0` بس — لو الـ user set `cogsCostSource='computed'` → COGS=0 على الـ invoice path، بينما الـ delivery path يستخدم الـ computed cost. Trial Balance imbalance.\n\n**Fix:** أنشأت private copy `_resolveUnitCost` في postingRules.js (لـ avoid circular import مع autoPost.js). الـ logic identical للـ `resolveUnitCost` في autoPost.js: respects manual/computed/auto modes. Comment يـ require keeping both copies in sync." },
+      { type: "fix", text: "🔴 [Acct Bug #3 — Idempotency silent line mutation (CRITICAL)]\n\n**Root Cause:** `postEntry` لما يـ find existing entry، كان بـ يـ unconditionally overwrite الـ lines. Retry / re-post بـ different lines (e.g., due to rounding distribution) بـ يـ mutate الـ entry silently — الـ id + refNo + createdAt يفضلوا، بس الـ amounts تتغير. External reconciliation software بـ يـ cache refNo→amount missed corrections.\n\n**Fix (posting.js:108):**\n• إن الـ lines unchanged (deep-equal) → no-op (truly idempotent)\n• إن مختلفة → still overwrite بس مع console.warn يـ identify الـ sourceType + sourceId + refNo + dayId للـ tracking\n• Future TODO: void+repost flow مع editHistory[]" },
+      { type: "fix", text: "🟠 [Acct Bug #4 — Credit note COGS cost mismatch (SERIOUS)]\n\n**Root Cause:** `buildCreditNoteCogsEntry` بنفس الـ pattern: manual costPrice فقط. Return COGS كان مفقود لما الـ original sale used computed cost. Inventory perpetual balance undervalued.\n\n**Fix (postingRules.js:785):** نفس الـ `_resolveUnitCost` helper. الـ return COGS الآن يـ match الـ basis اللي اتـ used على الـ original sale." },
+      { type: "fix", text: "🟠 [Acct Bug #5 — Reversal field naming mismatch (SERIOUS)]\n\n**Root Cause:** الـ audit-orphan-accounting endpoint كان بـ يـ skip reversal entries بـ `entry.reversalOf || entry.isReversal`. لكن الـ actual schema يستخدم `voidsEntry` (entry → original). الـ check كان لا يـ match أي reversal → reversals كانوا بـ يـ scanned كـ orphans → double-reversal risk.\n\n**Fix (audit-orphan-accounting.js:186):** الـ skip condition الآن includes `voidsEntry` + `reversalOf` + `isReversal` (legacy) + `status==='void'` (defense in depth)." },
+      { type: "doc", text: "📋 [Deferred + Done from Accounting Audit]\n\n**Deferred:**\n• Bug #8 (non-deterministic rounding distribution) — needs deeper investigation of when retries trigger this. Mediums batch.\n\n**Fixed in this commit:**\n• Bug #1 ✓ — inventoryAccount→finishedAccount\n• Bug #2 ✓ — invoice cogsCostSource\n• Bug #3 ✓ — idempotency no-op when unchanged\n• Bug #4 ✓ — credit note cost source\n• Bug #5 ✓ — reversal field naming\n\n**Will be in V21.9.88 mediums:**\n• Bug #6 (account fallback inconsistency)\n• Bug #7 (double COGS on retroactive order link)\n• Bug #9 (orphan companion validation gap)" },
+    ],
+  },
+  {
     version: "V21.9.86",
     date: "2026-05-18",
     types: ["fix"],

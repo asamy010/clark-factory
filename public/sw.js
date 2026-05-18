@@ -38,7 +38,7 @@
    new JS. No manual cache clears needed.
    ═══════════════════════════════════════════════════════════════ */
 
-const SW_VERSION = 'v21.9.86';
+const SW_VERSION = 'v21.9.87';
 const APP_CACHE = 'clark-app-' + SW_VERSION;
 const IMG_CACHE = 'clark-images-' + SW_VERSION;
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];

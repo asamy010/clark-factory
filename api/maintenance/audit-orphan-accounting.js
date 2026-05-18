@@ -180,10 +180,16 @@ export default async function handler(req, res){
       const date = docSnap.id;
       for(const entry of entries){
         if(!entry || !entry.sourceType || !entry.sourceId) continue;
-        /* Skip already-reversed entries (idempotency) */
+        /* Skip already-voided entries (idempotency) */
         if(entry.reversed === true) continue;
-        /* Skip entries that are themselves reversals (have a referenceTo field) */
-        if(entry.reversalOf || entry.isReversal) continue;
+        if(entry.status === "void") continue;
+        /* Skip entries that are themselves reversals.
+           V21.9.87 (Accounting audit Bug #5): the actual schema uses
+           `voidsEntry` (entry → original) NOT `reversalOf`. Pre-V21.9.87
+           this check looked for non-existent fields → reversal entries
+           weren't recognized → some reversals got flagged as orphans
+           and "reversed again", double-reversing the original. */
+        if(entry.voidsEntry || entry.reversalOf || entry.isReversal) continue;
         scanned++;
 
         const collKey = SOURCE_TYPE_TO_COLLECTION[entry.sourceType];

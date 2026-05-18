@@ -106,9 +106,25 @@ export async function postEntry({date, sourceType, sourceId, narration, lines, c
       : -1;
 
     if(existingIdx >= 0){
-      /* Update path: preserve id + refNo + createdAt; bump editedAt */
+      /* V21.9.87 (Accounting audit Bug #3): no-op if lines unchanged.
+         Pre-V21.9.87 we always overwrote `lines` in-place, even when the
+         new norm was identical. That meant retries / re-posts silently
+         mutated entries without any audit trail or refNo change — external
+         reconciliation software that cached refNo→amount mappings missed
+         the silent corrections. Now: only update if lines genuinely differ.
+         When they differ, we still update in-place (preserving id+refNo+
+         createdAt) but emit a console.warn so the change is traceable.
+         A more formal void+repost flow is a TODO — requires audit-trail
+         design (e.g., entry.editHistory[]). */
       const next = [...cur];
       const old = next[existingIdx];
+      const linesUnchanged = JSON.stringify(old.lines) === JSON.stringify(norm);
+      if (linesUnchanged) {
+        return cur;/* truly idempotent — skip */
+      }
+      console.warn("[V21.9.87 postEntry] lines mutated on idempotent re-post", {
+        sourceType, sourceId, refNo: old.refNo, dayId,
+      });
       next[existingIdx] = {
         ...old,
         narration: narration || old.narration,

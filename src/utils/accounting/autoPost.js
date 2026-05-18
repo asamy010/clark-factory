@@ -148,6 +148,10 @@ function resolveUnitCost(order, config){
   return manual > 0 ? manual : computed;
 }
 
+/* V21.9.87 (Accounting audit Bug #2 + #4): postingRules.js has a private
+   copy of this function (_resolveUnitCost) to avoid the circular import
+   autoPost ↔ postingRules. Keep both in sync. */
+
 function isCogsEnabled(config){
   /* COGS posting is opt-in. Defaults to ON if not set, since it's the
      accounting-correct behavior. Users can disable from settings. */
