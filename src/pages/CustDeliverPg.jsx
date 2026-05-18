@@ -753,13 +753,30 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     const{orderId,custId,custName,sessId}=returnPopup;
     const order = (data.orders||[]).find(o => o.id === orderId);
     if(order){
+      /* V21.9.85 (CustDeliver audit Bug #2): SESSION-aware return validation.
+         Pre-V21.9.85 the check summed deliveries across ALL sessions for the
+         customer → a return entered in Session B could "borrow" headroom
+         from Session A's deliveries → session-level accounting became
+         ambiguous (return attributed to a session that didn't deliver).
+         Now: prefer the session-specific headroom when sessId is known;
+         fall back to the legacy cross-session check only if no session
+         deliveries are found (orphan return — preserves backward compat). */
       const dels = (order.customerDeliveries||[]).filter(d => d.custId === custId);
       const rets = (order.customerReturns||[]).filter(r => r.custId === custId);
+      const sessDels = sessId ? dels.filter(d => d.sessionId === sessId) : [];
+      const sessRets = sessId ? rets.filter(r => r.sessId === sessId) : [];
+      const sessDelQty = sessDels.reduce((s,d) => s + (Number(d.qty)||0), 0);
+      const sessRetQty = sessRets.reduce((s,r) => s + (Number(r.qty)||0), 0);
       const totalDel = dels.reduce((s,d) => s + (Number(d.qty)||0), 0);
       const totalRet = rets.reduce((s,r) => s + (Number(r.qty)||0), 0);
-      const maxReturnable = totalDel - totalRet;
+      /* Use session headroom when available; else fall back to total. */
+      const sessionMax = sessDelQty - sessRetQty;
+      const totalMax = totalDel - totalRet;
+      const useSession = sessId && sessDelQty > 0;
+      const maxReturnable = useSession ? sessionMax : totalMax;
       if(retQty > maxReturnable){
-        showToast("⛔ لا يمكن إرجاع "+retQty+" قطعة. الكمية المتبقية: "+maxReturnable+" (المسلّم "+totalDel+" − المُرتجع "+totalRet+")");
+        const scope = useSession ? "في هذه الجلسة" : "إجمالي";
+        showToast("⛔ لا يمكن إرجاع "+retQty+" قطعة. المتاح "+scope+": "+maxReturnable);
         return;
       }
     }
@@ -2688,10 +2705,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         !_tombstoneIds.has(t.id) &&
         t.sourceType!=="check_bounce"  /* check-bounce reversals are NOT payments */
       );
-      const orphanTreasuryTotal=orphanTreasuryPayments.reduce((s,t)=>s+(Number(t.amount)||0),0);
-      /* Effective totals — count BOTH custPayments and orphan treasury entries */
-      const totalPaidFromCustPayments=custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0)+orphanTreasuryTotal;
-      const totalPaid=totalPaidFromCustPayments+totalReceivableChecks;
+      /* V21.9.85 (CustDeliver audit Bug #4): r2() consistency — round at every
+         accumulation point to prevent float drift. Pre-V21.9.85 the orphan
+         total accumulated raw floats then was only r2'd at the final balance
+         step → fractional-cent drift could surface in reconciliation. */
+      const orphanTreasuryTotal=r2(orphanTreasuryPayments.reduce((s,t)=>s+(Number(t.amount)||0),0));
+      const _custPayTotal=r2(custPayments.reduce((s,p)=>s+(Number(p.amount)||0),0));
+      const totalPaidFromCustPayments=r2(_custPayTotal+orphanTreasuryTotal);
+      const totalPaid=r2(totalPaidFromCustPayments+totalReceivableChecks);
       /* V18.1+V18.23: Split paid into checks (custPayments method=شيك + receivable checks) vs cash.
          V18.64: Orphan treasury entries are always cash (treasury entries don't carry method). */
       const totalPaidChecksFromPayments=custPayments.filter(p=>(p.method||"")==="شيك").reduce((s,p)=>s+(Number(p.amount)||0),0);
@@ -3916,10 +3937,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];
             /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
             /* V19.63: clamp negative input — `-50` would store negative price → negative AR debit */
+            /* V21.9.85 (CustDeliver audit Bug #1 + #6): ALWAYS snapshot the
+               effective price on the delivery. Pre-V21.9.85, full-price
+               deliveries left `entry.price` undefined → downstream balance
+               calcs fell back to the order's CURRENT sellPrice. When the
+               admin corrected order.sellPrice later, historical customer
+               balances changed retroactively. The snapshot freezes the
+               price at delivery time so the audit trail is permanent. */
             const cp=Math.max(0,Number(qrSale.customPrice)||0);
-            const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,date:cairoDateStr(),sessionId:sessId,createdBy:userName,createdAt:nowISO()};
+            const snapshotPrice=cp>0?cp:(Number(o.sellPrice)||0);
+            const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,price:snapshotPrice,date:cairoDateStr(),sessionId:sessId,createdBy:userName,createdAt:nowISO()};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
-            if(cp>0){entry.price=cp;entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
+            if(cp>0){entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
             /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
                don't collide on the journal idempotency key. Pre-V19.66 a 2nd sale with
                identical key was silently de-duped by autoPost — the qty appeared in

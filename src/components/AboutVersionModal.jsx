@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.85",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🚚 Phase 17c — Customer Deliveries audit (Batch 3/6)",
+    changes: [
+      { type: "fix", text: "🔴 [CustDeliver Bug #1 + #6 — Pricing snapshot لا يـ persist (CRITICAL)]\n\n**Root Cause:** الـ instant-sale flow كان بـ يـ leave `entry.price` undefined لو الـ sale full-price. الـ downstream code (line 843, 2122, 3017) كان بـ يـ fallback لـ `o.sellPrice` الحالي. لو الـ admin يـ correct order.sellPrice بعد التسليم → historical customer balances تتغير retroactively. الـ audit trail مكسور.\n\n**Fix (CustDeliverPg:3920):** snapshot الـ price دائماً عند الـ delivery entry:\n```js\nconst snapshotPrice = cp > 0 ? cp : (Number(o.sellPrice)||0);\nconst entry = {..., price: snapshotPrice, ...};\n```\nالـ price الآن frozen عند delivery time. تغييرات order.sellPrice المستقبلية لا تـ affect historical balances. **Bug #6 ضمنياً مفقود** لأن الـ fallback `Number(d.price)||sp` الآن دائماً يـ pick up الـ snapshot." },
+      { type: "fix", text: "🔴 [CustDeliver Bug #2 — Cross-session return ambiguity (CRITICAL)]\n\n**Root Cause:** الـ `doReturn` كان بـ يـ sum total deliveries عبر كل الجلسات للـ customer قبل ما يـ allow return. النتيجة: return في Session B يـ borrow headroom من Session A → session-level accounting ambiguous.\n\n**Fix (CustDeliverPg:751):** SESSION-aware validation:\n• لو فيه deliveries في الـ session الحالية → maxReturnable = session deliveries - session returns\n• لو الـ session مفيش deliveries → fallback لـ cross-session (preserves legacy compat)\n• Error message بـ يـ specify scope: 'في هذه الجلسة' vs 'إجمالي'." },
+      { type: "fix", text: "🟠 [CustDeliver Bug #4 — Float drift في orphan treasury totals (SERIOUS)]\n\n**Root Cause:** الـ orphanTreasuryTotal كان بـ يـ accumulate raw floats. الـ totalPaid + custBalance بـ يـ r2() في النهاية بس. الـ intermediate values كانت بـ يـ carry fractional-cent drift.\n\n**Fix (CustDeliverPg:2708):** r2() على كل step:\n```js\nconst orphanTreasuryTotal = r2(orphans.reduce(...));\nconst _custPayTotal = r2(custPayments.reduce(...));\nconst totalPaidFromCustPayments = r2(_custPayTotal + orphanTreasuryTotal);\nconst totalPaid = r2(totalPaidFromCustPayments + totalReceivableChecks);\n```\nالـ reconciliation الآن exact-match." },
+      { type: "doc", text: "📋 [Deferred من Customer Deliveries Audit]\n\n• **Bug #3** (Series vs Broken type لا يـ recorded في instant sales) — design decision حول الـ inventory model. الـ override flag موجود بس series/broken concept يـ require UI changes. أُجل.\n• **Bug #5** (Customer name ambiguity) — يـ require UI changes في الـ picker لـ enforce dedup. أُجل لـ batch UX منفصلة.\n\n**Mediums (#7-10) → V21.9.88:**\n• Statement print date logging\n• Closed orders settlement for undelivered\n• Series/broken batch operations\n• Phone normalization edge cases" },
+    ],
+  },
+  {
     version: "V21.9.84",
     date: "2026-05-18",
     types: ["fix"],
