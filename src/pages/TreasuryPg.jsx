@@ -4030,7 +4030,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         upConfig(d=>{
           if(!Array.isArray(d.recurringTreasury))return;
           const idx = d.recurringTreasury.findIndex(x=>x.id===r.id);
-          if(idx>=0) d.recurringTreasury[idx].active = !d.recurringTreasury[idx].active;
+          if(idx<0)return;
+          const wasActive = d.recurringTreasury[idx].active;
+          d.recurringTreasury[idx].active = !wasActive;
+          /* V21.9.89 (Recurring Treasury audit Bug #1): on re-enable, stamp
+             lastResumedAt so calculatePending knows not to backfill missed
+             dates while the rule was disabled. Pre-V21.9.89 a rule disabled
+             for 14 days then re-enabled would generate 14 unwanted
+             transactions on the next runPending tick. The V21.9.58 feature
+             was designed but the UI never set the field. */
+          if(!wasActive){
+            d.recurringTreasury[idx].lastResumedAt = new Date().toISOString();
+          }
         });
         showToast(r.active?"⏸ تم إيقاف الجدولة":"▶ تم تفعيل الجدولة");
       };
@@ -4273,8 +4284,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             </Sel>
           </div>}
           {recForm.pattern==="monthly" && <div style={{gridColumn:isMob?"1":"1 / -1"}}>
-            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم من الشهر (1-28)</label>
-            <Inp type="number" value={recForm.dayOfMonth} onChange={v=>{const n=Math.min(Math.max(Number(v)||1,1),28);setRecForm({...recForm, dayOfMonth:n})}}/>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>يوم من الشهر (1-31)</label>
+            {/* V21.9.89 (Recurring Treasury audit Bug #3): UI clamp bumped
+                28 → 31 to match recurring.js:67-84 logic (V21.9.58 supported
+                up to 31 with auto-shift to lastDayOfMonth on Feb/short
+                months). Pre-V21.9.89 the UI silently capped to 28, confusing
+                admins trying to schedule for end-of-month. */}
+            <Inp type="number" value={recForm.dayOfMonth} onChange={v=>{const n=Math.min(Math.max(Number(v)||1,1),31);setRecForm({...recForm, dayOfMonth:n})}}/>
           </div>}
           <div>
             <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>تاريخ البدء *</label>
@@ -4289,7 +4305,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           <Btn ghost onClick={()=>{setShowRecurringModal(false);setEditRecurringId(null)}}>إلغاء</Btn>
           <Btn primary onClick={()=>{
             if(!recForm.name.trim()){tell("بيانات ناقصة","اسم الجدولة مطلوب",{danger:true});return;}
-            if(!Number(recForm.amount)){tell("بيانات ناقصة","المبلغ مطلوب",{danger:true});return;}
+            /* V21.9.89 (Recurring Treasury audit Bug #2): reject negative
+               amounts. Pre-V21.9.89 a rule could be saved with amount=-1000
+               type="out" → generated TXs flipped sign on balance → silent
+               confusion. */
+            if(!Number(recForm.amount) || Number(recForm.amount) <= 0){
+              tell("بيانات ناقصة","المبلغ يجب أن يكون أكبر من صفر",{danger:true});
+              return;
+            }
             if(!recForm.startDate){tell("بيانات ناقصة","تاريخ البدء مطلوب",{danger:true});return;}
             const ruleData = {
               name:recForm.name.trim(), type:recForm.type, amount:Number(recForm.amount),

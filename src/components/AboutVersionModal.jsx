@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.89",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🛠 Phase 18a — Audit #2 quick wins (Recurring + Purchase)",
+    changes: [
+      { type: "fix", text: "📋 [Audit #2 موسّع كشف 63 finding عبر 6 مناطق جديدة. V21.9.89 ينفّذ 5 quick wins (verified bugs، low-risk). الباقي في batches قادمة.]\n\n**Note on V21.9.79 'regression' claim:** الـ audit agent ادّعى إن `accItems:[]` في delOrder بـ يـ prevent accessory refund. التحقق من الكود (orders.js:439-452) أكد إن الـ 'removed accessories' loop بـ يـ refund عبر prev.accessories path. **الـ claim كان غلط — لا regression.**" },
+      { type: "fix", text: "🟠 [Recurring Bug #1 — lastResumedAt missing on rule re-enable]\n\n**Root Cause:** الـ `toggleActive` ما كانش بـ يـ stamp `lastResumedAt` عند تـ flip لـ active=true. الـ V21.9.58 backfill-prevention feature designed لكن الـ UI ما كملش implementation. النتيجة: rule disabled 14 يوم ثم enabled → 14 unwanted transactions على الـ next runPending.\n\n**Fix (TreasuryPg:4029):**\n```js\nconst wasActive = d.recurringTreasury[idx].active;\nd.recurringTreasury[idx].active = !wasActive;\nif(!wasActive){\n  d.recurringTreasury[idx].lastResumedAt = new Date().toISOString();\n}\n```" },
+      { type: "fix", text: "🟠 [Recurring Bug #2 — Negative amount allowed]\n\n**Root Cause:** الـ validation كان `!Number(recForm.amount)` — يـ accept negative numbers. Admin يقدر يـ save rule بـ amount=-1000 → semantic confusion في الـ balance.\n\n**Fix (TreasuryPg:4308):**\n```diff\n-if(!Number(recForm.amount)){tell(...);return;}\n+if(!Number(recForm.amount) || Number(recForm.amount) <= 0){\n+  tell('بيانات ناقصة','المبلغ يجب أن يكون أكبر من صفر',{danger:true});\n+  return;\n+}\n```" },
+      { type: "fix", text: "🟡 [Recurring Bug #3 — dayOfMonth UI clamped to 28]\n\n**Root Cause:** الـ form كانت بـ تـ clamp 1-28 لكن `recurring.js:67-84` (V21.9.58) بـ يـ support 1-31 مع auto-shift لـ lastDayOfMonth في Feb/short months. Admin اللي يدخل 31 كان بـ يـ silently clamped لـ 28.\n\n**Fix (TreasuryPg:4287-4288):**\n• Label: \"يوم من الشهر (1-28)\" → \"يوم من الشهر (1-31)\"\n• Clamp: `Math.min(...,28)` → `Math.min(...,31)`" },
+      { type: "fix", text: "🔴 [Purchase Bug #1 — Supplier balance missing debit notes (CRITICAL)]\n\n**Root Cause:** `computeSupplierStatement` في rollups.js كانت بـ يـ compute `balance = totalPurchase - totalPaidCash - totalChecks` بدون احتساب `purchaseDebitNotes`. الـ debit notes (returns to supplier) بـ تـ reduce المستحق للمورد، بس الـ balance كان بـ يـ inflate.\n\n**مثال:** invoice 1000 ج، debit note 200 ج، payment 700 ج:\n• Correct balance: 100 ج\n• Pre-V21.9.89: 300 ج (overstate بـ 200)\n\n**Fix (rollups.js:264):**\n```js\nconst debitNotes = (data?.purchaseDebitNotes || []).filter(dn =>\n  String(dn.supplierId) === k && dn.status === 'posted' && inDateRange(dn.date, from, to)\n);\nconst totalDebitNotes = r2(debitNotes.reduce((s, dn) => s + (Number(dn.total) || 0), 0));\nconst balance = r2(totalPurchase - totalDebitNotes - totalPaidCash - totalChecks);\n```\n\nالـ return value now includes `debitNotes` array + `totals.debitNotes` field." },
+      { type: "fix", text: "🔴 [Purchase Bug #2 — discountPct float drift (CRITICAL)]\n\n**Root Cause:** في debit note upsert (invoices.js:1104) الـ discountPct كانت بـ تحسب raw division بدون r2() → values زي 2.00599999... → UI rendering يـ diverge من الـ math.\n\n**Fix:** `r2(incomingDiscount / subtotal * 100)`. Reconciliation now exact." },
+    ],
+  },
+  {
     version: "V21.9.88",
     date: "2026-05-18",
     types: ["fix", "improvement"],

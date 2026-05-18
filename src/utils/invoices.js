@@ -1101,7 +1101,11 @@ export function upsertDebitNoteFromReturn(d, returnEntry, supplier, userName){
     linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
     items: incomingItems,
     subtotal,
-    discountPct: subtotal > 0 ? (incomingDiscount / subtotal * 100) : 0,
+    /* V21.9.89 (Purchase audit Bug #2): r2() on discountPct to prevent
+       float drift. Pre-V21.9.89 this raw division could produce values
+       like 2.00599999... which the UI rendered differently than the math
+       expected, breaking reconciliation. */
+    discountPct: subtotal > 0 ? r2(incomingDiscount / subtotal * 100) : 0,
     discount: incomingDiscount,
     total,
     status: "draft",

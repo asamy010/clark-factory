@@ -270,11 +270,20 @@ export function computeSupplierStatement(data, supplierId, filter = {}) {
   const checks = (data?.checks || []).filter(c =>
     c.type === "payable" && String(c.partyId) === k && inDateRange(c.date, from, to)
   );
+  /* V21.9.89 (Purchase audit Bug #1): include purchase debit notes (returns
+     to supplier) in the supplier balance calc. Pre-V21.9.89 the balance was
+     `totalPurchase - paid - checks`, IGNORING posted debitNotes. A 200 ج
+     return that reduces our liability would silently NOT reduce the
+     balance → factory overpaid by the debit note amount. */
+  const debitNotes = (data?.purchaseDebitNotes || []).filter(dn =>
+    String(dn.supplierId) === k && dn.status === "posted" && inDateRange(dn.date, from, to)
+  );
 
   const totalPurchase = r2(invoices.reduce((s, i) => s + (Number(i.total) || 0), 0));
   const totalPaidCash = r2(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0));
   const totalChecks   = r2(checks.reduce((s, c) => s + (Number(c.amount) || 0), 0));
-  const balance       = r2(totalPurchase - totalPaidCash - totalChecks);
+  const totalDebitNotes = r2(debitNotes.reduce((s, dn) => s + (Number(dn.total) || 0), 0));
+  const balance       = r2(totalPurchase - totalDebitNotes - totalPaidCash - totalChecks);
 
   return {
     supplier: sup,
@@ -282,8 +291,10 @@ export function computeSupplierStatement(data, supplierId, filter = {}) {
     invoices,
     payments,
     checks,
+    debitNotes,
     totals: {
       purchases: totalPurchase,
+      debitNotes: totalDebitNotes,
       cashPayments: totalPaidCash,
       checks: totalChecks,
       balance,
