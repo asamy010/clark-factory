@@ -2087,6 +2087,20 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </div>;
           })}
           {/* Warnings */}
+          {/* V21.9.80 (Bug #6): surface the upstream `received_exceeds_cut`
+             reason explicitly so the user knows the sync is mathematically
+             impossible — not just "infeasible" with no path forward. */}
+          {(()=>{
+            const blocked=piecePlans.filter(pp=>pp.reason==="received_exceeds_cut");
+            if(blocked.length===0)return null;
+            return<div style={{padding:"10px 14px",borderRadius:8,background:T.err+"15",border:"1px solid "+T.err+"50",color:T.err,fontSize:FS-1,fontWeight:700,marginBottom:10,lineHeight:1.6}}>
+              ⛔ <b>المزامنة مستحيلة حسابياً</b> — كمية القص ({m.cutQty}) أقل من اللي الورش رجعته فعلاً:
+              <ul style={{margin:"6px 0 0",paddingInlineStart:18,fontWeight:600}}>
+                {blocked.map(pp=><li key={pp.piece}>{pp.piece}: استلام مصنع <b>{pp.minReceived}</b> &gt; قص <b>{m.cutQty}</b></li>)}
+              </ul>
+              <div style={{marginTop:6,fontSize:FS-2,fontWeight:500,color:T.text}}>الحل: ارفع كمية القص ({m.cutQty} → ≥ {Math.max(...blocked.map(pp=>pp.minReceived))})، أو راجع receives الورش لو فيه دخول خطأ.</div>
+            </div>;
+          })()}
           {anyBelowRcv&&<div style={{padding:"8px 12px",borderRadius:8,background:T.err+"10",border:"1px solid "+T.err+"30",color:T.err,fontSize:FS-1,fontWeight:700,marginBottom:10}}>⛔ فيه ورشة/ورش كميتها أقل من اللي استلموها — عدّل يدوياً قبل الحفظ</div>}
           {!allMatch&&!anyBelowRcv&&<div style={{padding:"8px 12px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30",color:T.warn,fontSize:FS-1,fontWeight:700,marginBottom:10}}>⚠️ فيه قطعة/قطع مجموع تسليمها مش = القص ({m.cutQty}) — عدّل يدوياً</div>}
           <div style={{padding:"8px 10px",borderRadius:8,background:T.accent+"06",border:"1px dashed "+T.accent+"30",fontSize:FS-2,color:T.textSec,marginBottom:12,lineHeight:1.5}}>

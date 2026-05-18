@@ -186,7 +186,12 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       const fabOpts=data.fabrics.map(f=>({value:String(f.id),label:f.name+" — "+f.price+" ج.م/"+f.unit}));
       const visible=FKEYS.slice(0,visibleFabricCount);
       const removeFabric=(k)=>{
-        setForm(p=>{const n={...p};n["fabric"+k]="";n["cons"+k]="";n["pcsPerLayer"+k]="";n["cutDate"+k]="";n["colors"+k]=[];n["fabricPieces"+k]=[];n["fabric"+k+"Label"]="";n["fabric"+k+"Price"]=0;n["fabric"+k+"Unit"]="";return n});
+        /* V21.9.80 (Bug #11 in cutting audit): align cons/pcsPerLayer types
+           with mkOrder() — both initialize numeric fields as 0, not "". The
+           old "" caused subtle issues in JSON.stringify diffs and made the
+           field shape inconsistent depending on whether the slot was
+           filled-then-removed vs never-touched. */
+        setForm(p=>{const n={...p};n["fabric"+k]="";n["cons"+k]=0;n["pcsPerLayer"+k]=0;n["cutDate"+k]="";n["colors"+k]=[];n["fabricPieces"+k]=[];n["fabric"+k+"Label"]="";n["fabric"+k+"Price"]=0;n["fabric"+k+"Unit"]="";return n});
         const idx=FKEYS.indexOf(k);
         if(idx===visibleFabricCount-1)setVisibleFabricCount(c=>Math.max(1,c-1));
       };

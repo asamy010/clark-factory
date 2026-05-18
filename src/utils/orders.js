@@ -78,19 +78,47 @@ export function getStageIndex(status){
 
 /* ═══════════════════════════════════════════════════════════════
    PERFORMANCE CACHES — WeakMap-based memoization for pure functions
-   
+
    All three functions below are pure (output depends only on input).
    Since orders are deep-cloned before updates, stale order objects become
    unreachable and their cache entries are automatically garbage-collected.
    No invalidation logic needed — WeakMap handles it natively.
-   
+
    Performance impact: With 500+ orders rendered across Dashboard + DetPg +
    CustDeliver + Reports, we go from ~3000 computations/render to ~500
    WeakMap lookups. Big win on mobile especially.
+
+   ═══════════════════════════════════════════════════════════════
+   V21.9.80 (Bug #8 in cutting audit) — INVARIANT for callers:
+   ───────────────────────────────────────────────────────────────
+   The cache is keyed by ORDER REFERENCE. If a caller calls calcOrder(o),
+   then mutates `o` (e.g. `o.colorsA.push({...})`), and then calls
+   calcOrder(o) AGAIN, the second call returns the STALE first result.
+
+   This is safe in CLARK today because the standard mutation pattern is:
+     const updated = JSON.parse(JSON.stringify(ord));   // clone
+     fn(updated);                                        // mutate clone
+     await updateDoc(...,updated);                       // commit
+   The clone is a NEW reference → fresh cache entry. The original `ord`
+   in `orders` array is untouched.
+
+   This invariant is REQUIRED. If you ever need to read calcOrder, mutate
+   the order, then re-read calcOrder in the SAME function scope, you MUST
+   deep-clone between the reads:
+     const t1=calcOrder(o);
+     const clone=JSON.parse(JSON.stringify(o));
+     clone.workshopDeliveries.push(...);
+     const t2=calcOrder(clone);   // not calcOrder(o) — would return stale t1
+
+   Standard pattern (updOrder, addOrder, replaceOrder) all clone before
+   mutating. Verified at: src/App.jsx:4949 (updOrder).
    ═══════════════════════════════════════════════════════════════ */
 const _orderCache=new WeakMap();
 const _stockCache=new WeakMap();
 const _pendingCache=new WeakMap();
+/* V21.9.80 (Bug #16): de-dup the missing-qtyPerPiece warning so Ahmed sees
+   each (orderId,accId) at most once per session. */
+const _warnedMissingQpp=new Set();
 
 /* V16.24: Per-piece cut quantity override.
    The order has one global cutQty (e.g. 192 sets), but in practice individual
@@ -110,13 +138,30 @@ export function getPieceCutQty(order,piece){
   const map=order.pieceCutQty;
   if(map&&typeof map==="object"&&map[piece]!=null&&!isNaN(Number(map[piece])))return Number(map[piece]);
   /* Auto-derive from linked fabrics */
-  let total=0;let linked=false;
+  let total=0;let linked=false;let anyLinkedInOrder=false;
   FKEYS.forEach(k=>{
     const pieces=order["fabricPieces"+k]||[];
+    if(pieces.length>0)anyLinkedInOrder=true;
     if(pieces.includes(piece)){linked=true;total+=sqty(gc(order,k))||0}
   });
   if(linked)return total;
-  /* No fabric link found → fall back to global cut */
+  /* V21.9.80 ROOT-CAUSE FIX (Bug #3 in cutting audit):
+     Pre-V21.9.80: unlinked pieces would FALL BACK to global cutQty
+     (=sqty(colorsA)). This let users deliver "ghost" pieces to workshops —
+     e.g. a "شورت" piece never cut from any fabric would appear in the
+     workshop-delivery popup with cutQty=192 (borrowed from fabric A which
+     was for قميص). The user could then send 192 شورت to a workshop that
+     don't exist as cut pieces, breaking inventory + cost accounting.
+
+     New behavior:
+     • If the order uses fabric-piece LINKING for ANY piece, unlinked
+       pieces return 0 (they're not cut). The UI's "أوامر قص ناقصة" warning
+       in App.jsx:5355 already flags these — now they also can't be sent
+       to workshops by mistake.
+     • If the order uses NO linking at all (legacy single-fabric workflow),
+       fall back to global cutQty as before. Preserves backward compat
+       for pre-V19.80.3 orders. */
+  if(anyLinkedInOrder)return 0;
   const t=calcOrder(order);
   return t.cutQty||0;
 }
@@ -202,9 +247,23 @@ export function calcStockNeeded(order){
     const qtyNeeded=r2(cons*lay);
     if(qtyNeeded>0)needed.fabrics[fabId]=(needed.fabrics[fabId]||0)+qtyNeeded;
   });
-  /* Accessories: qtyPerPiece × cutQty (this is correct — accessories are per finished piece) */
+  /* Accessories: qtyPerPiece × cutQty (this is correct — accessories are per finished piece).
+     V21.9.80 (Bug #16 in cutting audit): when qtyPerPiece is missing on an
+     accItem (legacy data or accessory added before AccPicker prompted for
+     it), the silent default of 1 means stock is deducted at 1-per-piece —
+     which is a reasonable default for most accessories (buttons, zippers)
+     but WRONG for fractional ones (0.5m of trim per piece) or zero-per-
+     piece additions. Behavior preserved (default 1) for backward compat,
+     but we now emit a one-time console.warn per (orderId,accId) so Ahmed
+     can spot missing data in the diagnostics console. */
   (order.accItems||[]).forEach(ac=>{
     if(!ac.accId)return;
+    if(ac.qtyPerPiece==null||ac.qtyPerPiece===""){
+      try{
+        const key=order.id+":"+ac.accId;
+        _warnedMissingQpp.has(key)||(_warnedMissingQpp.add(key),console.warn("[V21.9.80 calcStockNeeded] accessory missing qtyPerPiece — defaulting to 1:",{orderId:order.id,modelNo:order.modelNo,accId:ac.accId,accName:ac.name}));
+      }catch(_){}
+    }
     const qpp=Number(ac.qtyPerPiece)||1;/* default 1 if not set */
     const qtyNeeded=r2(qpp*cutQty);
     if(qtyNeeded>0)needed.accessories[ac.accId]=(needed.accessories[ac.accId]||0)+qtyNeeded;
@@ -250,7 +309,33 @@ export function checkStockAvailability(order,data,deltaOnly){
 }
 
 /* Mutates draft config to apply stock deduction (delta-aware).
-   Must be called INSIDE upConfig callback, and the order in d.orders must be the updated one. */
+
+   V21.9.80 (Bug #15 in cutting audit) — STRENGTHENED CONTRACT:
+   ───────────────────────────────────────────────────────────
+   This function has TWO side effects, both critical:
+   1. Mutates `d.fabrics[i].stock` and `d.accessories[i].stock` (the draft
+      config) — these get committed by the surrounding upConfig/transaction.
+   2. Mutates `order._stockDeducted` on the order object passed in — this
+      is the snapshot used for the NEXT delta calculation.
+
+   The caller MUST ensure:
+   • `d` is the working draft inside a Firestore transaction or upConfig
+     callback. Direct mutation of live state will corrupt other readers.
+   • `order` is THE SAME REFERENCE that will be committed back to Firestore
+     (the snapshot persists on the order). If you pass a clone and discard
+     it, the snapshot is lost and the NEXT save will compute delta as
+     `needed - 0 = needed`, deducting stock twice.
+
+   Valid call sites (verified):
+   • src/App.jsx:4935  — addOrder transaction (mutates `o` then writes)
+   • src/App.jsx:4968  — delOrder refund (constructs returnOrder; snapshot
+                          mutation is harmless since the order is deleted)
+   • src/App.jsx:5039  — replaceOrder transaction (mutates `clean` then writes)
+
+   Anti-example (do NOT do this):
+     const tempOrder={...ord};
+     deductStockForOrder(nextCfg, tempOrder, userName);  // snapshot lost
+   ─────────────────────────────────────────────────────────── */
 export function deductStockForOrder(d,order,userName){
   const purchaseSettings=d.purchaseSettings||{};
   if(!purchaseSettings.stockEnabled||!purchaseSettings.autoDeductOnCut)return;
@@ -343,9 +428,19 @@ export function calcWsRating(wsName,orders){
     (wd.receives||[]).forEach(r=>{
       /* Quality score */
       qScores.push(QUALITY_MAP[r.quality]||6);
-      /* Time score: ideal = qty/500 * 6.5 days */
+      /* Time score: ideal = qty/500 * 6.5 days.
+         V21.9.80 (Bug #14 in cutting audit): if rcvDate < delDate (user
+         typed receive date BEFORE delivery date by mistake), `days` would
+         be negative, then Math.max(1, negative) clamps to 1 → top time
+         score (10). Workshops with bad date entries got artificially-high
+         time ratings.
+
+         Detect inverted dates and SKIP the time score (only count quality).
+         The rating remains computable from quality + delivery + consistency. */
       const rcvDate=new Date(r.date);
-      const days=Math.max(1,Math.floor((rcvDate-delDate)/(1000*60*60*24)));
+      const rawDays=Math.floor((rcvDate-delDate)/(1000*60*60*24));
+      if(rawDays<0)return;/* skip time score for inverted date entries */
+      const days=Math.max(1,rawDays);
       const idealDays=Math.max(3,Math.round((qty/500)*6.5));
       if(days<=idealDays)tScores.push(10);
       else if(days<=idealDays*1.3)tScores.push(8);
@@ -436,6 +531,22 @@ export function planCutSync(order){
   const piecePlans=m.mismatchedPieces.map(p=>{
     const totalCurrent=p.totalDelivered;
     if(totalCurrent<=0)return{piece:p.piece,targetQty:m.cutQty,wds:[],feasible:false,reason:"no_ws"};
+    /* V21.9.80 (Bug #6 in cutting audit):
+       Pre-V21.9.80, when cutQty < sum(receivedQty), the rounding-correction
+       step would attempt to subtract `drift` from a `capped` workshop entry,
+       silently pushing `newQty < receivedQty`. The final feasibility check
+       caught it (`feasible=false`) but the UI just showed a generic
+       "infeasible" without explaining WHY.
+
+       Now we detect this case upfront and return a structured `reason` so
+       the UI can render an actionable message: cutQty was set lower than
+       what workshops already returned, so syncing is mathematically
+       impossible — the user must either raise cutQty or zero out the
+       receives. */
+    const minReceived=p.wds.reduce((s,w)=>s+(Number(w.receivedQty)||0),0);
+    if(m.cutQty<minReceived){
+      return{piece:p.piece,targetQty:m.cutQty,wds:p.wds,feasible:false,reason:"received_exceeds_cut",minReceived};
+    }
     const factor=m.cutQty/totalCurrent;
     let wds=p.wds.map(w=>{
       const proposed=Math.round(w.currentQty*factor);
@@ -449,15 +560,24 @@ export function planCutSync(order){
     if(drift!==0){
       const candidates=[...wds].sort((a,b)=>b.newQty-a.newQty);
       if(candidates[0]){
-        const target=candidates.find(c=>!c.capped||drift>0)||candidates[0];
-        const tgtIdx=wds.findIndex(w=>w.wdIdx===target.wdIdx);
-        if(tgtIdx>=0)wds[tgtIdx].newQty+=drift;
+        /* V21.9.80: when drift<0, only target non-capped entries to keep the
+           floor invariant. If every entry is capped, leave drift unresolved
+           — the final feasibility check will flag it and the UI shows the
+           upstream `received_exceeds_cut` reason. */
+        const target=drift<0
+          ? candidates.find(c=>!c.capped)
+          : (candidates.find(c=>!c.capped)||candidates[0]);
+        if(target){
+          const tgtIdx=wds.findIndex(w=>w.wdIdx===target.wdIdx);
+          if(tgtIdx>=0)wds[tgtIdx].newQty+=drift;
+        }
       }
     }
     wds=wds.map(w=>({...w,delta:w.newQty-w.currentQty}));
     const finalSum=wds.reduce((s,w)=>s+w.newQty,0);
     const feasible=finalSum===m.cutQty&&wds.every(w=>w.newQty>=w.receivedQty);
-    return{piece:p.piece,targetQty:m.cutQty,currentTotal:totalCurrent,wds,feasible};
+    const reason=feasible?undefined:(finalSum!==m.cutQty?"sum_mismatch":"below_floor");
+    return{piece:p.piece,targetQty:m.cutQty,currentTotal:totalCurrent,wds,feasible,reason};
   });
   const feasible=piecePlans.every(pp=>pp.feasible);
   return{pieces:piecePlans,feasible,m};
@@ -496,11 +616,27 @@ function _computeStatus(o){
   if(wds.length>0){
     let totalWsDel=0,totalWsRcv=0;
     wds.forEach(wd=>{totalWsDel+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{totalWsRcv+=(Number(r.qty)||0)})});
-    /* Check if enough received back for تشطيب */
+    /* Check if enough received back for تشطيب.
+       V21.9.80 (Bug #13 in cutting audit): pre-V21.9.80 the threshold was
+       GLOBAL — `totalWsRcv >= totalWsDel * 0.3`. A multi-piece order where
+       one piece was 100% received and another barely started (1 piece
+       received) would flip to "تشطيب" because the global ratio passed 30%,
+       even though the second piece was still in workshops at single-digit
+       progress. Confused users into thinking finishing was active for
+       parts not yet ready.
+
+       New behavior for multi-piece: require EACH piece's received qty to
+       be ≥ 30% of its delivered qty. Pieces that weren't sent out at all
+       (delP=0) block the transition. */
     let isFinishing=false;
     if(pieces.length>0){
-      const allRcvd=pieces.every(p=>{const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);return rcvP>0});
-      if(allRcvd&&totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)isFinishing=true
+      const allReadyForFinish=pieces.every(p=>{
+        const delP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+        if(delP<=0)return false;
+        const rcvP=wds.filter(wd=>wd.garmentType===p).reduce((s,wd)=>(wd.receives||[]).reduce((ss,r)=>ss+(Number(r.qty)||0),0)+s,0);
+        return rcvP>=delP*0.3;
+      });
+      if(allReadyForFinish)isFinishing=true;
     } else {
       if(totalWsDel>0&&totalWsRcv>=totalWsDel*0.3)isFinishing=true
     }
@@ -511,7 +647,14 @@ function _computeStatus(o){
       if(lastActive&&lastActive.wsType){
         if(lastActive.wsType.includes("طباعة"))return"في الطباعة";
         if(lastActive.wsType.includes("تطريز"))return"في التطريز";
-        if(lastActive.wsType.includes("تشطيب وتعبئة"))return"تشطيب وتعبئة خارجي";
+        /* V21.9.80 (Bug #12 in cutting audit): only return "خارجي" if the
+           workshop is actually external. Pre-V21.9.80 always returned
+           "تشطيب وتعبئة خارجي" — wrong if a future داخلي variant is added,
+           or if migration data has odd wsType strings. Use wsIsInternal()
+           as the source of truth instead of substring matching. */
+        if(lastActive.wsType.includes("تشطيب وتعبئة")){
+          return wsIsInternal(lastActive.wsType)?"تشطيب وتعبئة":"تشطيب وتعبئة خارجي";
+        }
       }
       return"في التشغيل"
     }
@@ -528,11 +671,16 @@ export function migrateStatus(status){
   return status
 }
 
-/* Create a new empty order with today's date as default */
+/* Create a new empty order with today's date as default.
+   V21.9.80 (Bug #10 in cutting audit): cutDate is set ONLY for slot A
+   (the mandatory primary fabric). For B-H, leave empty until the user
+   actually picks a fabric for that slot. Pre-V21.9.80 every slot got
+   today's date even when never used → misleading "تاريخ القص" in printouts
+   and reports for fabric slots that don't exist on the order. */
 export function mkOrder(){
   const today=new Date().toISOString().split("T")[0];
   const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:""};
-  FKEYS.forEach(k=>{o["fabric"+k]="";o["cons"+k]=0;o["cutDate"+k]=today;o["colors"+k]=k==="A"?[{color:"",colorHex:"",layers:0,pcsPerLayer:0,qty:0}]:[];o["fabric"+k+"Label"]="";o["fabric"+k+"Price"]=0;o["fabric"+k+"Unit"]=""});
+  FKEYS.forEach(k=>{o["fabric"+k]="";o["cons"+k]=0;o["cutDate"+k]=k==="A"?today:"";o["colors"+k]=k==="A"?[{color:"",colorHex:"",layers:0,pcsPerLayer:0,qty:0}]:[];o["fabric"+k+"Label"]="";o["fabric"+k+"Price"]=0;o["fabric"+k+"Unit"]=""});
   return o
 }
 
