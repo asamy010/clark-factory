@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.93",
+    date: "2026-05-18",
+    types: ["fix", "doc"],
+    title: "✅ Phase 18e — Audit #2 closeout (Invoice party validation + summary)",
+    changes: [
+      { type: "fix", text: "🟠 [Purchase Bug #4 + Sales Bug #12 — Invoice missing party validation]\n\n**Root Cause:** `postInvoiceMutator` كان بـ يـ flip status لـ posted بـ غض النظر عن وجود supplier/customer. النتيجة:\n• Purchase invoice بـ empty supplierName → accounting narration فاضي\n• Sales invoice بـ no customerId → AR posting بدون partyId → customer aging reports broken\n\n**Fix (invoices.js:postInvoiceMutator):**\n• Purchase: require `supplierId && supplierName.trim()`\n• Sales: require `customerId` OR (service invoice + `customerNameAdHoc.trim()`)\n• لو missing → return false + console.warn → posting refused" },
+      { type: "doc", text: "📊 [Audit #2 Closeout Summary]\n\n**Findings:** 63 across 6 modules\n**Fixed across V21.9.89-93:** 13 (5 critical + 5 serious/high + 3 medium)\n**Deferred:** 50 (design decisions, architectural refactors, UI workflow changes)\n\n**Per Module:**\n• Stock: 1/13 fixed (avgCost reset)\n• Purchase: 3/7 fixed (debit notes, discountPct r2, supplier validation)\n• Sales: 4/13 fixed (COGS orphan, total NaN, CN orphan, customer validation)\n• Permissions/Auth: 1/11 fixed (CORS fallback)\n• Recurring Treasury: 3/10 fixed (lastResumedAt, negative amount, dayOfMonth 31)\n• WhatsApp: 2/9 fixed (CustDeliverPg fetch timeout, error categorization)\n\n**Cumulative across audits #1 + #2:** 43 fixes shipped, 70 deferred.\n\n**False positive caught:** Stock audit agent incorrectly claimed V21.9.79 introduced regression. Code review verified the 'removed accessories' loop refunds correctly via prev path. No actual regression existed.\n\n**Recommendation:** STOP HERE. The 16 commits since V21.9.78 (V21.9.78-93) need production verification before any further changes. The V21.9.81 build failure (JSX comment) showed even surgical fixes need post-deploy validation. With 43 fixes shipped, the regression risk now exceeds the benefit of additional autonomous fixes." },
+    ],
+  },
+  {
     version: "V21.9.92",
     date: "2026-05-18",
     types: ["fix"],

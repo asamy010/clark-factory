@@ -376,8 +376,29 @@ export function postInvoiceMutator(d, invoiceId, type, userName){
   const idx = arr.findIndex(i => i.id === invoiceId);
   if(idx < 0) return false;
   if(arr[idx].status !== "draft") return false;
+  const inv = arr[idx];
+  /* V21.9.93 (Purchase audit Bug #4 + Sales Bug #12): require a party
+     (supplier for purchase, customer for sale) at post time. Pre-V21.9.93
+     a draft invoice could be posted without supplierId/customerId →
+     accounting narration shows empty party name + AR/AP postings have
+     no party tag → customer/supplier aging reports break.
+     Service invoices (subtype='service') allow customerNameAdHoc as
+     a walk-in fallback (one-time customers don't need a customer record). */
+  if(type === "purchase"){
+    if(!inv.supplierId || !(inv.supplierName||"").trim()){
+      console.warn("[V21.9.93 postInvoiceMutator] purchase missing supplier",{invoiceId,supplierId:inv.supplierId,supplierName:inv.supplierName});
+      return false;
+    }
+  } else {
+    const isService = inv.subtype === "service";
+    const hasParty = inv.customerId || (isService && (inv.customerNameAdHoc||"").trim());
+    if(!hasParty){
+      console.warn("[V21.9.93 postInvoiceMutator] sales missing customer",{invoiceId,customerId:inv.customerId,subtype:inv.subtype});
+      return false;
+    }
+  }
   arr[idx] = {
-    ...arr[idx],
+    ...inv,
     status: "posted",
     postedAt: new Date().toISOString(),
     postedBy: userName || "",
