@@ -96,7 +96,12 @@ export function summarizePayload(eventType, p){
    V19.76.3 was designed to close.
 
    Anti-pattern: stale-claim timeout < async retry interval (cron tick). */
-const INFLIGHT_LOCK_MS = 300_000;
+/* V21.9.86 (Shopify audit Bug #10): bumped to 6 min to provide buffer above
+   the 5-min cron interval. Pre-V21.9.86 at exactly 300_000 the lock could
+   expire at the same instant the next cron tick fires → race window at the
+   boundary. New value = cron interval (5min) + bridge worst-case (8s) +
+   buffer (52s) = 360_000ms. */
+const INFLIGHT_LOCK_MS = 360_000;
 
 /* ─── V19.76.8 → V21.9.41: Content-based dedupe window ───
    Last-resort safety net for duplicate WhatsApp messages. If the SAME content

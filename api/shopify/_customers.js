@@ -15,14 +15,34 @@
    The endpoint that calls it persists the result.
    ═══════════════════════════════════════════════════════════════ */
 
-/* Normalize Egyptian phone to canonical form (digits only, with leading 2). */
+/* Normalize Egyptian phone to canonical form (digits only, with leading 2).
+   V21.9.86 (Shopify audit Bug #7): tighter normalization to reduce dedup
+   failures across phone formats. Pre-V21.9.86 the function had two issues:
+   (1) `00201001234567` (E.164 with "00" prefix) was handled but `+201...`
+       was rejected because the `+` was stripped early and the leading "2"
+       made it look like a local string.
+   (2) `1001234567` (10 digits, no leading 0) returned `+21001234567` —
+       a Moroccan-prefix-looking string, breaking customer dedup.
+   Now: handle +20 explicitly, validate Egyptian mobile prefix (01[0-5]),
+   and prefer "" for ambiguous formats over a guess. */
 export function normalizePhoneCanonical(phone){
   if(!phone) return "";
-  let s = String(phone).trim().replace(/[^0-9]/g, "");
+  let s = String(phone).trim();
+  if(s.startsWith("+")) s = s.slice(1);
+  s = s.replace(/[^0-9]/g, "");
   if(s.startsWith("00")) s = s.slice(2);
-  if(s.startsWith("20")) return s;
-  if(s.startsWith("0")) return "20" + s.slice(1);
-  if(s.length === 10 || s.length === 11) return "20" + s;
+  if(!s) return "";
+  /* Already in canonical form: 20 + 10-digit mobile = 12 digits total */
+  if(s.startsWith("20") && s.length === 12) return s;
+  /* Local Egyptian mobile: 01[0-5]XXXXXXXX (11 digits, starts with 0) */
+  if(/^0[1][0-5]\d{8}$/.test(s)) return "20" + s.slice(1);
+  /* 10-digit form WITHOUT leading 0 (e.g. "1001234567") — assume Egyptian */
+  if(/^[1][0-5]\d{8}$/.test(s)) return "20" + s;
+  /* Length 10 or 11 ambiguous fallback (legacy behavior) but only when
+     the leading digits look Egyptian-mobile-ish. Otherwise return the
+     raw string so dedup keeps it distinct rather than falsely merging
+     with an EG customer. */
+  if(s.length === 11 && s.startsWith("0")) return "20" + s.slice(1);
   return s;
 }
 

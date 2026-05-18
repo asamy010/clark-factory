@@ -144,6 +144,18 @@ export function buildVariantMatrix(order, opts = {}){
   const stockMatrix = opts.stockMatrix || {};
   const garment = order.garmentType || "";
   const modelNo = order.modelNo || "";
+  /* V21.9.86 (Shopify audit Bug #12): hard cap on variant count.
+     Shopify limits products to 100 variants; pushes above this fail or
+     partial-create. Pre-V21.9.86 the matrix could explode to N×M = 1000+
+     variants on multi-color/multi-size orders without warning. */
+  const VARIANT_LIMIT = 100;
+  if (colors.length > 0 && sizes.length > 0 && colors.length * sizes.length > VARIANT_LIMIT) {
+    throw new Error(
+      "عدد الـ variants تجاوز الحد ("+(colors.length*sizes.length)+" > "+VARIANT_LIMIT+"). " +
+      "Shopify لا يقبل أكتر من "+VARIANT_LIMIT+" variant لـ product واحد. " +
+      "قلل الألوان ("+colors.length+") أو المقاسات ("+sizes.length+")."
+    );
+  }
 
   /* If no colors → single-option (Size only) variants */
   /* If no sizes → single-option (Color only) variants */

@@ -206,9 +206,24 @@ export default async function handler(req, res){
           }, { merge: true });
         });
       } else {
-        /* Legacy mode: rewrite cfg.shopifyPendingOrders array (with cap) */
+        /* Legacy mode: rewrite cfg.shopifyPendingOrders array (with cap).
+           V21.9.86 (Shopify audit Bug #4): re-read INSIDE the transaction so
+           concurrent syncs don't overwrite each other's new orders. Pre-V21.9.86
+           the pre-read existingMap was the only source of truth at write time;
+           two simultaneous syncs both saw no order #123, both wrote, and the
+           later write lost the earlier one. Now: tx.get fetches the latest
+           shopifyPendingOrders inside the transaction, overlays our changes,
+           then writes — transaction conflict detection ensures atomicity. */
         await db.runTransaction(async (tx) => {
-          const merged = Array.from(existingMap.values())
+          const freshSnap = await tx.get(cfgRef);
+          const freshCfg = freshSnap.exists ? freshSnap.data() : {};
+          const freshOrders = Array.isArray(freshCfg.shopifyPendingOrders) ? freshCfg.shopifyPendingOrders : [];
+          const freshMap = new Map(freshOrders.map(o => [String(o.shopify_order_id), o]));
+          /* Overlay our updates on top of the freshly-read state. */
+          for (const [id, ourOrder] of existingMap.entries()) {
+            freshMap.set(id, ourOrder);
+          }
+          const merged = Array.from(freshMap.values())
             .sort((a, b) => {
               const ta = a.shopify_created_at ? new Date(a.shopify_created_at).getTime() : 0;
               const tb = b.shopify_created_at ? new Date(b.shopify_created_at).getTime() : 0;
@@ -219,7 +234,7 @@ export default async function handler(req, res){
             shopifyPendingOrders: merged,
             stockReservations: reservations,
             shopifyConfig: {
-              ...(cfgForRead.shopifyConfig || {}),
+              ...(freshCfg.shopifyConfig || cfgForRead.shopifyConfig || {}),
               last_orders_sync_at: now,
               last_orders_sync_count: counts.new + counts.updated,
             },

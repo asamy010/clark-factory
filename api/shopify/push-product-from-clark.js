@@ -187,10 +187,16 @@ export default async function handler(req, res){
   }
 
   /* ── Build product payload for Shopify ── */
-  /* V21.9.5: title can be overridden by body.title; falls back to derived */
+  /* V21.9.5: title can be overridden by body.title; falls back to derived.
+     V21.9.86 (Shopify audit Bug #1): use order ID as a unique fallback
+     instead of literal "Untitled". Pre-V21.9.86 multiple title-less orders
+     pushed on the same day all generated handle="untitled" on Shopify →
+     2nd push silently UPDATED the 1st product instead of creating new
+     → data loss. The order.id suffix guarantees a unique handle. */
   const derivedTitle = (order.modelNo ? order.modelNo : "")
     + (order.modelDesc ? (order.modelNo ? " — " : "") + order.modelDesc : "");
-  const finalTitle = titleOverride || derivedTitle.trim() || "Untitled";
+  const _fallbackTitle = "Model_" + String(order.id || Date.now().toString(36)).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  const finalTitle = titleOverride || derivedTitle.trim() || _fallbackTitle;
   const payload = {
     title: finalTitle,
     body_html: descriptionToHtml(description),
@@ -269,11 +275,20 @@ export default async function handler(req, res){
     if(location && Array.isArray(shopifyProduct.variants)){
       /* Map variants from Shopify back to CLARK's matrix entries by option1/option2.
          We have inventory_item_id from Shopify but need to know which CLARK qty
-         corresponds. */
-      const enrichedVariants = shopifyProduct.variants.map((sv, i) => ({
-        ...sv,
-        inventory_quantity: matrix.variants[i]?.inventory_quantity || 0,
-      }));
+         corresponds.
+         V21.9.86 (Shopify audit Bug #9): match by option values, NOT by index.
+         Pre-V21.9.86 the mapping assumed Shopify returns variants in the same
+         order they were sent. Shopify can reorder variants (e.g. alphabetically
+         by option value or by internal ID). Index-based mapping silently
+         swapped inventory across variants — Red-S could end up with Blue-S's
+         qty. Now: find by option1+option2 equality. */
+      const enrichedVariants = shopifyProduct.variants.map((sv) => {
+        const cv = matrix.variants.find(mv =>
+          (mv.option1 || "") === (sv.option1 || "") &&
+          (mv.option2 || "") === (sv.option2 || "")
+        );
+        return { ...sv, inventory_quantity: cv?.inventory_quantity || 0 };
+      });
       inventoryResults = await setVariantInventoryLevels(creds, shopifyProduct.id, enrichedVariants, location.id);
       const failed = inventoryResults.filter(r => !r.ok);
       if(failed.length > 0){
