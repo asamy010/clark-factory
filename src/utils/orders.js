@@ -868,8 +868,11 @@ export function matchPartyFromDesc(desc, parties, opts){
   if(!desc||typeof desc!=="string")return null;
   if(!Array.isArray(parties)||parties.length===0)return null;
   /* opts.minNameLength: skip parties with very short names (e.g. "أ") to avoid
-     false positives — defaults to 3 chars after normalization. */
-  const minLen=(opts&&opts.minNameLength!=null)?opts.minNameLength:3;
+     false positives — defaults to 4 chars after normalization.
+     V21.9.88 (Treasury audit Bug #8): bumped default from 3 → 4 to reduce
+     false positives in Arabic where 3-char names (e.g. "أمل") often match
+     unrelated descriptions ("تحويل أموال" contains "أم"+something). */
+  const minLen=(opts&&opts.minNameLength!=null)?opts.minNameLength:4;
   const descN=normalizeAr(desc);
   const matches=[];
   for(const p of parties){

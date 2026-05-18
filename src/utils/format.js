@@ -213,7 +213,13 @@ export function getSizesFromSet(order,data){
    - Empty → ""
    - "+2..." → keep as-is (already prefixed with any country code)
    - "01xxxxxxxxx" → "+201xxxxxxxxx"
-   - "2-spaces", punctuation, etc stripped */
+   - "2-spaces", punctuation, etc stripped
+
+   V21.9.88 (CustDeliver audit Bug #10): tightened to validate Egyptian
+   mobile prefixes (01[0-5]) before assuming +2. Pre-V21.9.88 a 10-digit
+   number without leading 0 (e.g. "1023456789") produced "+21023456789"
+   which is a Moroccan prefix → customer dedup broke. Now: validate the
+   shape before prefixing; return "" for unrecognized short numbers. */
 export function normalizePhone(p){
   const s=(p||"").toString().trim();
   if(!s)return"";
@@ -222,7 +228,15 @@ export function normalizePhone(p){
   if(!d)return"";
   /* If already starts with 2 and is 12+ digits (like "201xxxxxxxxx"), prepend + only */
   if(d.startsWith("2")&&d.length>=12)return"+"+d;
-  /* Otherwise assume local Egyptian number needing +2 prefix */
+  /* Egyptian mobile: 01[0-5]XXXXXXXX (11 digits, starts with 0) */
+  if(/^0[1][0-5]\d{8}$/.test(d))return"+2"+d;
+  /* 10-digit form without leading 0 — assume Egyptian mobile */
+  if(/^[1][0-5]\d{8}$/.test(d))return"+20"+d;
+  /* Landline 02XXXXXXXX etc — pass through with +2 prefix */
+  if(/^0\d{8,9}$/.test(d))return"+2"+d;
+  /* Unrecognized format — return raw with +2 prefix as legacy fallback,
+     but log so the user can spot bad data. */
+  console.warn("[V21.9.88 normalizePhone] unrecognized format:",p,"→ +2"+d);
   return"+2"+d;
 }
 

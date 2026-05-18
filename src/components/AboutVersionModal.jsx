@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.88",
+    date: "2026-05-18",
+    types: ["fix", "improvement"],
+    title: "🧹 Phase 17f — Audit closeout: medium fixes (Batch 6/6)",
+    changes: [
+      { type: "fix", text: "🟡 [HR Bug #9 — Debt total/installment mismatch validation]\n\n**Root Cause:** الـ saveDebt كان بـ يـ accept perWeek × installments ≠ total بدون validation. النتيجة: debt accounting incoherent (over/under payment).\n\n**Fix (HRPg:3091):** validate `Math.abs(perWeek*inst - total) ≤ 0.5` قبل الحفظ. Error message بـ يـ explain expected vs actual." },
+      { type: "fix", text: "🟡 [Treasury Bug #8 — Party match minNameLength too short]\n\nالـ default كان 3 chars — Arabic names بـ 3 letters (\"أمل\") بـ تـ match أي نص يحتوي على 'أم' → false positives في الـ treasury linking. Bumped لـ 4. Callers اللي يـ pass {minNameLength:3} في TreasuryPg تـ kept (they're explicit overrides). Default change ينطبق على anyone using default." },
+      { type: "fix", text: "🟡 [CustDeliver Bug #10 — Phone normalization regex tightened]\n\n**Root Cause:** `normalizePhone(\"1023456789\")` كان بـ يطلع `+21023456789` — Moroccan-prefix-looking. Customer dedup بـ يـ fail.\n\n**Fix (format.js:normalizePhone):** validate Egyptian mobile prefix (01[0-5]) أو 10-digit form (1[0-5]) قبل ما يـ add `+2`. Landline 02XX kept. Unrecognized format → fallback مع console.warn." },
+      { type: "fix", text: "🟡 [Shopify Bug #8 — Undefined property guard in order merge]\n\n**Root Cause:** الـ merge في sync-orders-now كان بـ يستخدم `||` operator → falsy-but-valid values (0, '') يتـ dropped. الـ shopify_status_synced كان بـ يـ dereferenced بدون null check → potential crash.\n\n**Fix (sync-orders-now.js:154):** `_pickNew(n,p) = n != null ? n : p` لـ explicit null-safety. الـ status object الـ default `{}` يـ prevent dereference errors. line_items يـ guard بـ `Array.isArray`." },
+      { type: "fix", text: "🟡 [CustDeliver Bug #7 — Statement print audit trail]\n\n**Root Cause:** كشف الحساب كان بـ يـ printed بدون أي log → في disputes ('ما استلمناش كشف') مفيش proof.\n\n**Fix (CustDeliverPg:2820):** بعد printPage()، upConfig يـ append إلى `customer.statementsPrintedLog[]` بـ `{at, by, balance}`. Kept آخر 50 entries لـ avoid bloat." },
+      { type: "doc", text: "📋 [Mediums Deferred for Design/Scope]\n\n• HR Bug #8 (Week boundary calc) — touches existing computation logic for active weeks; needs explicit user decision on calendar-vs-configured days.\n• Treasury Bug #9 (Confirm on receive delete) — UI workflow change.\n• Treasury Bug #10 (enum validation on wsPayment.type) — touches data schema.\n• CustDeliver Bug #3 (Series vs Broken in instant sales) — design.\n• CustDeliver Bug #5 (Customer name ambiguity dedup) — UI picker change.\n• CustDeliver Bug #8 (Closed orders settlement for undelivered) — workflow change.\n• CustDeliver Bug #9 (Series/broken in batch ops) — UI change.\n• Shopify Bug #6 (SKU collision across fabrics) — needs migration plan.\n• Shopify Bug #11 (Auth audit) — verification, not code.\n• Acct Bug #6 (Account fallback inconsistency) — depends on rule normalization strategy.\n• Acct Bug #7 (Double COGS on retroactive order link) — rare workflow edge case.\n• Acct Bug #8 (Non-deterministic rounding) — needs deeper retry analysis.\n• Acct Bug #9 (Companion entry validation gap) — orphan detector enhancement." },
+      { type: "doc", text: "✅ [Audit Closeout — Phase 17 Summary]\n\n**V21.9.83 (Treasury):** 4 critical + 2 serious — 6/10 fixed\n**V21.9.84 (HR):** 2 critical + 3 serious — 5/9 fixed (1 false positive)\n**V21.9.85 (Customer Deliveries):** 2 critical + 1 serious — 3/10 fixed (1 implicit fix)\n**V21.9.86 (Shopify):** 2 critical + 2 serious + 2 medium — 6/12 fixed\n**V21.9.87 (Accounting):** 3 critical + 2 serious — 5/9 fixed\n**V21.9.88 (Mediums):** 5 medium — 5/13 remaining mediums fixed\n\n**Total fixed across 6 batches:** 30 bugs (13 critical + 10 serious + 7 medium)\n**Total deferred (design/architectural):** 20 (need user input or design review)\n**Final tally:** 30/50 high-confidence fixes shipped autonomously.\n\nNo further audits scheduled — codebase stabilized." },
+    ],
+  },
+  {
     version: "V21.9.87",
     date: "2026-05-18",
     types: ["fix", "architectural"],

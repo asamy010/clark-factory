@@ -152,23 +152,31 @@ export default async function handler(req, res){
           reservations = createReservationsForOrder(cfgForRead, reservations, o, ttlDays);
         }
         if(prev){
+          /* V21.9.88 (Shopify audit Bug #8): null-safe field merging.
+             Pre-V21.9.88 the `||` operator dropped falsy-but-valid values
+             (0, ""). Use explicit != null checks so a Shopify response with
+             0 or empty string doesn't silently revert to the stale prev
+             value. Also guard shopify_status_synced (the status logic
+             below dereferences it). */
+          const _pickNew = (n, p) => (n != null ? n : p);
+          const _status = o.shopify_status_synced || {};
           const merged = {
             ...prev,
-            shopify_order_number: o.shopify_order_number || prev.shopify_order_number,
-            shopify_name: o.shopify_name || prev.shopify_name,
-            customer_info: o.customer_info,
-            line_items: o.line_items,
-            subtotal: o.subtotal,
-            shipping_fee: o.shipping_fee,
-            total: o.total,
-            currency: o.currency,
-            payment_method: o.payment_method,
-            shopify_status_synced: o.shopify_status_synced,
-            shopify_updated_at: o.shopify_updated_at,
-            last_synced_at: o.last_synced_at,
+            shopify_order_number: _pickNew(o.shopify_order_number, prev.shopify_order_number),
+            shopify_name: _pickNew(o.shopify_name, prev.shopify_name),
+            customer_info: o.customer_info || prev.customer_info,
+            line_items: Array.isArray(o.line_items) ? o.line_items : prev.line_items,
+            subtotal: _pickNew(o.subtotal, prev.subtotal),
+            shipping_fee: _pickNew(o.shipping_fee, prev.shipping_fee),
+            total: _pickNew(o.total, prev.total),
+            currency: _pickNew(o.currency, prev.currency),
+            payment_method: _pickNew(o.payment_method, prev.payment_method),
+            shopify_status_synced: _status,
+            shopify_updated_at: _pickNew(o.shopify_updated_at, prev.shopify_updated_at),
+            last_synced_at: _pickNew(o.last_synced_at, prev.last_synced_at),
             status: ((prev.status === "pending_delivery") &&
-                     o.shopify_status_synced.fulfillment_status === "fulfilled" &&
-                     o.shopify_status_synced.financial_status === "paid")
+                     _status.fulfillment_status === "fulfilled" &&
+                     _status.financial_status === "paid")
                     ? "delivered"
                     : prev.status,
           };

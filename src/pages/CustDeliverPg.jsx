@@ -2817,7 +2817,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#10B981":custBalance<0?"#EF4444":"#64748B")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
         if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
         h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-        printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo})};
+        printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo});
+        /* V21.9.88 (CustDeliver audit Bug #7): log statement print so we
+           have audit trail of when each kashf was shared. Pre-V21.9.88 the
+           print was untracked; in disputes ('we never received a kashf')
+           there was no record. */
+        upConfig(d=>{
+          const c=(d.customers||[]).find(x=>x.id===custStatement);
+          if(!c)return;
+          if(!Array.isArray(c.statementsPrintedLog))c.statementsPrintedLog=[];
+          c.statementsPrintedLog.push({
+            at:new Date().toISOString(),
+            by:userName||"",
+            balance:custBalance,
+          });
+          /* Keep only last 50 to avoid bloat */
+          if(c.statementsPrintedLog.length>50){
+            c.statementsPrintedLog=c.statementsPrintedLog.slice(-50);
+          }
+        });
+      };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:8}}>

@@ -3089,6 +3089,15 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const saveDebt=(empId,editId)=>{
     const total=parseFloat(debtTotal);const inst=parseInt(debtInstallments);const perWeek=parseFloat(debtPerWeek);
     if(!debtTitle.trim()||!total||!inst||!perWeek){showToast("⚠️ أكمل البيانات");return}
+    /* V21.9.88 (HR audit Bug #9): validate perWeek × installments ≈ total.
+       Pre-V21.9.88 the user could enter mismatched values (e.g. perWeek=150,
+       installments=5, total=500 → over-payment) and the debt-paid logic
+       became incoherent. Allow ±0.5 ج tolerance for rounding. */
+    const expectedTotal=perWeek*inst;
+    if(Math.abs(expectedTotal-total)>0.5){
+      showToast("⚠️ "+inst+" أسبوع × "+perWeek+" ج = "+r2(expectedTotal)+" ج، لكن الإجمالي "+total+" ج. تأكد من الأرقام.");
+      return;
+    }
     const emp=employees.find(e=>e.id===empId);if(!emp)return;
     upConfig(d=>{if(!d.empDebts)d.empDebts=[];
       if(editId){const i=d.empDebts.findIndex(x=>x.id===editId);if(i>=0){
