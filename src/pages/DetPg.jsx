@@ -782,7 +782,39 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               </Btn>
             );
           })()}
-          {canEdit&&!order.closed&&<Btn small onClick={()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
+          {canEdit&&!order.closed&&<Btn small onClick={()=>{
+            /* V21.9.79 ROOT-CAUSE FIX (Bug #2 in cutting audit):
+               Pre-V21.9.79 the dup inherited _stockDeducted from the source.
+               On first save of the dup, deductStockForOrder computed
+               delta = needed - prev. If the dup had the same fabric requirements,
+               delta = 0 → NO stock deducted, even though it's a new order.
+               Silent stock double-counting.
+               Also cleared production-state fields that should reset on a new
+               cut order: cutSyncHistory, customerDeliveries, extraCosts,
+               settlement, closed, pieceCutQty. accItems + instructions +
+               attachments + image are kept (those are production SETUP, not
+               state). */
+            const dup=JSON.parse(JSON.stringify(order));
+            dup.id=gid();
+            dup.date=new Date().toISOString().split("T")[0];
+            dup.createdAt=new Date().toISOString();
+            dup.modelNo="";
+            dup.poNumber="";
+            dup.status="تم القص";
+            dup.deliveredQty=0;
+            dup.deliveries=[];
+            dup.workshopDeliveries=[];
+            dup.customerDeliveries=[];
+            dup.cutSyncHistory=[];
+            dup.extraCosts=[];
+            dup.pieceCutQty={};
+            delete dup.settlement;
+            delete dup.closed;
+            delete dup._stockDeducted;
+            dup._isDup=true;
+            delete dup._docId;
+            setDupInit(dup);
+          }} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}} title="تكرار الأوردر">📋 تكرار</Btn>}
           {canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0&&<Btn small onClick={()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")}} style={{background:"#8B5CF6"+"12",color:"#8B5CF6",border:"1px solid #8B5CF630",whiteSpace:"nowrap"}}>📤 تسليم ورشة</Btn>}
           {canEdit&&!order.closed&&<Btn small onClick={()=>setShowNew(true)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",whiteSpace:"nowrap"}}>+ جديد</Btn>}
         </>}
@@ -1888,7 +1920,30 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       if(canEdit&&!order.closed)items.push({icon:"✏️",label:"تعديل الأوردر",color:T.accent,onClick:run(()=>setEditing(true))});
       items.push({icon:"📱",label:"إرسال واتساب",color:"#25D366",onClick:run(()=>setWaPopup({order,t,fromCard:false}))});
       items.push({icon:"📌",label:"طلب مراجعة",color:"#8B5CF6",onClick:run(()=>setShowReview(true))});
-      if(canEdit&&!order.closed)items.push({icon:"📋",label:"تكرار الأوردر",color:"#8B5CF6",onClick:run(()=>{const dup=JSON.parse(JSON.stringify(order));dup.id=gid();dup.date=new Date().toISOString().split("T")[0];dup.createdAt=new Date().toISOString();dup.modelNo="";dup.status="تم القص";dup.deliveredQty=0;dup.deliveries=[];dup.workshopDeliveries=[];dup._isDup=true;delete dup._docId;setDupInit(dup)})});
+      if(canEdit&&!order.closed)items.push({icon:"📋",label:"تكرار الأوردر",color:"#8B5CF6",onClick:run(()=>{
+        /* V21.9.79: mirrors the desktop dup logic above — see ROOT-CAUSE FIX
+           comment near line 785 for full rationale. */
+        const dup=JSON.parse(JSON.stringify(order));
+        dup.id=gid();
+        dup.date=new Date().toISOString().split("T")[0];
+        dup.createdAt=new Date().toISOString();
+        dup.modelNo="";
+        dup.poNumber="";
+        dup.status="تم القص";
+        dup.deliveredQty=0;
+        dup.deliveries=[];
+        dup.workshopDeliveries=[];
+        dup.customerDeliveries=[];
+        dup.cutSyncHistory=[];
+        dup.extraCosts=[];
+        dup.pieceCutQty={};
+        delete dup.settlement;
+        delete dup.closed;
+        delete dup._stockDeducted;
+        dup._isDup=true;
+        delete dup._docId;
+        setDupInit(dup);
+      })});
       if(canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0)items.push({icon:"📤",label:"تسليم ورشة",color:"#8B5CF6",onClick:run(()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")})});
       if(canEdit&&!order.closed)items.push({icon:"➕",label:"أوردر جديد",color:T.ok,onClick:run(()=>setShowNew(true))});
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={close}>

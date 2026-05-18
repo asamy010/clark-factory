@@ -536,11 +536,18 @@ export function mkOrder(){
   return o
 }
 
-/* Validate order form - returns array of error messages */
+/* Validate order form - returns array of error messages.
+   V21.9.79 (Bug #5 + #7 in cutting audit):
+   - Defensive `||""` on modelNo/modelDesc to handle legacy/migration data
+     where the field may be undefined → `.trim()` would throw TypeError.
+   - Validate EVERY color in colorsX, not just ca[0]. Pre-V21.9.79 a user
+     could add a second color row with empty name / layers=0 / pcsPerLayer=0
+     and save silently — the row would appear blank in printouts and reports
+     and inflate the color count without contributing qty. */
 export function validateOrder(form){
   const e=[];
-  if(!form.modelNo.trim())e.push("رقم الموديل مطلوب");
-  if(!form.modelDesc.trim())e.push("وصف الموديل مطلوب");
+  if(!(form.modelNo||"").trim())e.push("رقم الموديل مطلوب");
+  if(!(form.modelDesc||"").trim())e.push("وصف الموديل مطلوب");
   if(!form.sizeSetId)e.push("المقاسات مطلوبة");
   if(!form.date)e.push("التاريخ مطلوب");
   /* V19.80.4: pieces are mandatory — multi-piece orders depend on per-piece
@@ -551,10 +558,15 @@ export function validateOrder(form){
   FKEYS.forEach(k=>{
     if(!form["fabric"+k])return;
     const ca=form["colors"+k]||[];
-    if(ca.length===0||!ca[0].color)e.push("لون خامة "+k+" مطلوب");
-    if(ca.length>0&&(!ca[0].layers||ca[0].layers<=0))e.push("عدد الراقات مطلوب لخامة "+k);
-    if(ca.length>0&&(!ca[0].pcsPerLayer||ca[0].pcsPerLayer<=0))e.push("القطع/راق مطلوب لخامة "+k);
+    if(ca.length===0)e.push("لون خامة "+k+" مطلوب");
     if(!gcons(form,k)||gcons(form,k)<=0)e.push("استهلاك خامة "+k+" مطلوب");
+    /* V21.9.79: validate every row, label row index for clarity */
+    ca.forEach((row,i)=>{
+      const rowLabel=ca.length>1?(" (لون "+(i+1)+")"):"";
+      if(!row||!row.color)e.push("لون خامة "+k+rowLabel+" مطلوب");
+      if(!row||!row.layers||row.layers<=0)e.push("عدد الراقات مطلوب لخامة "+k+rowLabel);
+      if(!row||!row.pcsPerLayer||row.pcsPerLayer<=0)e.push("القطع/راق مطلوب لخامة "+k+rowLabel);
+    });
   });
   return e
 }

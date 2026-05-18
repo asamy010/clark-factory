@@ -4962,9 +4962,18 @@ export default function App(){
         const sales=salesSnap.exists()?salesSnap.data():{};
         const nextCfg=JSON.parse(JSON.stringify(cfg));
         const nextSales=JSON.parse(JSON.stringify(sales));
-        /* Refund stock if it was previously deducted */
+        /* Refund stock if it was previously deducted.
+           V21.9.79 ROOT-CAUSE FIX (Bug #1 + #4 in cutting audit):
+           Pre-V21.9.79 the returnOrder cleared only colorsA-D. After V19.80.3
+           expanded FKEYS to A-H, orders with fabrics E/F/G/H kept their colors
+           on the returnOrder → calcStockNeeded computed a NEW positive `needed`
+           for those slots → deductStockForOrder applied delta = needed - prev,
+           which could be 0 (no refund) or NEGATIVE (deducting MORE on delete).
+           Result: silent stock loss whenever a multi-fabric order was deleted.
+           Fix: clear colorsX for EVERY slot in FKEYS dynamically. */
         if(ord._stockDeducted){
-          const returnOrder={...ord,_stockDeducted:ord._stockDeducted,cutQty:0,accItems:[],colorsA:[],colorsB:[],colorsC:[],colorsD:[]};
+          const returnOrder={...ord,_stockDeducted:ord._stockDeducted,cutQty:0,accItems:[]};
+          FKEYS.forEach(k=>{returnOrder["colors"+k]=[]});
           deductStockForOrder(nextCfg,returnOrder,userName);
         }
         /* Clean up config-side references (qrSales / salesAudits) */
