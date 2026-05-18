@@ -90,25 +90,63 @@ function buildPath(templateId, name){
 
 /* Upload a Blob to Storage and return {storagePath, url, mime, name, size}.
    The download URL has an embedded long-lived token, so it can be fetched
-   from anywhere (including the bridge VPS) without auth. */
+   from anywhere (including the bridge VPS) without auth.
+
+   V21.9.75: instrumented with console logs so when "storage/unauthorized"
+   surfaces on a real upload, we can see the EXACT state at failure (blob
+   size, blob type, path, customMetadata). The V21.9.74 diagnostic proved
+   Storage rules accept this path + content-type + bootstrap admin — but
+   the real upload still fails. The console logs will identify the missing
+   piece by exposing the actual blob state at the moment of failure. */
 export async function uploadTemplateImageBlob(templateId, blob, displayName){
   if(!blob) throw new Error("blob is required");
   if(blob.size > MAX_TEMPLATE_IMAGE_SIZE) throw new Error("image too large");
   const finalName = safeName(displayName).replace(/\.\w+$/, "") + ".jpg";
   const path = buildPath(templateId, finalName);
   const ref = storageRef(storage, path);
-  const snap = await uploadBytes(ref, blob, {
-    contentType: blob.type || "image/jpeg",
-    customMetadata: { templateId: templateId || "" },
-  });
-  const url = await getDownloadURL(snap.ref);
-  return {
-    storagePath: path,
-    url,
-    mime: blob.type || "image/jpeg",
-    name: finalName,
-    size: blob.size,
+  const contentType = blob.type || "image/jpeg";
+  /* V21.9.75: pre-upload snapshot for forensic console logging. */
+  const _diagSnapshot = {
+    path,
+    templateId,
+    displayName,
+    finalName,
+    blobSize: blob.size,
+    blobType: blob.type,
+    contentType,
+    isBlob: blob instanceof Blob,
+    hasArrayBuffer: typeof blob.arrayBuffer === "function",
+    constructorName: blob?.constructor?.name,
   };
+  console.log("[V21.9.75 templateImages.upload] pre-upload state:", _diagSnapshot);
+  try {
+    const snap = await uploadBytes(ref, blob, {
+      contentType,
+      customMetadata: { templateId: templateId || "" },
+    });
+    console.log("[V21.9.75 templateImages.upload] uploadBytes succeeded for:", path);
+    const url = await getDownloadURL(snap.ref);
+    return {
+      storagePath: path,
+      url,
+      mime: blob.type || "image/jpeg",
+      name: finalName,
+      size: blob.size,
+    };
+  } catch(err) {
+    /* V21.9.75: log the FULL error including server response, then rethrow
+       so the existing error handling continues to work. The server response
+       often contains the exact rule denial reason that the generic
+       "storage/unauthorized" code hides. */
+    console.error("[V21.9.75 templateImages.upload] FAILED:", {
+      ..._diagSnapshot,
+      errorCode: err?.code,
+      errorMessage: err?.message,
+      serverResponse: err?.customData?.serverResponse,
+      fullError: err,
+    });
+    throw err;
+  }
 }
 
 /* Compress + upload a File from the user's file input. */

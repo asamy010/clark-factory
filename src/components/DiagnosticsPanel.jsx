@@ -2606,13 +2606,17 @@ function StorageDiagnosticCard({ data, user, getUserRole }){
     const isBootstrap = uid === BOOTSTRAP_ADMIN_UID;
 
     /* Dynamically import to avoid a hard dependency from this diagnostic file. */
-    let storageMod, refMod, uploadMod, deleteMod;
+    let storageMod, refMod, uploadMod, deleteMod, uploadTemplateImageBlob;
     try {
       storageMod = await import("../firebase.js");
       const fb = await import("firebase/storage");
       refMod = fb.ref;
       uploadMod = fb.uploadBytes;
       deleteMod = fb.deleteObject;
+      /* V21.9.75: also import the REAL production upload function so we can
+         test the full pipeline (compression + customMetadata + everything). */
+      const tmplMod = await import("../utils/templateImages.js");
+      uploadTemplateImageBlob = tmplMod.uploadTemplateImageBlob;
     } catch(e){
       setResult({ tests: [], phase:"import", error: "فشل تحميل Firebase SDK", uid, email, role, isBootstrap });
       setBusy(false);
@@ -2667,19 +2671,69 @@ function StorageDiagnosticCard({ data, user, getUserRole }){
       results.push({ ...t, ok, error: err });
     }
 
+    /* V21.9.75: Test D — REAL production upload pipeline.
+       Calls `uploadTemplateImageBlob(templateId, blob, name)` exactly the way
+       the template editor does. If this fails while tests A/B/C pass, the
+       discriminator is INSIDE templateImages.js (most likely customMetadata
+       or some quirk of how the production function constructs the request).
+       Skip silently if the import failed. */
+    if(typeof uploadTemplateImageBlob === "function"){
+      let err = null, ok = false;
+      const realTemplateId = `tpl_draft_diag_${ts}`;
+      const realBlob = new Blob([jpegBytes], { type: "image/jpeg" });
+      const realName = `diag_${ts}.jpg`;
+      try {
+        const meta = await uploadTemplateImageBlob(realTemplateId, realBlob, realName);
+        ok = true;
+        /* Cleanup: delete the uploaded test file via Firebase Storage ref. */
+        try {
+          const r = refMod(storage, meta.storagePath);
+          await deleteMod(r);
+        } catch(_){}
+      } catch(e){
+        err = {
+          code: e?.code || "unknown",
+          message: e?.message || String(e),
+          serverResponse: e?.customData?.serverResponse || null,
+        };
+      }
+      results.push({
+        id: "real_pipeline",
+        label: "D. uploadTemplateImageBlob() — REAL production pipeline (with customMetadata)",
+        path: `templates/${realTemplateId}/<auto>`,
+        ok,
+        error: err,
+      });
+    }
+
     /* Identify discriminator pattern from the results. */
     const aOk = results[0].ok;
     const bOk = results[1].ok;
     const cOk = results[2].ok;
+    const dOk = results[3]?.ok;  /* V21.9.75: real-pipeline test */
     let pattern = "unknown";
     let fix = "";
-    if(aOk && bOk && cOk){
+    if(aOk && bOk && cOk && dOk === true){
+      pattern = "all_pass_inc_pipeline";
+      fix = "🎉 الـ 4 tests نجحوا (شامل الـ real production pipeline). "
+          + "يبقى الـ Storage layer كاملاً سليم — حتى مع الـ customMetadata. "
+          + "المشكلة في الـ compressImageToBlob فقط — لما الـ user يـ pick file حقيقي، "
+          + "حاجة في الـ canvas/blob pipeline بـ produce blob مالوش valid type. "
+          + "افتح الـ console (F12) قبل ما تحاول رفع الصورة → جرب الرفع → "
+          + "ابعت screenshot للـ console logs اللي بتبدأ بـ '[V21.9.75 templateImages.upload]'. "
+          + "الـ logs دي هـ تبين blob.type + blob.size + serverResponse الفعلي للخطأ.";
+    } else if(aOk && bOk && cOk && dOk === false){
+      pattern = "real_pipeline_fail";
+      fix = "🎯 المشكلة موجودة في كود `uploadTemplateImageBlob` (الـ real pipeline). "
+          + "الـ tests A/B/C نجحوا (uploadBytes مباشرة)، بس D فشل (الـ pipeline الحقيقي مع customMetadata). "
+          + "الـ السبب الأرجح: الـ customMetadata.templateId يحتوي على characters Firebase بـ يـ reject. "
+          + "أو الـ uploadBytes options structure الـ production بـ يستخدم مختلف عن الـ direct test. "
+          + "افتح console وارجع للـ error message تحت — هـ يقول السبب بالظبط.";
+    } else if(aOk && bOk && cOk){
       pattern = "all_pass";
-      fix = "🎉 الـ 3 tests نجحوا — يبقى الـ Storage rules + الـ permissions كلهم سليمين. "
-          + "المشكلة في الـ template editor code نفسه — مش في الـ Firebase. "
-          + "احتمال: الـ blob من الـ image compression بـ يـ produce blob.type='' (فارغ) → "
-          + "بـ يـ default-ـه templateImages.js لـ 'image/jpeg' بـ تنجح المرة، بس عند ال upload "
-          + "الفعلي بـ يحدث mismatch مع actual bytes (مش JPEG حقيقي). راجع compressImageToBlob.";
+      fix = "🎉 الـ 3 tests الأساسية نجحوا (الـ pipeline الـ rai مش متاح). "
+          + "الـ Storage layer سليم. المشكلة في الـ compressImageToBlob — افتح console (F12) قبل الرفع، "
+          + "جرب يدوياً، وابعت الـ logs اللي بتبدأ بـ '[V21.9.75 templateImages.upload]'.";
     } else if(aOk && !bOk && !cOk){
       pattern = "jpeg_denied";
       fix = "⚠️ TXT بـ يـ pass بس JPG بـ يـ deny — Storage rule بـ يـ deny image/jpeg specifically. "

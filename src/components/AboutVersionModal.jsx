@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.75",
+    date: "2026-05-17",
+    types: ["improvement"],
+    title: "🧪 Phase 15g — Diagnostic v3: real-pipeline test + upload instrumentation",
+    changes: [
+      { type: "improvement", text: "🚨 [V21.9.74 diagnostic confirmed: ALL 3 tests PASS (A=text, B=image, C=image+tpl_draft path). Yet the real template image upload STILL fails with `storage/unauthorized`. The Storage layer is definitively NOT the cause — the bug is in the client upload code.]\n\n**V21.9.75 adds 2 things:**\n\n**1. Test D in the diagnostic — REAL production pipeline:**\nالـ tests A/B/C كانوا بـ يستخدموا `uploadBytes` مباشرة. Test D بـ يـ call `uploadTemplateImageBlob(templateId, blob, name)` — نفس الـ function اللي الـ template editor بـ يستخدمها — مع customMetadata + كل التفاصيل. لو D فشل بينما A/B/C نجحوا، السبب موجود في كود الـ pipeline (مش في Firebase).\n\n**2. Console instrumentation في `templateImages.js`:**\nأضفت `console.log` قبل وبعد كل `uploadBytes` في الـ real upload — بـ يـ snapshot الـ blob.size + blob.type + path + customMetadata. ولو فشل، الـ error بـ يـ logged مع الـ serverResponse الفعلي (الـ \"storage/unauthorized\" الـ generic message بـ يـ hide reasons الـ underlying — الـ serverResponse بـ يـ expose-ـها)." },
+      { type: "improvement", text: "📋 [Usage after deploy]\n\n**خطوة 1:** افتح Settings → Diagnostics → اضغط '🧪 شغّل اختبار الـ Storage' — هـ يـ run الـ 4 tests دلوقتي بدلاً من 3. ابعت screenshot.\n\n**خطوة 2 (مهم):**\n• افتح Browser Console (F12 → Console tab) قبل ما تحاول الرفع\n• روح Settings → الحملات → افتح template → اضغط رفع صورة → اختار الصورة\n• الـ console هـ يـ output:\n```\n[V21.9.75 templateImages.upload] pre-upload state: {\n  path: ...,\n  blobSize: ...,\n  blobType: ...,  ← هنا الـ critical info\n  contentType: ...,\n  ...\n}\n[V21.9.75 templateImages.upload] FAILED: {\n  ...,\n  serverResponse: ...  ← هنا السبب الحقيقي للـ deny\n}\n```\nابعت screenshot للـ console output كاملاً." },
+      { type: "improvement", text: "🎯 [What we'll learn]\n\nالـ console logs هـ تكشف:\n• هل الـ blob.type فعلاً 'image/jpeg' ولا فارغ؟\n• هل الـ blob.size معقول؟\n• الـ exact path اللي بـ يتـ tried\n• الـ Firebase serverResponse الفعلي — اللي بـ يقول 'rule denied because X' بدلاً من الـ generic 'unauthorized'\n\nمن الـ info ده، الـ fix الـ exact هـ يكون clear. مفيش guesswork." },
+    ],
+  },
+  {
     version: "V21.9.74",
     date: "2026-05-17",
     types: ["fix"],
