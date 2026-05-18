@@ -395,7 +395,17 @@ export function deductStockForOrder(d,order,userName){
     const idx=(d.fabrics||[]).findIndex(f=>String(f.id)===String(fabId));
     if(idx<0)return;
     const fab=d.fabrics[idx];
-    fab.stock=r2((Number(fab.stock)||0)-delta);
+    const newStock=r2((Number(fab.stock)||0)-delta);
+    /* V21.9.91 (Stock audit Bug #2): visibility for negative-stock state.
+       When blockOnInsufficientStock=false the user opted into the
+       warning-only mode → we allow the negative but log it so it's
+       visible in the dev console. The number itself is preserved (not
+       clamped to 0) because the user's setting indicates they WANT to
+       see the discrepancy in reports. */
+    if(newStock<0){
+      console.warn("[V21.9.91 deductStockForOrder] fabric stock negative after delta",{fabId,name:fab.name,prevStock:fab.stock,delta,newStock,orderId:order.id});
+    }
+    fab.stock=newStock;
     d.stockMovements.push({
       id:gid(),type:delta>0?"out":"in",itemType:"fabric",itemId:fabId,itemName:fab.name||"",
       qty:Math.abs(delta),unit:fab.unit||"",price:Number(fab.avgCost)||0,date:today,

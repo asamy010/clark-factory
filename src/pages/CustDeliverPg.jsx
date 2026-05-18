@@ -2076,17 +2076,32 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               const fileName = "اذن_استلام_"+c.name.replace(/[^؀-ۿa-zA-Z0-9_-]/g,"_")+"_"+sess.date+".pdf";
               messageBody.media = [{ base64: pdfBase64, mime: "application/pdf", name: fileName }];
             }
-            const r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
-              method:"POST", headers,
-              body: JSON.stringify({ messages: [messageBody] }),
-            });
-            const j = await r.json().catch(()=>({}));
+            /* V21.9.91 (WhatsApp audit Bug #1): AbortController + timeout.
+               Pre-V21.9.91 the bridge fetch had no timeout. If the bridge
+               hung, the await would hold the function until the Vercel
+               function-kill window (~10s hobby) → no clean failure path →
+               orphan inFlight state in the WhatsApp pipeline. Documented
+               in CLAUDE.md §10 as the V21.9.41 anti-pattern. */
+            const _ctrl = new AbortController();
+            const _timeout = setTimeout(() => _ctrl.abort(), 8_000);
+            let r, j;
+            try {
+              r = await fetch(bridgeUrl.replace(/\/+$/,"")+"/send", {
+                method:"POST", headers,
+                body: JSON.stringify({ messages: [messageBody] }),
+                signal: _ctrl.signal,
+              });
+              j = await r.json().catch(()=>({}));
+            } finally {
+              clearTimeout(_timeout);
+            }
             if (!r.ok) throw new Error(j.error || ("HTTP "+r.status));
             okCount++;
             setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "sent" } }));
           } catch (e) {
             failCount++;
-            setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "failed", waLastErr: { ...(p.waLastErr||{}), [c.id]: e.message||String(e) } } }));
+            const errMsg = e?.name === "AbortError" ? "timeout (8s)" : (e.message||String(e));
+            setGroupPrint(p => ({ ...p, waSent: { ...(p.waSent||{}), [c.id]: "failed", waLastErr: { ...(p.waLastErr||{}), [c.id]: errMsg } } }));
           }
         }
         setGroupPrint(p => ({ ...p, waSending: false }));

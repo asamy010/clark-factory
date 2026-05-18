@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.91",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🔒 Phase 18c — Auth + Stock + WhatsApp criticals",
+    changes: [
+      { type: "fix", text: "🔴 [Permissions CRITICAL — CORS fallback to '*' allowed any origin]\n\n**Root Cause:** `setCors` في api/_firebase.js كان بـ يـ fallback لـ `'*'` لو API_ALLOWED_ORIGIN و API_ALLOWED_ORIGINS env vars مش set. ده يـ allow ANY origin يـ call الـ API → malicious site يقدر يـ trigger delivery-sign, Bosta shipments, etc. على behalf of a logged-in user.\n\n**Fix (api/_firebase.js:222):** fallback لـ Vercel deployment URL بدلاً من '*':\n```js\nconst productionDefault = (process.env.VERCEL_URL\n  ? ('https://' + process.env.VERCEL_URL)\n  : 'https://clark-factory.vercel.app');\nlet origin = productionDefault;\n```\nالـ explicit `API_ALLOWED_ORIGIN='*'` لسه يـ override لو الـ user عاوز wildcard للـ local dev." },
+      { type: "fix", text: "🔴 [Stock — Negative stock visibility (V19.48 mode)]\n\n**Background:** الـ blockOnInsufficientStock=false (warning mode) intentionally يـ allow negative stock. لكن pre-V21.9.91 ما كانش فيه أي logging لـ surface الـ negative state للـ debugging.\n\n**Fix (orders.js:398):** console.warn عند الـ negative new stock. الـ value preserved (مش clamped لـ 0) لأن الـ user opted into الـ warning mode. ده يـ surface الـ discrepancy في dev console بدون تغيير behavior." },
+      { type: "fix", text: "🔴 [WhatsApp Bug #1 — Unguarded bridge fetch في CustDeliverPg (CRITICAL)]\n\n**Root Cause:** الـ `await fetch(bridgeUrl + '/send', ...)` في CustDeliverPg:2079 كان بدون AbortController + timeout. لو الـ bridge هنج > Vercel function-kill window (~10s) → orphan inFlight state → cron tick بـ يـ reclaim → duplicate WhatsApp. ده الـ V21.9.41 anti-pattern documented في CLAUDE.md §10.\n\n**Fix (CustDeliverPg:2079):**\n```js\nconst _ctrl = new AbortController();\nconst _timeout = setTimeout(() => _ctrl.abort(), 8_000);\ntry {\n  r = await fetch(url, { ..., signal: _ctrl.signal });\n  j = await r.json().catch(()=>({}));\n} finally {\n  clearTimeout(_timeout);\n}\n```\n\nالـ error UI الآن يـ show 'timeout (8s)' explicitly لو الـ AbortError اتـ thrown." },
+    ],
+  },
+  {
     version: "V21.9.90",
     date: "2026-05-18",
     types: ["fix"],

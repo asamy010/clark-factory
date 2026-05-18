@@ -219,7 +219,16 @@ export function verifyWorkshopSignature(orderId, wsId, deliveryIdx, sig) {
 export function setCors(res, req) {
   const single = (process.env.API_ALLOWED_ORIGIN || "").trim();
   const list = (process.env.API_ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
-  let origin = "*";
+  /* V21.9.91 (Permissions audit CRITICAL): if neither env var is set, fall
+     back to the Vercel production domain instead of "*". Pre-V21.9.91 the
+     wildcard fallback meant ANY origin could call the API (e.g., a
+     malicious site could sign delivery confirmations from a logged-in
+     user's browser). The fallback below derives the safe default from
+     Vercel's deployment URL or a hardcoded clark domain.
+     If you need true wildcard for local dev, explicitly set
+     API_ALLOWED_ORIGIN="*". */
+  const productionDefault = (process.env.VERCEL_URL ? ("https://" + process.env.VERCEL_URL) : "https://clark-factory.vercel.app");
+  let origin = productionDefault;
   if (single) {
     origin = single;
   } else if (list.length > 0 && req && req.headers && req.headers.origin) {
