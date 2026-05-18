@@ -4039,7 +4039,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         فحص حجم الـ Firestore docs، تنبيهات حرجة، Migration tools (تقسيم الـ collections لو الحجم قارب الحد).
       </div>
     </div>
-    <DiagnosticsPanel data={config} canEdit={userRole==="admin"||userRole==="accountant"} user={user} isMob={isMob}/>
+    <DiagnosticsPanel data={config} canEdit={userRole==="admin"||userRole==="accountant"} user={user} isMob={isMob} getUserRole={()=>userRole}/>
     {/* V16.75: Storage notices — رسائل التخزين بدلاً من toasts للمستخدمين */}
     <StorageNoticesPanel/>
     {/* V16.78: Stock mode picker — يحدد سلوك المخزن مع الأوردرات */}

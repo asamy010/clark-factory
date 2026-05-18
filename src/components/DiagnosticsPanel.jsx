@@ -25,7 +25,7 @@ import { db } from "../firebase.js";
    queue inspection, activity log, and pause/resume controls. */
 import { bridge as waBridge } from "../utils/whatsappBridge.js";
 
-export function DiagnosticsPanel({ data, canEdit, user, isMob }){
+export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
@@ -917,6 +917,10 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob }){
           Surfaces waReady, queue state, daily cap, recent activity. The most
           actionable signal for "messages don't send" bugs. */}
       <BridgeStatusCard data={data} canEdit={canEdit} />
+
+      {/* V21.9.72: Storage Diagnostic — self-test for "فشل رفع الصورة" reports.
+          User can run this without Firebase Console access. */}
+      <StorageDiagnosticCard data={data} user={user} getUserRole={getUserRole} />
 
     <Card title="🩺 فحص الصحة + المخزن (Diagnostics)" extra={
       <LoadingBtn primary loading={busy} loadingText="..." onClick={runCheck} disabled={!canEdit} small>
@@ -2539,6 +2543,164 @@ function QueueStat({ label, value, color }){
       <div style={{ fontSize: FS, color, fontWeight: 800 }}>{value}</div>
       <div style={{ fontSize: FS - 4, color: T.textMut }}>{label}</div>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   StorageDiagnosticCard (V21.9.72)
+   ───────────────────────────────────────────────────────────────────────
+   Self-diagnostic for "فشل رفع الصورة: storage/unauthorized" reports.
+
+   Why this exists: The user (Ahmed) reported template + campaign image
+   uploads failing with `storage/unauthorized` even though he is the
+   bootstrap admin (UID matches the hardcoded bootstrap admin in
+   storage.rules → should bypass ALL role checks). Earlier diagnostic
+   attempts pointed him at Firebase Console → Rules Playground, but he
+   doesn't have the technical context to run that flow. This card moves
+   the diagnostic INTO the app:
+     • One button → attempts a real upload to templates/_diag/timestamp.txt
+     • Reports the exact failure code, message, path, content-type, size
+     • Shows the user's UID, email, client-side role
+     • Compares UID against the hardcoded bootstrap admin UID
+     • Surfaces the likely fix (add UID to cfg.users, redeploy rules, etc.)
+
+   The diagnostic uploads a tiny TEXT file (not a JPEG image) to avoid
+   wasting Storage egress on real test images — but the path mimics the
+   real template upload path so the same Storage rule applies. A 5-byte
+   text file is enough to trigger or pass the rule check.
+   ═══════════════════════════════════════════════════════════════════════ */
+function StorageDiagnosticCard({ data, user, getUserRole }){
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  /* The bootstrap-admin UID hardcoded in firestore.rules + storage.rules.
+     If the user's UID matches this, ALL rule checks bypass — uploads must work. */
+  const BOOTSTRAP_ADMIN_UID = "fJDTS57ndvVfPozGgwYybKJymuA3";
+
+  const runTest = async () => {
+    setBusy(true);
+    setResult(null);
+    const currentUser = (typeof user === "object" && user) ? user : null;
+    const uid = currentUser?.uid || "—";
+    const email = currentUser?.email || "—";
+    const role = (typeof getUserRole === "function") ? (getUserRole() || "viewer") : "—";
+    const isBootstrap = uid === BOOTSTRAP_ADMIN_UID;
+
+    /* Dynamically import to avoid a hard dependency from this diagnostic file. */
+    let storageMod, refMod, uploadMod, deleteMod;
+    try {
+      storageMod = await import("../firebase.js");
+      const fb = await import("firebase/storage");
+      refMod = fb.ref;
+      uploadMod = fb.uploadBytes;
+      deleteMod = fb.deleteObject;
+    } catch(e){
+      setResult({ ok:false, phase:"import", error: "فشل تحميل Firebase SDK", uid, email, role, isBootstrap });
+      setBusy(false);
+      return;
+    }
+
+    const storage = storageMod.storage;
+    const ts = Date.now();
+    const path = `templates/_diag_${ts}/storage_test.txt`;
+    const blob = new Blob(["diag"], { type: "text/plain" });
+
+    /* Try the upload — if it fails, capture the full error details. */
+    let uploadErr = null;
+    let uploadSucceeded = false;
+    try {
+      const r = refMod(storage, path);
+      await uploadMod(r, blob, { contentType: "text/plain" });
+      uploadSucceeded = true;
+      /* Best-effort cleanup of the test file (silent if it fails). */
+      try { await deleteMod(r); } catch(_){}
+    } catch(e){
+      uploadErr = {
+        code: e?.code || "unknown",
+        message: e?.message || String(e),
+        serverResponse: e?.customData?.serverResponse || null,
+      };
+    }
+
+    setResult({
+      ok: uploadSucceeded,
+      uid, email, role, isBootstrap,
+      path,
+      error: uploadErr,
+      /* Diagnose likely root cause */
+      likelyCause: uploadSucceeded
+        ? null
+        : (isBootstrap
+            ? "anomaly_bootstrap_denied"
+            : (role === "viewer"
+                ? "role_viewer_no_uid_in_cfg"
+                : (["admin","manager","sales_accountant"].includes(role)
+                    ? "rule_evaluation_failure"
+                    : "role_not_in_sales_scope"))),
+    });
+    setBusy(false);
+  };
+
+  const r = result;
+  const causeText = {
+    anomaly_bootstrap_denied:
+      "⚠️ UID مطابق للـ bootstrap admin بس الـ rule لسه بـ يـ deny — "
+      + "ده يـ indicate إن الـ rules اللي على Firebase Console مش الـ V21.9.71 (الـ hardcoded). "
+      + "روح Firebase Console → Storage → Rules → اتأكد إن الـ content يحتوي على `isBootstrapAdmin` "
+      + "function بـ نفس الـ UID. لو الـ content مختلف، انشر الـ V21.9.71 rules تاني.",
+    role_viewer_no_uid_in_cfg:
+      "🔧 الـ role راجع `viewer` لأن الـ UID بتاعك مش في `factory/config.users`. "
+      + "الـ Fix: روح Settings → المستخدمين → ضيف نفسك بالإيميل + role=admin. "
+      + "الـ system هـ يـ store الـ UID على الـ next sign-in.",
+    rule_evaluation_failure:
+      "🔍 الـ role صحيح (admin/manager/sales) بس الـ Storage rule لسه deny. "
+      + "أسباب محتملة: الـ rules القديمة لسه cached في الـ CDN edge (انتظر دقيقتين)، "
+      + "أو الـ App Check مفعّل وبدون token صحيح. جرّب refresh الصفحة.",
+    role_not_in_sales_scope:
+      "🔧 الـ role بتاعك مش في `isSalesScope` (admin/manager/sales_accountant). "
+      + "Templates + campaigns uploads محصورة على الـ roles دي. "
+      + "إما غيّر الـ role من Settings → المستخدمين، أو عدّل storage.rules يدوياً.",
+  };
+
+  return (
+    <Card title="🧪 اختبار رفع الصور (Storage Diagnostic)">
+      <div style={{ fontSize: FS-2, color: T.textMut, marginBottom: 12, lineHeight: 1.6 }}>
+        لو "فشل رفع الصورة" بـ يـ surface في الـ templates/campaigns، اضغط الزرار ده —
+        هـ يـ attempt upload بسيط ويـ report بالظبط ليه فشل (الـ UID، الـ role،
+        الـ rule اللي رفض، الـ fix المقترح). ما بـ يحتاج Firebase Console.
+      </div>
+      <LoadingBtn primary loading={busy} loadingText="جاري الاختبار..." onClick={runTest} small>
+        🧪 شغّل اختبار الـ Storage
+      </LoadingBtn>
+      {r && (
+        <div style={{ marginTop: 14, padding: 12, borderRadius: 10,
+            background: r.ok ? T.ok+"08" : T.err+"08",
+            border: "1px solid " + (r.ok ? T.ok+"40" : T.err+"40") }}>
+          <div style={{ fontSize: FS-1, fontWeight: 800, color: r.ok ? T.ok : T.err, marginBottom: 8 }}>
+            {r.ok ? "✅ النجاح — Storage بـ يـ allow الـ upload" : "❌ فشل — تفاصيل التشخيص تحت"}
+          </div>
+          <div style={{ fontSize: FS-2, color: T.text, lineHeight: 1.9 }}>
+            <div><b>UID:</b> <code style={{ fontFamily: "monospace", fontSize: FS-3 }}>{r.uid}</code></div>
+            <div><b>Email:</b> {r.email}</div>
+            <div><b>Role (client view):</b> {r.role}</div>
+            <div><b>Bootstrap admin?</b> {r.isBootstrap ? "✅ نعم — الـ rules لازم تـ allow" : "لا"}</div>
+            <div><b>Test path:</b> <code style={{ fontFamily: "monospace", fontSize: FS-3 }}>{r.path}</code></div>
+            {r.error && (
+              <>
+                <div style={{ marginTop: 8, color: T.err }}><b>Error code:</b> <code>{r.error.code}</code></div>
+                <div style={{ color: T.err, wordBreak: "break-word" }}><b>Message:</b> {r.error.message}</div>
+              </>
+            )}
+          </div>
+          {r.likelyCause && causeText[r.likelyCause] && (
+            <div style={{ marginTop: 12, padding: 10, borderRadius: 8,
+                background: T.bg, border: "1px solid " + T.brd, fontSize: FS-2, lineHeight: 1.7, color: T.text }}>
+              <b>السبب المحتمل:</b><br/>{causeText[r.likelyCause]}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 

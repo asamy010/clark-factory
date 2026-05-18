@@ -178,12 +178,18 @@ Per Ahmed's standing directive (the founding protocol of this project):
 من التحديث الاخير دايماً ده بروتوكول
 ```
 
+**Environment (updated 2026-05-17):**
+Ahmed develops on a **Mac Mini**. Source folder lives on iCloud Drive.
+Build runs on the Mac. No local-test environment — deploys go DIRECT to
+production. (Old Windows paths in this file are stale — ignore them; the
+Mac paths in the "Paths" table below are authoritative.)
+
 After every meaningful change:
 
 ### Step 1 — Build
 
 ```bash
-cd "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
+cd "/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics/clark-v21.9.63"
 npm run build
 ```
 
@@ -226,8 +232,8 @@ const CHANGELOG = [
 
 ```bash
 # 1. Copy modified files to the git repo (source has NO .git)
-REPO=/c/Users/Ahmed\ Samy/Documents/GitHub/clark-factory
-SRC=/c/Users/Ahmed\ Samy/Desktop/clark-v19_90_0
+REPO="/Users/as/Documents/GitHub/clark-factory"
+SRC="/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics/clark-v21.9.63"
 cp "$SRC/path/to/file" "$REPO/path/to/file"
 # ... for each modified file
 
@@ -258,33 +264,35 @@ cd "$REPO" && git push origin main
 
 Vercel auto-deploys on push to main. Deployment usually takes 1-2 min.
 
-### Step 6 — Zip (on Desktop)
+### Step 6 — Zip (Mac)
 
-```powershell
-$src = "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
-$dst = "C:\Users\Ahmed Samy\Desktop\clark-v<x.y.z>.zip"
-if (Test-Path $dst) { Remove-Item $dst -Force }
-$exclude = @("node_modules", "dist", ".vercel", ".git")
-$tempDir = "$env:TEMP\clark_zip_v<x_y_z>"
-if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
-New-Item -ItemType Directory -Path $tempDir | Out-Null
-robocopy $src $tempDir /E /XD $exclude /XF "*.log" /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
-Compress-Archive -Path "$tempDir\*" -DestinationPath $dst -CompressionLevel Optimal
-Remove-Item $tempDir -Recurse -Force
-```
+See the "Mac standing command" below — single rsync + zip pipeline. The
+old PowerShell variant has been removed (Ahmed develops exclusively on a
+Mac Mini since at least V21.9.63; no Windows machine in the loop).
 
-### Paths (memorize these)
+### Paths (memorize these — Mac)
 
 | Item | Path |
 |------|------|
-| **Source folder** (development) | `C:\Users\Ahmed Samy\Desktop\clark-v19_90_0\` |
-| **Git repo** (deploys to Vercel) | `C:\Users\Ahmed Samy\Documents\GitHub\clark-factory\` |
+| **Source folder** (development) | `/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics/clark-v21.9.63/` |
+| **Git repo** (deploys to Vercel) | `/Users/as/Documents/GitHub/clark-factory/` |
 | **Remote** | `https://github.com/asamy010/clark-factory.git` |
-| **Zip output** | `C:\Users\Ahmed Samy\Desktop\clark-v<x.y.z>.zip` |
+| **Zip output** | `/Users/as/Library/Mobile Documents/com~apple~CloudDocs/Dynamics/clark-v<x.y.z>.zip` |
 | **Vercel URL** | `https://clark-factory.vercel.app` |
 
 The source folder has **NO `.git`** — always copy modified files into the
 git repo folder before committing.
+
+**No local test environment.** Ahmed deploys directly to production after
+every commit. This means:
+- Cross-service Firebase rule helpers (e.g., `firestore.exists` inside
+  storage.rules) are FORBIDDEN — they pass syntax validation but fail at
+  evaluation, breaking every read/write silently (V21.9.69 incident).
+- Untested async patterns in hot paths (treasury saveTx, approveTransfer,
+  approveWeek) WILL cause UX regressions visible immediately to all users.
+- Any change that needs verification: warn explicitly, suggest staging
+  the deploy with a low-risk operation first, or defer until verification
+  is possible. Do not "ship and hope".
 
 ### Critical rules
 

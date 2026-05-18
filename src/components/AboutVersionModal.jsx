@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.72",
+    date: "2026-05-17",
+    types: ["improvement"],
+    title: "🧪 Phase 15e — Self-diagnostic for Storage uploads (no Firebase Console needed)",
+    changes: [
+      { type: "improvement", text: "🚨 [Context: user reports persistent `storage/unauthorized` on template + campaign uploads even after V21.9.71 revert. Earlier diagnostic asked user to open Firebase Console → Rules Playground, but user said 'مش هاعرف اعمل كده' — they can't run those technical diagnostic steps. The user IS the bootstrap admin (UID `fJDTS57n...` matches the hardcoded value in storage.rules), so theoretically all rule checks should bypass — yet uploads fail. We need a way to diagnose WITHOUT Firebase Console.]\n\n**New: StorageDiagnosticCard in Settings → Diagnostics:**\n\nزرار '🧪 شغّل اختبار الـ Storage' بـ يـ trigger:\n1. حاول رفع ملف نص (5 bytes, text/plain) إلى `templates/_diag_<ts>/storage_test.txt` — يـ mimic الـ template upload path\n2. لو نجح → '✅ Storage allow الـ upload' (مفيش مشكلة في الـ rules)\n3. لو فشل → يـ report بـ Arabic:\n   • الـ UID + email + role (client view)\n   • هل الـ UID مطابق للـ bootstrap admin؟\n   • الـ error code + message من Firebase\n   • السبب المحتمل + الـ fix:\n     - `anomaly_bootstrap_denied`: UID صحيح بس rules deny → الـ rules deployed مش الـ V21.9.71\n     - `role_viewer_no_uid_in_cfg`: الـ UID مش في `cfg.users` → ضيف user من Settings\n     - `rule_evaluation_failure`: role صحيح بس rule fails → CDN cache delay أو App Check\n     - `role_not_in_sales_scope`: role غير-مـ included في isSalesScope hardcoded list\n4. الـ test file بـ يتـ delete بعد التست (cleanup)\n\nالـ user يـ self-diagnose في ثانية واحدة بدون Firebase Console." },
+      { type: "improvement", text: "🎯 [Why this is the right diagnostic approach]\n\nالـ user قال 'مش هاعرف اعمل كده' لما طلبت Firebase Console + Rules Playground + UID lookup. Per CLAUDE.md §0.1 — لازم نـ adapt للـ user's constraints، مش نـ require technical skills اللي مفيش عند الـ user.\n\nالـ alternative approaches اللي رفضتها:\n1. **Make storage.rules more permissive**: Bad — يخفّض الـ security بدون فهم الـ root cause\n2. **Ask user to switch to a different role**: Bad — يـ workaround مش fix\n3. **Continue asking technical questions**: Bad — الـ user مش هـ يـ continue\n4. **Add Diagnostic INSIDE the app**: Good — user-friendly, doesn't require Firebase access, identifies root cause definitively\n\nالـ self-diagnostic approach: instead of asking the user to find diagnostic info, build a tool that EXPLAINS THE ANSWER IN THE USER'S LANGUAGE. Future Claude sessions: لو الـ user mentioned 'مش هاعرف' for any diagnostic step, default to building a self-diagnostic tool في الـ app." },
+      { type: "improvement", text: "📜 [Files modified]\n\n• `src/components/DiagnosticsPanel.jsx` — new `StorageDiagnosticCard` component (165 LOC). Render-wired inside `DiagnosticsPanel` between the Bridge status card and the main Diagnostics card. Uses dynamic `import('firebase/storage')` to avoid hard dependency at module load.\n• `src/pages/SettingsPg.jsx` — `<DiagnosticsPanel>` now receives `getUserRole={()=>userRole}` prop so the diagnostic can show the client-side role view.\n\n**Build size:** +1.5KB (negligible).\n**Risk:** Very low. The card is read-only — it uploads + deletes a test file but doesn't mutate any real CLARK data." },
+    ],
+  },
+  {
     version: "V21.9.71",
     date: "2026-05-17",
     types: ["fix"],
