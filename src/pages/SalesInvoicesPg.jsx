@@ -114,6 +114,13 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
               date: res.main.entry.date,
               entryId: res.main.entry.id,
               refNo: res.main.entry.refNo,
+              /* V21.9.90 (Sales audit Bug #1): also store the COGS entry's
+                 date+id+refNo so handleVoid can reverse it even if the order
+                 is later deleted (the builder needs the order to rebuild
+                 the entry; storing the ID lets us reverse without rebuild). */
+              cogsDate: res.cogs && res.cogs.entry ? res.cogs.entry.date : null,
+              cogsEntryId: res.cogs && res.cogs.entry ? res.cogs.entry.id : null,
+              cogsRefNo: res.cogs && res.cogs.entry ? res.cogs.entry.refNo : null,
             };
           }
         });
@@ -348,20 +355,36 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   /* Recompute totals from current discount inputs.
      V19.63: clamp at zero — pre-V19.63 a negative discountValue (typed `-50` or pasted)
      produced a negative discount → total = subtotal - (-x) = inflated total → overcharge. */
+  /* V21.9.90 (Sales audit Bug #2): guarded total calc. Pre-V21.9.90 a
+     malformed subtotal (NaN, missing) would produce NaN or negative
+     computedTotal, then saved to the invoice → journal entry imbalance.
+     Now: explicit numeric guards + r2() + clamp >= 0 to ensure the saved
+     total is always a valid non-negative number. */
   const computedDiscount = useMemo(() => {
     const sub = Number(invoice.subtotal) || 0;
     const v = Math.max(0, Number(discountValue) || 0);
+    if(!isFinite(sub) || sub < 0) return 0;
     if(discountType === "pct"){
       return Math.min(sub * v / 100, sub);/* clamp at subtotal */
     } else {
       return Math.min(v, sub);/* clamp at subtotal */
     }
   }, [invoice.subtotal, discountType, discountValue]);
-  const computedTotal = (Number(invoice.subtotal) || 0) - computedDiscount;
+  const computedTotal = useMemo(() => {
+    const sub = Number(invoice.subtotal) || 0;
+    if(!isFinite(sub) || sub < 0) return 0;
+    const t = sub - computedDiscount;
+    return Math.max(0, isFinite(t) ? t : 0);
+  }, [invoice.subtotal, computedDiscount]);
 
   /* Save discount change back to the invoice (only when draft) */
   const saveDiscountChange = () => {
     if(!isDraft || !upConfig) return;
+    /* V21.9.90: reject NaN / negative totals before save. */
+    if(!isFinite(computedTotal) || computedTotal < 0){
+      console.warn("[V21.9.90 saveDiscountChange] computed total invalid, abort save",{computedTotal,subtotal:invoice.subtotal});
+      return;
+    }
     const listKey = isPurchase ? "purchaseInvoices" : "salesInvoices";
     upConfig(d => {
       if(!Array.isArray(d[listKey])) return;

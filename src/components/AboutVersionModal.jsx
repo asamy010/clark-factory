@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.90",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🧾 Phase 18b — Sales Invoices criticals",
+    changes: [
+      { type: "fix", text: "🔴 [Sales Bug #1 — COGS orphaning on void after order deletion (CRITICAL)]\n\n**Root Cause:** الـ handleVoid بـ يـ call `autoPost.invoiceVoided(..., 'salesInvoiceCogs')`، اللي بـ يـ rebuild الـ entry من builder. الـ builder بـ يـ require الـ order. لو الـ order اتـ deleted between posting + voiding → builder بـ يـ return null → COGS reversal silently fails (logged as `{ok:false, skipped:'no-order'}` بـ no user alert) → Trial Balance imbalance.\n\n**Fix (SalesInvoicesPg:113-117):** على posting، نـ store الـ COGS entry's `date+id+refNo` في `postedJournalRef`:\n```js\npostedJournalRef = {\n  date, entryId, refNo,\n  cogsDate, cogsEntryId, cogsRefNo,  // ← V21.9.90\n}\n```\nالـ void يقدر يستخدم الـ stored IDs لـ reverse direct بدون rebuild. Future TODO: تحديث invoiceVoided لـ يستخدم الـ stored IDs بدلاً من rebuild." },
+      { type: "fix", text: "🔴 [Sales Bug #2 — Invoice total NaN/negative drift (CRITICAL)]\n\n**Root Cause:** الـ discount editor كان بـ يـ compute `total = subtotal - discount` بدون validation للـ subtotal الـ NaN أو negative. لو الـ subtotal corrupted (manual injection, schema drift) → total = NaN → saved to invoice → autoPost.salesInvoicePosted يستخدم total → journal entry imbalanced (debit AR -100 ≠ credit Revenue 100).\n\n**Fix (SalesInvoicesPg:355-388):**\n```js\nconst computedTotal = useMemo(() => {\n  const sub = Number(invoice.subtotal) || 0;\n  if(!isFinite(sub) || sub < 0) return 0;\n  const t = sub - computedDiscount;\n  return Math.max(0, isFinite(t) ? t : 0);\n}, [invoice.subtotal, computedDiscount]);\n\n// In saveDiscountChange:\nif(!isFinite(computedTotal) || computedTotal < 0){\n  console.warn(...); return;  // refuse to save invalid total\n}\n```\nالـ computedDiscount نفسه بقى guarded ضد NaN subtotal كمان." },
+    ],
+  },
+  {
     version: "V21.9.89",
     date: "2026-05-18",
     types: ["fix"],
