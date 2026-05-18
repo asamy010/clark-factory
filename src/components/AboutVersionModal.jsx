@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.82",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🛠 Hotfix — V21.9.81 build failed (JSX comment missing closing brace)",
+    changes: [
+      { type: "fix", text: "🚨 [Vercel build للـ V21.9.81 فشل بـ:\n```\n/vercel/path0/src/pages/DetPg.jsx:914:11: ERROR: Expected identifier but found \"(\"\n```\n\n**Root Cause:** الـ JSX comment الجديد للـ KPI 4 في DetPg.jsx (السطور 906-913) كان فاتح بـ `{/*` بس قافل بـ `*/` بدون `}`. الـ JSX comment syntax محتاج `{/* ... */}` بالـ closing brace.\n\n**Fix:**\n```diff\n             Accounting auto-post still uses t.costPer — the actual KPI\n-             path is split from the accounting path. */\n+             path is split from the accounting path. */}\n           {(()=>{\n```\n\nسطر واحد فقط (closing `}`). الـ build المفروض ينجح دلوقتي.\n\n**Anti-pattern recorded:** عند أي JSX block comment متعدد السطور، **دايماً** check إن السطر الأخير فيه `*/}` مش `*/` بس. الـ regular JS block comments داخل function bodies بـ يتـ accept `*/` لوحدها، لكن في الـ JSX (بين tags) لازم closed JSX expression." },
+    ],
+  },
+  {
     version: "V21.9.81",
     date: "2026-05-18",
     types: ["fix", "architectural"],

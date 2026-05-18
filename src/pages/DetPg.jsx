@@ -910,7 +910,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               pending workshop deliveries weren't included. Now uses
               t.costPerProjected (actual receives + pending qty × wd.price).
               Accounting auto-post still uses t.costPer — the actual KPI
-              path is split from the accounting path. */
+              path is split from the accounting path. */}
           {(()=>{
             const hasSettlement=!!order.settlement;
             const delivered=order.deliveredQty||0;
