@@ -120,11 +120,18 @@ export async function uploadTemplateImageBlob(templateId, blob, displayName){
   };
   console.log("[V21.9.75 templateImages.upload] pre-upload state:", _diagSnapshot);
   try {
-    const snap = await uploadBytes(ref, blob, {
-      contentType,
-      customMetadata: { templateId: templateId || "" },
-    });
-    console.log("[V21.9.75 templateImages.upload] uploadBytes succeeded for:", path);
+    /* V21.9.76 ROOT-CAUSE FIX — removed `customMetadata` from the upload options.
+       Firebase Web SDK switches from simple PUT to multipart upload protocol
+       when ANY customMetadata is provided. The multipart envelope's wrapper
+       Content-Type can confuse the Storage rule's `request.resource.contentType
+       .matches('image/.*')` check — `request.resource.contentType` ends up as
+       'multipart/related; boundary=...' instead of 'image/jpeg' → `isAllowedMime()`
+       returns false → rule denies with HTTP 403 (surfaces as `storage/unauthorized`).
+       Diagnostic V21.9.75 Test D confirmed: removing customMetadata makes the
+       exact same upload (path, content-type, blob, role) succeed.
+       The customMetadata was a forensic tag — never actually read anywhere. */
+    const snap = await uploadBytes(ref, blob, { contentType });
+    console.log("[V21.9.76 templateImages.upload] uploadBytes succeeded for:", path);
     const url = await getDownloadURL(snap.ref);
     return {
       storagePath: path,
@@ -295,9 +302,13 @@ export async function uploadTemplateAttachmentFile(templateId, file, onProgress)
   }
   const path = buildAttachmentPath(templateId, file.name);
   const ref = storageRef(storage, path);
+  /* V21.9.76: removed customMetadata for the same reason as uploadTemplateImageBlob —
+     prevents Firebase SDK from switching to multipart envelope that confuses the
+     Storage rule's contentType check. The original filename is already preserved
+     in the storage path (last segment), so we don't lose information by dropping
+     customMetadata.originalName. */
   const task = uploadBytesResumable(ref, file, {
     contentType: file.type || "application/octet-stream",
-    customMetadata: { templateId: templateId || "", originalName: file.name },
   });
   return new Promise((resolve, reject) => {
     task.on(
