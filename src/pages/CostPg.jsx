@@ -16,12 +16,15 @@ import { exportExcel } from "../utils/print-extras.js";
 
 export function CostPg({data,isMob,statusCards}){
   const[cDateFrom,setCDateFrom]=useState("");const[cDateTo,setCDateTo]=useState("");
-  const orders=sortOrders(data.orders.filter(o=>{if(cDateFrom&&o.date<cDateFrom)return false;if(cDateTo&&o.date>cDateTo)return false;return true}));const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalCost=orders.reduce((s,o)=>s+calcOrder(o).costAll,0);const totalFab=orders.reduce((s,o)=>s+calcOrder(o).totalFab,0);const totalAcc=orders.reduce((s,o)=>s+calcOrder(o).accAll,0);const totalWs=orders.reduce((s,o)=>s+calcOrder(o).wsCostAll,0);
+  /* V21.9.81 (Bug #9): cost report displays PROJECTED totals — what the
+     order will cost end-to-end based on planned workshop deliveries. The
+     accounting ledger keeps the actual-incurred figures. */
+  const orders=sortOrders(data.orders.filter(o=>{if(cDateFrom&&o.date<cDateFrom)return false;if(cDateTo&&o.date>cDateTo)return false;return true}));const totalCut=orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalCost=orders.reduce((s,o)=>s+calcOrder(o).costAllProjected,0);const totalFab=orders.reduce((s,o)=>s+calcOrder(o).totalFab,0);const totalAcc=orders.reduce((s,o)=>s+calcOrder(o).accAll,0);const totalWs=orders.reduce((s,o)=>s+calcOrder(o).wsCostAllProjected,0);
   const fabName=(o,k)=>{const l=gf(o,k,"Label");return l?l.split(" - ")[0]:null};
   const today=new Date().toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric"});
   const printCost=()=>{const el=document.getElementById("cost-area");if(!el)return;printPage("تقرير التكاليف",el.innerHTML)};
   const exportCostXls=()=>{const rows=[["#","الموديل","الوصف","الخامات","الكمية","خامات/قطعة","اكسسوار/قطعة","ورش/قطعة","تكلفة القطعة","اجمالي"]];
-    orders.forEach((o,i)=>{const c=calcOrder(o);const aFabs=FKEYS.filter(k=>gf(o,k)&&gc(o,k).length>0).map(k=>fabName(o,k)).filter(Boolean).join("، ");rows.push([i+1,o.modelNo,o.modelDesc,aFabs,c.cutQty,c.fabPer,c.accPer,c.wsCostPer,c.costPer,c.costAll])});
+    orders.forEach((o,i)=>{const c=calcOrder(o);const aFabs=FKEYS.filter(k=>gf(o,k)&&gc(o,k).length>0).map(k=>fabName(o,k)).filter(Boolean).join("، ");rows.push([i+1,o.modelNo,o.modelDesc,aFabs,c.cutQty,c.fabPer,c.accPer,c.wsCostPerProjected,c.costPerProjected,c.costAllProjected])});
     rows.push([]);rows.push(["","","","اجمالي",totalCut,r2(totalFab),r2(totalAcc),r2(totalWs),"",r2(totalCost)]);exportExcel(rows,"تقرير_التكاليف")};
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6,alignItems:"center"}}>
@@ -53,9 +56,9 @@ export function CostPg({data,isMob,statusCards}){
           <td style={{...TDB,color:T.accent}}>{c.cutQty}</td>
           <td style={TDB}>{c.fabPer+" ج.م"}</td>
           <td style={TDB}>{c.accPer+" ج.م"}</td>
-          <td style={{...TDB,color:T.ok}}>{c.wsCostPer?c.wsCostPer+" ج.م":"-"}</td>
-          <td style={{...TDB,color:T.accent,fontSize:FS+1}}>{c.costPer+" ج.م"}</td>
-          <td style={{...TDB,color:T.err}}>{fmt(c.costAll)+" ج.م"}</td></tr>})}
+          <td style={{...TDB,color:T.ok}}>{c.wsCostPerProjected?c.wsCostPerProjected+" ج.م":"-"}</td>
+          <td style={{...TDB,color:T.accent,fontSize:FS+1}}>{c.costPerProjected+" ج.م"}</td>
+          <td style={{...TDB,color:T.err}}>{fmt(c.costAllProjected)+" ج.م"}</td></tr>})}
           {orders.length>0&&<tr className="tot" style={{background:T.accent+"08"}}><td colSpan={4} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={{...TDB,fontWeight:800}}>{fmt(totalCut)}</td><td style={{...TDB,fontWeight:800}}>{fmt(r2(totalFab))}</td><td style={{...TDB,fontWeight:800}}>{fmt(r2(totalAcc))}</td><td style={{...TDB,fontWeight:800,color:T.ok}}>{fmt(r2(totalWs))}</td><td style={TDB}></td><td style={{...TDB,fontWeight:800,color:T.err,fontSize:FS+1}}>{fmt(r2(totalCost))+" ج.م"}</td></tr>}
           {orders.length===0&&<tr><td colSpan={10} style={{...TD,textAlign:"center",color:T.textSec,padding:30}}>لا توجد بيانات</td></tr>}
         </tbody>

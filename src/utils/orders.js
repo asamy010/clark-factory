@@ -167,7 +167,7 @@ export function getPieceCutQty(order,piece){
 }
 
 export function calcOrder(o){
-  if(!o||typeof o!=="object")return{cutQty:0,totalFab:0,fabPer:0,accPer:0,accAll:0,wsCostAll:0,wsCostPer:0,costPer:0,costAll:0,balance:0};
+  if(!o||typeof o!=="object")return{cutQty:0,totalFab:0,fabPer:0,accPer:0,accAll:0,wsCostAll:0,wsCostPer:0,costPer:0,costAll:0,wsCostAllProjected:0,wsCostPerProjected:0,costPerProjected:0,costAllProjected:0,balance:0};
   const cached=_orderCache.get(o);
   if(cached)return cached;
   const mainCut=sqty(gc(o,"A"))||o.cutQty||0;let totalFab=0;const fp=[];
@@ -175,19 +175,58 @@ export function calcOrder(o){
   const fabPer=fp.reduce((s,v)=>s+v,0);const accPer=(o.accItems||[]).reduce((s,a)=>s+(a.price||0),0);
   /* V15.3: Workshop cost — sum of actual receives from EXTERNAL workshops only.
      Internal workshops excluded (their cost comes from payroll, tracked separately).
-     Uses receives (actual) not deliveries (planned) so cost reflects what was really paid. */
+     Uses receives (actual) not deliveries (planned) so cost reflects what was really paid.
+
+     V21.9.81 ROOT-CAUSE FIX (Bug #9 in cutting audit):
+     Pre-V21.9.81, calcOrder returned a SINGLE costPer based on actual
+     incurred (received pieces × actual receive price). Mid-production this
+     dramatically under-reported the cost per piece because pending workshop
+     deliveries weren't counted. The "تكلفة القطعة" KPI in DetPg looked
+     misleadingly cheap until every workshop had returned its pieces.
+
+     Now we compute TWO parallel cost figures:
+     • wsCostAll / wsCostPer / costPer / costAll  — ACTUAL incurred only.
+       Accounting auto-post uses these (conservative, only post realized).
+     • wsCostAllProjected / wsCostPerProjected /
+       costPerProjected / costAllProjected         — PROJECTED.
+       For each external wd: actual receives + (pending qty × wd.price).
+       DetPg KPI uses these (user sees expected cost mid-production).
+
+     The accounting path (api/.../autoPost.js → calcOrder(order).costPer)
+     is UNTOUCHED to preserve the existing posting semantics. Only display
+     code paths should opt into the projected fields. */
   let wsCostAll=0;
+  let wsCostAllProjected=0;
   (o.workshopDeliveries||[]).forEach(wd=>{
     if(wsIsInternal(wd.wsType))return;/* skip internal workshops */
+    let received=0;
+    let receivedCost=0;
     (wd.receives||[]).forEach(r=>{
       if(r.isSettlement)return;/* skip settlement entries (those are waste adjustments) */
       const rQty=Number(r.qty)||0;
       const rPrice=Number(r.price)||Number(wd.price)||0;/* fallback to wd.price if receive has no price */
-      wsCostAll+=rQty*rPrice;
+      received+=rQty;
+      receivedCost+=rQty*rPrice;
     });
+    wsCostAll+=receivedCost;
+    /* Project pending portion of this wd at wd.price (the negotiated rate) */
+    const wdQty=Number(wd.qty)||0;
+    const wdPrice=Number(wd.price)||0;
+    const pending=Math.max(0,wdQty-received);
+    wsCostAllProjected+=receivedCost+(pending*wdPrice);
   });
   const wsCostPer=mainCut>0?r2(wsCostAll/mainCut):0;
-  const result={cutQty:mainCut,totalFab,fabPer:r2(fabPer),accPer,accAll:accPer*mainCut,wsCostAll:r2(wsCostAll),wsCostPer,costPer:r2(fabPer+accPer+wsCostPer),costAll:r2(totalFab+accPer*mainCut+wsCostAll),balance:mainCut-(o.deliveredQty||0)};
+  const wsCostPerProjected=mainCut>0?r2(wsCostAllProjected/mainCut):0;
+  const result={
+    cutQty:mainCut,totalFab,fabPer:r2(fabPer),accPer,accAll:accPer*mainCut,
+    wsCostAll:r2(wsCostAll),wsCostPer,
+    wsCostAllProjected:r2(wsCostAllProjected),wsCostPerProjected,
+    costPer:r2(fabPer+accPer+wsCostPer),
+    costAll:r2(totalFab+accPer*mainCut+wsCostAll),
+    costPerProjected:r2(fabPer+accPer+wsCostPerProjected),
+    costAllProjected:r2(totalFab+accPer*mainCut+wsCostAllProjected),
+    balance:mainCut-(o.deliveredQty||0)
+  };
   _orderCache.set(o,result);
   return result;
 }

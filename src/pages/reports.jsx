@@ -873,7 +873,10 @@ export function DeliveryReport({data,isMob,season}){
 
 export function SeasonSummary({data,isMob,season,statusCards}){
   const today=new Date().toLocaleDateString("ar-EG",{year:"numeric",month:"long",day:"numeric"});
-  const totalCut=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalDel=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);const totalCost=data.orders.reduce((s,o)=>s+calcOrder(o).costAll,0);
+  /* V21.9.81 (Bug #9): season summary uses projected total cost — includes
+     pending workshop deliveries so the "اجمالي التكاليف" stat reflects what
+     the season WILL cost, not just what's been incurred so far. */
+  const totalCut=data.orders.reduce((s,o)=>s+calcOrder(o).cutQty,0);const totalDel=data.orders.reduce((s,o)=>s+(o.deliveredQty||0),0);const totalCost=data.orders.reduce((s,o)=>s+calcOrder(o).costAllProjected,0);
   const sc={};data.orders.forEach(o=>{sc[o.status]=(sc[o.status]||0)+1});
   const wsMap={};data.orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(!wsMap[wd.wsName])wsMap[wd.wsName]={del:0,rcv:0};wsMap[wd.wsName].del+=(Number(wd.qty)||0);(wd.receives||[]).forEach(r=>{wsMap[wd.wsName].rcv+=(Number(r.qty)||0)})})});
   const printSum=()=>{const el=document.getElementById("sum-rep");if(!el)return;printPage("ملخص الموسم — "+season,el.innerHTML)};
@@ -1024,8 +1027,10 @@ export function ModelProfitReport({data,isMob,season,statusCards}){
     const c=calcOrder(o);
     const sellPrice=Number(o.sellPrice)||0;
     /* V18.55 fix: was using c.totalCost (undefined). Now uses c.costPer. */
+    /* V21.9.81 (Bug #9): profit reports use costPerProjected so margins
+       reflect total expected cost, not just actually-incurred portions. */
     const manualCost=Number(o.costPrice)||0;
-    const computedCost=Number(c.costPer)||0;
+    const computedCost=Number(c.costPerProjected)||0;
     const costPrice=manualCost>0?manualCost:computedCost;
     /* Date-filter the deliveries and returns */
     const dels=(o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to));
@@ -1252,8 +1257,9 @@ export function CustomerProfitReport({data,isMob,season}){
     orders.forEach(o=>{
       const sellPrice=Number(o.sellPrice)||0;
       const c=calcOrder(o);
+      /* V21.9.81 (Bug #9): projected baseline (see reports.jsx:1029-1031). */
       const manualCost=Number(o.costPrice)||0;
-      const computedCost=Number(c.costPer)||0;
+      const computedCost=Number(c.costPerProjected)||0;
       const costPrice=manualCost>0?manualCost:computedCost;
       (o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to)).forEach(d=>{
         const cid=d.custId;
@@ -1346,8 +1352,9 @@ export function OrderProfitReport({data,isMob,season}){
     let result=orders.map(o=>{
       const c=calcOrder(o);
       const sellPrice=Number(o.sellPrice)||0;
+      /* V21.9.81 (Bug #9): projected baseline (see reports.jsx:1029-1031). */
       const manualCost=Number(o.costPrice)||0;
-      const computedCost=Number(c.costPer)||0;
+      const computedCost=Number(c.costPerProjected)||0;
       const costPrice=manualCost>0?manualCost:computedCost;
       const dels=(o.customerDeliveries||[]).filter(d=>!d.date||(d.date>=from&&d.date<=to));
       const rets=(o.customerReturns||[]).filter(r=>!r.date||(r.date>=from&&r.date<=to));

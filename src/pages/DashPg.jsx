@@ -164,10 +164,13 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
       const t=calcOrder(o);
       if(t.cutQty<=0)return;
       const revenue=sellPrice*t.cutQty;
-      const cost=t.costAll;
+      /* V21.9.81 (Bug #9): profit projection uses costAllProjected so
+         mid-production orders show realistic margins (was using costAll
+         which only counted received workshop pieces → inflated profit). */
+      const cost=t.costAllProjected;
       const profit=revenue-cost;
       const profitPct=revenue>0?r2((profit/revenue)*100):0;
-      rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,cutQty:t.cutQty,sellPrice,costPer:t.costPer,profitPer:r2(sellPrice-t.costPer),profitPct,revenue,cost,profit,orderId:o.id});
+      rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,cutQty:t.cutQty,sellPrice,costPer:t.costPerProjected,profitPer:r2(sellPrice-t.costPerProjected),profitPct,revenue,cost,profit,orderId:o.id});
       totalRevenue+=revenue;totalCost+=cost;
     });
     rows.sort((a,b)=>b.profitPct-a.profitPct);

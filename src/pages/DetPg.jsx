@@ -368,7 +368,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                    Each extraCost honors its costType: "perPiece" → already per-piece; "total" → divide by cutQty. */
                 const _extraPer=(o.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt:(t.cutQty>0?amt/t.cutQty:0))},0);
                 const _settPer=(o.settlement&&(o.deliveredQty||0)>0)?((o.settlement.cost||0)/(o.deliveredQty||1)):0;
-                const _displayCostPer=t.costPer+_extraPer+_settPer;
+                const _displayCostPer=t.costPerProjected+_extraPer+_settPer;
                 const _hasExtra=_extraPer>0||_settPer>0;
                 return<tr key={o.id} className="det-row" onClick={()=>setSel(o.id)} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",transition:"background 0.15s"}}>
                   <td style={{...TD,paddingRight:16}}>
@@ -419,7 +419,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           /* V18.99: Include extra costs + settlement in displayed cost-per-piece */
           const _extraPer=(o.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt:(t.cutQty>0?amt/t.cutQty:0))},0);
           const _settPer=(o.settlement&&(o.deliveredQty||0)>0)?((o.settlement.cost||0)/(o.deliveredQty||1)):0;
-          const _displayCostPer=t.costPer+_extraPer+_settPer;
+          const _displayCostPer=t.costPerProjected+_extraPer+_settPer;
           const _hasExtra=_extraPer>0||_settPer>0;
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
@@ -903,27 +903,39 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <MetricCard label="في المخزن الجاهز" value={order.deliveredQty||0} icon="📦" color={T.ok}/>
           {/* KPI 3 — balance */}
           <MetricCard label="الرصيد" value={t.balance} icon="📊" color={t.balance>0?T.warn:T.ok}/>
-          {/* KPI 4 — cost (compact; warning shown as banner below) */}
+          {/* KPI 4 — cost (compact; warning shown as banner below).
+              V21.9.81 (Bug #9 in cutting audit): use the PROJECTED cost as
+              baseline. Pre-V21.9.81 the KPI used t.costPer (actual-incurred)
+              which mid-production showed an artificially low number because
+              pending workshop deliveries weren't included. Now uses
+              t.costPerProjected (actual receives + pending qty × wd.price).
+              Accounting auto-post still uses t.costPer — the actual KPI
+              path is split from the accounting path. */
           {(()=>{
             const hasSettlement=!!order.settlement;
             const delivered=order.deliveredQty||0;
-            const originalCostPer=r2(t.costPer);
+            const projectedCostPer=r2(t.costPerProjected);
             const cutQ=t.cutQty||0;
             const extraTotal=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cutQ:amt)},0);
             const hasExtra=extraTotal>0;
             let label,value,color,sub;
             if(hasSettlement&&delivered>0){
+              /* Settlement = order closed; costAll == costAllProjected (all
+                 receives done). Compare actual vs projected baseline. */
               const actualCostPer=r2((t.costAll+(order.settlement.cost||0)+extraTotal)/delivered);
-              const diff=r2(actualCostPer-originalCostPer);
+              const diff=r2(actualCostPer-projectedCostPer);
               label="تكلفة القطعة الفعلية";value=Math.ceil(actualCostPer)+" ج.م";color=T.err;
               sub="فرق +"+Math.ceil(diff)+" ج.م";
             }else if(hasExtra){
-              const actualCostPer=cutQ>0?r2((t.costAll+extraTotal)/cutQ):originalCostPer;
+              /* Not settled but has extras → use projected for the "actual"
+                 figure since workshop receives may still be incomplete. */
+              const actualCostPer=cutQ>0?r2((t.costAllProjected+extraTotal)/cutQ):projectedCostPer;
               label="تكلفة القطعة الفعلية";value=Math.ceil(actualCostPer)+" ج.م";color="#F59E0B";
-              const diff=Math.ceil(actualCostPer-originalCostPer);
+              const diff=Math.ceil(actualCostPer-projectedCostPer);
               sub="إضافي +"+diff+" ج.م";
             }else{
-              label="تكلفة القطعة";value=originalCostPer+" ج.م";color=T.accent;sub=null;
+              /* Baseline display: projected cost per piece. */
+              label="تكلفة القطعة";value=projectedCostPer+" ج.م";color=T.accent;sub=null;
             }
             return<MetricCard label={label} value={value} icon="💰" color={color} sub={sub}/>;
           })()}
@@ -1509,7 +1521,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           };
           const extraTotal=r2(extraCosts.reduce((s,x)=>s+ecTotal(x),0));/* V21.9.56 (L3) */
           const settCost=Number(order.settlement?.cost)||0;
-          const totalAllCost=r2(t.costAll+settCost+extraTotal);/* V21.9.56 (L3) */
+          const totalAllCost=r2(t.costAllProjected+settCost+extraTotal);/* V21.9.81 (Bug #9): projected total includes pending workshop deliveries */
           /* V21.9.56 (Sales Audit L3): wrap per-piece calculations in r2() to
              prevent float drift accumulating in cost summaries + downstream
              pricing decisions. */
@@ -1590,10 +1602,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               </div>}
               <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:FS}}>
                 <span>{"تسليم مخزن: "+stockDel+" قطعة"}</span>
-                <span style={{fontWeight:700,color:T.ok}}>{"تكلفة الانتاج: "+fmt(r2(t.costAll))+" ج.م"}</span>
+                <span style={{fontWeight:700,color:T.ok}}>{"تكلفة الانتاج: "+fmt(r2(t.costAllProjected))+" ج.م"}</span>
                 {hasSett&&<span style={{fontWeight:700,color:T.err}}>{"+ هالك: "+fmt(r2(order.settlement.cost))+" ج.م"}</span>}
                 {(()=>{const cq=t.cutQty||0;const ec=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cq:amt)},0);return ec>0?<span style={{fontWeight:700,color:"#F59E0B"}}>{"+ تكاليف إضافية: "+fmt(r2(ec))+" ج.م"}</span>:null})()}
-                {(()=>{const cq=t.cutQty||0;const ec=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cq:amt)},0);const total=t.costAll+(hasSett?order.settlement.cost:0)+ec;
+                {(()=>{const cq=t.cutQty||0;const ec=(order.extraCosts||[]).reduce((s,x)=>{const amt=Number(x.amount)||0;return s+(x.costType==="perPiece"?amt*cq:amt)},0);const total=t.costAllProjected+(hasSett?order.settlement.cost:0)+ec;
                   return<>
                     <span style={{fontWeight:800,color:T.accent}}>{"= الاجمالي: "+fmt(r2(total))+" ج.م"}</span>
                     {stockDel>0&&<span style={{fontWeight:700,color:"#8B5CF6"}}>{"تكلفة القطعة الفعلية: "+r2(total/stockDel)+" ج.م"}</span>}
@@ -1640,7 +1652,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                     </table>
                   </div>})()}
                 {canEdit&&(()=>{
-                  const settCost=r2(remain*t.costPer);
+                  const settCost=r2(remain*t.costPerProjected);
                   const REASONS=["عيوب تصنيع","تالف خامة","فاقد ورشة","خطأ قص","أخرى"];
                   return<div style={{padding:14,borderRadius:10,background:T.err+"04",border:"1px solid "+T.err+"15"}}>
                     <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:10}}>{"🔴 تكلفة الهالك: "+fmt(settCost)+" ج.م"}</div>
