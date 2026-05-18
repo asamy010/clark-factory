@@ -803,6 +803,21 @@ export function postCreditNoteMutator(d, creditNoteId, userName){
   const idx = d.salesCreditNotes.findIndex(c => c.id === creditNoteId);
   if(idx < 0) return false;
   if(d.salesCreditNotes[idx].status !== "draft") return false;
+  /* V21.9.92 (Sales audit Bug #5): refuse to post a credit note if its
+     linked invoice is no longer in 'posted' status. Pre-V21.9.92 a CN
+     could be posted against a voided/deleted invoice → double-credit on
+     revenue (the void reversed it once, then the CN posting credited again).
+     This guard relies on `linkedInvoiceId` being set at CN creation time
+     (V21.9.x onward). Older CNs without the id fall through (legacy
+     compat — no enforcement). */
+  const cn = d.salesCreditNotes[idx];
+  if(cn.linkedInvoiceId){
+    const linkedInv = (d.salesInvoices||[]).find(i => i.id === cn.linkedInvoiceId);
+    if(linkedInv && linkedInv.status !== "posted"){
+      console.warn("[V21.9.92 postCreditNote] linked invoice not in posted state",{cnId:creditNoteId,linkedInvoiceId:cn.linkedInvoiceId,invoiceStatus:linkedInv.status});
+      return false;
+    }
+  }
   d.salesCreditNotes[idx] = {
     ...d.salesCreditNotes[idx],
     status: "posted",

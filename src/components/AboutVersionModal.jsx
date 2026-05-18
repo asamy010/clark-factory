@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.92",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "🛡️ Phase 18d — High-severity batch (Stock avgCost + Sales CN + WA errors)",
+    changes: [
+      { type: "fix", text: "🟠 [Stock Bug #6 — avgCost not reset on full reversal]\n\n**Root Cause:** `applyStockDelta` كان بـ يحدّث avgCost على inflow بس. على reversal (delta<0)، الـ avgCost كان بـ يـ stay كما هو. لو الـ reversal بـ يـ empty الـ stock (newStock<=0)، الـ avgCost بـ يـ stick على القيمة القديمة → الـ next receipt يحسب weighted avg بـ stale baseline.\n\n**Fix (categories.js:194, 209):** عند `delta<0 && newStock<=0` → reset avgCost=0. Partial reversals تـ keep avgCost (mathematically correct: removing some units doesn't change per-unit value of remaining).\n\nApplied على fabrics + accessories (legacy paths)." },
+      { type: "fix", text: "🟠 [Sales Bug #5 — Orphan credit notes posted against voided invoices]\n\n**Root Cause:** الـ credit note بـ يـ store `linkedInvoiceNo` (display) لكن مفيش validation عند الـ posting. لو الـ linked invoice اتـ voided → CN لسه يـ post → revenue credited مرتين (مرة في الـ void reversal، مرة في CN posting) → Trial Balance broken.\n\n**Fix (invoices.js:805):** قبل ما الـ status يـ flip لـ posted، check لو `linkedInvoiceId` set وdraft. لو موجود، يـ require الـ linked invoice في 'posted' status:\n```js\nif(cn.linkedInvoiceId){\n  const linkedInv = (d.salesInvoices||[]).find(i => i.id === cn.linkedInvoiceId);\n  if(linkedInv && linkedInv.status !== 'posted'){\n    console.warn(...); return false;\n  }\n}\n```\nLegacy CNs بدون linkedInvoiceId fallback to permissive behavior (backward compat)." },
+      { type: "fix", text: "🟡 [WhatsApp Warning #5 — Pending queue lacks error classification]\n\n**Root Cause:** الـ pending queue كانت بـ تـ store `lastError` كـ raw string. الـ cron retry بـ يـ retry بنفس الـ frequency بـ غض النظر عن نوع الـ error → permanent failures (invalid-phone, opted-out) بـ يـ retry forever وهيـ waste cron budget.\n\n**Fix (_eventProcessor.js:queuePending):** أضفت `_classifyError(message)` helper بـ يـ categorize:\n• `timeout` → retryable مع exponential backoff\n• `invalid-phone` → permanent (don't retry)\n• `opted-out` → permanent (don't retry)\n• `unknown` → conservative retry\n\nالـ entry بـ يـ annotated بـ `errorCategory` field عند queue → الـ cron retry loop يقدر يـ make informed decisions (future TODO: update cron drain to respect this field)." },
+    ],
+  },
+  {
     version: "V21.9.91",
     date: "2026-05-18",
     types: ["fix"],

@@ -192,6 +192,13 @@ export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
       const totalOldVal=oldStock*oldAvg;
       const newVal=delta*Number(unitCost);
       f.avgCost=newStock>0?(totalOldVal+newVal)/newStock:Number(unitCost);
+    } else if(delta<0 && newStock<=0){
+      /* V21.9.92 (Stock audit Bug #6): when reversal empties stock, reset
+         avgCost to 0 — otherwise a stale avgCost lingers and biases the
+         next receipt's weighted average. Partial reversals leave avgCost
+         unchanged (mathematically correct: removing some units doesn't
+         change the per-unit value of the remaining). */
+      f.avgCost=0;
     }
     f.stock=newStock;
     return true;
@@ -206,6 +213,9 @@ export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
       const totalOldVal=oldStock*oldAvg;
       const newVal=delta*Number(unitCost);
       a.avgCost=newStock>0?(totalOldVal+newVal)/newStock:Number(unitCost);
+    } else if(delta<0 && newStock<=0){
+      /* V21.9.92 (Stock audit Bug #6): same reset on empty reversal. */
+      a.avgCost=0;
     }
     a.stock=newStock;
     return true;

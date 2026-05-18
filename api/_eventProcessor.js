@@ -274,17 +274,40 @@ export async function claimEvent(db, opts){
   });
 }
 
+/* V21.9.92 (WhatsApp audit Warning #5): classify pending errors so cron
+   retry logic can be smarter. Pre-V21.9.92 all errors got the same retry
+   treatment, including permanent ones like 'invalid-phone' that will never
+   succeed. Categories:
+   - timeout: retryable with exponential backoff
+   - invalid-phone: permanent (don't retry)
+   - opted-out: permanent (don't retry)
+   - unknown: conservative retry */
+function _classifyError(message){
+  if (!message || typeof message !== "string") return "unknown";
+  const m = message.toLowerCase();
+  if (m.includes("timeout") || m.includes("aborterror") || m.includes("abort")) return "timeout";
+  if (m.includes("invalid") || m.includes("not a valid") || m.includes("not on whatsapp")) return "invalid-phone";
+  if (m.includes("opted") || m.includes("block")) return "opted-out";
+  return "unknown";
+}
+
 /* ─── Queue an entry (manual mode, or after bridge failure) ─── */
 export async function queuePending(db, entry){
   const ref = db.collection("factory").doc("config");
+  /* V21.9.92: annotate the entry with errorCategory so the cron retry
+     loop can make informed retry decisions (skip permanent failures). */
+  const annotated = {
+    ...entry,
+    errorCategory: _classifyError(entry.lastError),
+  };
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const cfg = snap.exists ? snap.data() : {};
     const auto = cfg.automation || {};
     const et = auto.eventTriggers || {};
     const pending = Array.isArray(et.pending) ? et.pending : [];
-    if (pending.some(p => p.idempotencyKey === entry.idempotencyKey)) return;
-    pending.push(entry);
+    if (pending.some(p => p.idempotencyKey === annotated.idempotencyKey)) return;
+    pending.push(annotated);
     et.pending = pending.slice(-200);
     auto.eventTriggers = et;
     tx.set(ref, { automation: auto }, { merge: true });
