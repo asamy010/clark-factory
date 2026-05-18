@@ -12,6 +12,7 @@ import { FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
 import { fmt, r2, dayName } from "../utils/format.js";
 import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { computeWorkshopDue, computeWorkshopBalance } from "../utils/accountSummary.js";
 import { printPage } from "../utils/print.js";
 /* V16.12: alerts.js import removed — the engine used field names that don't
    match the actual order/treasury schema (e.g. o.expectedDeliveryDate, wd.pieces,
@@ -49,16 +50,25 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
     })});
     const wsChartData=Object.values(wsMap).sort((a,b)=>b.received-a.received);
     const _isInt=(n)=>{const w=(data.workshops||[]).find(x=>x.name===n);return w?wsIsInternal(w.type):false};
+    /* V21.9.83 (Treasury audit Bug #1 + #4): exclude settlement entries from
+       due and apply r2() consistently to prevent float drift. wsPayments
+       totals also rounded per-step. */
     let wsDue=0,wsPaid=0,wsPurchase=0;
-    orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(_isInt(wd.wsName))return;(wd.receives||[]).forEach(r=>{wsDue+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
+    orders.forEach(o=>{(o.workshopDeliveries||[]).forEach(wd=>{if(_isInt(wd.wsName))return;(wd.receives||[]).forEach(r=>{if(r&&r.isSettlement)return;wsDue+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});
     (data.wsPayments||[]).forEach(p=>{if(p.type==="payment")wsPaid+=(Number(p.amount)||0);else wsPurchase+=(Number(p.amount)||0)});
-    const wsBalance=wsDue+wsPurchase-wsPaid;
+    wsDue=r2(wsDue);wsPaid=r2(wsPaid);wsPurchase=r2(wsPurchase);
+    const wsBalance=r2(wsDue+wsPurchase-wsPaid);
     const finishingQty=orders.filter(o=>o.status==="تشطيب وتعبئة").reduce((s,o)=>s+calcOrder(o).cutQty,0);
     return{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}
   },[orders,statusCards,data.wsPayments,data.workshops]);
 
   const{cutQ,delQ,comp,totalDeliveredToWs,totalReceivedFromWs,inProdQty,wsPieces,totalCompleteSets,pieData,wsMap,wsChartData,wsDue,wsPaid,wsPurchase,wsBalance,finishingQty,_isInt}=stats;
-  const wsAccounts=(wsName)=>{if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};let due=0;data.orders.forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const totalPaid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const totalPurchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return{due,totalPaid,totalPurchase,balance:due+totalPurchase-totalPaid}};
+  /* V21.9.83 (Treasury audit Bug #1 + #4): delegate to the central helper.
+     Pre-V21.9.83 this duplicated the (settlement-included, no-r2) logic. */
+  const wsAccounts=(wsName)=>{
+    if(_isInt(wsName))return{due:0,totalPaid:0,totalPurchase:0,balance:0};
+    return computeWorkshopBalance(wsName,data);
+  };
 
   /* Today's Summary stats — memoized so we don't recompute on every render */
   const todayStats=useMemo(()=>{

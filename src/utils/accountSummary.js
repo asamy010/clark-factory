@@ -14,6 +14,38 @@
 /* Format a number with thousand separators, no decimals */
 const _fmt = (n) => Math.round(Number(n) || 0).toLocaleString("en-US");
 
+/* V21.9.83 (Treasury audit Bug #1): central helper to compute workshop "due".
+   The DUE is the cash amount owed to the workshop for received pieces.
+   Settlement entries (r.isSettlement===true) are WASTE/dispute markers — they
+   adjust workshop balance count but the factory does NOT owe cash for them.
+   Pre-V21.9.83 the duplicate ad-hoc implementations in DashPg/TreasuryPg
+   counted settlements in due, inflating the balance by thousands of ج.م
+   whenever a settlement existed.
+   Also: r2() is applied per-receive to prevent float-accumulation drift in
+   long lists of receives. Used by ALL callers now to ensure consistency. */
+const _r2 = (n) => Math.round((n || 0) * 100) / 100;
+export function computeWorkshopDue(wsName, data) {
+  if (!wsName || !data) return 0;
+  let due = 0;
+  (data.orders || []).forEach(o => {
+    (o.workshopDeliveries || []).filter(wd => wd.wsName === wsName).forEach(wd => {
+      (wd.receives || []).forEach(r => {
+        if (r && r.isSettlement) return; /* skip settlements */
+        due += _r2((Number(r.qty) || 0) * (Number(r.price) || 0));
+      });
+    });
+  });
+  return _r2(due);
+}
+export function computeWorkshopBalance(wsName, data) {
+  const due = computeWorkshopDue(wsName, data);
+  const payments = (data.wsPayments || []).filter(p => p.wsName === wsName);
+  const totalPaid = _r2(payments.filter(p => p.type === "payment").reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  const totalPurchase = _r2(payments.filter(p => p.type === "purchase").reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  const balance = _r2(due + totalPurchase - totalPaid);
+  return { due, totalPaid, totalPurchase, balance };
+}
+
 /* ═══ CUSTOMER ACCOUNT SUMMARY ═══
    Returns: {salesGross, discAmt, salesNet, payCash, payCheck, returnsGross, returnsNet, balance}
    All fields are in EGP, applying the customer's discount % to sales/returns.
@@ -88,25 +120,21 @@ export function buildCustomerSummary(custId, data) {
    - balance = due + totalPurchase - totalPaid (positive = factory owes workshop) */
 export function buildWorkshopSummary(wsName, data) {
   if (!wsName || !data) return null;
-  let totalDelivered = 0, totalReceived = 0, due = 0;
+  let totalDelivered = 0, totalReceived = 0;
   (data.orders || []).forEach(o => {
     (o.workshopDeliveries || []).filter(wd => wd.wsName === wsName).forEach(wd => {
       totalDelivered += Number(wd.qty) || 0;
       (wd.receives || []).forEach(r => {
-        const q = Number(r.qty) || 0;
-        const p = Number(r.price) || 0;
-        totalReceived += q;
-        due += q * p;
+        totalReceived += Number(r.qty) || 0;
       });
     });
   });
   const pendingPieces = Math.max(0, totalDelivered - totalReceived);
-
-  const payments = (data.wsPayments || []).filter(p => p.wsName === wsName);
-  const totalPaid = payments.filter(p => p.type === "payment").reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const totalPurchase = payments.filter(p => p.type === "purchase").reduce((s, p) => s + (Number(p.amount) || 0), 0);
-
-  const balance = due + totalPurchase - totalPaid;
+  /* V21.9.83 (Treasury audit Bug #1 + #4): use central helper which excludes
+     settlement entries from `due` and applies r2() per-receive to prevent
+     float drift. Previously this helper had its own ad-hoc loop that
+     double-counted settlements and accumulated rounding errors. */
+  const { due, totalPaid, totalPurchase, balance } = computeWorkshopBalance(wsName, data);
   return { totalDelivered, totalReceived, pendingPieces, due, totalPurchase, totalPaid, balance };
 }
 

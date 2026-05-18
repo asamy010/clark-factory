@@ -20,6 +20,7 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
+import { computeWorkshopBalance } from "../utils/accountSummary.js";
 import { nowISO, cairoDateStr } from "../utils/serverTime.js";
 import { T } from "../theme.js";
 import { db } from "../firebase";
@@ -890,12 +891,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
       _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
       if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
-    }else if(!linkedWsName&&txType==="out"&&txCategory==="مشتريات"){
-      /* Best-effort workshop match for مشتريات — no warning if no match found. */
-      const _haystack=((finalDesc||"")+" "+(txNotes||"")).trim();
-      _autoLinkedWs=matchWorkshopFromDesc(_haystack,workshops);
-      if(_autoLinkedWs)linkedWsName=_autoLinkedWs.name;
     }
+    /* V21.9.83 (Treasury audit Bug #2): مشتريات auto-link REMOVED.
+       Pre-V21.9.83 a treasury entry categorized "مشتريات" would silently
+       auto-link to a workshop if its name appeared anywhere in the desc.
+       This created spurious wsPayments entries when:
+       • A user typed a supplier's name that coincidentally matches a
+         workshop name (e.g. "ورشة الشامواه" matching "مشتريات شامواه").
+       • Generic purchases (office supplies, etc.) got linked because of
+         partial-substring matches.
+       Result: wsPayments grew with type="purchase" entries that don't
+       represent actual workshop obligations → balance inflated; treasury/
+       wsPayments reconciliation broke.
+       Now: مشتريات entries are NEVER auto-linked to a workshop. If the
+       user wants to record a workshop purchase, they must explicitly
+       select the workshop via the party picker (which sets txPartyId). */
     /* V19.9 FIX: Mirror workshop auto-link for CUSTOMERS/SUPPLIERS/EMPLOYEES.
        Root cause of "دفعات كاش" card not matching treasury totals:
        
@@ -1013,8 +1023,31 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(_oldEntryForReverse&&!tx.sourceType){
             _editedEntryForRepost={...tx};
           }
-          /* Sync linked wsPayment if exists */
-          if(tx.wsPaymentId){const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);if(wp){wp.amount=amt;wp.notes=txNotes;wp.date=txDate;wp.type=txCategory==="مشتريات"?"purchase":"payment"}}
+          /* V21.9.83 (Treasury audit Bug #3 + #6): sync linked wsPayment.
+             - Bug #6: if the wsPayment was deleted between save and edit,
+               clear the dangling wsPaymentId on the treasury entry so the
+               balance calc doesn't lose track of the payment.
+             - Bug #3: only flip wp.type if the category genuinely changed
+               TO/FROM "مشتريات". Pre-V21.9.83 we silently flipped on every
+               edit, which could contaminate the wsPayment when the category
+               toggled back and forth. */
+          if(tx.wsPaymentId){
+            const wp=(d.wsPayments||[]).find(p=>p.id===tx.wsPaymentId);
+            if(wp){
+              wp.amount=amt;wp.notes=txNotes;wp.date=txDate;
+              const newType=txCategory==="مشتريات"?"purchase":"payment";
+              if(wp.type!==newType){
+                console.warn("[V21.9.83 wsPayment type changed]",{id:wp.id,from:wp.type,to:newType,treasuryId:tx.id});
+                wp.type=newType;
+              }
+            }else{
+              /* Orphan: the wsPayment was deleted externally. Clear the
+                 dangling reference so balance calc + future edits don't
+                 silently misbehave. */
+              console.warn("[V21.9.83 wsPayment orphan cleared]",{treasuryId:tx.id,danglingId:tx.wsPaymentId});
+              delete tx.wsPaymentId;
+            }
+          }
           /* V17.3 FIX: Sync linked hrLog if this was an advance.
              Three cases:
              1. Was advance + still has same employee: update hrLog amount/date/desc
@@ -4455,8 +4488,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const title=showPartyPicker==="customer"?"🧑 اختيار عميل":showPartyPicker==="supplier"?"🏭 اختيار مورد":showPartyPicker==="employee"?"👷 اختيار موظف":"🔧 اختيار ورشة";
       const emptyMsg=showPartyPicker==="customer"?"لا يوجد عملاء":showPartyPicker==="supplier"?"لا يوجد موردين":showPartyPicker==="employee"?"لا يوجد موظفين":"لا توجد ورش";
       const filtered=list.filter(p=>!partySearchDeb.trim()||(p.name||"").toLowerCase().includes(partySearchDeb.toLowerCase())||(p.phone||"").includes(partySearchDeb));
-      /* For workshops: compute balance */
-      const wsBalance=(wsName)=>{let due=0;(data.orders||[]).forEach(o=>{(o.workshopDeliveries||[]).filter(wd=>wd.wsName===wsName).forEach(wd=>{(wd.receives||[]).forEach(r=>{due+=r2((Number(r.qty)||0)*(Number(r.price)||0))})})});const payments=(data.wsPayments||[]).filter(p=>p.wsName===wsName);const paid=payments.filter(p=>p.type==="payment").reduce((s,p)=>s+(Number(p.amount)||0),0);const purchase=payments.filter(p=>p.type==="purchase").reduce((s,p)=>s+(Number(p.amount)||0),0);return due+purchase-paid};
+      /* V21.9.83 (Treasury audit Bug #1 + #4): delegate to central helper.
+         Pre-V21.9.83 included settlement entries in due → inflated balance. */
+      const wsBalance=(wsName)=>computeWorkshopBalance(wsName,data).balance;
       return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowPartyPicker(null);if(!txPartyId){setTxCategory("")}}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:540,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
