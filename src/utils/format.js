@@ -87,8 +87,28 @@ export function parseHrs(s){if(s===""||s===null||s===undefined)return 0;
     .replace(/[،,]/g,".")/* Arabic comma or Latin comma as decimal → dot */
     .trim();
   if(!str)return 0;
-  if(str.includes(":")){const[h,m]=str.split(":");const hh=parseInt(h)||0;const mm=parseInt(m)||0;return r2(hh+mm/60)}
-  return parseFloat(str)||0
+  /* V21.9.84 (HR audit Bug #5): reject impossible HH:MM values like "8:60"
+     or "25:00". Pre-V21.9.84 these parsed to 9 / 25 respectively because the
+     parts were summed without bounds checking. Biometric/manual data with
+     format errors got silently "corrected" to plausible-sounding values,
+     making payroll discrepancies very hard to trace. Now: invalid format
+     returns 0 + emits console.warn so Ahmed can spot upstream entry bugs. */
+  if(str.includes(":")){
+    const[h,m]=str.split(":");
+    const hh=parseInt(h)||0;
+    const mm=parseInt(m)||0;
+    if(hh<0||hh>23||mm<0||mm>59){
+      console.warn("[V21.9.84 parseHrs] invalid HH:MM",s,"→ ignored (h="+hh+", m="+mm+")");
+      return 0;
+    }
+    return r2(hh+mm/60);
+  }
+  const dec=parseFloat(str)||0;
+  if(dec<0||dec>24){
+    console.warn("[V21.9.84 parseHrs] decimal hours out of range",s,"→ ignored");
+    return 0;
+  }
+  return dec;
 }
 
 /* Sum by qty / layers for arrays of color rows */

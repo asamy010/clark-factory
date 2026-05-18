@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.84",
+    date: "2026-05-18",
+    types: ["fix"],
+    title: "👷 Phase 17b — HR/Payroll audit (Batch 2/6)",
+    changes: [
+      { type: "fix", text: "🔴 [HR Bug #2 — Advance dedup يـ double-count (CRITICAL)]\n\n**Root Cause:** الـ dedup logic كان `!seenLogIds.has(t.hrLogId)`. لو الـ treasury entry بـ يـ stale/missing hrLogId + parallel hrLog موجود → الـ treasury entry بـ يـ INCLUDED بدون منعه → salary calc يـ inflate بـ سلف مكررة.\n\n**Fix (HRPg:1082):**\n• لو `t.hrLogId` غير موجود → include (legacy path)\n• لو موجود وفي seenLogIds → exclude (matched correctly)\n• لو موجود لكن مش في seenLogIds → log warning + exclude (stale link، safer to skip than double-count)" },
+      { type: "fix", text: "🔴 [HR Bug #3 — Debt status='paid' premature (CRITICAL)]\n\n**Root Cause:** الـ status بـ يـ flip لـ 'paid' لو `totalPaid >= total - 0.5` بدون verification إن كل الـ installments الـ extended تـ processed. لو partial payment + rounding يـ push totalPaid فوق الـ threshold → debt يُغلق + الـ shortage يتـ lost silently.\n\n**Fix (HRPg:1707):** ضيف check ثاني — `installmentsCompleted >= installmentsExpected`. الـ status يـ flip بس لما الـ amount AND الـ installments الاثنين satisfied." },
+      { type: "fix", text: "🟠 [HR Bug #4 — Future-dated attendance silent loss (SERIOUS)]\n\n**Root Cause:** الـ paste-biometric flow ما كانش بـ يـ validate الـ date في range الـ week. لو الـ biometric data فيه تواريخ خارج weekStart..weekEnd → الـ entries بـ تتـ saved في attendance map لكن calcSalary ما يـ iterateهم → silent data loss + mismatch بين attendance view والـ salary.\n\n**Fix (HRPg:applyPaste):** date check before insert. Out-of-range entries skipped + logged via console.warn." },
+      { type: "fix", text: "🟠 [HR Bug #5 — parseHrs accepts invalid times (SERIOUS)]\n\n**Root Cause:** `parseHrs(\"8:60\")` → 9.0، `parseHrs(\"25:00\")` → 25.0. الـ bounds checking مفقود. النتيجة: biometric أو manual typos يتـ silently 'corrected' لقيم plausible-sounding.\n\n**Fix (format.js:parseHrs):**\n```js\nif(hh<0||hh>23||mm<0||mm>59){\n  console.warn(...);\n  return 0;/* invalid → ignored */\n}\n```\nأيضاً نـ clamp decimal hours لـ 0..24. الـ user يـ see warning في console بدلاً من silent corruption." },
+      { type: "fix", text: "🟠 [HR Bug #7 — prevBalance negative override (SERIOUS)]\n\n**Root Cause:** `prevBalanceOverride[empId]=-500` كان بـ يـ apply كـ stealth deduction. الـ employee underpaid بدون audit trail.\n\n**Fix (HRPg:1071):** clamp لـ `Math.max(0, raw)`. لو الـ raw سالب → log warning + treat as 0." },
+      { type: "doc", text: "📋 [Deferred + False Positives]\n\n**Deferred:**\n• Bug #1 (Stale-read race في approveWeek) — يحتاج architectural refactor: تحويل approveWeek لـ Firestore runTransaction. الـ blast radius كبير (يـ touch hrWeeks + treasury + hrLog + employees.prevBalance simultaneously). أُجل لـ design review منفصل.\n\n**False Positives:**\n• Bug #6 (Soft-delete of advances orphan treasury) — التحقق وجد إن الـ cascade موجود فعلاً في HRPg:1236-1237 (`d.treasury.filter(t=>t.id!==adv.treasuryTxId)` + `d.hrLog.filter(l=>l.weeklyAdvanceId!==advId)`). الـ agent's report كان خطأ — لا fix needed.\n\n**Mediums (#8, #9) → V21.9.88** — Week boundary calc + saveDebt validation." },
+    ],
+  },
+  {
     version: "V21.9.83",
     date: "2026-05-18",
     types: ["fix", "architectural"],

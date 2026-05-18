@@ -896,8 +896,22 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const applyPaste=()=>{if(!pasteResult||!openWeek)return;
     upConfig(d=>{const wi=(d.hrWeeks||[]).findIndex(w=>w.id===openWeekId);if(wi<0)return;
       if(!d.hrWeeks[wi].attendance)d.hrWeeks[wi].attendance={};
+      /* V21.9.84 (HR audit Bug #4): bounds-check each entry's date against
+         the week's range. Pre-V21.9.84, biometric paste with dates outside
+         weekStart..weekEnd would be saved as orphan entries that calcSalary
+         never iterates → silent data loss + mismatch between attendance view
+         and salary calc. Now: out-of-range entries are skipped + logged. */
+      const wkStart=d.hrWeeks[wi].weekStart;
+      const wkEnd=d.hrWeeks[wi].weekEnd;
+      let skipped=0;
       pasteResult.records.filter(r=>r.matched).forEach(r=>{
-        const key=r.empId+"_"+r.date;d.hrWeeks[wi].attendance[key]={empId:r.empId,date:r.date,hours:r.hours}});
+        if(r.date<wkStart||r.date>wkEnd){
+          console.warn("[V21.9.84 paste] date out of week range",{date:r.date,wkStart,wkEnd,empId:r.empId});
+          skipped++;return;
+        }
+        const key=r.empId+"_"+r.date;d.hrWeeks[wi].attendance[key]={empId:r.empId,date:r.date,hours:r.hours};
+      });
+      if(skipped>0)console.warn("[V21.9.84 paste]",skipped,"entries skipped (out of week range "+wkStart+".."+wkEnd+")");
       /* Audit — paste operation with summary */
       addAudit(d,{
         category:"attendance",action:"paste_biometric",
@@ -1067,10 +1081,19 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       if(h>0){totalHours+=h;workDays++}}
     const basicHours=Math.min(totalHours,baseHours);const overtimeHours=Math.max(0,totalHours-baseHours);
     const basicPay=r2(basicHours*perHour);const overtimePay=r2(overtimeHours*perHour*OT_MULT);const grossPay=r2(basicPay+overtimePay);
-    /* Prev balance: use manual override (from _src, respects openWeek vs other weeks) */
+    /* Prev balance: use manual override (from _src, respects openWeek vs other weeks).
+       V21.9.84 (HR audit Bug #7): clamp to >=0 to prevent stealth deductions.
+       Pre-V21.9.84 a negative prevBalanceOverride would silently subtract from
+       the employee's salary without audit trail — easy way to mask deductions
+       outside the official debt system. Now negatives are coerced to 0 and a
+       console.warn is emitted so Ahmed can investigate. */
     const manualPrevBal=_src.prevBalanceOverride[empId];
-    const prevBalance=(manualPrevBal!==undefined&&manualPrevBal!=="")?(Number(manualPrevBal)||0):(Number(emp.prevBalance)||0);
-    const prevBalanceIsManual=(manualPrevBal!==undefined&&manualPrevBal!=="")&&(Number(manualPrevBal)!==Number(emp.prevBalance||0));
+    const _rawManual=(manualPrevBal!==undefined&&manualPrevBal!=="")?(Number(manualPrevBal)||0):null;
+    if(_rawManual!==null&&_rawManual<0){
+      console.warn("[V21.9.84 prevBalance negative override clamped]",{empId,emp:emp.name,raw:_rawManual});
+    }
+    const prevBalance=_rawManual!==null?Math.max(0,_rawManual):(Number(emp.prevBalance)||0);
+    const prevBalanceIsManual=(manualPrevBal!==undefined&&manualPrevBal!=="")&&(prevBalance!==Number(emp.prevBalance||0));
     /* Advances for this week:
        - Strategy: union of everything in date range, dedupe by hrLogId
        - hrLog advance entries (primary source)
@@ -1078,13 +1101,23 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
        - treasury entries in category "مرتبات" with empId set (legacy) */
     const inWeek=(dt)=>dt&&dt>=week.weekStart&&dt<=week.weekEnd;
     const logAdvances=hrLog.filter(l=>l.type==="advance"&&l.empId===empId&&(l.weekId===week.id||inWeek(l.date)));
+    /* V21.9.84 (HR audit Bug #2): treasury-advance dedup against hrLog.
+       Pre-V21.9.84 the dedup was `!seenLogIds.has(t.hrLogId)`. If a treasury
+       entry had a stale or missing hrLogId, AND a parallel hrLog entry
+       existed for the same advance, the treasury entry was INCLUDED (double-
+       counting). Now: only include treasury entries that have NO hrLogId at
+       all (legacy path) OR whose hrLogId genuinely doesn't exist as an
+       advance for this employee. The latter case logs a warning since it
+       suggests a data-integrity issue worth investigating. */
     const seenLogIds=new Set(logAdvances.map(l=>l.id));
-    const treasuryAdvances=(data.treasury||[]).filter(t=>
-      t.empId===empId&&
-      t.type==="out"&&
-      inWeek(t.date)&&
-      !seenLogIds.has(t.hrLogId)&&
-      (t.sourceType==="hr_advance"||t.category==="مرتبات"));
+    const treasuryAdvances=(data.treasury||[]).filter(t=>{
+      if(t.empId!==empId||t.type!=="out"||!inWeek(t.date))return false;
+      if(t.sourceType!=="hr_advance"&&t.category!=="مرتبات")return false;
+      if(!t.hrLogId)return true;/* legacy or hrLog-not-yet-created — include */
+      if(seenLogIds.has(t.hrLogId))return false;/* matched hrLog → already counted */
+      console.warn("[V21.9.84 treasury advance with stale hrLogId]",{txId:t.id,hrLogId:t.hrLogId,empId,date:t.date});
+      return false;/* stale link → safer to skip than double-count */
+    });
     const weekAdvances=logAdvances.reduce((s,l)=>s+(Number(l.amount)||0),0)+treasuryAdvances.reduce((s,t)=>s+(Number(t.amount)||0),0);
     /* Bonus: use manual override (from _src, respects openWeek vs other weeks) */
     const manualBonus=_src.bonus[empId];
@@ -1699,12 +1732,23 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             const extraInstallments=Math.ceil(r2(expectedForThisWeek-portionForThisDebt)/(Number(debt.perWeek)||1));
             debt.installments=(debt.installments||0)+extraInstallments;
           }
-          /* Check if fully paid: sum all actual payments vs debt.total */
+          /* Check if fully paid: sum all actual payments vs debt.total.
+             V21.9.84 (HR audit Bug #3): also require all installments to
+             have been processed before flipping to "paid". Pre-V21.9.84 the
+             status could flip prematurely if rounding pushed totalPaid over
+             the 0.5 threshold while installments remained outstanding.
+             This blocked future installment processing (debt.status!=="paid"
+             check) → shortage silently lost. */
           const totalPaid=r2(debt.paidWeekIds.reduce((s,wid)=>{
             const pp=(debt.partialPayments||{})[wid];
             return s+(pp?Number(pp.paid)||0:(Number(debt.perWeek)||0));
           },0));
-          if(totalPaid>=(Number(debt.total)||0)-0.5){debt.status="paid";debt.paidAt=today}
+          const installmentsExpected=Number(debt.installments)||0;
+          const installmentsCompleted=debt.paidWeekIds.length;
+          if(totalPaid>=(Number(debt.total)||0)-0.5 && installmentsCompleted>=installmentsExpected){
+            debt.status="paid";
+            debt.paidAt=today;
+          }
         });
       });
       /* Update balances — remaining balance carries to next week */
