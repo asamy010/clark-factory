@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.73",
+    date: "2026-05-17",
+    types: ["improvement"],
+    title: "🧪 Phase 15f — Storage Diagnostic v2: 3-test discriminator",
+    changes: [
+      { type: "improvement", text: "🚨 [V21.9.72 diagnostic confirmed: text/plain upload SUCCEEDS, but real template image (image/jpeg) STILL FAILS with storage/unauthorized. Both should pass per Storage rules — bootstrap admin bypass + isAllowedMime matches both. The discrimination is somewhere else.]\n\n**V21.9.73: 3-test discriminator diagnostic.** The single text/plain test from V21.9.72 was insufficient. Now we run 3 progressively-narrower tests:\n\n• **Test A:** `text/plain` → `templates/_diag_*/test.txt` — baseline (proves Storage open)\n• **Test B:** `image/jpeg` → `templates/_diag_*/test.jpg` — SAME path, NEW content-type\n• **Test C:** `image/jpeg` → `templates/tpl_draft_*/test.jpg` — EXACT mimic of failing real upload\n\nThe result pattern instantly identifies the discriminator:\n• A pass, B pass, C pass → bug is in the client upload code (templateImages.js), NOT Firebase. Likely cause: compressed blob has empty `blob.type` and the actual bytes aren't valid JPEG.\n• A pass, B fail → content-type-specific denial. Rule regex broken OR App Check gates image uploads.\n• A pass, B pass, C fail → path-prefix discrimination. `tpl_draft_*` segment triggers a different rule.\n• A fail → Storage entirely denied. Rules deploy reverted somehow.\n\nThe diagnostic also displays user UID, email, role, bootstrap-admin status. Each test path shown in a per-test card with pass/fail + error code." },
+    ],
+  },
+  {
     version: "V21.9.72",
     date: "2026-05-17",
     types: ["improvement"],

@@ -2577,6 +2577,21 @@ function StorageDiagnosticCard({ data, user, getUserRole }){
      If the user's UID matches this, ALL rule checks bypass — uploads must work. */
   const BOOTSTRAP_ADMIN_UID = "fJDTS57ndvVfPozGgwYybKJymuA3";
 
+  /* V21.9.73: run THREE tests with progressively-narrower variables. By comparing
+     which pass and which fail, we isolate the exact discriminator:
+       A. text/plain to `templates/_diag_*/test.txt` — baseline (proved Storage open in V21.9.72)
+       B. image/jpeg to `templates/_diag_*/test.jpg` — SAME path-prefix, NEW content-type
+       C. image/jpeg to `templates/tpl_draft_*/test.jpg` — EXACT mimic of the failing real-upload path
+     Result matrix:
+       A pass, B pass, C pass → bug is in the client upload code (templateImages.js),
+                                not the Storage rule. Storage allows everything that should work.
+       A pass, B fail        → MIME-type discriminator. image/jpeg specifically denied
+                                (rule regex broken, or App Check gates JPG uploads).
+       A pass, B pass, C fail → path-prefix discriminator. `tpl_draft_*` segment denied
+                                specifically (unlikely with `{allPaths=**}` but possible).
+       A fail               → catastrophic — Storage entirely denied (shouldn't happen
+                                given V21.9.72 already proved A passed).
+     The triple-test removes guesswork from the next iteration. */
   const runTest = async () => {
     setBusy(true);
     setResult(null);
@@ -2595,107 +2610,139 @@ function StorageDiagnosticCard({ data, user, getUserRole }){
       uploadMod = fb.uploadBytes;
       deleteMod = fb.deleteObject;
     } catch(e){
-      setResult({ ok:false, phase:"import", error: "فشل تحميل Firebase SDK", uid, email, role, isBootstrap });
+      setResult({ tests: [], phase:"import", error: "فشل تحميل Firebase SDK", uid, email, role, isBootstrap });
       setBusy(false);
       return;
     }
 
     const storage = storageMod.storage;
     const ts = Date.now();
-    const path = `templates/_diag_${ts}/storage_test.txt`;
-    const blob = new Blob(["diag"], { type: "text/plain" });
 
-    /* Try the upload — if it fails, capture the full error details. */
-    let uploadErr = null;
-    let uploadSucceeded = false;
-    try {
-      const r = refMod(storage, path);
-      await uploadMod(r, blob, { contentType: "text/plain" });
-      uploadSucceeded = true;
-      /* Best-effort cleanup of the test file (silent if it fails). */
-      try { await deleteMod(r); } catch(_){}
-    } catch(e){
-      uploadErr = {
-        code: e?.code || "unknown",
-        message: e?.message || String(e),
-        serverResponse: e?.customData?.serverResponse || null,
-      };
+    /* JPEG SOI + APP0 marker bytes — enough for Firebase Storage to accept as image/jpeg.
+       Actual decoded image isn't required for the rule check; only the contentType matters. */
+    const jpegBytes = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
+
+    const tests = [
+      {
+        id: "txt_diag",
+        label: "A. text/plain → templates/_diag_*/test.txt",
+        path: `templates/_diag_${ts}/test_a.txt`,
+        blob: new Blob(["diag"], { type: "text/plain" }),
+        contentType: "text/plain",
+      },
+      {
+        id: "jpg_diag",
+        label: "B. image/jpeg → templates/_diag_*/test.jpg (same path, JPG type)",
+        path: `templates/_diag_${ts}/test_b.jpg`,
+        blob: new Blob([jpegBytes], { type: "image/jpeg" }),
+        contentType: "image/jpeg",
+      },
+      {
+        id: "jpg_tpldraft",
+        label: "C. image/jpeg → templates/tpl_draft_*/test.jpg (exact mimic of failing upload)",
+        path: `templates/tpl_draft_diag_${ts}/test_c.jpg`,
+        blob: new Blob([jpegBytes], { type: "image/jpeg" }),
+        contentType: "image/jpeg",
+      },
+    ];
+
+    const results = [];
+    for(const t of tests){
+      let err = null, ok = false;
+      try {
+        const r = refMod(storage, t.path);
+        await uploadMod(r, t.blob, { contentType: t.contentType });
+        ok = true;
+        try { await deleteMod(r); } catch(_){}
+      } catch(e){
+        err = {
+          code: e?.code || "unknown",
+          message: e?.message || String(e),
+        };
+      }
+      results.push({ ...t, ok, error: err });
     }
 
-    setResult({
-      ok: uploadSucceeded,
-      uid, email, role, isBootstrap,
-      path,
-      error: uploadErr,
-      /* Diagnose likely root cause */
-      likelyCause: uploadSucceeded
-        ? null
-        : (isBootstrap
-            ? "anomaly_bootstrap_denied"
-            : (role === "viewer"
-                ? "role_viewer_no_uid_in_cfg"
-                : (["admin","manager","sales_accountant"].includes(role)
-                    ? "rule_evaluation_failure"
-                    : "role_not_in_sales_scope"))),
-    });
+    /* Identify discriminator pattern from the results. */
+    const aOk = results[0].ok;
+    const bOk = results[1].ok;
+    const cOk = results[2].ok;
+    let pattern = "unknown";
+    let fix = "";
+    if(aOk && bOk && cOk){
+      pattern = "all_pass";
+      fix = "🎉 الـ 3 tests نجحوا — يبقى الـ Storage rules + الـ permissions كلهم سليمين. "
+          + "المشكلة في الـ template editor code نفسه — مش في الـ Firebase. "
+          + "احتمال: الـ blob من الـ image compression بـ يـ produce blob.type='' (فارغ) → "
+          + "بـ يـ default-ـه templateImages.js لـ 'image/jpeg' بـ تنجح المرة، بس عند ال upload "
+          + "الفعلي بـ يحدث mismatch مع actual bytes (مش JPEG حقيقي). راجع compressImageToBlob.";
+    } else if(aOk && !bOk && !cOk){
+      pattern = "jpeg_denied";
+      fix = "⚠️ TXT بـ يـ pass بس JPG بـ يـ deny — Storage rule بـ يـ deny image/jpeg specifically. "
+          + "احتمال 1: الـ rule's isAllowedMime regex مش matching فعلاً. "
+          + "احتمال 2: App Check مـ فعّل + بـ يـ require token للـ image uploads فقط. "
+          + "احتمال 3: Firebase Storage quota للـ images متجاوز.";
+    } else if(aOk && bOk && !cOk){
+      pattern = "path_discriminator";
+      fix = "⚠️ نفس content-type بس path مختلف بـ يـ fail — يبقى الـ `tpl_draft_*` prefix بـ يـ trigger "
+          + "rule مختلفة. غريب لأن الـ `{allPaths=**}` المفروض يـ match. شوف Firebase Console → Storage → Rules "
+          + "وتأكد إن `match /templates/{allPaths=**}` هو اللي مفعّل (مش حاجة أكثر تحديداً).";
+    } else if(!aOk){
+      pattern = "all_fail";
+      fix = "💥 الـ A فشل دلوقتي بس كان نجح في V21.9.72 — حاجة اتغيرت. "
+          + "اتأكد من الـ rules في Firebase Console (مفروض الـ V21.9.71 hardcoded). "
+          + "أو ممكن الـ auth token expired — sign out + sign in.";
+    } else {
+      pattern = "partial_other";
+      fix = "🔍 نمط غير-متوقع — ابعت screenshot للـ تفاصيل تحت.";
+    }
+
+    setResult({ tests: results, uid, email, role, isBootstrap, pattern, fix });
     setBusy(false);
   };
 
   const r = result;
-  const causeText = {
-    anomaly_bootstrap_denied:
-      "⚠️ UID مطابق للـ bootstrap admin بس الـ rule لسه بـ يـ deny — "
-      + "ده يـ indicate إن الـ rules اللي على Firebase Console مش الـ V21.9.71 (الـ hardcoded). "
-      + "روح Firebase Console → Storage → Rules → اتأكد إن الـ content يحتوي على `isBootstrapAdmin` "
-      + "function بـ نفس الـ UID. لو الـ content مختلف، انشر الـ V21.9.71 rules تاني.",
-    role_viewer_no_uid_in_cfg:
-      "🔧 الـ role راجع `viewer` لأن الـ UID بتاعك مش في `factory/config.users`. "
-      + "الـ Fix: روح Settings → المستخدمين → ضيف نفسك بالإيميل + role=admin. "
-      + "الـ system هـ يـ store الـ UID على الـ next sign-in.",
-    rule_evaluation_failure:
-      "🔍 الـ role صحيح (admin/manager/sales) بس الـ Storage rule لسه deny. "
-      + "أسباب محتملة: الـ rules القديمة لسه cached في الـ CDN edge (انتظر دقيقتين)، "
-      + "أو الـ App Check مفعّل وبدون token صحيح. جرّب refresh الصفحة.",
-    role_not_in_sales_scope:
-      "🔧 الـ role بتاعك مش في `isSalesScope` (admin/manager/sales_accountant). "
-      + "Templates + campaigns uploads محصورة على الـ roles دي. "
-      + "إما غيّر الـ role من Settings → المستخدمين، أو عدّل storage.rules يدوياً.",
-  };
 
   return (
     <Card title="🧪 اختبار رفع الصور (Storage Diagnostic)">
       <div style={{ fontSize: FS-2, color: T.textMut, marginBottom: 12, lineHeight: 1.6 }}>
-        لو "فشل رفع الصورة" بـ يـ surface في الـ templates/campaigns، اضغط الزرار ده —
-        هـ يـ attempt upload بسيط ويـ report بالظبط ليه فشل (الـ UID، الـ role،
-        الـ rule اللي رفض، الـ fix المقترح). ما بـ يحتاج Firebase Console.
+        ٣ tests متتابعة لـ isolate المشكلة: TXT-عام، JPG-بنفس-الـ path، JPG-بـ exact-mimic للـ real path.
+        النتيجة بـ تـ tell-ك بالظبط هل المشكلة في الـ content-type، الـ path، ولا في كود الـ upload نفسه.
       </div>
-      <LoadingBtn primary loading={busy} loadingText="جاري الاختبار..." onClick={runTest} small>
-        🧪 شغّل اختبار الـ Storage
+      <LoadingBtn primary loading={busy} loadingText="جاري الاختبار (3 tests)..." onClick={runTest} small>
+        🧪 شغّل اختبار الـ Storage (3 سيناريوهات)
       </LoadingBtn>
       {r && (
-        <div style={{ marginTop: 14, padding: 12, borderRadius: 10,
-            background: r.ok ? T.ok+"08" : T.err+"08",
-            border: "1px solid " + (r.ok ? T.ok+"40" : T.err+"40") }}>
-          <div style={{ fontSize: FS-1, fontWeight: 800, color: r.ok ? T.ok : T.err, marginBottom: 8 }}>
-            {r.ok ? "✅ النجاح — Storage بـ يـ allow الـ upload" : "❌ فشل — تفاصيل التشخيص تحت"}
-          </div>
-          <div style={{ fontSize: FS-2, color: T.text, lineHeight: 1.9 }}>
+        <div style={{ marginTop: 14 }}>
+          <div style={{ padding: 10, borderRadius: 8, background: T.bg, border: "1px solid " + T.brd, marginBottom: 10, fontSize: FS-2, color: T.text, lineHeight: 1.8 }}>
             <div><b>UID:</b> <code style={{ fontFamily: "monospace", fontSize: FS-3 }}>{r.uid}</code></div>
             <div><b>Email:</b> {r.email}</div>
-            <div><b>Role (client view):</b> {r.role}</div>
-            <div><b>Bootstrap admin?</b> {r.isBootstrap ? "✅ نعم — الـ rules لازم تـ allow" : "لا"}</div>
-            <div><b>Test path:</b> <code style={{ fontFamily: "monospace", fontSize: FS-3 }}>{r.path}</code></div>
-            {r.error && (
-              <>
-                <div style={{ marginTop: 8, color: T.err }}><b>Error code:</b> <code>{r.error.code}</code></div>
-                <div style={{ color: T.err, wordBreak: "break-word" }}><b>Message:</b> {r.error.message}</div>
-              </>
-            )}
+            <div><b>Role:</b> {r.role}</div>
+            <div><b>Bootstrap admin?</b> {r.isBootstrap ? "✅ نعم" : "لا"}</div>
           </div>
-          {r.likelyCause && causeText[r.likelyCause] && (
-            <div style={{ marginTop: 12, padding: 10, borderRadius: 8,
-                background: T.bg, border: "1px solid " + T.brd, fontSize: FS-2, lineHeight: 1.7, color: T.text }}>
-              <b>السبب المحتمل:</b><br/>{causeText[r.likelyCause]}
+          {(r.tests || []).map((t,i) => (
+            <div key={i} style={{
+              padding: 10, marginBottom: 8, borderRadius: 8,
+              background: t.ok ? T.ok+"08" : T.err+"08",
+              border: "1px solid " + (t.ok ? T.ok+"40" : T.err+"40"),
+            }}>
+              <div style={{ fontSize: FS-2, fontWeight: 800, color: t.ok ? T.ok : T.err, marginBottom: 4 }}>
+                {t.ok ? "✅" : "❌"} {t.label}
+              </div>
+              <div style={{ fontSize: FS-3, color: T.textMut, fontFamily: "monospace", wordBreak: "break-all" }}>{t.path}</div>
+              {t.error && (
+                <div style={{ marginTop: 6, fontSize: FS-3, color: T.err }}>
+                  <b>{t.error.code}:</b> {t.error.message}
+                </div>
+              )}
+            </div>
+          ))}
+          {r.pattern && r.fix && (
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 10,
+                background: T.accent+"08", border: "1px solid " + T.accent+"40",
+                fontSize: FS-2, lineHeight: 1.7, color: T.text }}>
+              <div style={{ fontWeight: 800, color: T.accent, marginBottom: 6 }}>التشخيص: {r.pattern}</div>
+              {r.fix}
             </div>
           )}
         </div>
