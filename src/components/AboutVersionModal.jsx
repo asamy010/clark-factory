@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.77",
+    date: "2026-05-17",
+    types: ["fix"],
+    title: "🎯 Phase 15h-2 — Remove customMetadata from remaining upload sites",
+    changes: [
+      { type: "fix", text: "🔍 [V21.9.76 fixed customMetadata في `templateImages.js` (template + campaign images). بس الـ search كانت محدودة. لقيت في V21.9.77 audit إن في 2 upload sites تانية بنفس الـ pattern:]\n\n• `src/utils/orderImages.js:93` — `uploadOrderImageBlob` بـ `customMetadata: { orderId }`\n• `src/utils/attachments.js:126` — order attachments بـ `customMetadata: { orderId, uploadedBy, originalName }`\n\nالـ user الحالي مش بـ يـ trigger الـ paths دي (الـ error في الـ screenshot كان template/campaign uploads — fixed في V21.9.76). بس لو حد يـ trigger order image upload أو attachment upload في المستقبل، هـ يـ hit نفس الـ bug.\n\n**V21.9.77 يـ proactively cleans كل الـ upload sites:**\n```diff\n// orderImages.js\n-customMetadata: { orderId: orderId || '' },\n// attachments.js\n-customMetadata: { orderId, uploadedBy, originalName: file.name },\n```\n\nالـ orderId محفوظ في الـ storage path (`orders/{orderId}/...`)، الـ originalName في الـ filename. مفيش وظيفة بـ تـ depend على customMetadata في كل الـ codebase.\n\n**Audit result:** الـ grep على الـ codebase دلوقتي بـ يـ show 0 active `customMetadata` calls. كل الـ uploads بقت آمنة من الـ multipart protocol switch." },
+    ],
+  },
+  {
     version: "V21.9.76",
     date: "2026-05-17",
     types: ["fix"],

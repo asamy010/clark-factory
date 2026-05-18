@@ -90,9 +90,15 @@ export async function uploadOrderImageBlob(orderId, blob){
   if(blob.size > MAX_ORDER_IMAGE_SIZE) throw new Error("image too large");
   const path = buildPath(orderId);
   const ref = storageRef(storage, path);
+  /* V21.9.77: removed customMetadata for the same reason as V21.9.76 fix in
+     templateImages.js — Firebase SDK switches to multipart/related upload when
+     customMetadata is present, which makes `request.resource.contentType` in
+     Storage rules see 'multipart/related; boundary=...' instead of 'image/jpeg'.
+     The `isAllowedMime()` regex `image/.*` fails to match → HTTP 403 →
+     `storage/unauthorized`. orderId is already in the storage path itself
+     (`orders/{orderId}/...`), so dropping customMetadata.orderId costs nothing. */
   const snap = await uploadBytes(ref, blob, {
     contentType: blob.type || "image/jpeg",
-    customMetadata: { orderId: orderId || "" },
   });
   const url = await getDownloadURL(snap.ref);
   return { storagePath: path, url };

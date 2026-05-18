@@ -121,11 +121,15 @@ export async function uploadAttachment(orderId,file,uploadedBy,onProgress){
   const safeName=file.name.replace(/[^\w\u0600-\u06FF.\- ]+/g,"_").substring(0,80);
   const storagePath="orders/"+orderId+"/attachments/"+ts+"_"+safeName;
   
-  /* Upload with progress tracking */
+  /* Upload with progress tracking.
+     V21.9.77: removed customMetadata (same root-cause as V21.9.76 templateImages.js
+     fix — customMetadata forces multipart upload protocol, which breaks Storage
+     rule's `isAllowedMime()` contentType check). orderId is already in the path
+     itself, originalName is preserved as the final path segment, uploadedBy was
+     only used for forensic logging. */
   const ref=storageRef(storage,storagePath);
   const task=uploadBytesResumable(ref,finalFile,{
     contentType:finalFile.type||"application/octet-stream",
-    customMetadata:{orderId,uploadedBy:uploadedBy||"",originalName:file.name}
   });
   
   return new Promise((resolve,reject)=>{
