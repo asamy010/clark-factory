@@ -2579,19 +2579,23 @@ function StorageDiagnosticCard({ data, user, getUserRole }){
 
   /* V21.9.73: run THREE tests with progressively-narrower variables. By comparing
      which pass and which fail, we isolate the exact discriminator:
-       A. text/plain to `templates/_diag_*/test.txt` — baseline (proved Storage open in V21.9.72)
-       B. image/jpeg to `templates/_diag_*/test.jpg` — SAME path-prefix, NEW content-type
-       C. image/jpeg to `templates/tpl_draft_*/test.jpg` — EXACT mimic of the failing real-upload path
+       A. text-plain to templates/_diag_X/test.txt — baseline (proved Storage open in V21.9.72)
+       B. image-jpeg to templates/_diag_X/test.jpg — SAME path-prefix, NEW content-type
+       C. image-jpeg to templates/tpl_draft_X/test.jpg — EXACT mimic of the failing real-upload path
      Result matrix:
-       A pass, B pass, C pass → bug is in the client upload code (templateImages.js),
-                                not the Storage rule. Storage allows everything that should work.
-       A pass, B fail        → MIME-type discriminator. image/jpeg specifically denied
-                                (rule regex broken, or App Check gates JPG uploads).
-       A pass, B pass, C fail → path-prefix discriminator. `tpl_draft_*` segment denied
-                                specifically (unlikely with `{allPaths=**}` but possible).
-       A fail               → catastrophic — Storage entirely denied (shouldn't happen
-                                given V21.9.72 already proved A passed).
-     The triple-test removes guesswork from the next iteration. */
+       A pass, B pass, C pass: bug is in the client upload code (templateImages.js),
+                               not the Storage rule. Storage allows everything that should work.
+       A pass, B fail        : MIME-type discriminator. image/jpeg specifically denied
+                               (rule regex broken, or App Check gates JPG uploads).
+       A pass, B pass, C fail: path-prefix discriminator. tpl_draft segment denied
+                               specifically (unlikely with allPaths wildcard but possible).
+       A fail                : catastrophic — Storage entirely denied (shouldn't happen
+                               given V21.9.72 already proved A passed).
+     The triple-test removes guesswork from the next iteration.
+     NOTE — V21.9.74 build-fix: prior comment used a literal asterisk-slash inside
+     the path examples (mimicking the Storage wildcard), which terminated this block
+     comment early and broke Vite's esbuild parse. Path examples now use "_X" as the
+     placeholder. */
   const runTest = async () => {
     setBusy(true);
     setResult(null);

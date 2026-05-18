@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.74",
+    date: "2026-05-17",
+    types: ["fix"],
+    title: "🛠 Phase 15f-fix — V21.9.73 build broken (comment ended early)",
+    changes: [
+      { type: "fix", text: "🚨 [Vercel build للـ V21.9.73 فشل بـ:\n```\nsrc/components/DiagnosticsPanel.jsx:2583:25: ERROR: Expected ';' but found 'templates'\n```\n\n**ROOT CAUSE:** الـ V21.9.73 block-comment للـ StorageDiagnosticCard كان فيه:\n```\n/* ...\n   A. text/plain to `templates/_diag_*/test.txt` — baseline\n   B. image/jpeg to `templates/_diag_*/test.jpg` — ...\n*/\n```\nالـ literal `*/` داخل path examples (للـ Storage wildcard) **terminated the comment early**. Vite's esbuild parsed everything after the early-terminated `*/` as JavaScript code → syntax error on `templates`.\n\n**Fix:** نقّيت الـ comment — استخدمت `_X` placeholder بدلاً من `*/`. الـ string literals في الـ tests array لسه على شكل-ها (في strings الـ `*/` آمن).\n\n**Anti-pattern recorded:** أبداً ما تستخدم `*/` literally داخل JS block comment — حتى لو هو inside backticks/quotes أو path examples. الـ parser ما بـ يـ care عن السياق داخل الـ comment. استخدم `_X` أو `\\*\\/` أو شيل الـ slash.\n\n**Verification:** Vercel build للـ V21.9.74 المفروض ينجح. لو لسه فشل بنفس الـ error، يبقى في `*/` literal ثاني فاتني." },
+    ],
+  },
+  {
     version: "V21.9.73",
     date: "2026-05-17",
     types: ["improvement"],
