@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.98",
+    date: "2026-05-19",
+    types: ["fix"],
+    title: "🚨 Phase 19g — Storage EMERGENCY DIAGNOSTIC (max permissive globally)",
+    changes: [
+      { type: "fix", text: "🚨 [Ahmed أكد إن **كل** الـ storage uploads فاشلة الآن — templates + orders + documents كلها بـ نفس الـ storage/unauthorized error. كان شغّال في الـ إصدارات القديمة.]\n\n**التحليل:**\n• الـ storage diagnostic tests A/B/C في الـ session اللي فات نجحوا (templates/_diag_*/) → الـ rules logic بـ تشتغل لـ direct uploadBytes\n• الـ real production uploads فشلوا في كل الـ paths → الـ rules مش الـ root cause\n• الـ V21.9.97 max-permissive documents/** الـ rule ما حلتش → الـ rules **definitively** مش الـ issue\n\n**V21.9.98 BYPASS:** الـ storage.rules كلها بقت سطرين بس:\n```\nmatch /{allPaths=**} {\n  allow read, write: if request.auth != null;\n}\n```\nمفيش role checks، مفيش MIME guard، مفيش size cap. أي authed user يقدر يـ read/write أي path. الـ secure version محفوظة في `storage.rules.SECURE.bak` للاسترجاع.\n\n**نتيجة الاختبار التالي:**\n• ✅ **لو الـ upload نجح** → الـ issue كانت في الـ helpers (hasRole/getRole/isAllowedMime). هـ نـ debug-em واحد واحد.\n• ❌ **لو لسه فاشل** → الـ rules مش الـ issue على الإطلاق. الاحتمالات:\n  ① App Check في Firebase Console = enforced (most likely)\n  ② الـ rules deploy ما اشتغلش (الـ live rules مختلفة عن الـ repo)\n  ③ Bucket mismatch (الـ client يـ POST لـ bucket مختلف عن اللي الـ rules منشورة عليه)\n\n**Recovery path:** بعد ما الـ root cause اتحدد، استرجع الـ rules الأصلية من `storage.rules.SECURE.bak`." },
+    ],
+  },
+  {
     version: "V21.9.97",
     date: "2026-05-19",
     types: ["fix"],
