@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.96",
+    date: "2026-05-19",
+    types: ["fix"],
+    title: "🛡️ Phase 19e — Storage rules refactor (Documents Tree fix)",
+    changes: [
+      { type: "fix", text: "🚨 [Documents Tree upload فشل في V21.9.95 بـ `storage/unauthorized` حتى للـ bootstrap admin.]\n\n**Root Cause (suspected):** الـ inline 6-role array في الـ documents/** rule (`hasRole(['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant'])`) ممكن يـ trigger CEL evaluation quirk في Firebase Storage rules. الـ existing tested patterns كلهم بـ يستخدموا helper functions (isManagerPlus, isSalesScope, isPurchaseScope) — مش inline arrays.\n\n**Fix:** refactor للـ helper-union pattern matching the templates/invoices/orders rules:\n```diff\n-allow create, update: if isWriteSafe() && hasRole(['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant']);\n+allow create, update: if isWriteSafe() && (isManagerPlus() || isSalesScope() || isPurchaseScope());\n```\n\nالـ scopes coverage:\n• isManagerPlus = admin + manager\n• isSalesScope = admin + manager + sales_accountant\n• isPurchaseScope = admin + manager + purchase_accountant + warehouse_keeper\n• Union = 5 roles (payroll_accountant ما يـ included — هـ يحتاج explicit lookup لو الـ business case ظهر)\n\n**GitHub Actions:** الـ workflow هـ يـ re-trigger على الـ push ده ويـ deploy storage.rules خلال ~60 ثانية. لو الـ workflow فشل، Ahmed محتاج يـ check الـ Actions tab + يـ deploy manually عبر Firebase Console كـ backup." },
+    ],
+  },
+  {
     version: "V21.9.95",
     date: "2026-05-19",
     types: ["feature"],

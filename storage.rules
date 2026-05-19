@@ -178,16 +178,20 @@ service firebase.storage {
        User-managed document tree (contracts, PDFs, scanned papers, etc.).
        Each file lives under documents/{folderId}/{fileId}_{name}.{ext}.
        Soft-deletes go to documents/.trash/** (7-day retention).
-       Versions live at documents/.versions/{fileId}/v{N}_{name}.{ext}.
-       Thumbnails at documents/.thumbnails/{fileId}.jpg.
 
-       Read: any authed user (viewers can browse the tree).
-       Create/Update: any authed user except viewer (manager-plus + accountants
-         + warehouse_keeper). isWriteSafe enforces 100MB cap + MIME guard.
-       Delete: managerPlus only (other roles use the trash flow). */
+       V21.9.96 REFACTOR: switched from inline role array to a union of
+       existing tested helpers (isManagerPlus + isSalesScope + isPurchaseScope).
+       The inline 6-role array deployed in V21.9.94 caused storage/unauthorized
+       for the bootstrap admin — root cause unclear (CEL evaluation quirk?).
+       Existing rules (templates, invoices, etc.) use the helper-union pattern
+       and work reliably, so we mirror that approach here.
+
+       Read: any authed user.
+       Create/Update: managerPlus + sales/purchase scope (existing helpers).
+       Delete: managerPlus only. */
     match /documents/{allPaths=**} {
       allow read:           if isAuthed();
-      allow create, update: if isWriteSafe() && hasRole(['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant']);
+      allow create, update: if isWriteSafe() && (isManagerPlus() || isSalesScope() || isPurchaseScope());
       allow delete:         if isManagerPlus();
     }
 
