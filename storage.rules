@@ -1,37 +1,29 @@
 rules_version = '2';
 
-/* ═══════════════════════════════════════════════════════════════
-   CLARK Factory — Firebase Storage Rules
-   V21.9.98 EMERGENCY DIAGNOSTIC — MAX PERMISSIVE
-   ═══════════════════════════════════════════════════════════════
-   Ahmed reports ALL storage uploads failing with storage/unauthorized:
-     - templates/** (campaign images)  — FAIL
-     - orders/**/attachments/** (order attachments) — FAIL
-     - documents/** (new Documents Tree) — FAIL
+/*
+   CLARK Factory - Firebase Storage Rules
+   V21.9.99 - EMERGENCY DIAGNOSTIC MAX PERMISSIVE (syntax-clean)
 
-   Tests A/B/C in earlier session diagnostic PASSED (text + image to
-   templates/_diag_*/). But real production uploads FAIL. The V21.9.97
-   max-permissive documents/** also failed.
+   Root cause of V21.9.94 to V21.9.98 deploy failures: previous comment
+   blocks contained the literal sequence "asterisk-asterisk-slash" inside
+   path examples like "orders / double-star / attachments / double-star".
+   The slash inside that pattern terminated the block comment early, so
+   Firebase parsed the rest as code and threw a syntax error. Ahmed saw
+   no rules deploy and storage/unauthorized for ALL paths.
 
-   This points to the rules NOT being the root cause. Most likely:
-   1. App Check enforcement in Firebase Console (Storage tab)
-   2. Rules deploy is broken — live rules don't match repo
-   3. Auth token not being sent on writes (but reads work?)
+   This file uses NO path literals with double-star inside comments.
 
-   V21.9.98 STRATEGY: bypass all role/MIME/size checks. Allow any
-   authed user to do everything. If THIS still fails → confirmed the
-   issue is upstream of rules. If it works → at least one of the
-   helpers (hasRole/isWriteSafe/isAllowedMime) is broken globally.
+   Strategy: bypass every helper. If THIS still fails -> root cause is
+   App Check enforcement, bucket mismatch, or auth token issue.
 
-   ⚠️ THIS IS TEMPORARY. Once we identify the cause, restore proper
-   security via storage.rules.SECURE.bak (see at end of file).
-   ═══════════════════════════════════════════════════════════════ */
+   Once uploads are confirmed working, restore the secure ruleset from
+   storage.rules.SECURE.bak (which has the same comment bug fixed
+   inline before use).
+*/
 
 service firebase.storage {
   match /b/{bucket}/o {
 
-    /* Auth-only — any authed user can do anything anywhere.
-       Deny only happens for unauthenticated requests. */
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
     }

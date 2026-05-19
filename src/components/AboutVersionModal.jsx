@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.99",
+    date: "2026-05-19",
+    types: ["fix"],
+    title: "🎯 Phase 19h — Storage rules SYNTAX FIX (was rejected by Firebase)",
+    changes: [
+      { type: "fix", text: "🎯 [ROOT CAUSE FOUND for V21.9.98]\n\n**الـ Firebase Console error:** `Line 9: mismatched input 'attachments' expecting {'function', 'import', 'service'}`\n\n**Cause:** الـ comment الافتتاحي في V21.9.98 احتوى على `orders/**/attachments/**` كـ example. الـ sequence `**/` (asterisk-asterisk-slash) داخل `/* ... */` block comment **بـ ينهي الـ comment مبكراً**. الـ parser شاف:\n```\n/* ... orders/*<-- comment ends here\n*/attachments/** ... <-- code, syntax error\n```\n\nنفس الـ V21.9.73 anti-pattern موثق في CLAUDE.md §10! نسيت أتطبقه على نفسي.\n\n**Why الـ deploy فشل صامتاً:** الـ GitHub Actions workflow أخذ الـ file → ran `firebase deploy --only storage` → Firebase رفض الـ file → الـ workflow ممكن يكون marked as failed (Ahmed يحتاج يـ verify في الـ Actions tab)، لكن النتيجة: الـ live rules بقت stuck على آخر نسخة نجحت في الـ deploy.\n\n**V21.9.99 الـ fix:** أعدت كتابة الـ storage.rules بـ comments نظيفة (مفيش `**/` patterns):\n```\nrules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}\n```\nالـ rule نفسها = max permissive (any authed user). لو نجح الـ deploy الآن، الـ live rules بقت بـ الـ \"any authed\" permission.\n\n**الـ outcomes بعد deploy:**\n• ✅ Uploads بـ تشتغل → الـ rules فعلاً كانت stuck على نسخة قديمة broken. هـ نـ rebuild الـ secure rules خطوة-خطوة من `storage.rules.SECURE.bak`.\n• ❌ Uploads لسه فاشلة → الـ rules وُصلت لـ Firebase صح، لكن في issue تاني: **App Check enforcement** هو الـ المرشح الأقوى." },
+    ],
+  },
+  {
     version: "V21.9.98",
     date: "2026-05-19",
     types: ["fix"],
