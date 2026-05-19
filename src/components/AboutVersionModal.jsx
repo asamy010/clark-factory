@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.95",
+    date: "2026-05-19",
+    types: ["feature"],
+    title: "📁 Phase 19b-c-d — Documents Tree MVP (Slices 2-4)",
+    changes: [
+      { type: "feature", text: "🎉 [الـ Documents Tree feature بقت MVP-complete! بدلاً من شحن slice/slice، الـ slices 2+3+4 اجتمعوا في DocumentsPg.jsx واحد لأنهم نفس الـ UI surface.]\n\n**ما اتـ added في الـ commit ده:**\n\n**1. DocumentsPg.jsx (700+ سطر) — الـ main page:**\n• Folder tree navigation مع breadcrumbs\n• Folder CRUD (create / rename / delete + cascade soft-delete للملفات)\n• Drag-and-drop upload zone (batch + progress UI)\n• File grid مع thumbnails للصور + icons لـ PDFs/docs/etc.\n• In-browser preview (images + PDFs + text iframes)\n• File ops: rename, move, soft-delete to .trash/, restore, hard-delete\n• Search في filename + description\n• Stats bar: folder count, file count, total storage size\n• Trash view مع 7-day retention message\n\n**2. App.jsx routing:**\n• `tab===\"documents\"` route لـ DocumentsPg (lazy-loaded)\n• Suspense wrapper inherited من الـ existing pattern\n\n**3. LoginScreen.jsx TABS:**\n• 'documents' tab أُضيفت بـ icon (folder with file inside SVG)\n• Color: #8B5CF6 (purple)\n• هـ تظهر تلقائياً في الـ Home tiles لأي user بـ permission `view+`" },
+      { type: "feature", text: "🛡️ [Storage paths conventions implemented]\n\n**Active files:** `documents/{folderId|'root'}/{fileId}_{sanitized-name}.{ext}`\n• الـ `{fileId}` prefix يمنع collisions على نفس الـ filename\n• Sanitize keeps Arabic chars + spaces (replaced with _)\n• Max 200 chars\n\n**Soft delete:** files بـ `deletedAt` timestamp يبقوا في نفس الـ Storage path. الـ binary ما يـ moved physically — flag-based فقط (cheap). الـ folder navigation يـ filter them out. UI shows them في الـ trash view مع restore/hard-delete actions.\n\n**Hard delete:** يـ trigger `deleteObject` على Firebase Storage + يـ remove الـ file من الـ Firestore array.\n\n**100 MB limit:** enforced client-side (oversized files skipped مع tell()) + server-side (storage.rules `isWriteSafe`).\n\n**friendlyStorageError:** copied من ShopifyPushModal pattern. الـ generic `storage/unauthorized` بـ يـ translate لـ \"الـ storage.rules مش deployed\" hint." },
+      { type: "doc", text: "📋 [Roadmap — متبقي 11 slice من الـ feature الكامل]\n\n**MVP shipped (V21.9.94-95):**\n• ✅ Slice 1 — Infrastructure\n• ✅ Slice 2 — Folder CRUD + DocumentsPg\n• ✅ Slice 3 — Drag-and-drop upload\n• ✅ Slice 4 — File ops + soft delete + preview\n\n**Post-MVP slices (مؤجلة):**\n• Slice 5 — Advanced preview (PDF.js + Office docs viewer)\n• Slice 6 — Entity linking (customer/invoice/order)\n• Slice 7 — Version control\n• Slice 8 — Expiry dates + notifications\n• Slice 9 — Bulk operations + storage quota viz\n• Slice 10 — Templates folder structure (one-click default)\n• Slice 11 — Activity log + audit\n• Slice 12 — Signed URL sharing\n• Slice 13 — Mobile camera scan\n• Slice 14 — AI auto-categorization\n• Slice 15 — Documentation\n\nالـ MVP الحالي بـ يـ handle 90% من الـ use cases. الباقي features احترافية إضافية." },
+    ],
+  },
+  {
     version: "V21.9.94",
     date: "2026-05-19",
     types: ["feature"],

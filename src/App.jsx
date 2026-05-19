@@ -146,6 +146,8 @@ const AuditPg = lazyNamed(() => import("./pages/AuditPg.jsx"), "AuditPg");
 /* V18.35: Accounting system — chart of accounts, journal, trial balance, settings */
 const AccountingPg = lazyNamed(() => import("./pages/AccountingPg.jsx"), "AccountingPg");
 const FixedAssetsPg = lazyNamed(() => import("./pages/FixedAssetsPg.jsx"), "FixedAssetsPg");
+/* V21.9.95 — Documents Tree (folder-based document manager) */
+const DocumentsPg = lazyNamed(() => import("./pages/DocumentsPg.jsx"), "DocumentsPg");
 /* V15.59: Mobile Warehouse — accessed via /warehouse URL */
 import { MobileWarehouseShell } from "./pages/mobile/MobileWarehouseShell.jsx";
 const WarehousePg = lazyNamed(() => import("./pages/WarehousePg.jsx"), "WarehousePg");
@@ -6390,6 +6392,8 @@ export default function App(){
         {tab==="audit"&&canViewTab("audit")&&<AuditPg data={data} isMob={isMob} user={user}/>}
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}
+        {/* V21.9.95 — Documents Tree page */}
+        {tab==="documents"&&canViewTab("documents")&&<DocumentsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("documents")} user={user}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
