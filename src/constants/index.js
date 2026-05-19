@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.100";
+export const APP_VERSION = "V21.9.101";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -79,6 +79,15 @@ export const INIT_CONFIG = {
      Split: NOT needed at MVP (will move to documentsFiles + documentsFolders
      partitioned docs once folders > 200 OR files > 500). */
   documentsTree:{folders:[],files:[]},
+  /* V21.9.101 — Universal Tag Registry (Slice 1).
+     First-class tag objects {id, name, nameLC, color, icon, description,
+     appliesTo[], createdBy, createdAt, lastUsedAt, archived, ...}.
+     Entities reference tags by ID (NOT name) — see src/utils/tags.js.
+     Storage trade-off: plain array on factory/config (same pattern as
+     documentsTree). Will move to tagRegistryDocs partitioned collection
+     once the array exceeds ~300 entries. Most factories realistically
+     stay under 100 tags, so MVP cost is zero. */
+  tagRegistry:[],
   /* Purchase module — Session 1 */
   stockMovements:[], purchaseReceipts:[], purchaseOrders:[],
   purchaseSettings:{

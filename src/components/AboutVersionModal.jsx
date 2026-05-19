@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.101",
+    date: "2026-05-19",
+    types: ["architectural", "feature"],
+    title: "🏷️ Phase 20a — Universal Tag Registry (Slice 1/8)",
+    changes: [
+      { type: "feature", text: "🏷️ [أول لبنة في الـ Universal Tagging System — feature شبيه بـ Odoo tags هـ يدعم \"تاجز في أي مكان\" عبر العملاء والموردين والأصناف والأوردرات.]\n\n**ما تم في هذه الـ Slice (V21.9.101):**\n• `data.tagRegistry[]` field جديد في INIT_CONFIG — central catalog للـ tags كـ first-class objects (id, name, color, icon, appliesTo, archived, …).\n• `src/utils/tags.js` (جديد) — pure utility module بـ كل المنطق:\n  - normalize/display name helpers (case-insensitive, whitespace collapse)\n  - findTagByName / findTagById / getTagsByEntityType\n  - createTag (soft-create: لو موجود يـ return الموجود، لو archived يـ unarchive)\n  - renameTag (مع collision check + auto-throw TAG_EXISTS:<id>)\n  - updateTag / archiveTag / unarchiveTag / touchTagLastUsed\n  - filterByTags (Set-based O(N) — يدعم AND/OR)\n  - resolveTagsForDisplay / getTagUsageCount / getAllTagsUsageCounts\n  - mergeTags (pure — يـ rewrite IDs في الـ entity arrays + يـ archive الـ losers مع mergedInto pointer)\n• 12-color preset palette (`TAG_COLORS`) متطابقة مع theme CLARK.\n• Phase 1 entity types: customer, supplier, item, order." },
+      { type: "doc", text: "🛡️ [قرارات معمارية مبنية على data-safety priority]\n\n1. **Create permission = Manager + Admin فقط** (مش any-editor) — يمنع fragmentation 'VIP' vs 'vip' من إثراء الـ registry. العاديين بـ يـ select من الموجود فقط.\n\n2. **Shopify pull لا يـ auto-create في الـ registry** — الـ Shopify strings تفضل في `c.shopify_tags` mirror. الـ admin يـ promote اللي عاوزها يدوياً من Settings → Tags. ده يـ keep الـ registry نظيف من noise.\n\n3. **IDs (مش names) في الـ entity references** — rename/archive/merge تـ propagate تلقائياً.\n\n4. **Storage strategy:** plain `factory/config.tagRegistry[]` للـ MVP (≤300 tags). Split لـ `tagRegistryDocs/{tagId}` planned post-MVP لو عداد الـ tags فاق الحد.\n\n5. **Pure functions only في هذه الـ slice** — لا UI، لا mutations حية. الـ wiring يأتي في Slice 2 (Picker/Filter) → Slice 3 (Settings page) → Slice 4 (Customer + Shopify migration)." },
+      { type: "architectural", text: "📦 [Slice plan للـ feature الكامل]\n\n• Slice 1 (هذه) — Registry schema + utility ✅\n• Slice 2 — TagPicker + TagFilter components\n• Slice 3 — Settings → Tags management page (CRUD + merge + bulk archive)\n• Slice 4 — Customer integration + Shopify migration (dry-run + admin approval)\n• Slice 5 — Supplier integration\n• Slice 6 — Item/Product integration\n• Slice 7 — Order integration\n• Slice 8 — Cross-entity tag view (\"click tag → see all linked entities\")\n\nكل slice ship-ها منفصلة لـ regression detection سهل." },
+    ],
+  },
+  {
     version: "V21.9.100",
     date: "2026-05-19",
     types: ["fix", "architectural"],
