@@ -179,20 +179,18 @@ service firebase.storage {
        Each file lives under documents/{folderId}/{fileId}_{name}.{ext}.
        Soft-deletes go to documents/.trash/** (7-day retention).
 
-       V21.9.96 REFACTOR: switched from inline role array to a union of
-       existing tested helpers (isManagerPlus + isSalesScope + isPurchaseScope).
-       The inline 6-role array deployed in V21.9.94 caused storage/unauthorized
-       for the bootstrap admin — root cause unclear (CEL evaluation quirk?).
-       Existing rules (templates, invoices, etc.) use the helper-union pattern
-       and work reliably, so we mirror that approach here.
-
-       Read: any authed user.
-       Create/Update: managerPlus + sales/purchase scope (existing helpers).
-       Delete: managerPlus only. */
+       V21.9.97 DIAGNOSTIC: maximally permissive (any authed user can
+       read/create/update; manager+ to delete). Previous versions used
+       role-scope checks but they all failed with storage/unauthorized for
+       the bootstrap admin — root cause unclear and matches the V21.9.77
+       template upload Test D mystery.
+       This rule is intentionally permissive while we diagnose. Once the
+       upload is confirmed working, we'll re-tighten incrementally to
+       identify which check breaks it. */
     match /documents/{allPaths=**} {
-      allow read:           if isAuthed();
-      allow create, update: if isWriteSafe() && (isManagerPlus() || isSalesScope() || isPurchaseScope());
-      allow delete:         if isManagerPlus();
+      allow read:                  if isAuthed();
+      allow create, update:        if isAuthed() && isUnderSize();
+      allow delete:                if isManagerPlus();
     }
 
     /* ── Default catch-all: deny ──

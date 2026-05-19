@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.97",
+    date: "2026-05-19",
+    types: ["fix"],
+    title: "🩺 Phase 19f — Documents storage rule DIAGNOSTIC (max permissive)",
+    changes: [
+      { type: "fix", text: "🚨 [V21.9.96 helper-union refactor فشل برضو بـ same storage/unauthorized error. ده يعني الـ issue مش في الـ role-check logic.]\n\n**الـ symptom pattern يـ match Test D من V21.9.77 handoff:**\n• الـ diagnostic tests A/B/C في templates/_diag_* بـ تنجح\n• الـ real production upload بـ يفشل بـ storage/unauthorized\n• الـ V21.9.76 customMetadata removal ما كانش الـ root cause الحقيقي\n\n**V21.9.97 diagnostic step:** الـ rule بقت **maximally permissive** — أي authed user يقدر يـ create/update داخل documents/**. الـ MIME guard + scope checks تـ removed:\n```diff\n-allow create, update: if isWriteSafe() && (isManagerPlus() || isSalesScope() || isPurchaseScope());\n+allow create, update: if isAuthed() && isUnderSize();\n```\n\n**نتائج محتملة:**\n• ✅ لو الـ upload **نجح** الآن → المشكلة في الـ MIME regex أو الـ role-check evaluation. هـ نـ re-tighten incrementally لـ identify الـ exact culprit.\n• ❌ لو الـ upload **لسه فاشل** → الـ rules مش الـ issue أصلاً. الأسباب المتبقية: App Check enforced في Firebase Console، الـ workflow ما deployedش الـ rules فعلاً (verify via gcloud or Firebase Console UI)، أو bucket mismatch (rules deployed على bucket مختلف عن اللي الـ client بـ يـ POST عليه).\n\nالـ user يـ test بعد الـ rules deploy ويبعت النتيجة." },
+    ],
+  },
+  {
     version: "V21.9.96",
     date: "2026-05-19",
     types: ["fix"],
