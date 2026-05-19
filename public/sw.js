@@ -38,7 +38,7 @@
    new JS. No manual cache clears needed.
    ═══════════════════════════════════════════════════════════════ */
 
-const SW_VERSION = 'v21.9.99';
+const SW_VERSION = 'v21.9.100';
 const APP_CACHE = 'clark-app-' + SW_VERSION;
 const IMG_CACHE = 'clark-images-' + SW_VERSION;
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];
@@ -85,8 +85,27 @@ self.addEventListener('message', e => {
 });
 
 function isImageRequest(url) {
-  /* Firebase Storage hosts model images uploaded via uploadOrderImageFile. */
-  if (url.hostname === 'firebasestorage.googleapis.com') return true;
+  /* V21.9.100 ROOT-CAUSE FIX (storage/unauthorized after upload):
+     Pre-V21.9.100 the SW intercepted ALL firebasestorage.googleapis.com
+     GETs (including the metadata fetch that `getDownloadURL` makes during
+     uploadBytes -> getDownloadURL flow). The intercept refetched with
+     `credentials: omit` which STRIPS the Firebase Auth bearer token, so
+     the metadata request was rejected with 403 -> SDK surfaces
+     `storage/unauthorized`. The user saw the upload "fail" even though
+     the POST to /o succeeded. This was the V21.9.77 Test D mystery and
+     why ALL real production uploads (templates, orders, documents)
+     appeared broken while the diagnostic A/B/C tests passed (those don't
+     call getDownloadURL).
+
+     Fix: only treat firebasestorage URLs as image requests if they carry
+     a public download token (`alt=media&token=...`). Those are signed
+     public URLs safe to fetch without credentials. Bare paths (metadata
+     calls + authenticated downloads) bypass the SW entirely so the SDK
+     attaches its bearer token unmodified. */
+  if (url.hostname === 'firebasestorage.googleapis.com') {
+    const search = url.search || '';
+    return search.includes('alt=media') && search.includes('token=');
+  }
   /* Generic image extensions (covers same-origin / public assets). */
   if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|#|$)/i.test(url.pathname)) return true;
   return false;
