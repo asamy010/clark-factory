@@ -174,6 +174,23 @@ service firebase.storage {
       allow delete:         if isAuthed();
     }
 
+    /* V21.9.94 — documents/** (Documents Tree feature).
+       User-managed document tree (contracts, PDFs, scanned papers, etc.).
+       Each file lives under documents/{folderId}/{fileId}_{name}.{ext}.
+       Soft-deletes go to documents/.trash/** (7-day retention).
+       Versions live at documents/.versions/{fileId}/v{N}_{name}.{ext}.
+       Thumbnails at documents/.thumbnails/{fileId}.jpg.
+
+       Read: any authed user (viewers can browse the tree).
+       Create/Update: any authed user except viewer (manager-plus + accountants
+         + warehouse_keeper). isWriteSafe enforces 100MB cap + MIME guard.
+       Delete: managerPlus only (other roles use the trash flow). */
+    match /documents/{allPaths=**} {
+      allow read:           if isAuthed();
+      allow create, update: if isWriteSafe() && hasRole(['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant']);
+      allow delete:         if isManagerPlus();
+    }
+
     /* ── Default catch-all: deny ──
        V19.64: removed the permissive `match /{allPaths=**}` fallback that allowed
        any authed user to write anywhere. Files now MUST land in one of the

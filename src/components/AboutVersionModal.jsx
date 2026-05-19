@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.94",
+    date: "2026-05-19",
+    types: ["feature"],
+    title: "📁 Phase 19a — Documents Tree (Slice 1: Infrastructure)",
+    changes: [
+      { type: "feature", text: "🏗️ [Slice 1 من Documents Tree feature — Infrastructure only، no UI yet]\n\n**ما اتـ added:**\n\n**1. storage.rules:** match clause لـ `documents/**`:\n```\nmatch /documents/{allPaths=**} {\n  allow read:           if isAuthed();\n  allow create, update: if isWriteSafe() && hasRole(['admin','manager',...]);\n  allow delete:         if isManagerPlus();\n}\n```\nViewers يقدروا يـ browse الـ tree (read). الـ write للـ admin/manager + 4 محاسبين. الـ delete لـ manager+ فقط (الباقي يستخدموا soft-delete via `.trash/`).\n\n**2. permissions.js:** \"documents\" tab أُضيفت لـ PERMISSION_TABS + DEFAULT_PERMS لكل الـ 8 roles:\n• admin/manager/sales/purchase/warehouse/payroll: edit\n• viewer/payroll_verifier: view\n\n**3. INIT_CONFIG.documentsTree:** skeleton schema `{folders:[], files:[]}`:\n• folders: tree nodes بـ parentId\n• files: metadata + storagePath + downloadURL (binary في Storage)\n\n**No UI changes في هذا الـ slice.** الـ DocumentsPg.jsx + Home tile + folder CRUD في Slice 2." },
+      { type: "doc", text: "📋 [Roadmap Documents Tree — 4 slices for MVP]\n\n• ✅ Slice 1 (V21.9.94) — Infrastructure (this commit)\n• Slice 2 — Folder tree CRUD + DocumentsPg + Home tile\n• Slice 3 — Drag-and-drop upload + DropZone + file cards\n• Slice 4 — File ops (rename/move/soft-delete) + preview\n\n**Post-MVP slices (5-15):** Search, entity linking, version control, expiry tracking, bulk operations, signed URL sharing, templates structure, activity log, mobile camera scan." },
+    ],
+  },
+  {
     version: "V21.9.93",
     date: "2026-05-18",
     types: ["fix", "doc"],

@@ -64,6 +64,8 @@ export const PERMISSION_TABS = [
   { key: "accounting",       label: "محاسبة",              icon: "📊", group: "finance" },
   { key: "fixedAssets",      label: "أصول ثابتة",          icon: "🏭", group: "finance" },
   { key: "settings",         label: "الإعدادات",           icon: "⚙️", group: "admin" },
+  /* V21.9.94 — Documents Tree (folder-based document manager) */
+  { key: "documents",        label: "المستندات",           icon: "📁", group: "core" },
 ];
 
 export const PERMISSION_TAB_KEYS = PERMISSION_TABS.map(t => t.key);
@@ -171,7 +173,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"edit",verify:"edit",employees:"edit",security:"edit"},
     campaigns:"edit", automation:"edit", aiAgent:"edit", shopify:"edit", audit:"edit",
     accounting:"edit", fixedAssets:"edit",
-    settings:"edit",
+    settings:"edit", documents:"edit",
   },
   manager: {
     dashboard:"edit", details:"edit", external:"edit", reports:"edit",
@@ -182,7 +184,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"view",verify:"view",employees:"view",security:"view"},
     campaigns:"edit", automation:"view", aiAgent:"edit", shopify:"edit", audit:"view",
     accounting:"view", fixedAssets:"view",
-    settings:"hide",
+    settings:"hide", documents:"edit",
   },
   /* V21.9.60 — Sales accountant: expanded default access to warehouse + customer DB.
      The real-world workflow needs sales to: see what's available in stock before
@@ -198,7 +200,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"edit", automation:"hide", aiAgent:"edit", shopify:"edit", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"edit",
   },
   purchase_accountant: {
     dashboard:"view", details:"view", external:"edit", reports:"edit",
@@ -209,7 +211,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"edit",
   },
   /* V19.44 — Warehouse keeper: the role that prompted this whole audit.
      Common scenario: a worker who scans purchase receipts and counts stock.
@@ -226,7 +228,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"edit",
   },
   payroll_accountant: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
@@ -237,7 +239,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"edit",verify:"hide",employees:"edit",security:"view"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"edit",
   },
   payroll_verifier: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
@@ -248,7 +250,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"view",verify:"edit",employees:"view",security:"view"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"hide", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"view",
   },
   viewer: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
@@ -259,7 +261,7 @@ export const DEFAULT_PERMS = {
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
     campaigns:"hide", automation:"hide", aiAgent:"hide", shopify:"view", audit:"hide",
     accounting:"hide", fixedAssets:"hide",
-    settings:"hide",
+    settings:"hide", documents:"view",
   },
 };
 

@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.93";
+export const APP_VERSION = "V21.9.94";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -66,6 +66,19 @@ export const INIT_CONFIG = {
   treasury:[], treasuryAccounts:[], treasuryTransfers:[],
   custPayments:[], supplierPayments:[], checks:[], lockedDays:[],
   employees:[], hrLog:[], hrWeeks:[], empDebts:[], auditLog:[],
+  /* V21.9.94 — Documents Tree (folder-based document manager).
+     Schema:
+       folders: [{id, name, icon, color, parentId, path, orderIndex,
+                  createdBy, createdAt, lastModifiedAt}]
+       files:   [{id, name, folderId, storagePath, downloadURL,
+                  contentType, size, uploadedBy, uploadedAt,
+                  lastModifiedAt, tags, description, linkedTo,
+                  version, versions, thumbnailPath, previewable,
+                  expiryDate, notifyDaysBefore, accessLog}]
+     Storage layout: documents/{folderId}/{fileId}_{name}.{ext}
+     Split: NOT needed at MVP (will move to documentsFiles + documentsFolders
+     partitioned docs once folders > 200 OR files > 500). */
+  documentsTree:{folders:[],files:[]},
   /* Purchase module — Session 1 */
   stockMovements:[], purchaseReceipts:[], purchaseOrders:[],
   purchaseSettings:{
