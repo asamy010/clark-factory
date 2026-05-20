@@ -490,6 +490,26 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
+       V21.9.123 — Universal Attachments metadata
+       Companion to /attachments/ in storage.rules. The metadata
+       contains downloadURL + uploader + size + entityType+entityId.
+       Read: any authenticated user (parallel to storage read).
+       Create/Update/Delete: manager+ to match storage write scope.
+       Future: widen to scope-specific (sales for invoices, hr for
+       employees, etc.) when entity-specific rules become valuable.
+       ────────────────────────────────────────────────────────── */
+    match /attachments/{attachmentId} {
+      allow read: if isAuthed();
+      allow create: if isManagerPlus()
+                    && request.resource.data.sizeBytes is number
+                    && request.resource.data.sizeBytes <= 10485760
+                    && request.resource.data.entityType is string
+                    && request.resource.data.entityId is string;
+      allow update: if isManagerPlus();
+      allow delete: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
     match /{document=**} {
