@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.114";
+export const APP_VERSION = "V21.9.115";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -79,6 +79,11 @@ export const INIT_CONFIG = {
      Split: NOT needed at MVP (will move to documentsFiles + documentsFolders
      partitioned docs once folders > 200 OR files > 500). */
   documentsTree:{folders:[],files:[]},
+  /* V21.9.115 — Unified Contacts registry. Thin layer over existing
+     customers/suppliers/workshops/employees. A contact carries types[]
+     (e.g., ["customer","supplier"] for parties who are both) and back-
+     references the entity IDs it spawned. See src/utils/contacts.js. */
+  contacts:[],
   /* V21.9.101 — Universal Tag Registry (Slice 1).
      First-class tag objects {id, name, nameLC, color, icon, description,
      appliesTo[], createdBy, createdAt, lastUsedAt, archived, ...}.

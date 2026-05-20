@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.115",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "👥 Phase 22a — Unified Contacts Directory (V1: view + create)",
+    changes: [
+      { type: "feature", text: "👥 [Feature جديد — تجميع كل أطراف التعامل (عملاء + موردين + ورش + موظفين) في دليل موحّد. الـ V1 = view + create فقط.]\n\n**التصميم المعماري (Hybrid Registry):**\n\nبدل ما نـ unify الـ 4 جداول الحالية (high-risk migration)، أضفت **layer جديدة** فوقهم:\n\n```\ndata.contacts[]  (registry جديد — thin)\n  ├─ id, name, phone, types[], workshopSubType\n  ├─ linkedIds: { customer, supplier, workshop, employee }\n  ├─ tags, notes, createdAt\n  ↓\n  ├──→ data.customers[]  (موجود، يفضل كما هو)\n  ├──→ data.suppliers[]  (موجود، يفضل كما هو)\n  ├──→ data.workshops[]  (موجود، يفضل كما هو)\n  └──→ data.employees[]  (موجود، يفضل كما هو)\n```\n\nالـ contacts بـ يـ create entries في كل table مطلوب بـ نفس الاسم/التليفون/التاجز + back-reference بـ contactId. كل الـ pages الموجودة (CustDeliverPg, PurchasePg, HRPg, DBPg) تـ work بـ صفر تغيير." },
+      { type: "feature", text: "🎨 [الـ UI الجديدة]\n\n**Home tile:** زر 👥 'جهات الاتصال' بقى يظهر بعد لوحة التحكم مباشرة.\n\n**Page contents:**\n• Search box بـ name/phone\n• Filter chips: الكل / عميل / مورد / ورشة / موظف / 🔗 متعدد التصنيف (للجهات اللي عميل+مورد مثلاً)\n• Count بـ كل chip — admin يعرف فوراً كم contact في كل تصنيف\n• Table بـ: الاسم، التليفون، التصنيفات (chips ملوّنة), التاجز, المصدر (سجل موحّد ولا قائمة قديمة)\n\n**+ جهة جديدة modal:**\n• الاسم + التليفون (مع live-dup detection عبر الـ 4 جداول)\n• 4 toggleable type chips (عميل/مورد/ورشة/موظف) — multi-select\n• Workshop sub-type selector (يظهر بس لو 'ورشة' selected) — يستخدم الـ WS_TYPES الموجود (6 خيارات)\n• Tag picker (Universal Tagging الموجود)\n• Notes textarea\n• Validation: name + ≥1 type required، workshop subType required لو نوع ورشة\n• Duplicate phone: warning + confirmation (مش block — admin قد يكون له سبب)" },
+      { type: "doc", text: "🛡️ [Data-safety guarantees]\n\n• **Add-only schema** — `data.contacts[]` field جديد، الـ existing entries بدون contactId يفضلوا كما هم\n• **مفيش migration إجبارية** — opt-in linking. Existing customers/suppliers/workshops/employees تظهر في الـ Contacts page كـ standalone rows (linkedFrom = نوعها، contactId = null)\n• **مفيش UI refactor** — الـ CustDeliverPg, PurchasePg, إلخ بـ يـ work بـ صفر change\n• **Permission integration** — أضفت `contacts` في PERMISSION_TABS + كل role في DEFAULT_PERMS (admin/manager/sales/purchase = edit، باقي = view)\n• **Pure functions في utils/contacts.js** — كل mutation returns patch، الـ caller يقرر يـ commit\n• **upConfig mutator pattern** — صحيح (متعلم من V21.9.110 hotfix)\n\n**Deferred لـ phases الجاية:**\n• Slice 2 — Edit flow + propagate name/phone changes للـ linked entries\n• Slice 3 — Manual link-existing flow (admin يـ link customer + supplier موجودين كـ نفس الجهة)\n• Slice 4 — Cross-account ledger view: عميل balance + مورد balance + net (مدين/دائن) + زر تسوية\n• Slice 5 — Auto-detect duplicates عبر phone normalization + suggest merge" },
+    ],
+  },
+  {
     version: "V21.9.114",
     date: "2026-05-20",
     types: ["fix"],

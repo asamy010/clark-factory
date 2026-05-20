@@ -81,6 +81,8 @@ import { lazy, Suspense } from "react";
 import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx";
 
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
+/* V21.9.115: Unified Contacts directory — appears on the home tile after dashboard. */
+const ContactsPg = lazyNamed(() => import("./pages/ContactsPg.jsx"), "ContactsPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -6365,6 +6367,8 @@ export default function App(){
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
         {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
+        {/* V21.9.115: Contacts page — unified directory. canEdit gated like custDeliver (sales-side). */}
+        {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}
         {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
             Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}

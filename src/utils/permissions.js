@@ -42,6 +42,10 @@ export const PERMISSION_TABS = [
   { key: "tasks",            label: "المهام",              icon: "✅", group: "core" },
   { key: "db",               label: "قاعدة البيانات",      icon: "🗃️", group: "core" },
   { key: "custDeliver",      label: "مبيعات (تسليم)",      icon: "🛒", group: "sales" },
+  /* V21.9.115: Unified Contacts (customers + suppliers + workshops + employees).
+     Lives in `core` group so admins/managers see it by default. Sales accountants
+     get it via the sales-side gate; purchase accountants via purchase-side. */
+  { key: "contacts",         label: "جهات الاتصال",        icon: "👥", group: "core" },
   /* V19.44 — These six tabs were UNGATED before V19.44 (open to all roles).
      Added them to the matrix to close the gap. */
   { key: "salesInvoices",    label: "فواتير المبيعات",     icon: "📤", group: "sales" },
@@ -166,7 +170,7 @@ export const ROLE_META = ROLES.reduce((acc, r) => { acc[r.key] = r; return acc; 
 export const DEFAULT_PERMS = {
   admin: {
     dashboard:"edit", details:"edit", external:"edit", reports:"edit",
-    tasks:"edit", db:"edit", custDeliver:"edit",
+    tasks:"edit", db:"edit", custDeliver:"edit", contacts:"edit",
     salesInvoices:"edit", creditNotes:"edit",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"edit",
@@ -177,7 +181,7 @@ export const DEFAULT_PERMS = {
   },
   manager: {
     dashboard:"edit", details:"edit", external:"edit", reports:"edit",
-    tasks:"edit", db:"edit", custDeliver:"edit",
+    tasks:"edit", db:"edit", custDeliver:"edit", contacts:"edit",
     salesInvoices:"edit", creditNotes:"edit",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"view",
@@ -193,7 +197,7 @@ export const DEFAULT_PERMS = {
      no access to db at all — which forced warehouse/admin to be a bottleneck. */
   sales_accountant: {
     dashboard:"view", details:"view", external:"view", reports:"edit",
-    tasks:"edit", db:"view", custDeliver:"edit",
+    tasks:"edit", db:"view", custDeliver:"edit", contacts:"edit",
     salesInvoices:"edit", creditNotes:"edit",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"edit", pieces:"edit", treasury:"hide",
@@ -204,7 +208,7 @@ export const DEFAULT_PERMS = {
   },
   purchase_accountant: {
     dashboard:"view", details:"view", external:"edit", reports:"edit",
-    tasks:"edit", db:"edit", custDeliver:"hide",
+    tasks:"edit", db:"edit", custDeliver:"hide", contacts:"edit",
     salesInvoices:"hide", creditNotes:"hide",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"edit",
@@ -221,7 +225,7 @@ export const DEFAULT_PERMS = {
      financial documents — the receipts page (purchase) is where they work. */
   warehouse_keeper: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
-    tasks:"edit", db:"view", custDeliver:"hide",
+    tasks:"edit", db:"view", custDeliver:"hide", contacts:"view",
     salesInvoices:"hide", creditNotes:"hide",
     purchase:"edit", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"edit", pieces:"edit", treasury:"hide",
@@ -232,7 +236,7 @@ export const DEFAULT_PERMS = {
   },
   payroll_accountant: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
-    tasks:"edit", db:"hide", custDeliver:"hide",
+    tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
     salesInvoices:"hide", creditNotes:"hide",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"hide", pieces:"hide", treasury:"view",
@@ -243,7 +247,7 @@ export const DEFAULT_PERMS = {
   },
   payroll_verifier: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
-    tasks:"edit", db:"hide", custDeliver:"hide",
+    tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
     salesInvoices:"hide", creditNotes:"hide",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"hide", pieces:"hide", treasury:"view",
@@ -254,7 +258,7 @@ export const DEFAULT_PERMS = {
   },
   viewer: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
-    tasks:"edit", db:"hide", custDeliver:"hide",
+    tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
     salesInvoices:"view", creditNotes:"view",
     purchase:"view", purchaseInvoices:"view", debitNotes:"view",
     warehouse:"view", pieces:"view", treasury:"hide",

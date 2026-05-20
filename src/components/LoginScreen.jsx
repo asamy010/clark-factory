@@ -35,6 +35,9 @@ export function LoginScreen(){
 
 export const TABS=[
   {key:"dashboard",label:"لوحة التحكم",icon:"📊",color:"#0EA5E9",bg:"#E0F2FE",svg:<><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><path d="M2 20h20"/></>},
+  /* V21.9.115: Unified Contacts directory (customers + suppliers + workshops + employees).
+     Sits right after dashboard so it's discoverable as the canonical "who do we talk to" entry. */
+  {key:"contacts",label:"جهات الاتصال",icon:"👥",color:"#DB2777",bg:"#FCE7F3",svg:<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>},
   {key:"details",label:"أوامر القص",icon:"✂️",color:"#8B5CF6",bg:"#EDE9FE",svg:<><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></>},
   {key:"external",label:"تشغيل خارجي",icon:"🏗️",color:"#10B981",bg:"#D1FAE5",svg:<><path d="M17 18a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2"/><rect x="2" y="6" width="20" height="16" rx="2"/><path d="M2 10h20"/></>},
   /* V18.25: 'تسليم مخزن جاهز' tab removed — same functionality available via the '+ تسليم' button inside each order's detail page */
