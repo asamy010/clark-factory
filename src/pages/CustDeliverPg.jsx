@@ -30,6 +30,12 @@ import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
+/* V21.9.105: Universal Tagging — Slice 4b Customer integration. TagPicker
+   for edit form, TagFilter + TagChips for list view. Manager+Admin only
+   create inline tags (per data-safety §0.1 decision). */
+import { TagPicker, TagChips } from "../components/TagPicker.jsx";
+import { TagFilter } from "../components/TagFilter.jsx";
+import { filterByTags } from "../utils/tags.js";
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
@@ -70,6 +76,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(0);const[custFilter,setCustFilter]=useState("");
   /* V18.16: Archive flag for customer form */
   const[cArchived,setCArchived]=useState(false);
+  /* V21.9.105: Customer tags state (Slice 4b of Universal Tagging).
+     `cTags` is the array of tag IDs being edited; `custTagFilter` filters
+     the customer list popup. Mode defaults to "OR" (any). */
+  const[cTags,setCTags]=useState([]);
+  const[custTagFilter,setCustTagFilter]=useState([]);
+  const[custTagFilterMode,setCustTagFilterMode]=useState("OR");
   /* V18.16: Show-archived toggle (admin only — defaults off so archived are hidden everywhere) */
   const[showArchivedCusts,setShowArchivedCusts]=useState(false);
   /* V18.19: Item card (كارت صنف) — full movement history per model */
@@ -378,8 +390,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
     const discVal=Math.max(0,Math.min(100,Number(cDiscount)||0));
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived})}});
-    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    /* V21.9.105: snapshot tags to a safe array — never undefined, dedup just in case. */
+    const tagsClean=Array.from(new Set(Array.isArray(cTags)?cTags.filter(Boolean):[]));
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived;d.customers[idx].tags=tagsClean}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived,tags:tagsClean})}});
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   /* V21.9.57 CRITICAL FIX (Reported Bug — '"تسوية جرد" مش بعرف احذف'):
      `safeDelete` was referenced at line ~3116 inside the customer list
@@ -3179,7 +3193,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
           <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
             <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
           </div>
         </div>
@@ -3188,7 +3202,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {/* V18.16: Toggle to show archived customers (admin convenience for review) */}
           <Btn small onClick={()=>setShowArchivedCusts(!showArchivedCusts)} style={{background:showArchivedCusts?T.err+"15":T.bg,color:showArchivedCusts?T.err:T.textSec,border:"1px solid "+(showArchivedCusts?T.err+"40":T.brd),whiteSpace:"nowrap"}} title="إظهار/إخفاء العملاء الموقوفين">{showArchivedCusts?"🔒 يظهر الموقوفين":"إظهار الموقوفين"}</Btn>
         </div>
-        {(()=>{const fc=customers.filter(c=>{
+        {/* V21.9.105: Tag filter strip — only renders if there's at least one
+            applicable tag in the registry. Otherwise stays hidden so existing
+            users don't see UI noise before they create any tags. */}
+        <TagFilter
+          entityType="customer"
+          registry={data.tagRegistry||[]}
+          selectedTags={custTagFilter}
+          mode={custTagFilterMode}
+          onChange={(ids,m)=>{setCustTagFilter(ids);setCustTagFilterMode(m)}}
+          compact
+        />
+        {(()=>{const fcRaw=customers.filter(c=>{
           /* V21.9.57 DEFENSIVE FILTER: hide pseudo-customers (id starts with "_")
              from the customer list display. These are system-internal markers
              (e.g., "_adjust" for inventory audit stock corrections) that should
@@ -3203,16 +3228,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(c.archived&&!showArchivedCusts)return false;
           if(!custFilter.trim())return true;const q=custFilter.trim().toLowerCase();return(c.name||"").toLowerCase().includes(q)||(c.phone||"").includes(q)||(c.type||"").includes(q)
         });
-          return fc.length>0?<table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
+          /* V21.9.105: chain tag filter AFTER text/archive filter.
+             filterByTags returns the input untouched when selectedTags is empty,
+             so this is a no-op when no tag chip is selected. */
+          const fc=filterByTags(fcRaw,custTagFilter,custTagFilterMode);
+          return fc.length>0?<table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التاجز","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={TD}><TagChips tagIds={c.tags||[]} registry={data.tagRegistry||[]} small max={3}/></td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={getDeleteBlocker(data,"customer",c.id)}/>
             </div></td>}</tr>})}
-        </tbody></table>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{custFilter?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
+        </tbody></table>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
     </div>}
     {/* V17.9: Tabs for the 4 main lists — instead of stacking them vertically (which forced scrolling) */}
@@ -5787,6 +5816,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <input type="number" min={0} max={100} step="0.5" value={cDiscount} onChange={e=>setCDiscount(e.target.value)} placeholder="0" style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
               <span style={{fontSize:FS,color:T.textMut,fontWeight:700}}>%</span>
             </div>
+          </div>
+          {/* V21.9.105: Customer tags picker (Slice 4b of Universal Tagging).
+              IDs from data.tagRegistry; soft-create gates duplicate names automatically.
+              Registry changes (inline create) write through upConfig — same flow as
+              the picker on every other entity will use in Slices 5-7. */}
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاجز <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— لتصنيف العميل (VIP، جملة، إلخ)</span></label>
+            <TagPicker
+              entityType="customer"
+              registry={data.tagRegistry||[]}
+              value={cTags}
+              onChange={setCTags}
+              onRegistryChange={(newReg)=>upConfig(d=>{d.tagRegistry=newReg})}
+              allowCreate={canEdit}
+              currentUser={user}
+              placeholder="إضافة تاج..."
+            />
           </div>
           {/* V18.16: Archive toggle — block customer from new transactions, hide from lists/portal */}
           {cEditId&&<div style={{padding:10,borderRadius:10,background:cArchived?T.err+"08":T.bg,border:"1px solid "+(cArchived?T.err+"30":T.brd),display:"flex",alignItems:"center",gap:10}}>

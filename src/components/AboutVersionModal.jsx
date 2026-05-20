@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.105",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🏷️ Phase 20e — Customer UI Integration (Slice 4b/8)",
+    changes: [
+      { type: "feature", text: "🏷️ [Slice 4b من Universal Tagging — أول entity integration حقيقي. الـ user دلوقتي يقدر يـ tag العملاء + يـ filter بـ tags في الـ customer list.]\n\n**التغييرات في `src/pages/CustDeliverPg.jsx`:**\n\n**1. Customer Edit Form:**\n• حقل \"التاجز\" جديد بين \"الخصم\" و \"الأرشفة\"\n• `<TagPicker entityType=\"customer\" .../>` بـ inline create عبر `allowCreate={canEdit}`\n• Soft-create يـ dedup الـ duplicates تلقائياً — مفيش 'VIP' + 'vip' كـ tags مختلفة\n• الـ tags بـ تتـ save في `customer.tags = [...IDs]` عبر upConfig — يـ trigger الـ partition write لـ `customersDocs/{id}` تلقائياً\n\n**2. Customer List Popup:**\n• `<TagFilter />` chip strip بين الـ search input والجدول\n• يـ hidden تماماً لو الـ registry فاضي (مفيش noise للـ new users)\n• Toggle بـ تـ select/deselect chips + AND/OR mode + reset button\n• الجدول يـ filter عبر `filterByTags(fcRaw, custTagFilter, mode)` بعد الـ existing text+archive filter\n\n**3. Table Row Display:**\n• عمود جديد \"التاجز\" بين \"الاسم\" و \"النوع\"\n• `<TagChips tagIds={c.tags||[]} max={3}/>` — يعرض 3 chips كـ max + \"+N\" overflow\n• Small mode للـ chips — مناسب لـ table density\n\n**4. State management:**\n• `cTags` — current edit form tags\n• `custTagFilter`، `custTagFilterMode` — list filter state\n• كل الـ reset/load handlers (+ عميل جديد + ✏️ تعديل) محدثة لـ تشمل الـ tags" },
+      { type: "doc", text: "🛡️ [Data-safety guarantees]\n\n• **Add-only schema change:** `customer.tags` field جديد، الـ existing customers بدون tags هـ يستمروا يـ work عادي (الـ `c.tags||[]` defaults).\n• **No data conversion في الـ save path:** الـ saveCust يـ store الـ IDs مباشرة من TagPicker — لو الـ user لمس tag legacy string قديم (pre-migration)، الـ TagPicker مش هـ يـ display-ها (لأنها مش IDs). الـ user يقدر يضيف tags جدد لكن الـ legacy strings تفضل في الـ doc.\n• **Migration banner لسه يظهر** في Settings → التاجز لو الـ legacy strings موجودة — الـ admin يقدر يـ migrate في أي وقت.\n• **Partitioned write transparent:** upConfig يكشف الـ diff في customers ويـ writes customersDocs/{id} عبر syncAllPartitionedChanges (V19.57 infrastructure).\n• **Set-based filtering:** O(N) عبر filterByTags — مفيش lag حتى مع 5000 عميل + 3 tags فلتر.\n• **TagFilter لا يظهر لو registry فاضي:** الـ existing users اللي مش بـ يستخدموا tags لسه مش هـ يشوفوا أي تغيير في الـ UI.\n\n**التالي (Slice 5 — V21.9.106):**\n• Supplier integration (مشابه للـ Customer pattern)" },
+    ],
+  },
+  {
     version: "V21.9.104",
     date: "2026-05-20",
     types: ["feature", "architectural"],
