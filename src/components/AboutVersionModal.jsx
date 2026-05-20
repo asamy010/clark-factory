@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.113",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "🛒 Phase 21c — Shopify Stale Orders 15-Day Display Cap (UI-only)",
+    changes: [
+      { type: "improvement", text: "🛒 [User reported: الـ Reconciliation tab يـ shows طلبات pending 140+ يوم — clutters the view. اطلب 'مسح القديمة'.]\n\n**Push-back applied (§0.1):** الـ hard delete كان خطر فعلي بناءً على الـ Phase 0 audit:\n• Customer metrics في sync-customers.js:109-166 بـ aggregate من ALL orders — حذف order = retroactive drop في delivered_count + revenue\n• الـ orders الـ pending قد تكون عليها stockReservations نشطة — حذفها = leaked holds على الـ inventory\n• shopifyReturnRequestsDays فيها source_order_id refs — break links\n• مفيش audit trail للـ deletion\n\n**Safer alternative shipped (Option A — UI-only filter):**\n• الـ data **مش محذوفة** — تفضل في shopifyOrdersDays/{date}/entries كما هي\n• الـ default view بـ يخفي الـ orders > 15 يوم (configurable)\n• Toggle '👁️ عرض القديمة' يكشف الـ hidden orders عند الحاجة\n• Hidden count banner: '🗂️ X طلب أقدم من 15 يوم مخفي. الـ data محفوظة في الـ database — مش محذوفة.'" },
+      { type: "improvement", text: "🎛️ [Configuration]\n\nأضيف config option جديد في Shopify → Settings tab:\n**'الحد الأقصى لـ عرض Pending قديمة (أيام)'**\n• Field: `cfg.pending_order_max_age_days`\n• Default: 15\n• Range: 7 → 365 يوم\n• الـ user الـ admin يقدر يـ adjust حسب احتياج المصنع\n\n**الـ stale window logic:**\n• Lower bound = `pending_order_timeout_days` (default 7) → الـ order يعتبر stale\n• Upper bound = `pending_order_max_age_days` (default 15) → الـ order مخفي من الـ default view\n• Window المعروض: [timeout, maxAge] = [7, 15] يوم بالـ defaults\n• Card title بقى ديناميك: '⏰ طلبات Pending قديمة (7-15 يوم)'\n\nLocations:\n• ShopifyIntegrationPg.jsx:1994-2008 (settings UI)\n• ShopifyIntegrationPg.jsx:3479-3502 (filtering logic)\n• ShopifyIntegrationPg.jsx:3590-3611 (UI banner + toggle)" },
+      { type: "doc", text: "🔍 [Audit Findings — Documented but Skipped]\n\n**Bug #1 (mark-delivered day-doc race) — Skipped per user (not asked):**\n• File: api/shopify/mark-delivered.js:104-110\n• Issue: Pre-reads order's day-doc id outside tx; if order moves between days, write goes to wrong doc.\n• Real concern but edge case (requires manual timestamp edit). Defer for now.\n\n**Bug #2 (Invoice dedup race) — False Positive (verified):**\n• Initial audit claimed: 'readSplitCollection called unconditionally; if V19.50 not migrated, returns empty → dedup fails'\n• On verification of api/shopify/_invoices.js:147-153:\n  - findInvoiceByShopifyOrderId(cfg, id, fromList) falls back to cfg.salesInvoices when fromList is null\n  - mark-delivered.js:163 passes splitActive ? allInvoices : null\n  - Pre-migration: splitActive=false → uses cfg.salesInvoices ✓\n  - Post-migration: splitActive=true → uses allInvoices ✓\n• الـ existing code آمن. Audit reporter كان misled. Skipped fix.\n\n**Lesson reinforced:** verify كل audit claim بـ قراءة الكود الفعلي قبل ما تـ ship fix. ده الـ third audit-error-caught في الـ 3 جلسات الأخيرة." },
+    ],
+  },
+  {
     version: "V21.9.112",
     date: "2026-05-20",
     types: ["fix"],

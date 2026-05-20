@@ -1991,6 +1991,23 @@ function SettingsTab({ data, upConfig, canEdit, user, isMob }){
               Default 7 أيام (الشحن المصري COD غالباً &lt; أسبوع).
             </div>
           </div>
+          {/* V21.9.113: max-age cap for stale-order DISPLAY (UI-only filter).
+              Pre-fix the stale-orders list showed orders 100+ days old which cluttered
+              the reconciliation view. We now cap the default display at this value.
+              Data is NEVER deleted — older orders remain in shopifyOrdersDays and
+              can be viewed via the "👁️ عرض القديمة" toggle in the Reconciliation tab. */}
+          <div>
+            <label style={labelStyle}>الحد الأقصى لـ عرض Pending قديمة (أيام)</label>
+            <Inp
+              type="number"
+              value={String(numeric(cfg.pending_order_max_age_days, 15))}
+              onChange={v => setField("pending_order_max_age_days", Math.max(7, Math.min(365, numeric(v, 15))))}
+              readOnly={!canEdit}
+            />
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+              Default 15 يوم. الطلبات الأقدم من ده تتـ hidden من عرض المطابقة (الـ data محفوظة — مش محذوفة).
+            </div>
+          </div>
           <div>
             <label style={labelStyle}>Safety Buffer افتراضي (قطع)</label>
             <Inp
@@ -3470,13 +3487,36 @@ function ReconciliationTab({ data, canEdit, user, isMob, setActiveTab }){
   const [busyId, setBusyId] = useState(null);
 
   /* ── Stale orders ── */
-  const staleOrders = useMemo(() => {
+  /* V21.9.113: max-age cap for stale-order display.
+     User reported orders 140+ days old cluttering the reconciliation view.
+     We now hide orders OLDER than `pending_order_max_age_days` (default 15)
+     from the default display. The data stays in `shopifyOrdersDays/*` —
+     no deletion. A small "show older" toggle reveals them on demand.
+
+     The two cuts:
+     - lower cutoff = older than `pending_order_timeout_days` (e.g. 7)  → considered "stale"
+     - upper cutoff = older than `pending_order_max_age_days` (e.g. 15) → hidden by default
+
+     Stale window shown = [timeout, maxAge] days old. */
+  const [showOlderStale, setShowOlderStale] = useState(false);
+  const { staleOrders, hiddenStaleCount } = useMemo(() => {
     const timeout = Number(cfg.pending_order_timeout_days) || 7;
-    const cutoff = Date.now() - timeout * 86400000;
-    return orders
-      .filter(o => o.status === "pending_delivery" && o.shopify_created_at && new Date(o.shopify_created_at).getTime() < cutoff)
-      .sort((a, b) => new Date(a.shopify_created_at).getTime() - new Date(b.shopify_created_at).getTime());
-  }, [orders, cfg.pending_order_timeout_days]);
+    const maxAge = Number(cfg.pending_order_max_age_days) || 15;
+    const now = Date.now();
+    const staleCutoff = now - timeout * 86400000;
+    const maxAgeCutoff = now - maxAge * 86400000;
+    let hidden = 0;
+    const inWindow = [];
+    orders.forEach(o => {
+      if(o.status !== "pending_delivery" || !o.shopify_created_at) return;
+      const ts = new Date(o.shopify_created_at).getTime();
+      if(ts >= staleCutoff) return;       // not stale yet
+      if(ts < maxAgeCutoff && !showOlderStale){ hidden++; return; }  // too old, hidden
+      inWindow.push(o);
+    });
+    inWindow.sort((a, b) => new Date(a.shopify_created_at).getTime() - new Date(b.shopify_created_at).getTime());
+    return { staleOrders: inWindow, hiddenStaleCount: hidden };
+  }, [orders, cfg.pending_order_timeout_days, cfg.pending_order_max_age_days, showOlderStale]);
 
   /* ── Daily reconciliation ── */
   const reconciliation = useMemo(() => {
@@ -3559,8 +3599,31 @@ function ReconciliationTab({ data, canEdit, user, isMob, setActiveTab }){
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* Stale Orders */}
-      <Card title={"⏰ طلبات Pending قديمة (>" + (cfg.pending_order_timeout_days || 7) + " أيام)"}>
+      {/* V21.9.113: Stale Orders — now bounded by `pending_order_max_age_days` (default 15).
+          Orders older than the upper cap are hidden from the default view (data preserved
+          in shopifyOrdersDays). A toggle reveals them when needed. */}
+      <Card title={"⏰ طلبات Pending قديمة (" + (cfg.pending_order_timeout_days || 7) + "-" + (cfg.pending_order_max_age_days || 15) + " يوم)"}>
+        {/* V21.9.113: Hidden-older banner — visible only when orders were filtered out. */}
+        {hiddenStaleCount > 0 && (
+          <div style={{
+            padding: "8px 12px", marginBottom: 10, borderRadius: 8,
+            background: T.bg, border: "1px dashed " + T.brd,
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>
+              🗂️ <strong>{hiddenStaleCount}</strong> طلب أقدم من {cfg.pending_order_max_age_days || 15} يوم مخفي.
+              الـ data محفوظة في الـ database — مش محذوفة.
+            </span>
+            <Btn small ghost onClick={() => setShowOlderStale(s => !s)}>
+              {showOlderStale ? "✕ إخفاء القديمة" : "👁️ عرض القديمة"}
+            </Btn>
+          </div>
+        )}
+        {showOlderStale && hiddenStaleCount === 0 && staleOrders.length === 0 && (
+          <div style={{ padding: 20, textAlign: "center", color: T.textMut, fontSize: FS - 1 }}>
+            مفيش طلبات قديمة أصلاً.
+          </div>
+        )}
         {staleOrders.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: T.textMut }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
