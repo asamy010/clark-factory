@@ -33,6 +33,8 @@ import {
   findContactByPhone,
   labelForType,
   settleContactCrossAccount,
+  getContactSettlements,
+  reverseContactSettlement,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 /* V21.9.117: cross-account ledger uses the OPERATIONAL balance helpers
@@ -581,7 +583,7 @@ function LinkContactModal({ source, data, onSave, onCancel, canEdit }){
 /* ── Contact Detail modal (V21.9.116 Phase 2) ──────────────────────
    Read-only ledger view + inline edit (name, phone, tags, notes).
    Type changes (adding/removing a classification) deferred. */
-function ContactDetailModal({ contact, data, onSave, onSettle, onClose, canEdit, user, isMob }){
+function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, onClose, canEdit, user, isMob }){
   const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState(contact.name || "");
   const [phone, setPhone] = useState(contact.phone || "");
@@ -590,6 +592,11 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onClose, canEdit,
   const [saving, setSaving] = useState(false);
   /* V21.9.119: settlement modal state — null = closed, true = open */
   const [showSettle, setShowSettle] = useState(false);
+  /* V21.9.120: settlement history for this contact (sorted recent-first). */
+  const settlements = useMemo(
+    () => contact.linkedFrom === "contact" ? getContactSettlements(contact.contactId, data) : [],
+    [contact, data]
+  );
 
   const isRegistryContact = contact.linkedFrom === "contact";
   const linkedIds = contact.entityIds || {};
@@ -815,6 +822,66 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onClose, canEdit,
           </div>
         </div>
 
+        {/* V21.9.120: Settlement history — only for registry contacts with past settlements */}
+        {isRegistryContact && settlements.length > 0 && (
+          <div style={{
+            padding: "12px 14px", borderRadius: 10,
+            border: "1px solid " + T.brd, marginBottom: 12,
+            background: T.bg + "AA",
+          }}>
+            <div style={{fontSize: FS, fontWeight: 700, color: T.text, marginBottom: 10, display:"flex", alignItems:"center", gap: 6}}>
+              📜 <span>سجل التسويات ({settlements.length})</span>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap: 6, maxHeight: 200, overflowY: "auto"}}>
+              {settlements.map(s => (
+                <div key={s.settlementId} style={{
+                  padding: "8px 10px", borderRadius: 8,
+                  background: T.cardSolid, border: "1px solid " + T.brd,
+                  display:"flex", alignItems:"center", justifyContent:"space-between", gap: 8, flexWrap: "wrap",
+                }}>
+                  <div style={{flex: 1, minWidth: 0}}>
+                    <div style={{display: "flex", alignItems: "center", gap: 8, marginBottom: 2}}>
+                      <span style={{fontSize: FS-1, color: T.text, fontWeight: 700}}>
+                        💱 {fmt(s.amount)} <span style={{fontSize: FS-2, color: T.textSec}}>EGP</span>
+                      </span>
+                      <span style={{fontSize: FS-3, color: T.textMut}}>📅 {s.date || "—"}</span>
+                      {s.status === "partial" && (
+                        <span style={{
+                          padding: "1px 6px", borderRadius: 4,
+                          background: T.warn + "20", color: T.warn,
+                          fontSize: FS-3, fontWeight: 700,
+                        }} title="إحدى الـ legs مفقودة — قد تكون اتـ deleted يدوياً">⚠️ ناقصة</span>
+                      )}
+                    </div>
+                    {s.note && (
+                      <div style={{fontSize: FS-3, color: T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"}}>
+                        {s.note}
+                      </div>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <button
+                      onClick={() => onReverseSettle(s)}
+                      title="عكس هذه التسوية"
+                      style={{
+                        padding: "4px 10px", borderRadius: 6,
+                        background: T.err + "12", color: T.err,
+                        border: "1px solid " + T.err + "33",
+                        fontSize: FS-2, fontWeight: 700,
+                        fontFamily: "inherit", cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >↩️ عكس</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize: FS-3, color: T.textMut, marginTop: 6, lineHeight: 1.6}}>
+              💡 الـ عكس بـ يحذف الـ 2 entries (custPayment + supplierPayment) — الرصيدين هـ يرجعوا للقيمة قبل التسوية.
+            </div>
+          </div>
+        )}
+
         {/* Edit section — only for registry-managed contacts */}
         {isRegistryContact ? (
           <div style={{padding: "12px 14px", borderRadius: 10, border: "1px dashed " + T.brd, marginBottom: 12}}>
@@ -971,6 +1038,28 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       else if(msg === "CONTACT_TYPES_EMPTY") showToast("⚠️ اختر تصنيف واحد على الأقل");
       else if(msg === "CONTACT_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
       else { console.error("[ContactsPg] save error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.120: reverse a settlement — removes both payment legs by settlementId.
+     Requires confirmation since it's deletion of paired entries. */
+  const handleReverseSettle = async (settlement) => {
+    const yes = await ask(
+      "عكس التسوية",
+      "هـ يتم حذف الـ 2 دفعات (custPayment + supplierPayment) بقيمة " + fmt(settlement.amount) + " EGP من تاريخ " + settlement.date + ".\n\nالرصيدين هـ يرجعوا للقيمة قبل التسوية. غير قابل للتراجع التلقائي.",
+      { confirmText: "عكس التسوية", danger: true }
+    );
+    if(!yes) return;
+    try {
+      const { patch, removedCust, removedSup } = reverseContactSettlement(settlement.settlementId, data);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("↩️ تم عكس التسوية (" + removedCust + " + " + removedSup + " entries)");
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg === "SETTLEMENT_NOT_FOUND") showToast("⚠️ التسوية غير موجودة");
+      else { console.error("[ContactsPg] reverse settle error:", e); showToast("⛔ خطأ — راجع الـ console"); }
     }
   };
 
@@ -1193,13 +1282,15 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       )}
 
       {/* V21.9.116: detail modal with cross-account ledger + edit.
-          V21.9.119: + onSettle handler for cross-account مقاصة. */}
+          V21.9.119: + onSettle for مقاصة.
+          V21.9.120: + onReverseSettle for un-doing past settlements. */}
       {viewing && (
         <ContactDetailModal
           contact={viewing}
           data={data}
           onSave={handleEditSave}
           onSettle={handleSettle}
+          onReverseSettle={handleReverseSettle}
           onClose={() => setViewing(null)}
           canEdit={canEdit}
           user={user}

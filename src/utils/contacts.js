@@ -502,6 +502,75 @@ export function settleContactCrossAccount(seed, data, user){
   return { patch, settlementId, custPayment, supPayment };
 }
 
+/* ── Settlement history + reverse (V21.9.120, Phase 5a) ──────────────
+   Settlements are stored as paired entries in custPayments + supplierPayments
+   sharing a `settlementId`. This helper finds both legs and groups them. */
+export function getContactSettlements(contactId, data){
+  if(!contactId) return [];
+  const custPayments = Array.isArray(data && data.custPayments) ? data.custPayments : [];
+  const supplierPayments = Array.isArray(data && data.supplierPayments) ? data.supplierPayments : [];
+
+  /* Index by settlementId for fast pairing. */
+  const byId = new Map();
+  for(const p of custPayments){
+    if(!p || p.contactId !== contactId || !p.settlementId) continue;
+    if(p.method !== "مقاصة") continue;
+    const entry = byId.get(p.settlementId) || { settlementId: p.settlementId, contactId };
+    entry.custPayment = p;
+    byId.set(p.settlementId, entry);
+  }
+  for(const p of supplierPayments){
+    if(!p || p.contactId !== contactId || !p.settlementId) continue;
+    if(p.method !== "مقاصة") continue;
+    const entry = byId.get(p.settlementId) || { settlementId: p.settlementId, contactId };
+    entry.supPayment = p;
+    byId.set(p.settlementId, entry);
+  }
+
+  /* Surface synthesized fields for the UI. Recent first. */
+  const out = [];
+  for(const e of byId.values()){
+    const date = (e.custPayment && e.custPayment.date) || (e.supPayment && e.supPayment.date) || "";
+    const amount = (e.custPayment && Number(e.custPayment.amount)) || (e.supPayment && Number(e.supPayment.amount)) || 0;
+    const note = (e.custPayment && e.custPayment.note) || (e.supPayment && e.supPayment.note) || "";
+    const createdAt = (e.custPayment && e.custPayment.createdAt) || (e.supPayment && e.supPayment.createdAt) || "";
+    const status = (e.custPayment && e.supPayment) ? "complete" : "partial";  /* partial = one leg missing (data integrity flag) */
+    out.push({ ...e, date, amount, note, createdAt, status });
+  }
+  out.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return out;
+}
+
+/* Reverse a settlement by removing BOTH payment entries that share its
+   settlementId. Pure function — returns patch the caller commits via upConfig.
+
+   If a leg is missing (status:"partial"), we still remove the existing leg
+   so the data integrity flag clears on next render. The admin can re-create
+   the settlement if needed. */
+export function reverseContactSettlement(settlementId, data){
+  if(!settlementId) throw new Error("SETTLEMENT_ID_REQUIRED");
+  const custPayments = Array.isArray(data && data.custPayments) ? data.custPayments : [];
+  const supplierPayments = Array.isArray(data && data.supplierPayments) ? data.supplierPayments : [];
+
+  const nextCust = custPayments.filter(p => !p || p.settlementId !== settlementId);
+  const nextSup  = supplierPayments.filter(p => !p || p.settlementId !== settlementId);
+
+  const removedCust = custPayments.length - nextCust.length;
+  const removedSup  = supplierPayments.length - nextSup.length;
+  if(removedCust === 0 && removedSup === 0){
+    throw new Error("SETTLEMENT_NOT_FOUND");
+  }
+
+  return {
+    patch: {
+      custPayments: nextCust,
+      supplierPayments: nextSup,
+    },
+    removedCust,
+    removedSup,
+  };
+}
+
 /* Find unlinked entities of a given type (for the link-existing dropdown).
    Returns entities WITHOUT contactId, sorted by name. */
 export function getUnlinkedEntities(typeKey, data){

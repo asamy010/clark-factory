@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.120",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "↩️ Phase 22e — Settlement History + Reverse (Phase 5a)",
+    changes: [
+      { type: "feature", text: "↩️ [Phase 5a — لازم نسمح للـ admin يـ undo a settlement لو غلط فيها. الـ Phase 4 (V21.9.119) كانت ship forward-only، الآن بقت reversible.]\n\n**Settlement History section في الـ Detail modal:**\n• يظهر فقط للـ registry contacts اللي عندهم settlements سابقة\n• Sorted recent-first بـ createdAt\n• كل row يعرض:\n  - 💱 amount + EGP\n  - 📅 date\n  - Note (truncated)\n  - ⚠️ تحذير 'ناقصة' لو الـ pairing مكسور (1 leg مفقود — data integrity flag)\n  - ↩️ عكس button (للـ canEdit users)\n\n**Reverse flow:**\n1. اضغط ↩️ عكس\n2. ask popup بـ التفاصيل (amount + date + warning عدم التراجع)\n3. Confirm → atomic upConfig:\n   - filter custPayments بـ settlementId !== removed\n   - filter supplierPayments بـ settlementId !== removed\n4. Toast بـ '↩️ تم عكس التسوية (X + Y entries)'" },
+      { type: "feature", text: "🔧 [Backend — utils/contacts.js]\n\n**`getContactSettlements(contactId, data)`:**\n• Indexes الـ custPayments + supplierPayments بـ settlementId\n• Pairs الـ 2 legs لكل settlement\n• Returns array بـ { settlementId, contactId, custPayment, supPayment, date, amount, note, createdAt, status }\n• status: 'complete' (both legs) | 'partial' (1 leg missing — usually from manual data fix)\n• Sorted by createdAt DESC\n\n**`reverseContactSettlement(settlementId, data)`:**\n• Pure function\n• Filters BOTH custPayments + supplierPayments removing entries بـ matching settlementId\n• Throws SETTLEMENT_NOT_FOUND لو الـ id مش موجود في الـ 2 arrays\n• Returns { patch, removedCust, removedSup } — admin يشوف كم leg اتـ removed (للـ partial cases)" },
+      { type: "doc", text: "🛡️ [Safety + design notes]\n\n**Pure functions only:** الـ 2 helpers بـ returns patch، caller يـ commits via upConfig (mutator pattern — V21.9.110 lesson).\n\n**Why hard delete vs void/cancel:**\nالـ Settlement entries مفيهاش 'حركة نقدية' فعلية — مجرد accounting offsets. الحذف نظيف من ناحية الـ ledger، الـ user مش بـ يفقد real cash records. لو الـ scenario كان treasury payments، كان لازم void بدل delete.\n\n**Atomicity:**\nالـ 2 arrays بـ تتـ updated في upConfig واحد → single Firestore transaction. لو الـ partition layer (custPaymentsDays, supplierPaymentsDays) فشل في كتابة جزء، الـ الـ transaction كلها revert.\n\n**Data integrity flag:**\nلو الـ user حذف يدوياً واحدة من الـ payments من custDeliverPg أو PurchasePg، الـ settlement تظهر كـ 'partial'. الـ reverse لسه يعمل (يحذف الـ leg المتبقية)، فالـ state يـ converge.\n\n**Contacts roadmap status:**\n• ✅ V21.9.115 Phase 1 — Create + view\n• ✅ V21.9.116 Phase 2 — Detail + ledger\n• ✅ V21.9.117 — Fix balance formula\n• ✅ V21.9.118 Phase 3 — Link existing\n• ✅ V21.9.119 Phase 4 — Settlement (مقاصة)\n• ✅ V21.9.120 Phase 5a — History + Reverse\n• ⏳ Phase 5b: Type changes (add/remove نوع من contact)\n• ⏳ Phase 5c: Duplicate detection by phone normalization" },
+    ],
+  },
+  {
     version: "V21.9.119",
     date: "2026-05-20",
     types: ["feature"],
