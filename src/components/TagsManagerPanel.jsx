@@ -378,7 +378,11 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
         registry,
         user
       );
-      upConfig(prev => ({ ...prev, tagRegistry: newReg }));
+      /* V21.9.110 fix: upConfig expects a MUTATOR that modifies `d` in place,
+         not a transformer that returns a new object. Returning `{...prev, ...}`
+         was discarded — the diff layer then saw no changes and skipped the write.
+         All upConfig calls in this file follow the mutation pattern now. */
+      upConfig(d => { d.tagRegistry = newReg; });
       showToast(isNew ? "✅ التاج اتأنشأ" : "ℹ️ التاج موجود بالفعل — استخدمت الـ نسخة الموجودة");
       setEditing(null);
     }catch(e){
@@ -402,7 +406,7 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
         description: formData.description,
         appliesTo: formData.appliesTo,
       }, next);
-      upConfig(prev => ({ ...prev, tagRegistry: next }));
+      upConfig(d => { d.tagRegistry = next; });
       showToast("✅ التاج اتعدّل");
       setEditing(null);
     }catch(e){
@@ -421,7 +425,7 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
     const yes = await ask("أرشفة التاج", message, { confirmText: "أرشفة" });
     if(!yes) return;
     const next = archiveTag(tag.id, registry, user);
-    upConfig(prev => ({ ...prev, tagRegistry: next }));
+    upConfig(d => { d.tagRegistry = next; });
     showToast("📦 التاج اتـ archive");
   };
 
@@ -438,7 +442,7 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
       return;
     }
     const next = unarchiveTag(tag.id, registry);
-    upConfig(prev => ({ ...prev, tagRegistry: next }));
+    upConfig(d => { d.tagRegistry = next; });
     showToast("↩️ التاج اتـ استرجع");
   };
 
@@ -455,7 +459,7 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
       { confirmText: "حذف", danger: true });
     if(!yes) return;
     const next = registry.filter(t => t && t.id !== tag.id);
-    upConfig(prev => ({ ...prev, tagRegistry: next }));
+    upConfig(d => { d.tagRegistry = next; });
     showToast("🗑️ التاج اتـ delete");
   };
 
@@ -465,7 +469,14 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
 
   const doMergeCommit = (winnerId, losersIds) => {
     const { registry: newReg, patch, changedFields } = mergeTags(winnerId, losersIds, registry, data);
-    upConfig(prev => ({ ...prev, tagRegistry: newReg, ...patch }));
+    upConfig(d => {
+      d.tagRegistry = newReg;
+      /* `patch` may contain customers/suppliers/etc. with rewritten tag IDs —
+         assign each field directly so the diff layer detects the partitioned writes. */
+      for(const k of Object.keys(patch || {})){
+        d[k] = patch[k];
+      }
+    });
     setMerging(false);
     setSelection([]);
     showToast(`✅ تم دمج ${losersIds.length} تاج. الـ entities المتأثرة: ${changedFields.join(", ") || "—"}`);
@@ -496,7 +507,11 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
     setMigrationCommitting(true);
     try{
       const { patch, stats } = commitTagsMigration(migrationPlan, data, user);
-      upConfig(prev => ({ ...prev, ...patch }));
+      upConfig(d => {
+        for(const k of Object.keys(patch || {})){
+          d[k] = patch[k];
+        }
+      });
       setMigrationPlan(null);
       await tell(
         "تم الترحيل",
