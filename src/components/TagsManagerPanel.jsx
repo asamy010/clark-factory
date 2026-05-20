@@ -318,6 +318,9 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
      blocks duplicate commits while upConfig is in flight. */
   const [migrationPlan, setMigrationPlan] = useState(null);
   const [migrationCommitting, setMigrationCommitting] = useState(false);
+  /* V21.9.109: Cross-entity view state (Slice 8 of Universal Tagging).
+     When set, opens a modal showing every entity referencing that tag. */
+  const [viewingTagId, setViewingTagId] = useState(null);
 
   /* Usage counts across all entity arrays in `data`. Recomputed when data
      or registry changes. Optionally includes the orders array passed
@@ -719,8 +722,10 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
                           ))}
                         </div>
                       </td>
-                      <td style={{...colCell, textAlign:"center", fontWeight: 700, color: count > 0 ? T.accent : T.textMut}}>
-                        {count}
+                      <td style={{...colCell, textAlign:"center", fontWeight: 700, color: count > 0 ? T.accent : T.textMut, cursor: count > 0 ? "pointer" : "default"}}
+                          onClick={(e) => { if(count > 0){ e.stopPropagation(); setViewingTagId(t.id); } }}
+                          title={count > 0 ? "اضغط لعرض الـ entities المرتبطة" : ""}>
+                        {count > 0 ? <span style={{textDecoration:"underline", textUnderlineOffset:3}}>{count}</span> : count}
                       </td>
                       {!isMob && (
                         <td style={{...colCell, fontSize: FS-2, color: T.textSec, whiteSpace:"nowrap"}}>
@@ -832,7 +837,194 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
           committing={migrationCommitting}
         />
       )}
+
+      {/* V21.9.109: Cross-entity view modal. Opens on count-cell click.
+          Shows every entity (customer/supplier/item/order) referencing the tag. */}
+      {viewingTagId && (
+        <CrossEntityViewModal
+          tag={registry.find(t => t.id === viewingTagId)}
+          data={data}
+          orders={orders}
+          onClose={() => setViewingTagId(null)}
+        />
+      )}
     </>
+  );
+}
+
+/* ── Cross-entity view modal (V21.9.109, Slice 8 / final) ──────────────────
+   Shows every entity that references the clicked tag. Read-only — no edits.
+   This is the "Odoo feeling" finale: an admin clicks a tag in Settings, sees
+   exactly where it's used across customers/suppliers/items/orders. */
+function CrossEntityViewModal({ tag, data, orders, onClose }){
+  if(!tag) return null;
+
+  /* Collect entities by tag ID. Each entity exposes its name + a short
+     subtitle for context (phone, type, status). */
+  const matched = useMemo(() => {
+    const tagId = tag.id;
+    const out = {
+      customers: [],
+      shopifyCustomers: [],
+      suppliers: [],
+      fabrics: [],
+      accessories: [],
+      generalProducts: [],
+      inventoryItems: [],
+      orders: [],
+    };
+    const check = (arr) => Array.isArray(arr) ? arr.filter(e => e && Array.isArray(e.tags) && e.tags.includes(tagId)) : [];
+    out.customers = check(data && data.customers);
+    out.shopifyCustomers = check(data && data.shopifyCustomers);
+    out.suppliers = check(data && data.suppliers);
+    out.fabrics = check(data && data.fabrics);
+    out.accessories = check(data && data.accessories);
+    out.generalProducts = check(data && data.generalProducts);
+    out.inventoryItems = check(data && data.inventoryItems);
+    out.orders = check(orders);
+    return out;
+  }, [tag, data, orders]);
+
+  const groups = [
+    { key: "customers", icon: "👥", label: "العملاء", items: matched.customers, sub: (c) => c.phone || c.type || "" },
+    { key: "shopifyCustomers", icon: "🛒", label: "عملاء Shopify", items: matched.shopifyCustomers, sub: (c) => c.phone || c.email || "" },
+    { key: "suppliers", icon: "🏭", label: "الموردين", items: matched.suppliers, sub: (s) => s.phone || "" },
+    { key: "fabrics", icon: "🧵", label: "الأقمشة", items: matched.fabrics, sub: (f) => f.unit || "" },
+    { key: "accessories", icon: "🧷", label: "الإكسسوارات", items: matched.accessories, sub: (a) => a.unit || "" },
+    { key: "generalProducts", icon: "📦", label: "منتجات عامة", items: matched.generalProducts, sub: (p) => p.category || p.unit || "" },
+    { key: "inventoryItems", icon: "📋", label: "أصناف المخزن", items: matched.inventoryItems, sub: (i) => i.type || i.unit || "" },
+    { key: "orders", icon: "🧾", label: "الأوردرات", items: matched.orders,
+      /* Orders have modelNo as the identifying field, modelDesc as subtitle. */
+      title: (o) => o.modelNo || o.id, sub: (o) => o.modelDesc || o.status || "" },
+  ];
+
+  const totalLinked = groups.reduce((s, g) => s + g.items.length, 0);
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100000,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        background: T.cardSolid,
+        borderRadius: 16,
+        width:"100%", maxWidth: 640,
+        padding: "20px 22px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd,
+        maxHeight:"90vh", overflowY:"auto",
+      }}>
+        {/* Header */}
+        <div style={{
+          display:"flex", alignItems:"center", gap: 10, marginBottom: 14,
+          paddingBottom: 12, borderBottom: "2px solid "+(tag.color || T.brd) + "33",
+        }}>
+          <span style={{
+            display:"inline-block", width: 20, height: 20, borderRadius:"50%",
+            background: tag.color || T.accent, flexShrink: 0,
+          }} />
+          {tag.icon && <span style={{fontSize: FS+4}}>{tag.icon}</span>}
+          <div style={{flex:1}}>
+            <div style={{fontSize: FS+3, fontWeight: 800, color: T.text}}>{tag.name}</div>
+            {tag.description && (
+              <div style={{fontSize: FS-2, color: T.textSec, marginTop: 2}}>{tag.description}</div>
+            )}
+          </div>
+          <button onClick={onClose} style={{
+            background:"transparent", border:"none", cursor:"pointer",
+            fontSize: FS+4, color: T.textMut, padding: "4px 10px",
+          }} title="إغلاق">✕</button>
+        </div>
+
+        {/* Summary stat */}
+        <div style={{
+          padding:"8px 12px", marginBottom: 12,
+          background: T.accent + "08",
+          borderRadius: 8,
+          fontSize: FS-1, color: T.text, lineHeight: 1.6,
+        }}>
+          إجمالي الـ entities المرتبطة: <strong style={{color: T.accent}}>{totalLinked}</strong>
+        </div>
+
+        {totalLinked === 0 ? (
+          <div style={{
+            padding:"24px 12px", textAlign:"center",
+            color: T.textMut, fontSize: FS-1,
+            background: T.bg, borderRadius: 10,
+          }}>
+            مفيش entities مرتبطة بهذا التاج حالياً.
+          </div>
+        ) : (
+          <div style={{display:"flex", flexDirection:"column", gap: 10}}>
+            {groups.filter(g => g.items.length > 0).map(g => (
+              <div key={g.key} style={{
+                border:"1px solid "+T.brd,
+                borderRadius: 10,
+                overflow:"hidden",
+              }}>
+                <div style={{
+                  padding: "8px 12px",
+                  background: T.bg,
+                  borderBottom: "1px solid "+T.brd,
+                  display:"flex", alignItems:"center", gap: 8,
+                  fontSize: FS-1, fontWeight: 700, color: T.text,
+                }}>
+                  <span style={{fontSize: FS+1}}>{g.icon}</span>
+                  <span>{g.label}</span>
+                  <span style={{
+                    marginInlineStart:"auto",
+                    padding:"2px 10px", borderRadius: 10,
+                    background: T.accent + "15", color: T.accent,
+                    fontSize: FS-2, fontWeight: 800,
+                  }}>{g.items.length}</span>
+                </div>
+                <div style={{maxHeight: 200, overflowY:"auto"}}>
+                  {g.items.slice(0, 100).map(item => {
+                    const title = g.title ? g.title(item) : (item.name || item.id);
+                    const sub = g.sub ? g.sub(item) : "";
+                    return (
+                      <div key={item.id} style={{
+                        padding: "6px 12px",
+                        borderBottom: "1px solid "+T.brd+"30",
+                        display:"flex", alignItems:"center", gap: 8,
+                        fontSize: FS-1,
+                      }}>
+                        <div style={{flex:1, minWidth: 0}}>
+                          <div style={{
+                            color: T.text, fontWeight: 600,
+                            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                          }}>{title}</div>
+                          {sub && (
+                            <div style={{
+                              color: T.textMut, fontSize: FS-3,
+                              whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                            }}>{sub}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {g.items.length > 100 && (
+                    <div style={{
+                      padding: "6px 12px", textAlign:"center",
+                      color: T.textMut, fontSize: FS-2, fontStyle:"italic",
+                    }}>
+                      ... و {g.items.length - 100} entity أخرى (عرض أول 100 فقط)
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{marginTop: 14, display:"flex", justifyContent:"flex-end"}}>
+          <Btn ghost onClick={onClose}>إغلاق</Btn>
+        </div>
+      </div>
+    </div>
   );
 }
 
