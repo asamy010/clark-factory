@@ -3966,14 +3966,43 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     if(!newUserName.trim()||!newUserEmail.trim()||!newUserPass){setCreateErr("اكمل جميع البيانات");return}
     if(newUserPass.length<6){setCreateErr("كلمة المرور 6 حروف على الأقل");return}
     if(newUserPass!==newUserPass2){setCreateErr("كلمة المرور غير متطابقة");return}
+    /* V21.9.112 Bug #1+#5: normalize email to lowercase + regex validate format.
+       Firebase Auth treats `User@Example.com` and `user@example.com` as the same
+       account, but pre-fix CLARK stored them as separate config entries — leading
+       to split permissions and inconsistent role lookups. Lowercase-everywhere
+       ensures parity with Firebase. */
+    const emailClean=newUserEmail.trim().toLowerCase();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)){
+      setCreateErr("صيغة البريد الإلكتروني غير صحيحة");
+      return;
+    }
     setCreating(true);
     try{
       const secAuth=getSecondaryAuth();
-      const cred=await createUserWithEmailAndPassword(secAuth,newUserEmail.trim(),newUserPass);
+      const cred=await createUserWithEmailAndPassword(secAuth,emailClean,newUserPass);
       await updateProfile(cred.user,{displayName:newUserName.trim()});
       await signOut(secAuth);
-      upConfig(d=>{if(!d.usersList)d.usersList=[];const ex=d.usersList.find(u=>u.email===newUserEmail.trim());if(ex){ex.role=newUserRole;ex.name=newUserName.trim()}else{d.usersList.push({email:newUserEmail.trim(),role:newUserRole,name:newUserName.trim()})}});
-      setCreateOk("تم انشاء الحساب بنجاح: "+newUserEmail.trim());
+      upConfig(d=>{
+        if(!d.usersList)d.usersList=[];
+        /* Case-insensitive duplicate detection — normalize the SAVED records too
+           defensively in case any legacy record slipped through with mixed case. */
+        const ex=d.usersList.find(u=>(u.email||"").toLowerCase()===emailClean);
+        if(ex){ex.role=newUserRole;ex.name=newUserName.trim();ex.email=emailClean}
+        else{d.usersList.push({email:emailClean,role:newUserRole,name:newUserName.trim()})}
+        /* V21.9.112 Bug #4: audit log for user creation. Pre-fix there was no
+           record of who created which account — making forensics impossible.
+           Logging to restoreLog (same collection clearAllOrders uses). */
+        if(!d.restoreLog)d.restoreLog=[];
+        d.restoreLog.push({
+          ts:Date.now(),
+          by:user?.email||"",
+          action:"create_user",
+          email:emailClean,
+          role:newUserRole,
+          name:newUserName.trim(),
+        });
+      });
+      setCreateOk("تم انشاء الحساب بنجاح: "+emailClean);
       setNewUserName("");setNewUserEmail("");setNewUserPass("");setNewUserPass2("");setNewUserRole("viewer");
     }catch(e){
       setCreateErr(e.code==="auth/email-already-in-use"?"الايميل مستخدم بالفعل":"خطأ: "+e.message)
@@ -4125,7 +4154,34 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
              a defense-in-depth gap (the V19.64 firestore.rules also enforce this
              at the DB level, but the UI should reflect the constraint clearly). */
           const isAdminRow = u.role === "admin";
-          return<tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}{isAdminRow&&<span title="مدير النظام محمي من التعديل" style={{marginInlineStart:6,fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:T.warn+"15",color:T.warn,fontWeight:700}}>🔒 محمي</span>}</td><td style={TD}>{u.email}</td><td style={TD}>{isAdminRow?<div style={{padding:"6px 10px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-1,fontWeight:600,display:"inline-flex",alignItems:"center",gap:6}}><span>👑</span><span>مدير النظام</span></div>:<Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const x=(d.usersList||[]).find(z=>z.email===u.email);if(x)x.role=v}))}>{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel>}</td><td style={TD}><div style={{display:"flex",gap:6,alignItems:"center"}}><Btn small ghost onClick={()=>{setInspectorUser(u);setInspectorOpen(true)}} style={{fontSize:FS-3,padding:"4px 8px"}} title="عرض الصلاحيات الفعلية">🔍 فحص</Btn>{isAdminRow?<span title="لا يمكن حذف مدير النظام" style={{padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-2,fontWeight:600,cursor:"not-allowed"}}>🔒</span>:(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email)}))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</div></td></tr>;
+          /* V21.9.112 Bug #3: last-admin protection guard. Pre-fix nothing prevented
+             the role write from setting `adminCount=0` if someone demoted the only
+             admin (e.g., via concurrent edits, race, or future bulk action). The
+             UI hides the dropdown for admin rows but the WRITE path had no guard. */
+          return<tr key={i}><td style={{...TD,fontWeight:600}}>{u.name||"-"}{isAdminRow&&<span title="مدير النظام محمي من التعديل" style={{marginInlineStart:6,fontSize:FS-3,padding:"2px 6px",borderRadius:5,background:T.warn+"15",color:T.warn,fontWeight:700}}>🔒 محمي</span>}</td><td style={TD}>{u.email}</td><td style={TD}>{isAdminRow?<div style={{padding:"6px 10px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-1,fontWeight:600,display:"inline-flex",alignItems:"center",gap:6}}><span>👑</span><span>مدير النظام</span></div>:<Sel value={u.role} onChange={v=>requirePass(()=>upConfig(d=>{const list=d.usersList||[];const x=list.find(z=>z.email===u.email);if(!x)return;
+            /* If demoting an admin (shouldn't happen via dropdown but defensive),
+               and this is the last admin, refuse. Same guard applies if assigning
+               admin: only block if removing the last existing admin. */
+            const wasAdmin=x.role==="admin";
+            const willBeAdmin=v==="admin";
+            if(wasAdmin&&!willBeAdmin){
+              const adminCount=list.filter(z=>z.role==="admin").length;
+              if(adminCount<=1){
+                showToast("⚠️ لا يمكن تخفيض آخر مدير في النظام");
+                return;
+              }
+            }
+            x.role=v;
+          }))}>{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel>}</td><td style={TD}><div style={{display:"flex",gap:6,alignItems:"center"}}><Btn small ghost onClick={()=>{setInspectorUser(u);setInspectorOpen(true)}} style={{fontSize:FS-3,padding:"4px 8px"}} title="عرض الصلاحيات الفعلية">🔍 فحص</Btn>{isAdminRow?<span title="لا يمكن حذف مدير النظام" style={{padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-2,fontWeight:600,cursor:"not-allowed"}}>🔒</span>:(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{
+            /* Defensive last-admin guard at delete path too. Even though admin rows
+               show 🔒 instead of DelBtn, custom roles or edge cases could surface this. */
+            const target=(d.usersList||[]).find(z=>z.email===u.email);
+            if(target&&target.role==="admin"){
+              const adminCount=(d.usersList||[]).filter(z=>z.role==="admin").length;
+              if(adminCount<=1){showToast("⚠️ لا يمكن حذف آخر مدير في النظام");return;}
+            }
+            d.usersList=(d.usersList||[]).filter(x=>x.email!==u.email);
+          }))} blocked={hasTasks?"لديه مهام مفتوحة":null}/>})()}</div></td></tr>;
         })}
       </tbody></table></div>}
       {(config.usersList||[]).length===0&&<div style={{textAlign:"center",padding:20,color:T.textSec}}>لم يتم اضافة مستخدمين</div>}
@@ -4784,8 +4840,15 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             (config.custDeliverySessions||[]).forEach(s=>{if(s.createdBy&&s.createdBy!=="RECOVERY")foundNames.add(s.createdBy);if(s.actualSaleBy)foundNames.add(s.actualSaleBy)});
             const knownNames=new Set((config.usersList||[]).map(u=>u.name));
             const missingNames=[...foundNames].filter(n=>n&&!knownNames.has(n)&&n!=="RECOVERY"&&n!=="admin");
-            const addUser=async()=>{const result=await askForm("إضافة مستخدم",[{key:"name",label:"اسم المستخدم",required:true},{key:"email",label:"البريد الإلكتروني",required:true,validate:v=>v.includes("@")?null:"ايميل غير صحيح"},{key:"role",label:"الصلاحية (admin/editor/viewer)",defaultValue:"editor",required:true}]);if(!result)return;
-              upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===result.email)){d.usersList.push({email:result.email,name:result.name,role:result.role||"editor",recoveredAt:new Date().toISOString()})}});showToast("✅ تم اضافة "+result.name)};
+            /* V21.9.112 Bug #1+#2: normalize email (case-insensitive parity with
+               Firebase Auth) + use "viewer" as the safe default role (the previous
+               "editor" was NOT in ROLE_KEYS — recovered users ended up with an
+               unknown role → all tabs hidden by default). Also validate that role
+               is one of the known keys. */
+            const addUser=async()=>{const result=await askForm("إضافة مستخدم",[{key:"name",label:"اسم المستخدم",required:true},{key:"email",label:"البريد الإلكتروني",required:true,validate:v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())?null:"صيغة البريد غير صحيحة"},{key:"role",label:"الصلاحية (admin/manager/viewer)",defaultValue:"viewer",required:true}]);if(!result)return;
+              const emailClean=(result.email||"").trim().toLowerCase();
+              const safeRole=(typeof result.role==="string"&&result.role.trim())?result.role.trim():"viewer";
+              upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>(u.email||"").toLowerCase()===emailClean)){d.usersList.push({email:emailClean,name:result.name,role:safeRole,recoveredAt:new Date().toISOString()})}});showToast("✅ تم اضافة "+result.name)};
             return<div style={{padding:12,borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B20",marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div style={{fontWeight:800,color:"#F59E0B"}}>{"👤 المستخدمين ("+((config.usersList||[]).length)+")"}</div>
@@ -4797,8 +4860,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
                 <div style={{fontWeight:700,color:"#EF4444",marginBottom:8}}>{"⚠️ "+missingNames.length+" مستخدم في الحركات مش في القائمة:"}</div>
                 {missingNames.map(n=><div key={n} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.brd}}>
                   <span style={{fontSize:FS-1,color:"#EF4444",fontWeight:700,flex:1}}>{"• "+n}</span>
-                  <Btn small onClick={async()=>{const result=await askForm("استعادة "+n,[{key:"email",label:"البريد الإلكتروني",required:true,validate:v=>v.includes("@")?null:"ايميل غير صحيح"},{key:"role",label:"الصلاحية (admin/editor/viewer)",defaultValue:"editor",required:true}]);if(!result)return;
-                    upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>u.email===result.email)){d.usersList.push({email:result.email,name:n,role:result.role||"editor",recoveredAt:new Date().toISOString()})}});
+                  /* V21.9.112 Bug #1+#2: same normalization as addUser above. */
+                  <Btn small onClick={async()=>{const result=await askForm("استعادة "+n,[{key:"email",label:"البريد الإلكتروني",required:true,validate:v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())?null:"صيغة البريد غير صحيحة"},{key:"role",label:"الصلاحية (admin/manager/viewer)",defaultValue:"viewer",required:true}]);if(!result)return;
+                    const emailClean=(result.email||"").trim().toLowerCase();
+                    const safeRole=(typeof result.role==="string"&&result.role.trim())?result.role.trim():"viewer";
+                    upConfig(d=>{if(!d.usersList)d.usersList=[];if(!d.usersList.find(u=>(u.email||"").toLowerCase()===emailClean)){d.usersList.push({email:emailClean,name:n,role:safeRole,recoveredAt:new Date().toISOString()})}});
                     showToast("✅ تم استعادة "+n)}} style={{background:"#EF4444",color:"#fff",border:"none",fontWeight:700,whiteSpace:"nowrap"}}>🔄 استعادة</Btn>
                 </div>)}
               </div>}
