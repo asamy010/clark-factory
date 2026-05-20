@@ -156,6 +156,8 @@ export function addInventoryItem(d,categoryId,patch,userName){
     avgCost:Number(patch.avgCost)||0,
     defaultSupplierId:patch.defaultSupplierId||"",
     notes:patch.notes||"",
+    /* V21.9.107: tags array (universal tagging Slice 6). Defaults empty. */
+    tags:Array.isArray(patch.tags)?patch.tags.slice():[],
     createdAt:new Date().toISOString(),
     createdBy:userName||""
   });
@@ -168,6 +170,8 @@ export function updateInventoryItem(d,itemId,patch){
   ["name","type","unit","minStock","avgCost","defaultSupplierId","notes"].forEach(k=>{
     if(patch[k]!=null)it[k]=k==="minStock"||k==="avgCost"?(Number(patch[k])||0):patch[k];
   });
+  /* V21.9.107: tags handled separately because it's an array (not a scalar). */
+  if(Array.isArray(patch.tags))it.tags=patch.tags.slice();
   return true;
 }
 

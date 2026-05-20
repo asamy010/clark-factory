@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.107",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📦 Phase 20g — Item/Product UI Integration (Slice 6/8)",
+    changes: [
+      { type: "feature", text: "📦 [Slice 6 من Universal Tagging — Item/Product integration. يشمل fabrics + accessories + inventoryItems (الـ 3 paths) في PurchasePg الـ inventory tab.]\n\n**التغييرات في `src/pages/PurchasePg.jsx`:**\n\n**1. Item Edit Modal (`itemEditPopup`):**\n• حقل \"التاجز\" جديد في آخر الـ form\n• `<TagPicker entityType=\"item\" .../>` بـ allowCreate=canEdit\n• Hint: \"لتصنيف الصنف (موسمي، تصفية، إلخ)\"\n• الـ tags بـ تتـ save في كل الـ 3 paths: `d.fabrics`, `d.accessories`, `d.inventoryItems` (نفس المنطق للـ 3)\n\n**2. Stock Table:**\n• TagFilter chip strip بعد search/sort row — hidden لو الـ registry فاضي من item tags\n• AND/OR mode toggle + reset\n• الـ filteredStock يـ apply filterByTags بعد search filter وقبل الـ sort\n• الـ filter يـ work عبر الـ 3 categories (fabric/accessory/inventoryItem)\n\n**3. Row Display:**\n• الـ TagChips بـ تظهر inline تحت اسم الصنف (مش عمود منفصل)\n• max 3 chips + overflow indicator — مناسب لـ table density عالية\n\n**التغييرات في `src/utils/categories.js`:**\n• `addInventoryItem` يقبل `patch.tags` (defaults empty array)\n• `updateInventoryItem` يحفظ الـ tags لو `Array.isArray(patch.tags)`" },
+      { type: "doc", text: "🛡️ [Data-safety + consistency]\n\n• **Add-only schema:** `item.tags` field جديد على fabrics + accessories + inventoryItems. الـ existing items بدون tags يستمروا يـ work عادي.\n• **3 paths handled uniformly:** نفس الـ tagsClean snapshot يـ pass للـ 3 arrays (legacy fabric, legacy accessory, non-legacy inventoryItem).\n• **Partitioned writes:** fabrics + accessories + generalProducts كلهم في `*Docs/{id}` (V19.57 + V19.58) — upConfig يـ handles per-doc writes.\n• **TagPicker `appliesTo` filtering:** الـ picker يـ filter الـ registry للـ tags اللي `appliesTo.includes(\"item\")` فقط — مش هـ يـ show customer-only tags في item picker.\n• **TagFilter hidden when empty:** الـ existing users بدون item tags لا يـ see UI noise.\n• **Set-based filter:** O(N) عبر filterByTags، مش هـ يـ lag حتى مع 1000+ item.\n\n**Cumulative progress: 7/9 slices (78%) — باقي 2:**\n• Slice 7 — Order integration (V21.9.108)\n• Slice 8 — Cross-entity tag view (V21.9.109)" },
+    ],
+  },
+  {
     version: "V21.9.106",
     date: "2026-05-20",
     types: ["feature"],

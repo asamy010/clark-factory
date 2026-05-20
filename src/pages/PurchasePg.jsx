@@ -58,6 +58,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   /* V21.9.106: Supplier tag filter state (Slice 5 of Universal Tagging). */
   const[supTagFilter,setSupTagFilter]=useState([]);
   const[supTagFilterMode,setSupTagFilterMode]=useState("OR");
+  /* V21.9.107: Item/Product tag filter state (Slice 6 of Universal Tagging). */
+  const[itemTagFilter,setItemTagFilter]=useState([]);
+  const[itemTagFilterMode,setItemTagFilterMode]=useState("OR");
 
   /* ── Supplier Add/Edit form state (V14.49) ── */
   const[showSupForm,setShowSupForm]=useState(false);
@@ -860,12 +863,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     if(hideZero)f=f.filter(x=>x._stock>0);
     const q=stockFilterDeb.trim().toLowerCase();
     if(q)f=f.filter(x=>(x.name||"").toLowerCase().includes(q)||(x.type||"").toLowerCase().includes(q));
+    /* V21.9.107: chain tag filter — no-op when itemTagFilter is empty. */
+    f=filterByTags(f,itemTagFilter,itemTagFilterMode);
     if(sortBy==="name")f.sort((a,b)=>(a.name||"").localeCompare(b.name||"","ar"));
     else if(sortBy==="stock")f.sort((a,b)=>b._stock-a._stock);
     else if(sortBy==="value")f.sort((a,b)=>b._value-a._value);
     else if(sortBy==="low")f.sort((a,b)=>{const aLow=a.minStock&&a._stock<=a.minStock?0:1;const bLow=b.minStock&&b._stock<=b.minStock?0:1;return aLow-bLow});
     return f;
-  },[stockTypeTab,data,hideZero,stockFilterDeb,sortBy]);
+  },[stockTypeTab,data,hideZero,stockFilterDeb,sortBy,itemTagFilter,itemTagFilterMode]);
   
   /* ──────── RENDER ──────── */
   return<div>
@@ -950,7 +955,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           return<Btn small primary onClick={()=>setItemEditPopup({
             _legacy:cat.legacy||undefined,/* "fabric" | "accessory" | undefined */
             categoryId:cat.id,name:"",type:"",unit:defaultUnit,
-            minStock:0,avgCost:0,defaultSupplierId:"",notes:""
+            minStock:0,avgCost:0,defaultSupplierId:"",notes:"",
+            /* V21.9.107: tags init for new items */
+            tags:[]
           })}>{label}</Btn>;
         })()}
       </div>
@@ -976,6 +983,16 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             <span>إخفاء الأصناف الصفرية</span>
           </label>
         </div>
+
+        {/* V21.9.107: Item tag filter — hidden if no item-applicable tags. */}
+        <TagFilter
+          entityType="item"
+          registry={data.tagRegistry||[]}
+          selectedTags={itemTagFilter}
+          mode={itemTagFilterMode}
+          onChange={(ids,m)=>{setItemTagFilter(ids);setItemTagFilterMode(m)}}
+          compact
+        />
 
         {/* Stock table */}
         {(()=>{
@@ -1019,8 +1036,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                       else{const idx=(d.inventoryItems||[]).findIndex(x=>x.id===item.id);if(idx>=0)d.inventoryItems[idx].minStock=Number(v)||0}
                     });
                   };
+                  /* V21.9.107: render tag chips inline under the item name to keep
+                     the dense inventory table column count stable. */
+                  const itemTagsArr=Array.isArray(item.tags)?item.tags:[];
                   return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd,background:isZero?T.err+"04":isLow?T.warn+"04":"transparent"}}>
-                    <td style={{...TD,fontWeight:700}}>{item.name||"—"}</td>
+                    <td style={{...TD,fontWeight:700}}>
+                      <div>{item.name||"—"}</div>
+                      {itemTagsArr.length>0&&<div style={{marginTop:3}}><TagChips tagIds={itemTagsArr} registry={data.tagRegistry||[]} small max={3}/></div>}
+                    </td>
                     {!isFabLegacy&&!isAccLegacy&&<td style={{...TD,color:T.textSec}}>{item.type?<span style={{padding:"2px 8px",borderRadius:6,background:"#8B5CF610",color:"#8B5CF6",fontSize:FS-3,fontWeight:600}}>{item.type}</span>:"—"}</td>}
                     <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}</td>
                     <td style={{...TD,textAlign:"center",color:T.textSec}}>{item.unit||"—"}</td>
@@ -1046,7 +1069,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
                           id:item.id,categoryId:curCatId,name:item.name,type:item.type,
                           unit:item.unit,minStock:item.minStock,avgCost:item.avgCost,
                           defaultSupplierId:item.defaultSupplierId,
-                          notes:item._orig?.notes||""
+                          notes:item._orig?.notes||"",
+                          /* V21.9.107: seed tags from existing item */
+                          tags:Array.isArray(item.tags)?item.tags.slice():[]
                         })} title="تعديل">✏️</Btn>
                         <Btn small ghost onClick={async()=>{
                           /* V16.66: Comprehensive integrity check via dataIntegrity —
@@ -1580,35 +1605,51 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label>
               <Inp value={itemEditPopup.notes} onChange={v=>set({notes:v})} placeholder="..."/>
             </div>}
+            {/* V21.9.107: Item tags picker. Works for fabric, accessory, and inventoryItem. */}
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التاجز <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— لتصنيف الصنف (موسمي، تصفية، إلخ)</span></label>
+              <TagPicker
+                entityType="item"
+                registry={data.tagRegistry||[]}
+                value={itemEditPopup.tags||[]}
+                onChange={(ids)=>set({tags:ids})}
+                onRegistryChange={(newReg)=>upConfig(d=>{d.tagRegistry=newReg})}
+                allowCreate={canEdit}
+                currentUser={user}
+                placeholder="إضافة تاج..."
+              />
+            </div>
           </div>
           <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
             <Btn ghost onClick={()=>setItemEditPopup(null)}>إلغاء</Btn>
             <Btn primary onClick={()=>{
               const name=(itemEditPopup.name||"").trim();
               if(!name){showToast("⚠️ ادخل الاسم");return}
+              /* V21.9.107: snapshot tags for all 3 paths */
+              const tagsClean=Array.from(new Set(Array.isArray(itemEditPopup.tags)?itemEditPopup.tags.filter(Boolean):[]));
               upConfig(d=>{
                 if(itemEditPopup._legacy==="fabric"){
                   /* V16.60: Legacy fabric — write directly to d.fabrics */
                   if(!d.fabrics)d.fabrics=[];
                   if(isEdit){
                     const idx=d.fabrics.findIndex(x=>x.id===itemEditPopup.id);
-                    if(idx>=0){const o=d.fabrics[idx];d.fabrics[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||""}}
+                    if(idx>=0){const o=d.fabrics[idx];d.fabrics[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||"",tags:tagsClean}}
                   }else{
-                    d.fabrics.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,defaultSupplierId:itemEditPopup.defaultSupplierId||""});
+                    d.fabrics.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,defaultSupplierId:itemEditPopup.defaultSupplierId||"",tags:tagsClean});
                   }
                 }else if(itemEditPopup._legacy==="accessory"){
                   /* V16.60: Legacy accessory — write directly to d.accessories */
                   if(!d.accessories)d.accessories=[];
                   if(isEdit){
                     const idx=d.accessories.findIndex(x=>x.id===itemEditPopup.id);
-                    if(idx>=0){const o=d.accessories[idx];d.accessories[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||""}}
+                    if(idx>=0){const o=d.accessories[idx];d.accessories[idx]={...o,name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,defaultSupplierId:itemEditPopup.defaultSupplierId||"",tags:tagsClean}}
                   }else{
-                    d.accessories.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,qtyPerPiece:1,defaultSupplierId:itemEditPopup.defaultSupplierId||""});
+                    d.accessories.push({id:Date.now()+Math.floor(Math.random()*1000),name,unit:itemEditPopup.unit,minStock:Number(itemEditPopup.minStock)||0,price:Number(itemEditPopup.avgCost)||0,avgCost:Number(itemEditPopup.avgCost)||0,stock:0,qtyPerPiece:1,defaultSupplierId:itemEditPopup.defaultSupplierId||"",tags:tagsClean});
                   }
                 }else{
-                  /* Non-legacy inventoryItems[] — original path */
-                  if(isEdit)updateInventoryItem(d,itemEditPopup.id,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes});
-                  else addInventoryItem(d,itemEditPopup.categoryId,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,stock:0},userName);
+                  /* Non-legacy inventoryItems[] — original path. V21.9.107: pass tags through. */
+                  if(isEdit)updateInventoryItem(d,itemEditPopup.id,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,tags:tagsClean});
+                  else addInventoryItem(d,itemEditPopup.categoryId,{name,type:itemEditPopup.type,unit:itemEditPopup.unit,minStock:itemEditPopup.minStock,avgCost:itemEditPopup.avgCost,defaultSupplierId:itemEditPopup.defaultSupplierId,notes:itemEditPopup.notes,stock:0,tags:tagsClean},userName);
                 }
               });
               setItemEditPopup(null);
