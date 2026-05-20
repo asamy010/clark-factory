@@ -4010,7 +4010,12 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
            Sits between "comms" and "maintenance" — keeps catalogue-style
            settings grouped together, separates them from destructive ops. */
         {key:"tags",        icon:"🏷️",label:"التاجز"},
-        {key:"maintenance", icon:"🔧",label:"الصيانة والنسخ"}
+        /* V21.9.111: Split "الصيانة والنسخ" → "الصيانة" + "النسخ الاحتياطية".
+           The original was 600+ lines and mixed diagnostics with destructive
+           backup/restore. Backups now isolated so they're easier to find +
+           less prone to accidental clicks while doing diagnostics. */
+        {key:"maintenance", icon:"🔧",label:"الصيانة"},
+        {key:"backups",     icon:"💾",label:"النسخ الاحتياطية"}
       ];
       /* Compute dirty count per tab — shows ✨ next to tabs with unsaved edits.
          We don't have per-tab cards mapping, so we just show ✨ on the global level. */
@@ -4474,12 +4479,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
           try{
             const meta=await migrateOrderImage(ord);
             if(meta){
-              await new Promise(resolve=>{
-                updOrder(ord.id,o=>{o.image=meta.url;o.imageStoragePath=meta.storagePath;o.imageMigratedAt=new Date().toISOString()});
-                /* updOrder returns void; give the optimistic update a tick to settle so the
-                   next iteration sees a fresh `orders` snapshot via legacy filter. */
-                setTimeout(resolve,40);
-              });
+              /* V21.9.111 fix: updOrder IS async (awaits updateDoc internally in App.jsx).
+                 Pre-fix code wrapped it in setTimeout(40ms) which raced with Firestore writes
+                 — under network latency >40ms, the next iteration could read a stale `orders`
+                 snapshot and re-process an already-migrated image. Now we await properly. */
+              await updOrder(ord.id,o=>{o.image=meta.url;o.imageStoragePath=meta.storagePath;o.imageMigratedAt=new Date().toISOString()});
             }
             done++;
           }catch(e){
@@ -4620,7 +4624,20 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const notifs=config.notifications||[];const now=new Date();
         const oldNotifs=notifs.filter(n=>{const d=new Date(n.createdAt);return(now-d)/(1000*60*60*24)>30});
         const excessNotifs=notifs.length>50?notifs.length-50:0;
-        const cleanNotifs=()=>upConfig(d=>{const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);d.notifications=(d.notifications||[]).filter(n=>new Date(n.createdAt)>=cutoff).slice(-50);showToast("✓ تم تنظيف الاشعارات")});
+        /* V21.9.111: added confirmation. Pre-fix this was destructive (deletes
+           notifications > 30 days + caps at 50) without any ask() popup —
+           user could lose a notification by accident-clicking the button. */
+        const cleanNotifs=async()=>{
+          const willDelete=(oldNotifs.length||0)+(excessNotifs||0);
+          const yes=await ask(
+            "تنظيف الإشعارات",
+            "هـ يتم حذف "+willDelete+" إشعار (الأقدم من 30 يوم + الزيادة عن 50). غير قابل للتراجع.",
+            { danger:true, confirmText:"تنظيف" }
+          );
+          if(!yes) return;
+          upConfig(d=>{const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);d.notifications=(d.notifications||[]).filter(n=>new Date(n.createdAt)>=cutoff).slice(-50)});
+          showToast("✓ تم تنظيف الاشعارات");
+        };
         /* Backup */
         const doBackup=()=>{const backup={config:configDoc,sales:salesDoc,tasks:tasksDoc,orders:orders.map(o=>{const c={...o};delete c._docId;return c}),exportDate:new Date().toISOString(),season};const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="CLARK_backup_"+season+"_"+new Date().toISOString().split("T")[0]+".json";a.click();URL.revokeObjectURL(url);showToast("✓ تم تنزيل النسخة الاحتياطية")};
         /* Compress images */
@@ -4630,9 +4647,14 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
               const canvas=document.createElement("canvas");const max=150;const ratio=Math.min(max/img.width,max/img.height,1);canvas.width=img.width*ratio;canvas.height=img.height*ratio;canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
               const compressed=canvas.toDataURL("image/jpeg",0.4);
               if(compressed.length<o.image.length){await replaceOrder(o.id,{...o,image:compressed});cnt++}
-            }catch(e){}
+            }catch(e){
+              /* V21.9.111: was silently swallowed. Now log so users + devs can see
+                 which order failed (e.g., CORS, corrupt base64). The loop continues
+                 to next order — partial success is the intended behavior. */
+              console.warn("[compressOldImages] failed for order",o.modelNo||o.id,e?.message||e);
+            }
           }
-          setCompressing(false);showToast("✓ تم ضغط صور "+cnt+" أوردر")};
+          setCompressing(false);showToast("✓ تم ضغط صور "+cnt+" أوردر"+(cnt===0?" (لم يتم ضغط أي صورة — راجع الـ console)":""))};
 
         return<div style={{display:"flex",flexDirection:"column",gap:16}}>
           {/* 1. Orphan linking */}
@@ -4684,7 +4706,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
           {/* 4+5. Backup & Restore */}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-            <Btn onClick={doBackup} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>💾 نسخة احتياطية</Btn>
+            <Btn onClick={doBackup} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>⬇️ تنزيل نسخة احتياطية</Btn>
             <label style={{cursor:"pointer",padding:"6px 16px",borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",fontSize:FS-1,fontWeight:600}}>
               📂 استعادة
               <input type="file" accept=".json" style={{display:"none"}} onChange={async e=>{const file=e.target.files[0];if(!file)return;if(!await ask("استعادة النسخة الاحتياطية","سيتم استبدال جميع البيانات الحالية بالنسخة الاحتياطية.\n\nمتأكد؟",{danger:true,confirmText:"استعادة"}))return;try{const text=await file.text();const backup=JSON.parse(text);if(!backup.config||!backup.orders){await tell("ملف غير صالح","الملف لا يحتوي على بيانات صحيحة",{type:"error"});return}upConfig(d=>{Object.assign(d,backup.config)});showToast("✓ تم استعادة الاعدادات — الأوردرات تحتاج استعادة يدوية من Firebase")}catch(er){await tell("خطأ","تعذر قراءة الملف",{type:"error"})}}}/>
@@ -4700,8 +4722,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
         </div>})()}
     </Card>
-    {/* ── Data Maintenance ── */}
-    <Card title="🔧 صيانة البيانات" style={{marginTop:16}}>
+    {/* V21.9.111: Renamed from duplicate "🔧 صيانة البيانات" to a clearer title
+        that distinguishes this card (focused on recovering deleted customers/users
+        + cleaning truly-orphan deliveries) from the first card above (which handles
+        general orphan linking + integrity + image compression). */}
+    <Card title="🔄 استعادة بيانات محذوفة" style={{marginTop:16}}>
       {(()=>{const sessIds=new Set((config.custDeliverySessions||[]).map(s=>s.id));
         let orphanCount=0;const orphanDetails=[];
         orders.forEach(o=>{
@@ -4969,7 +4994,11 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </Card>}
     </>}
 
-    {activeTab==="maintenance" && <>
+    {/* V21.9.111: BackupRestoreCard + SelectiveRestoreCard moved from "maintenance"
+        to dedicated "backups" tab. The split keeps diagnostics-vs-destructive ops
+        visually distinct so admins don't accidentally trigger a restore while
+        debugging an orphan list. */}
+    {activeTab==="backups" && <>
     <BackupRestoreCard config={config} salesDoc={salesDoc} tasksDoc={tasksDoc} orders={orders} isMob={isMob} user={user} upConfig={upConfig}/>
     <SelectiveRestoreCard configDoc={configDoc} upConfig={upConfig} user={user} isMob={isMob}/>
     </>}
