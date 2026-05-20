@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.108",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🧾 Phase 20h — Order UI Integration (Slice 7/8)",
+    changes: [
+      { type: "feature", text: "🧾 [Slice 7 من Universal Tagging — Order integration. أعلى Risk slice في الـ UI integrations لأن الأوردرات في seasons subcollection (مش factory/config).]\n\n**التغييرات في `src/pages/OrdForm.jsx`:**\n\n**1. Order Edit Form:**\n• Card جديد \"🏷️ التاجز\" alongside الـ accessories + instructions cards\n• `<TagPicker entityType=\"order\" .../>` بـ allowCreate=true\n• Hint: \"عاجل، VIP، sample\"\n• الـ tags بـ تتـ save على `form.tags` ثم في `onSave(form)` → updOrder/replaceOrder → seasons/{S}/orders/{docId} via the existing infrastructure\n\n**التغييرات في `src/pages/DetPg.jsx`:**\n\n**2. Order List Filter:**\n• TagFilter chip strip بعد الـ status chips row في الـ search card\n• Hidden لو registry فاضي من order tags\n• AND/OR + reset\n• الـ filtered orders يـ apply filterByTags بعد الـ existing predicates\n\n**3. Order Row Display (table view):**\n• TagChips inline تحت اسم الموديل\n• max 2 chips للجدول (column عرض ضيق)\n\n**4. Order Tile Display (mobile + tile view):**\n• TagChips بين modelDesc والـ meta row\n• max 3 chips للـ tile (مساحة أوسع)" },
+      { type: "doc", text: "🛡️ [Data-safety guarantees]\n\n• **Different storage pattern:** الأوردرات في `seasons/{S}/orders/{docId}` — مش factory/config. الـ tags بـ تتـ save على `order.tags` ثم replaceOrder/updOrder بـ يـ writes للـ Firestore subcollection.\n• **Add-only schema:** `order.tags` field جديد على الأوردرات الجديدة + الـ existing orders بدون tags يستمروا يـ work عادي.\n• **Set-based filter:** filterByTags O(N) — مش بـ يـ lag حتى مع 1000+ order.\n• **TagPicker inline create عبر upConfig:** الـ tagRegistry write لـ factory/config (مش الـ order)، بـ يـ register العنوان قبل ما يـ associated بالـ order.\n• **TagFilter hidden when empty:** الـ existing users بدون order tags لا يـ see UI noise.\n• **No breaking changes:** الـ existing order pipeline (calcOrder, sortOrders, validateOrder) لا يـ touch الـ tags field — مفيش regression محتمل.\n\n**Cumulative progress: 8/9 slices (89%) — باقي:**\n• Slice 8 — Cross-entity tag view (V21.9.109) — \"الـ Odoo feeling النهائي\": اضغط tag في Settings → modal بـ كل الـ entities المرتبطة" },
+    ],
+  },
+  {
     version: "V21.9.107",
     date: "2026-05-20",
     types: ["feature"],

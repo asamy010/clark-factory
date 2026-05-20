@@ -19,6 +19,11 @@ import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowe
 /* V19.36: clean up the model image's Storage object when the user deletes the image */
 import { deleteOrderImage } from "../utils/orderImages.js";
 import { OrdForm } from "./OrdForm.jsx";
+/* V21.9.108: Universal Tagging — Slice 7 Order integration. TagFilter on
+   the list view + TagChips on row/tile displays. */
+import { TagChips } from "../components/TagPicker.jsx";
+import { TagFilter } from "../components/TagFilter.jsx";
+import { filterByTags } from "../utils/tags.js";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { StageProgressModal } from "../components/StageProgressModal.jsx";
@@ -42,6 +47,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
+  /* V21.9.108: order tag filter state (Slice 7 of Universal Tagging). */
+  const[orderTagFilter,setOrderTagFilter]=useState([]);
+  const[orderTagFilterMode,setOrderTagFilterMode]=useState("OR");
   /* V18.90: Review request modal toggle */
   const[showReview,setShowReview]=useState(false);
   /* V21.0 Phase 10: Shopify push modal (for the detail-page action row) */
@@ -219,13 +227,15 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
   if(!order){
-    const filtered=data.orders.filter(o=>{
+    const filteredPreTag=data.orders.filter(o=>{
       if(detSt==="⚠️"){const _now=new Date();let _ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>_ld)_ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>_ld)_ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>_ld)_ld=d.date});if(Math.floor((_now-new Date(_ld))/(1000*60*60*24))<=7||o.status==="تم التسليم لمخزن الجاهز")return false}
       if(detSt!=="الكل"&&detSt!=="⚠️"&&o.status!==detSt)return false;
       if(detWs){const wds=o.workshopDeliveries||[];if(!wds.some(wd=>wd.wsName===detWs))return false}
       if(detQ.trim()){const s=detQ.trim().toLowerCase();const h=[o.modelNo,o.modelDesc,o.sizeLabel,o.status,o.poNumber].filter(Boolean).join(" ").toLowerCase();if(!h.includes(s))return false}
       return true
     });
+    /* V21.9.108: chain tag filter after the existing predicates. No-op when empty. */
+    const filtered=filterByTags(filteredPreTag,orderTagFilter,orderTagFilterMode);
     return<div>
       <style>{`
         .det-tile{transition:all 0.2s cubic-bezier(0.4,0,0.2,1);cursor:pointer}
@@ -299,6 +309,15 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </span>}
           </div>;
         })()}
+        {/* V21.9.108: order tag filter — hidden if no order-applicable tags exist. */}
+        <TagFilter
+          entityType="order"
+          registry={data.tagRegistry||[]}
+          selectedTags={orderTagFilter}
+          mode={orderTagFilterMode}
+          onChange={(ids,m)=>{setOrderTagFilter(ids);setOrderTagFilterMode(m)}}
+          compact
+        />
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════
@@ -377,6 +396,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                       <div style={{minWidth:0}}>
                         {o.poNumber&&<div style={{fontSize:FS-3,color:T.accent,fontFamily:"monospace",fontWeight:700}}>{o.poNumber}</div>}
                         <div style={{fontWeight:800,color:T.text}}>{o.modelNo}</div>
+                        {/* V21.9.108: order tags inline under model number. */}
+                        {Array.isArray(o.tags)&&o.tags.length>0&&<div style={{marginTop:3}}><TagChips tagIds={o.tags} registry={data.tagRegistry||[]} small max={2}/></div>}
                       </div>
                     </div>
                   </td>
@@ -443,6 +464,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                         {o.poNumber&&<span style={{fontSize:FS-3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.4,padding:"2px 6px",borderRadius:4,background:T.accent+"10",border:"1px solid "+T.accent+"20"}}>{o.poNumber}</span>}
                       </div>
                       <div style={{fontSize:FS-1,color:T.textSec,marginBottom:5,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
+                      {/* V21.9.108: order tags chip strip (tile view). */}
+                      {Array.isArray(o.tags)&&o.tags.length>0&&<div style={{marginBottom:5}}><TagChips tagIds={o.tags} registry={data.tagRegistry||[]} small max={3}/></div>}
                       {/* Meta row — size, age, workshop count */}
                       <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                         <span>📐 {o.sizeLabel}</span>

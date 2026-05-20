@@ -7,6 +7,9 @@
 
 import { useEffect, useState } from "react";
 import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel, SearchSel } from "../components/ui.jsx";
+/* V21.9.108: Universal Tagging — Slice 7 Order integration. TagPicker
+   on the order edit form; the order list filter/chips live in DetPg. */
+import { TagPicker } from "../components/TagPicker.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDL } from "../theme.js";
 import { gIcon, setF, sqty } from "../utils/format.js";
@@ -273,7 +276,24 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
               <div className="ord-block-header"><span>📝 تعليمات التشغيل</span></div>
               <textarea value={form.instructions||""} onChange={e=>updF("instructions",e.target.value)} placeholder="تعليمات تشغيل المصنع، الورش، التشطيب..." style={{width:"100%",minHeight:120,padding:12,borderRadius:10,border:"1.5px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box",resize:"vertical",flex:1}}/>
             </div>;
-            return fabricsFillFullRow?<>{accCard}{instCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}</div>;
+            /* V21.9.108: Universal Tagging — Order tags card. Mounted alongside
+               the accessories + instructions extras so the layout grid still
+               flows naturally. allowCreate=true because order editing is gated
+               at the page level (canEdit on the details tab). The picker uses
+               soft-create so duplicates auto-resolve. */
+            const tagsCard=<div className="ord-block-card" key="tags">
+              <div className="ord-block-header"><span>🏷️ التاجز</span></div>
+              <TagPicker
+                entityType="order"
+                registry={data.tagRegistry||[]}
+                value={form.tags||[]}
+                onChange={(ids)=>updF("tags",ids)}
+                onRegistryChange={(newReg)=>upConfig(d=>{d.tagRegistry=newReg})}
+                allowCreate
+                placeholder="إضافة تاج (مثلاً: عاجل، VIP، sample)..."
+              />
+            </div>;
+            return fabricsFillFullRow?<>{accCard}{instCard}{tagsCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}{tagsCard}</div>;
           })()}
         </div>
         {visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>
