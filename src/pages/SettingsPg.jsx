@@ -61,6 +61,10 @@ import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 /* V21.9.3: smart diagnostics panel — moved from ShopifyIntegrationPg */
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel.jsx";
+/* V21.9.103: Universal Tag Registry CRUD (Slice 3 of Universal Tagging).
+   Manager+Admin only (data-safety §0.1 decision). Other roles see a
+   read-only notice. */
+import TagsManagerPanel from "../components/TagsManagerPanel.jsx";
 import { HelpTip, CardSubtitle, FieldHelp } from "../components/HelpTip.jsx";
 import { StockPg } from "./StockPg.jsx";
 
@@ -4002,6 +4006,10 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         {key:"business",    icon:"💰",label:"المالية والمبيعات"},
         {key:"hr",          icon:"👥",label:"الموظفين"},
         {key:"comms",       icon:"📢",label:"التواصل والإشعارات"},
+        /* V21.9.103: Universal Tag Registry (Slice 3 of Universal Tagging).
+           Sits between "comms" and "maintenance" — keeps catalogue-style
+           settings grouped together, separates them from destructive ops. */
+        {key:"tags",        icon:"🏷️",label:"التاجز"},
         {key:"maintenance", icon:"🔧",label:"الصيانة والنسخ"}
       ];
       /* Compute dirty count per tab — shows ✨ next to tabs with unsaved edits.
@@ -4268,6 +4276,22 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="comms" && <>
     {/* WhatsApp Report Contacts Settings — with draft pattern + save button */}
     <WaContactsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,waContacts:d}))}/>
+    </>}
+
+    {/* V21.9.103: Universal Tags management. canEdit = Manager+Admin only
+        per the §0.1 data-safety decision (prevents fragmentation: e.g.,
+        "VIP" + "vip" + "Vip" becoming three separate tags). Other roles
+        will use the picker dropdown to select from existing tags in
+        Slices 4-7 but can't create/edit/delete from here. */}
+    {activeTab==="tags" && <>
+    <TagsManagerPanel
+      data={config}
+      upConfig={upConfig}
+      canEdit={userRole==="admin"||userRole==="manager"}
+      user={user}
+      isMob={isMob}
+      orders={orders}
+    />
     </>}
 
     {activeTab==="hr" && <>

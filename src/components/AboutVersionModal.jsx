@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.103",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🏷️ Phase 20c — Tag Management Page (Slice 3/8)",
+    changes: [
+      { type: "feature", text: "🏷️ [Slice 3 من Universal Tagging — أول mounted UI! الـ admin/manager يقدر دلوقتي يعمل CRUD على الـ tag registry من Settings → التاجز.]\n\n**Tab جديد في Settings:**\n📍 الموقع: Settings → التاجز (بين \"التواصل والإشعارات\" و \"الصيانة والنسخ\")\n👥 الصلاحية: Manager + Admin فقط (per §0.1 data-safety decision — يمنع 'VIP' + 'vip' + 'Vip' من إنشاء 3 entries مختلفة)\n\n**ميزات الـ page:**\n\n**1. Stats strip فوق:**\n• إجمالي / نشطة / أرشيف — حداد الـ counts بتاع الـ registry.\n\n**2. Toolbar:**\n• 🔍 Search input في الأسماء (case-insensitive)\n• Entity-type filter (الكل / عميل / مورد / صنف / أوردر)\n• Checkbox \"عرض المؤرشفة\"\n• + تاج جديد — يفتح Edit modal\n• 🔀 دمج (يظهر لو 2+ tags محددة)\n\n**3. Table:**\n• Color chip + icon + name + شارة أرشيف لو موجودة\n• Description (truncated مع title tooltip)\n• Applies-to chips\n• Usage count (live computed من entity arrays) — color-coded\n• آخر استخدام (تاريخ)\n• Actions: ✏️ تعديل / 📦 أرشفة / ↩️ استرجاع / 🗑️ حذف (متاح بس لو usage=0)\n• Selected-first sort + usage desc + Arabic alphabetical تالياً\n• Mobile-friendly responsive (يخفي بعض الأعمدة)" },
+      { type: "feature", text: "🎨 [Edit Modal مفصّل]\n\n**نفس الـ modal يستخدم لـ create + edit:**\n• الاسم (مع live collision check — يحذر فوراً لو موجود)\n• اللون: 12 swatch preset (لا free hex picker)\n• الإيموجي: text input بـ 4 chars max\n• الوصف: optional، 200 char max\n• يطبق على: 4 toggleable chips (عميل/مورد/صنف/أوردر)\n• Validation: اسم فارغ أو collision يعطل زر الحفظ\n\n**Merge Modal:**\n• اختر 2+ tags بالـ checkbox من الجدول → اضغط 🔀 دمج\n• Modal يعرض اختيار الفائز بـ radio + count الـ entities المتأثرة\n• تحذير قبل التنفيذ بإجمالي الـ entities اللي هـ تتـ rewrite\n• تنفيذ الدمج: تحويل كل الـ entity tags للفائز + أرشفة الـ losers مع mergedInto pointer للـ audit\n\n**Hard delete safety:**\n• الزر مخفي تماماً لو usage > 0\n• لو الاستخدام = 0، Confirm popup قبل الـ delete النهائي" },
+      { type: "doc", text: "🛡️ [Data-safety guarantees]\n\n• كل الـ mutations عبر upConfig — لا مفيش direct Firestore writes من الـ Panel.\n• Pure functions من utils/tags.js (createTag/updateTag/renameTag/archiveTag/unarchiveTag/mergeTags) — كل mutation يـ return registry جديد، الـ caller يقرر يـ commit.\n• Collision-aware unarchive: لو حاول يـ unarchive tag مكرر مع نشط، الـ panel يرفض ويقول للـ user أعد التسمية أولاً.\n• Live collision check في Edit modal — منع الـ duplicates قبل ما يـ submit.\n• Archive يحافظ على الـ history (الـ entities الباقية مرتبطة لكن الـ tag مخفي من الـ picker)؛ الحذف النهائي محدد بـ usage=0.\n• Permission gate: لو مش admin/manager، الـ panel يعرض read-only notice.\n• Usage counts عبر Set-based getAllTagsUsageCounts — single-pass O(N×E) lookup.\n\n**لاحقاً (Slice 4):** Customer integration + Shopify migration. سيكون أول entity wiring فعلي." },
+    ],
+  },
+  {
     version: "V21.9.102",
     date: "2026-05-19",
     types: ["feature"],
