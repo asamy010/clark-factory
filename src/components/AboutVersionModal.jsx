@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.106",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🏭 Phase 20f — Supplier UI Integration (Slice 5/8)",
+    changes: [
+      { type: "feature", text: "🏭 [Slice 5 من Universal Tagging — Supplier integration. نفس الـ pattern كـ Customer (Slice 4b)، تعديلات مركزة في PurchasePg.jsx.]\n\n**التغييرات في `src/pages/PurchasePg.jsx`:**\n\n**1. Supplier Edit Form (popup):**\n• حقل \"التاجز\" جديد بعد حقل \"ملاحظات\"\n• `<TagPicker entityType=\"supplier\" .../>` بـ inline create عبر `allowCreate={canEdit}`\n• Placeholder: \"إضافة تاج...\" — مع hint نصي يقترح أنواع التصنيف (أقمشة، إكسسوارات، ملوّنات)\n• `supForm.tags` يتـ save في `supplier.tags = [...IDs]` عبر upConfig\n\n**2. Suppliers Table:**\n• TagFilter chip strip بين filter row والجدول — hidden لو الـ registry فاضي من supplier tags\n• الـ chips تعرض الـ tags المتاحة لـ entityType=\"supplier\" فقط\n• AND/OR toggle + reset\n• الجدول يـ filter عبر `filterByTags(list, supTagFilter, supTagFilterMode)` بعد الـ search filter وقبل الـ sort\n\n**3. Table Row Display:**\n• الـ tags بـ تظهر inline تحت اسم المورد (مش عمود منفصل — للحفاظ على column density)\n• `<TagChips tagIds={s.tags} max={3} small/>` — يعرض 3 chips كـ max + overflow\n• الـ wrapper بـ render فقط لو فيه tags — مفيش spacing زيادة للموردين بدون tags\n\n**4. State + handlers:**\n• `supTagFilter`، `supTagFilterMode` — list filter state\n• openAddSupplier / openEditSupplier محدثين لتشمل `tags`\n• saveSupplier يـ store `tagsClean` بعد dedup" },
+      { type: "doc", text: "🛡️ [Data-safety + consistency]\n\n• **Add-only schema:** `supplier.tags` field جديد، الـ existing suppliers بدون tags يستمروا يـ work عادي.\n• **Partitioned writes:** suppliers في `suppliersDocs/{id}` (V19.57) — upConfig يـ writes per-doc تلقائياً.\n• **Same gates as Customer:** allowCreate=canEdit (pragmatic سواء فيهم sales/purchase accountants). الـ §0.1 strict gate (Manager+Admin only) موجود في Settings → التاجز page.\n• **No migration needed:** suppliers لم يكن لديها tags strings قديمة (unlike customers اللي مرّت بـ Shopify tags). الـ field starts fresh.\n• **TagFilter يظهر فقط لو فيه supplier tags في الـ registry** — مفيش UI noise للـ existing users.\n\n**التالي (Slice 6 — V21.9.107):**\n• Item/Product integration (fabrics + accessories + generalProducts)" },
+    ],
+  },
+  {
     version: "V21.9.105",
     date: "2026-05-20",
     types: ["feature"],

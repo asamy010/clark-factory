@@ -11,6 +11,12 @@ import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
 import { ask, tell, showToast, denyAction } from "../utils/popups.js";
 import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
+/* V21.9.106: Universal Tagging — Slice 5 Supplier integration. Same pattern
+   as Slice 4b (Customer). Tag IDs stored on supplier.tags; inline create
+   gated on canEdit (sales/purchase accountants share the same pragmatic gate). */
+import { TagPicker, TagChips } from "../components/TagPicker.jsx";
+import { TagFilter } from "../components/TagFilter.jsx";
+import { filterByTags } from "../utils/tags.js";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
@@ -49,10 +55,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   const[showPayForm,setShowPayForm]=useState(false);
   const[payForm,setPayForm]=useState(null);/* {supplierId, amount, method, account, date, notes, checkBank, checkNo, checkDueDate} */
   const[supSortBy,setSupSortBy]=useState("balance");/* name|balance|total */
-  
+  /* V21.9.106: Supplier tag filter state (Slice 5 of Universal Tagging). */
+  const[supTagFilter,setSupTagFilter]=useState([]);
+  const[supTagFilterMode,setSupTagFilterMode]=useState("OR");
+
   /* ── Supplier Add/Edit form state (V14.49) ── */
   const[showSupForm,setShowSupForm]=useState(false);
-  const[supForm,setSupForm]=useState(null);/* {id?, name, phone, address, notes} */
+  const[supForm,setSupForm]=useState(null);/* {id?, name, phone, address, notes, tags[]} */
   const[supDelConfirm,setSupDelConfirm]=useState(null);/* supplier obj to delete */
   
   /* ── Purchase Order form state ── */
@@ -225,11 +234,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ═══ SUPPLIER CRUD HANDLERS V14.49 ═══ */
   const openAddSupplier=()=>{
-    setSupForm({id:null,name:"",phone:"",address:"",notes:""});
+    setSupForm({id:null,name:"",phone:"",address:"",notes:"",tags:[]});
     setShowSupForm(true);
   };
   const openEditSupplier=(supplier)=>{
-    setSupForm({id:supplier.id,name:supplier.name||"",phone:supplier.phone||"",address:supplier.address||"",notes:supplier.notes||""});
+    setSupForm({id:supplier.id,name:supplier.name||"",phone:supplier.phone||"",address:supplier.address||"",notes:supplier.notes||"",tags:Array.isArray(supplier.tags)?supplier.tags.slice():[]});
     setShowSupForm(true);
   };
   const saveSupplier=async()=>{
@@ -241,17 +250,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     const phone=normalizePhone((supForm.phone||"").trim());
     const address=(supForm.address||"").trim();
     const notes=(supForm.notes||"").trim();
+    /* V21.9.106: snapshot tags to a safe deduplicated array. */
+    const tagsClean=Array.from(new Set(Array.isArray(supForm.tags)?supForm.tags.filter(Boolean):[]));
     upConfig(d=>{
       if(!d.suppliers)d.suppliers=[];
       if(supForm.id){
         /* Edit existing */
         const idx=d.suppliers.findIndex(s=>s.id===supForm.id);
         if(idx>=0){
-          d.suppliers[idx]={...d.suppliers[idx],name,phone,address,notes};
+          d.suppliers[idx]={...d.suppliers[idx],name,phone,address,notes,tags:tagsClean};
         }
       }else{
         /* Add new */
-        d.suppliers.push({id:gid(),name,phone,address,notes,createdAt:new Date().toISOString(),createdBy:userName});
+        d.suppliers.push({id:gid(),name,phone,address,notes,tags:tagsClean,createdAt:new Date().toISOString(),createdBy:userName});
       }
     });
     showToast(supForm.id?"✓ تم تحديث بيانات المورد":"✓ تمت إضافة المورد");
@@ -1655,7 +1666,17 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             <span>مورد جديد</span>
           </Btn>}
         </div>
-        
+
+        {/* V21.9.106: Tag filter strip — hidden if no supplier tags exist in registry. */}
+        <TagFilter
+          entityType="supplier"
+          registry={data.tagRegistry||[]}
+          selectedTags={supTagFilter}
+          mode={supTagFilterMode}
+          onChange={(ids,m)=>{setSupTagFilter(ids);setSupTagFilterMode(m)}}
+          compact
+        />
+
         {/* Suppliers table */}
         {suppliers.length===0?<div style={{padding:"40px 20px",textAlign:"center"}}>
           <div style={{fontSize:48,marginBottom:12}}>👥</div>
@@ -1668,6 +1689,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           let list=suppliers.map(s=>{const st=supplierStats[s.id]||{};return{...s,_stats:st}});
           const q=supFilterDeb.trim().toLowerCase();
           if(q)list=list.filter(s=>(s.name||"").toLowerCase().includes(q)||(s.phone||"").includes(q));
+          /* V21.9.106: chain tag filter — no-op when supTagFilter is empty. */
+          list=filterByTags(list,supTagFilter,supTagFilterMode);
           if(supSortBy==="balance")list.sort((a,b)=>(b._stats.balance||0)-(a._stats.balance||0));
           else if(supSortBy==="name")list.sort((a,b)=>(a.name||"").localeCompare(b.name||"","ar"));
           else if(supSortBy==="total")list.sort((a,b)=>(b._stats.totalInvoiced||0)-(a._stats.totalInvoiced||0));
@@ -1689,8 +1712,16 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
               </tr></thead>
               <tbody>
                 {list.map(s=>{const st=s._stats;const bal=Number(st.balance)||0;const isOwed=bal>1;const isOverpaid=bal<-1;
+                  /* V21.9.106: render tag chips inline under the supplier name to
+                     keep the table column count stable (8 columns already feels
+                     dense). Only renders the wrapper when tags exist so spacing
+                     stays clean for taggless suppliers. */
+                  const supTagsArr=Array.isArray(s.tags)?s.tags:[];
                   return<tr key={s.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setActiveSupplier(s)}>
-                    <td style={{...TD,fontWeight:700,color:T.text}}>{s.name}</td>
+                    <td style={{...TD,fontWeight:700,color:T.text}}>
+                      <div>{s.name}</div>
+                      {supTagsArr.length>0&&<div style={{marginTop:3}}><TagChips tagIds={supTagsArr} registry={data.tagRegistry||[]} small max={3}/></div>}
+                    </td>
                     <td style={{...TD,color:T.textSec,fontSize:FS-2}}>{s.phone||"—"}</td>
                     <td style={{...TD,textAlign:"center"}}>{st.receiptCount||0}</td>
                     <td style={{...TD,textAlign:"center",fontWeight:600}}>{fmt(r2(st.totalInvoiced||0))}</td>
@@ -1752,8 +1783,26 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             </label>
             <textarea value={supForm.notes} onChange={e=>setSupForm(p=>({...p,notes:e.target.value}))} placeholder="شروط الدفع، ساعات العمل، ملاحظات أخرى..." rows={3} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg||T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical",minHeight:60,outline:"none"}}/>
           </div>
+
+          {/* V21.9.106: Supplier tags picker (Slice 5 of Universal Tagging).
+              entityType="supplier" filters the registry to only supplier-applicable tags. */}
+          <div>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:700,marginBottom:4,display:"block"}}>
+              التاجز <span style={{color:T.textMut,fontWeight:500}}>(لتصنيف المورد: أقمشة، إكسسوارات، ملوّنات، إلخ)</span>
+            </label>
+            <TagPicker
+              entityType="supplier"
+              registry={data.tagRegistry||[]}
+              value={supForm.tags||[]}
+              onChange={(ids)=>setSupForm(p=>({...p,tags:ids}))}
+              onRegistryChange={(newReg)=>upConfig(d=>{d.tagRegistry=newReg})}
+              allowCreate={canEdit}
+              currentUser={user}
+              placeholder="إضافة تاج..."
+            />
+          </div>
         </div>
-        
+
         <div style={{display:"flex",gap:8,marginTop:18,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>{setShowSupForm(false);setSupForm(null)}}>إلغاء</Btn>
           <Btn onClick={saveSupplier} style={{background:T.accent,color:"#fff",border:"none",fontWeight:700}}>💾 حفظ</Btn>
