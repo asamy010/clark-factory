@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.117",
+    date: "2026-05-20",
+    types: ["fix"],
+    title: "🐛 Phase 22b-fix — Contact balances use operational formula (with discount)",
+    changes: [
+      { type: "fix", text: "🎯 [User-reported bug — الـ Contact Detail ledger في V21.9.116 كان بيعرض customer balances غلط: مش بـ يطبّق الخصم، ومش بـ يحسب الـ deliveries اللي لسه ما اتـ promoted-ش لـ فواتير مرحّلة.]\n\n**Root cause:**\nV21.9.116 استخدم `computeCustomerStatement` + `computeSupplierStatement` من `utils/rollups.js` — هذه الـ functions بـ تحسب من الـ accounting layer:\n• `salesInvoices` بـ status=posted فقط\n• `purchaseInvoices` بـ status=posted فقط\n\nبس الـ user يشوف الـ operational view في CustDeliverPg + PurchasePg، اللي بـ يستخدم:\n• `data.orders[].customerDeliveries` + `customerReturns` × prices مع customer.discount\n• `data.purchaseReceipts` + `supplierPayments` + treasury orphans\n\nالـ نتيجة: نفس الـ customer كان بـ يظهر بـ balance مختلف على الـ Contacts page عن CustDeliverPg." },
+      { type: "fix", text: "✅ [Fix in V21.9.117]\n\n**1. أضفت `buildSupplierSummary(supId, data)` في `src/utils/accountSummary.js`:**\nMirror دقيق لـ PurchasePg.jsx supplierStats logic:\n• `totalInvoiced` = Σ purchaseReceipts.totalAmount لـ supplier\n• `totalPaid` = receipts.paidAmount + standalone supplierPayments + treasury orphans (مع tombstones honored)\n• `balance` = totalInvoiced − totalPaid\n\n**2. بدّلت في `ContactsPg.jsx#ContactDetailModal`:**\n```diff\n-import { computeCustomerStatement, computeSupplierStatement } from \"../utils/rollups.js\";\n+import { buildCustomerSummary, buildSupplierSummary, computeWorkshopBalance } from \"../utils/accountSummary.js\";\n```\n\n**3. الـ display دلوقتي يعرض الـ breakdown بشكل صريح:**\n```\n👥 رصيد العميل (بعد الخصم)              12,500 EGP (مدين)\n   مبيعات: 15,000 · خصم 10%: −1,500 · مدفوع: −1,000\n\n🏭 رصيد المورد                          8,200 EGP (دائن)\n   مشتريات: 12,000 · مدفوع: −3,800\n```\n\nالـ user يقدر يتأكد من الحسبة بـ شوف الـ breakdown مباشرة." },
+      { type: "doc", text: "🛡️ [Why operational vs accounting layer matters]\n\nفي CLARK فيه 2 طبقات للـ financial tracking:\n\n**Operational (real-time):**\n• customer.deliveries × price (مع discount) — في CustDeliverPg\n• purchaseReceipts.totalAmount — في PurchasePg\n• الـ user يـ updates هنا عند كل operation\n\n**Accounting (posted invoices):**\n• salesInvoices (posted when delivery confirmed) — للـ tax + reports\n• purchaseInvoices — same\n• الـ rollups.js helpers source من هنا\n\n**القاعدة:** للـ user-facing balance display، استخدم الـ operational. للـ tax reports + period closing، استخدم الـ accounting layer.\n\n**Lessons:**\n• 'Single source of truth' عبارة dangerous لما يكون فيه 2 sources مشروعة لـ نفس البيانات لكن في contexts مختلفة\n• تأكد من matching الـ display الـ user متعوّد عليه قبل ما تـ import helper بـ يبدو 'right' من الكود\n\n**Inconsistency notes (للسجل):**\n• PurchasePg supplierStats لا يـ include `purchaseDebitNotes` (returns to supplier)\n• rollups.js computeSupplierStatement بـ يـ include-ها (V21.9.89 fix)\n• الـ buildSupplierSummary الجديد يـ match PurchasePg (الـ live display) — لكن ده bug في PurchasePg محتاج fix لاحقاً\n• حُفظ في الـ TODO list للـ next bug-hunt cycle" },
+    ],
+  },
+  {
     version: "V21.9.116",
     date: "2026-05-20",
     types: ["feature"],

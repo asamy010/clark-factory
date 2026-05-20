@@ -111,6 +111,69 @@ export function buildCustomerSummary(custId, data) {
   };
 }
 
+/* ═══ SUPPLIER ACCOUNT SUMMARY (V21.9.117) ═══
+   Returns: {totalInvoiced, totalPaid, balance, receiptCount, lastActivity}
+   Mirrors the math used in PurchasePg.jsx supplierStats — the canonical
+   "live" supplier balance shown to the user in the suppliers list.
+
+   Why we need this: the parallel `computeSupplierStatement` in rollups.js
+   computes from `purchaseInvoices` (the accounting layer), but the user
+   sees the operational view in PurchasePg which sources from
+   `purchaseReceipts` + `supplierPayments` + treasury orphans.
+   Using rollups in the Contacts ledger created visible discrepancies
+   with the suppliers list (e.g., a receipt not yet promoted to a posted
+   invoice would show different balances on the two pages).
+
+   Note: this intentionally omits `purchaseDebitNotes` to keep parity
+   with PurchasePg.jsx (which also omits them). The audit found that
+   computeSupplierStatement includes them; the inconsistency is tracked
+   for a future bug-fix cycle. */
+export function buildSupplierSummary(supId, data) {
+  if (!supId || !data) return null;
+  const supplier = (data.suppliers || []).find(s => s.id === supId);
+  if (!supplier) return null;
+
+  let totalInvoiced = 0, totalPaid = 0, receiptCount = 0, lastActivity = "";
+
+  /* 1. Receipts (the operational source of truth for "what we bought") */
+  (data.purchaseReceipts || []).forEach(r => {
+    if (r.supplierId !== supId) return;
+    totalInvoiced += Number(r.totalAmount) || 0;
+    totalPaid += Number(r.paidAmount) || 0;  /* paid at receipt time */
+    receiptCount++;
+    if (r.date > lastActivity) lastActivity = r.date;
+  });
+
+  /* 2. Standalone supplier payments (not linked to a specific receipt) */
+  (data.supplierPayments || []).forEach(p => {
+    if (p.supplierId !== supId) return;
+    if (p.receiptId) return;  /* already counted via receipts.paidAmount */
+    totalPaid += Number(p.amount) || 0;
+    if (p.date > lastActivity) lastActivity = p.date;
+  });
+
+  /* 3. V19.12: orphan treasury payments linked to supplierId but not yet
+        reflected in supplierPayments. Honors tombstones. */
+  const knownTxIds = new Set((data.supplierPayments || []).map(p => p.treasuryTxId).filter(Boolean));
+  const tombstones = new Set(data._deletedSupplierPayTreasuryIds || []);
+  (data.treasury || []).forEach(t => {
+    if (!t || !t.id) return;
+    if (t.type !== "out") return;
+    if (t.supplierId !== supId) return;
+    if (knownTxIds.has(t.id)) return;
+    if (tombstones.has(t.id)) return;
+    if (t.sourceType === "check_bounce") return;
+    totalPaid += Number(t.amount) || 0;
+    if (t.date > lastActivity) lastActivity = t.date;
+  });
+
+  totalInvoiced = _r2(totalInvoiced);
+  totalPaid = _r2(totalPaid);
+  const balance = _r2(totalInvoiced - totalPaid);
+
+  return { totalInvoiced, totalPaid, balance, receiptCount, lastActivity };
+}
+
 /* ═══ WORKSHOP ACCOUNT SUMMARY ═══
    Returns: {totalDelivered, totalReceived, pendingPieces, due, totalPurchase, totalPaid, balance}
    Mirrors the math used in DashPg.jsx wsAccounts().

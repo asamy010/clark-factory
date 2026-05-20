@@ -32,10 +32,16 @@ import {
   labelForType,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
-/* V21.9.116: cross-account ledger uses the same rollup helpers as
-   the Customer/Supplier statement pages — single source of truth. */
-import { computeCustomerStatement, computeSupplierStatement } from "../utils/rollups.js";
-import { computeWorkshopBalance } from "../utils/accountSummary.js";
+/* V21.9.117: cross-account ledger uses the OPERATIONAL balance helpers
+   (deliveries + returns + payments with discount), NOT the rollup helpers
+   from rollups.js which source from posted invoices only.
+
+   Why the switch: V21.9.116 used computeCustomerStatement / computeSupplierStatement
+   which read salesInvoices/purchaseInvoices (the accounting layer). User reported
+   customer balances were wrong — discount wasn't applied AND deliveries that didn't
+   yet have a posted invoice were missed. The user sees the operational view in
+   CustDeliverPg/PurchasePg, so the Contact ledger must match that. */
+import { buildCustomerSummary, buildSupplierSummary, computeWorkshopBalance } from "../utils/accountSummary.js";
 
 /* Map type key → meta from the contacts module, for chips. */
 const TYPE_META = CONTACT_TYPES.reduce((acc, t) => { acc[t.key] = t; return acc; }, {});
@@ -277,23 +283,28 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
   const isRegistryContact = contact.linkedFrom === "contact";
   const linkedIds = contact.entityIds || {};
 
-  /* Compute ledger balances. Each is independent — only renders the
-     row when the corresponding link exists. */
+  /* V21.9.117: ledger uses operational balances (matches CustDeliverPg + PurchasePg).
+     buildCustomerSummary applies the customer.discount % to sales+returns gross,
+     then subtracts cash + check + other payments. buildSupplierSummary mirrors
+     PurchasePg.supplierStats: receipts + standalone payments + treasury orphans. */
   const ledger = useMemo(() => {
     const out = {};
     if(linkedIds.customer){
-      const s = computeCustomerStatement(data, linkedIds.customer);
-      if(s) out.customer = s.totals;
+      const s = buildCustomerSummary(linkedIds.customer, data);
+      if(s) out.customer = s;
     }
     if(linkedIds.supplier){
-      const s = computeSupplierStatement(data, linkedIds.supplier);
-      if(s) out.supplier = s.totals;
+      const s = buildSupplierSummary(linkedIds.supplier, data);
+      if(s) out.supplier = s;
     }
     if(linkedIds.workshop){
       /* Workshops use name (not id) per the legacy convention. Find the
          workshop name first, then call the rollup helper. */
       const ws = (data.workshops || []).find(w => String(w.id) === String(linkedIds.workshop));
-      if(ws) out.workshop = computeWorkshopBalance(ws.name, data);
+      if(ws){
+        const wb = computeWorkshopBalance(ws.name, data);
+        if(wb) out.workshop = wb.balance;
+      }
     }
     return out;
   }, [data, linkedIds]);
@@ -378,37 +389,48 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
             </div>
 
             {ledger.customer && (
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "6px 0", borderBottom: ledger.supplier || ledger.workshop ? "1px solid "+T.brd+"30" : "none",
-              }}>
-                <div style={{display:"flex", alignItems:"center", gap: 8}}>
-                  <span style={{fontSize: FS}}>👥</span>
-                  <span style={{fontSize: FS-1, color: T.textSec}}>رصيد العميل</span>
+              <div style={{padding: "8px 0", borderBottom: ledger.supplier || ledger.workshop ? "1px solid "+T.brd+"30" : "none"}}>
+                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                  <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                    <span style={{fontSize: FS}}>👥</span>
+                    <span style={{fontSize: FS-1, color: T.textSec}}>رصيد العميل (بعد الخصم)</span>
+                  </div>
+                  <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.customer.balance > 0 ? "#0EA5E9" : T.textMut}}>
+                    {fmt(ledger.customer.balance)} <span style={{fontSize: FS-2}}>EGP</span>
+                    <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
+                      {ledger.customer.balance > 0 ? "(مدين)" : ledger.customer.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
+                    </span>
+                  </div>
                 </div>
-                <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.customer.balance > 0 ? "#0EA5E9" : T.textMut}}>
-                  {fmt(ledger.customer.balance)} <span style={{fontSize: FS-2}}>EGP</span>
-                  <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
-                    {ledger.customer.balance > 0 ? "(مدين)" : ledger.customer.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
-                  </span>
+                {/* V21.9.117: breakdown row showing how the balance was computed —
+                    crucial for trust + matching CustDeliverPg display. */}
+                <div style={{fontSize: FS-3, color: T.textMut, marginTop: 4, lineHeight: 1.6, paddingInlineStart: 26}}>
+                  مبيعات: {fmt(ledger.customer.salesGross)}
+                  {ledger.customer.discPct > 0 && <> · خصم {ledger.customer.discPct}%: −{fmt(ledger.customer.discAmt)}</>}
+                  {ledger.customer.returnsGross > 0 && <> · مرتجع: −{fmt(ledger.customer.returnsNet)}</>}
+                  {(ledger.customer.payCash + ledger.customer.payCheck + ledger.customer.payOther) > 0 && (
+                    <> · مدفوع: −{fmt(ledger.customer.payCash + ledger.customer.payCheck + ledger.customer.payOther)}</>
+                  )}
                 </div>
               </div>
             )}
 
             {ledger.supplier && (
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "6px 0", borderBottom: ledger.workshop ? "1px solid "+T.brd+"30" : "none",
-              }}>
-                <div style={{display:"flex", alignItems:"center", gap: 8}}>
-                  <span style={{fontSize: FS}}>🏭</span>
-                  <span style={{fontSize: FS-1, color: T.textSec}}>رصيد المورد</span>
+              <div style={{padding: "8px 0", borderBottom: ledger.workshop ? "1px solid "+T.brd+"30" : "none"}}>
+                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                  <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                    <span style={{fontSize: FS}}>🏭</span>
+                    <span style={{fontSize: FS-1, color: T.textSec}}>رصيد المورد</span>
+                  </div>
+                  <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.supplier.balance > 0 ? "#F59E0B" : T.textMut}}>
+                    {fmt(ledger.supplier.balance)} <span style={{fontSize: FS-2}}>EGP</span>
+                    <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
+                      {ledger.supplier.balance > 0 ? "(دائن)" : ledger.supplier.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
+                    </span>
+                  </div>
                 </div>
-                <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.supplier.balance > 0 ? "#F59E0B" : T.textMut}}>
-                  {fmt(ledger.supplier.balance)} <span style={{fontSize: FS-2}}>EGP</span>
-                  <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
-                    {ledger.supplier.balance > 0 ? "(دائن)" : ledger.supplier.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
-                  </span>
+                <div style={{fontSize: FS-3, color: T.textMut, marginTop: 4, lineHeight: 1.6, paddingInlineStart: 26}}>
+                  مشتريات: {fmt(ledger.supplier.totalInvoiced)} · مدفوع: −{fmt(ledger.supplier.totalPaid)}
                 </div>
               </div>
             )}
