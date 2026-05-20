@@ -139,7 +139,12 @@ function buildStoragePath(entityType, entityId, fileName){
   const ts = Date.now();
   const rand = Math.random().toString(36).slice(2, 8);
   const safe = sanitizeName(fileName);
-  return "attachments/" + entityType + "/" + entityId + "/" + ts + "_" + rand + "_" + safe;
+  /* V21.9.129: defense-in-depth — strip path-control chars from entityId before
+     concatenation. Current callers pass gid()/Shopify-id values (alphanumeric),
+     so this is NOT a fix for a known bug. Guards against future regressions if
+     any caller ever passes a user-controlled string with "/" or "..". */
+  const safeId = String(entityId == null ? "" : entityId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return "attachments/" + entityType + "/" + safeId + "/" + ts + "_" + rand + "_" + safe;
 }
 
 /* ── Upload ──────────────────────────────────────────────────────

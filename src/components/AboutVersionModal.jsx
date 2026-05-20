@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.129",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "🛡️ Phase 24a — Defensive: Sanitize entityId in Attachment Storage Path",
+    changes: [
+      { type: "improvement", text: "🛡️ [Defense-in-depth — لا يوجد bug في الإنتاج. تحسين preventive ضد future regressions.]\n\n**التغيير:**\n• `buildStoragePath()` في `src/utils/universalAttachments.js` دلوقتي بـ يـ sanitize الـ entityId قبل وضعه في الـ Storage path: `String(entityId).replace(/[^a-zA-Z0-9_-]/g, \"_\")`\n• الـ existing callers (CustDeliverPg, PurchasePg, HRPg, TreasuryPg, SalesInvoicesPg) كلهم بـ يـ pass `gid()`-generated أو Shopify IDs — كلها alphanumeric، فمش exploitable\n• Defense-in-depth — يحمي لو future caller بـ يـ pass user-controlled ID فيه `/` أو `..`\n\n**Audit context:**\n• اتـ flag من Explore agent في الـ V21.9.100→V21.9.128 production audit\n• تم verify يدوياً: الـ usage الحالي آمن — gid() output alphanumeric only\n• القرار: ship الـ defensive fix بـ zero-risk، 5 سطور فقط من التغيير\n\n**ما لم يتغير:**\n• الـ existing attachments الموجودة لا تتأثر (الـ path generation cosmetic للـ uploads الجديدة فقط)\n• الـ Firestore docs و Storage objects القديمة كلها valid\n• الـ AttachmentList listing بـ يـ query Firestore بـ entityId مباشرة، مش بـ يـ derive الـ path\n\n**ما تم Push-back عليه (لم يـ ship في هذا الإصدار):**\n• 🟡 `tagRegistry` partitioning to `tagRegistryDocs` — يحتاج 8-step migration checklist (CLAUDE.md §10) + no local test env. الـ current risk منخفض جداً (manager+admin gated writes، small data)\n• 🟡 `mark-delivered.js:104-110` day-doc race — يـ touch Shopify hot path. blast radius عالي بدون staging.\n• 🟡 `buildSupplierSummary` + PurchasePg debit notes inclusion — financial display change، محتاج consultation\n\n**Production state:**\n• Universal Attachments tested + working (V21.9.124-128 verified live)\n• No critical bugs found في الـ post-V21.9.128 audit" },
+    ],
+  },
+  {
     version: "V21.9.128",
     date: "2026-05-20",
     types: ["feature"],
