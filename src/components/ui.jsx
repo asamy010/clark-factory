@@ -129,7 +129,13 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
          The input itself shows the selected label when not focused, so the subline
          was redundant duplication. */}
     {showResults&&rect&&typeof document!=="undefined"&&createPortal(
-      <div className="searchsel-portal" style={{position:"fixed",top:rect.top+2,left:rect.left,width:rect.width,zIndex:99999,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 12px 32px rgba(0,0,0,0.22)",maxHeight:280,overflowY:"auto"}}>
+      /* V21.9.130 ROOT CAUSE FIX — z-index was 99999, but app modals overlay at 100000.
+         Inside any modal (LinkContactModal, SettleModal, Tag merge modal, etc.) the
+         dropdown rendered BELOW the modal overlay → invisible. User-reported via
+         ContactsPg "ربط بـ موجود" — couldn't see customer list, then hit ربط → got
+         CONTACT_LINK_TARGET_NOT_FOUND error because entityId was never set.
+         1000000 layers above the standard 100000 modal layer. */
+      <div className="searchsel-portal" style={{position:"fixed",top:rect.top+2,left:rect.left,width:rect.width,zIndex:1000000,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 12px 32px rgba(0,0,0,0.22)",maxHeight:280,overflowY:"auto"}}>
         {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
           onMouseEnter={()=>setHi(i)}
           style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)

@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.130",
+    date: "2026-05-20",
+    types: ["fix"],
+    title: "🐛 Phase 24b — Fix: SearchSel Dropdown Hidden Inside Modals (z-index)",
+    changes: [
+      { type: "fix", text: "🐛 [User-reported bug: ContactsPg → ربط بـ موجود → قائمة العملاء مش بـ تظهر]\n\n**الـ Symptom:**\n• داخل LinkContactModal، يـ user يختار 'ربط بـ موجود' لعميل → الـ search field يظهر لكن لما يـ focus عليه، مفيش dropdown يفتح\n• لو يكتب اسم وضغط 🔗 ربط → بـ يطلع error: `CONTACT_LINK_TARGET_NOT_FOUND:customer`\n\n**الـ Root Cause:**\n• `SearchSel` component بـ يـ render dropdown في portal بـ `zIndex: 99999`\n• Modal overlays في الـ app كلها بـ `zIndex: 100000` (LinkContactModal، SettleModal، Tag modals، إلخ)\n• النتيجة: الـ dropdown rendered فعلاً، لكن **مخبي ورا الـ modal overlay** — invisible للـ user\n• الـ user لما يكتب → الـ filter يشتغل داخلياً، لكن مفيش option visible للـ click → `cfg.entityId` يفضل `undefined` → الـ submit يـ pass `entityId: undefined` لـ `linkExistingContact` → `arr.find(e => e.id === undefined)` → throws\n\n**الـ Fix (سطر واحد في `src/components/ui.jsx:132`):**\n• SearchSel portal `zIndex: 99999` → `zIndex: 1000000`\n• ده يـ layer الـ dropdown فوق الـ 100000 standard modal layer\n\n**Surface area:**\n• الـ fix يـ affect **كل SearchSel داخل modal** — ContactsPg LinkModal + SettleModal + TagsManagerPanel modals + أي modal مستقبلي\n• خارج الـ modals: لا تغيير — الـ z-index لا يـ ضر لأن مفيش parent منافس\n\n**ROOT CAUSE comment** اتـ document في الكود نفسه لـ منع التكرار.\n\n**Anti-pattern logged in CLAUDE.md §10 (TODO):**\n• Modal overlay z-index = X → portals بداخله لازم z-index > X (وليس X-1)\n• اعتبر CSS variables لـ overlay layers (--z-modal: 100000, --z-portal: 1000000) لمنع الـ class regression ده" },
+    ],
+  },
+  {
     version: "V21.9.129",
     date: "2026-05-20",
     types: ["improvement"],
