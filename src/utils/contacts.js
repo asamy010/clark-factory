@@ -419,6 +419,89 @@ export function linkExistingContact(seed, data, user){
   return { patch, contact: newContact };
 }
 
+/* ── Cross-account settlement (V21.9.119, Phase 4) ────────────────
+   For a contact that is both customer AND supplier, "مقاصة" creates
+   2 payment entries that net the two balances against each other —
+   no real cash movement, but the audit trail records the offset.
+
+   The pattern:
+     - custPayment with method="مقاصة" → reduces customer.balance
+     - supplierPayment with method="مقاصة" → reduces supplier.balance
+     - both share a `settlementId` for paired audit + future reversal
+     - linked back to the `contactId` for traceability
+
+   Pre-condition: the caller must ensure amount > 0 AND
+   amount <= min(customer.balance, supplier.balance). The helper
+   doesn't recompute balances (cheap pure function). */
+export function settleContactCrossAccount(seed, data, user){
+  const { contactId, amount, date, notes } = seed || {};
+  if(!contactId) throw new Error("CONTACT_ID_REQUIRED");
+
+  const contact = (Array.isArray(data && data.contacts) ? data.contacts : []).find(c => c && c.id === contactId);
+  if(!contact) throw new Error("CONTACT_NOT_FOUND");
+
+  const linkedIds = contact.linkedIds || {};
+  const custId = linkedIds.customer;
+  const supId = linkedIds.supplier;
+  if(!custId || !supId) throw new Error("CONTACT_NOT_DUAL");
+
+  const cleanAmount = Math.round((Number(amount) || 0) * 100) / 100;
+  if(cleanAmount <= 0) throw new Error("SETTLE_AMOUNT_INVALID");
+
+  /* Look up name fields for the payment "name" snapshots — matches
+     the pattern in CustDeliverPg/TreasuryPg which freezes the name on
+     the payment record so it survives if the entity is later renamed. */
+  const cust = (data.customers || []).find(c => String(c.id) === String(custId));
+  const sup  = (data.suppliers || []).find(s => String(s.id) === String(supId));
+  const custName = (cust && cust.name) || contact.name;
+  const supName  = (sup  && sup.name)  || contact.name;
+
+  const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().split("T")[0];
+  const cleanNotes = String(notes || "").trim() || ("مقاصة بين العميل والمورد — جهة موحّدة: " + contact.name);
+  const uid = (user && (user.uid || user.email)) || "";
+  const now = Date.now();
+  const settlementId = "settle_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  const nowISO = new Date(now).toISOString();
+
+  const custPayment = {
+    id: "cp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 5),
+    custId,
+    custName,
+    amount: cleanAmount,
+    date: cleanDate,
+    note: cleanNotes,
+    method: "مقاصة",
+    by: uid,
+    createdAt: nowISO,
+    /* Audit links — bidirectional so a future "reverse settlement" can find both legs */
+    settlementId,
+    contactId: contact.id,
+    settledAgainstSupplierId: supId,
+  };
+
+  const supPayment = {
+    id: "sp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 5),
+    supplierId: supId,
+    supplierName: supName,
+    amount: cleanAmount,
+    date: cleanDate,
+    note: cleanNotes,
+    method: "مقاصة",
+    by: uid,
+    createdAt: nowISO,
+    settlementId,
+    contactId: contact.id,
+    settledAgainstCustomerId: custId,
+  };
+
+  const patch = {
+    custPayments: [...(Array.isArray(data && data.custPayments) ? data.custPayments : []), custPayment],
+    supplierPayments: [...(Array.isArray(data && data.supplierPayments) ? data.supplierPayments : []), supPayment],
+  };
+
+  return { patch, settlementId, custPayment, supPayment };
+}
+
 /* Find unlinked entities of a given type (for the link-existing dropdown).
    Returns entities WITHOUT contactId, sorted by name. */
 export function getUnlinkedEntities(typeKey, data){

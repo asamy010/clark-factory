@@ -32,6 +32,7 @@ import {
   getUnlinkedEntities,
   findContactByPhone,
   labelForType,
+  settleContactCrossAccount,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 /* V21.9.117: cross-account ledger uses the OPERATIONAL balance helpers
@@ -271,6 +272,136 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
   );
 }
 
+/* ── Cross-account settlement modal (V21.9.119 Phase 4) ────────────
+   Lets the admin offset customer balance ↔ supplier balance for a
+   dual-classified contact. Creates 2 payment entries (cust + sup)
+   with method="مقاصة" — no real cash movement, just paper-trail. */
+function SettleContactModal({ contact, customerBalance, supplierBalance, onSave, onCancel }){
+  const maxSettle = Math.min(Number(customerBalance) || 0, Number(supplierBalance) || 0);
+  const [amount, setAmount] = useState(String(maxSettle));
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const amtNum = Math.round((Number(amount) || 0) * 100) / 100;
+  const overMax = amtNum > maxSettle;
+  const invalid = amtNum <= 0 || overMax;
+
+  const submit = async () => {
+    if(invalid){
+      showToast(overMax ? "⚠️ المبلغ أكبر من الحد الأقصى" : "⚠️ المبلغ يجب أن يكون موجباً");
+      return;
+    }
+    const yes = await ask(
+      "تأكيد التسوية",
+      "هـ يتم إنشاء دفعتين بطريقة 'مقاصة' (مفيش حركة نقدية فعلية):\n• دفعة عميل: " + fmt(amtNum) + " EGP\n• دفعة مورد: " + fmt(amtNum) + " EGP\n\nرصيد العميل + رصيد المورد كلاهما هـ ينقص بالقيمة دي.",
+      { confirmText: "تنفيذ التسوية" }
+    );
+    if(!yes) return;
+    setSubmitting(true);
+    try {
+      await onSave({ amount: amtNum, date, notes: notes.trim() });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100001,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget && !submitting) onCancel(); }}>
+      <div style={{
+        background: T.cardSolid, borderRadius: 16,
+        width:"100%", maxWidth: 480, padding: "22px 24px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd, maxHeight:"92vh", overflowY:"auto",
+      }}>
+        <div style={{fontSize: FS+3, fontWeight: 800, color: T.text, marginBottom: 6}}>
+          💱 تسوية حساب — مقاصة
+        </div>
+        <div style={{fontSize: FS-1, color: T.textSec, marginBottom: 14, lineHeight: 1.7}}>
+          <strong style={{color: T.text}}>{contact.name}</strong> — تسوية بين حساب العميل وحساب المورد.
+        </div>
+
+        {/* Current balances snapshot */}
+        <div style={{
+          padding: "10px 12px", background: T.bg, borderRadius: 10,
+          border: "1px solid "+T.brd, marginBottom: 12,
+        }}>
+          <div style={{display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: FS-1}}>
+            <span style={{color: T.textSec}}>👥 رصيد العميل (مدين)</span>
+            <strong style={{color: "#0EA5E9"}}>{fmt(customerBalance)} EGP</strong>
+          </div>
+          <div style={{display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: FS-1}}>
+            <span style={{color: T.textSec}}>🏭 رصيد المورد (دائن)</span>
+            <strong style={{color: "#F59E0B"}}>{fmt(supplierBalance)} EGP</strong>
+          </div>
+          <div style={{
+            display: "flex", justifyContent: "space-between", padding: "8px 0 4px",
+            borderTop: "1px dashed " + T.brd, marginTop: 4, fontSize: FS-1,
+          }}>
+            <span style={{color: T.text, fontWeight: 700}}>الحد الأقصى للتسوية</span>
+            <strong style={{color: T.ok}}>{fmt(maxSettle)} EGP</strong>
+          </div>
+        </div>
+
+        <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10}}>
+          <div>
+            <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>مبلغ التسوية</label>
+            <Inp type="number" value={amount} onChange={setAmount} />
+            {overMax && (
+              <div style={{fontSize: FS-3, color: T.err, marginTop: 4}}>
+                ⚠️ المبلغ تجاوز الحد الأقصى ({fmt(maxSettle)})
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>التاريخ</label>
+            <Inp value={date} onChange={setDate} />
+          </div>
+        </div>
+
+        <div style={{marginBottom: 14}}>
+          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>ملاحظات (اختياري)</label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="سبب التسوية..."
+            rows={2}
+            style={{
+              width:"100%", padding: "8px 12px",
+              borderRadius: 8, border: "1px solid "+T.brd,
+              fontSize: FS-1, fontFamily: "inherit",
+              background: T.inputBg || T.cardSolid, color: T.text,
+              boxSizing: "border-box", resize: "vertical", minHeight: 50, outline: "none",
+            }}
+          />
+        </div>
+
+        <div style={{
+          padding: "10px 12px", marginBottom: 14,
+          background: T.warn + "10",
+          border: "1px solid " + T.warn + "33",
+          borderRadius: 8,
+          fontSize: FS-2, color: T.warn, lineHeight: 1.7,
+        }}>
+          ℹ️ التسوية تـ creates 2 entries: دفعة عميل + دفعة مورد بـ method="مقاصة". <strong>مفيش حركة نقدية</strong> — الرصيدين هـ ينقصوا بالقيمة، الـ treasury مش هـ يتأثر.
+        </div>
+
+        <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+          <Btn ghost onClick={onCancel} disabled={submitting}>إلغاء</Btn>
+          <Btn primary onClick={submit} disabled={submitting || invalid}>
+            {submitting ? "..." : "💱 تنفيذ التسوية"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Link-Existing modal (V21.9.118 Phase 3) ───────────────────────
    Source = the legacy entity the admin clicked from the list. The
    modal lets the admin promote it to the contacts registry and
@@ -450,13 +581,15 @@ function LinkContactModal({ source, data, onSave, onCancel, canEdit }){
 /* ── Contact Detail modal (V21.9.116 Phase 2) ──────────────────────
    Read-only ledger view + inline edit (name, phone, tags, notes).
    Type changes (adding/removing a classification) deferred. */
-function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isMob }){
+function ContactDetailModal({ contact, data, onSave, onSettle, onClose, canEdit, user, isMob }){
   const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState(contact.name || "");
   const [phone, setPhone] = useState(contact.phone || "");
   const [tags, setTags] = useState(Array.isArray(contact.tags) ? contact.tags.slice() : []);
   const [notes, setNotes] = useState(contact.notes || "");
   const [saving, setSaving] = useState(false);
+  /* V21.9.119: settlement modal state — null = closed, true = open */
+  const [showSettle, setShowSettle] = useState(false);
 
   const isRegistryContact = contact.linkedFrom === "contact";
   const linkedIds = contact.entityIds || {};
@@ -514,6 +647,7 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
   };
 
   return (
+    <>
     <div style={{
       position:"fixed", inset:0, zIndex:100000,
       background:"rgba(15,23,42,0.55)",
@@ -636,6 +770,7 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
                 borderRadius: 8,
                 border: "1.5px solid " + (netSide.value > 0 ? "#0EA5E930" : netSide.value < 0 ? "#F59E0B30" : T.brd),
                 display: "flex", alignItems: "center", justifyContent: "space-between",
+                gap: 8, flexWrap: "wrap",
               }}>
                 <div style={{fontSize: FS, fontWeight: 800, color: T.text, display:"flex", alignItems:"center", gap: 6}}>
                   💰 <span>الصافي</span>
@@ -649,9 +784,19 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
               </div>
             )}
 
+            {/* V21.9.119: Settle button — only when both balances are positive AND canEdit.
+                The settle creates 2 payment entries (مقاصة) which reduces both balances. */}
+            {ledger.customer && ledger.supplier && canEdit && ledger.customer.balance > 0 && ledger.supplier.balance > 0 && (
+              <div style={{marginTop: 10, display: "flex", justifyContent: "flex-end"}}>
+                <Btn primary onClick={() => setShowSettle(true)} style={{background: "#10B981", border: "none"}}>
+                  💱 تسوية ({fmt(Math.min(ledger.customer.balance, ledger.supplier.balance))} EGP)
+                </Btn>
+              </div>
+            )}
+
             {ledger.customer && ledger.supplier && (
               <div style={{fontSize: FS-3, color: T.textMut, marginTop: 8, lineHeight: 1.6}}>
-                💡 الـ Net = رصيد العميل − رصيد المورد. + = العميل عليه أكتر من اللي إحنا عليه للمورد. تسوية الحساب لسه manual (treasury entry) — التحويل التلقائي feature لاحقة.
+                💡 الـ Net = رصيد العميل − رصيد المورد. <strong>زر التسوية</strong> يخلق دفعتين بـ method="مقاصة" (مفيش حركة نقدية فعلية) — الرصيدين هـ ينقصوا بالقيمة المختارة.
               </div>
             )}
           </div>
@@ -755,6 +900,21 @@ function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isM
         </div>
       </div>
     </div>
+
+    {/* V21.9.119: nested settlement modal — opens from inside the detail modal. */}
+    {showSettle && ledger.customer && ledger.supplier && (
+      <SettleContactModal
+        contact={contact}
+        customerBalance={ledger.customer.balance}
+        supplierBalance={ledger.supplier.balance}
+        onSave={async (form) => {
+          await onSettle({ contactId: contact.contactId, ...form });
+          setShowSettle(false);
+        }}
+        onCancel={() => setShowSettle(false)}
+      />
+    )}
+    </>
   );
 }
 
@@ -811,6 +971,25 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       else if(msg === "CONTACT_TYPES_EMPTY") showToast("⚠️ اختر تصنيف واحد على الأقل");
       else if(msg === "CONTACT_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
       else { console.error("[ContactsPg] save error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.119: cross-account settlement handler. Creates 2 payment entries
+     (custPayment + supplierPayment) with method="مقاصة" — no real cash. */
+  const handleSettle = async (seed) => {
+    try {
+      const { patch } = settleContactCrossAccount(seed, data, user);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("✓ تم تنفيذ التسوية");
+      /* Don't close the detail modal — let the user see the updated balances. */
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg === "CONTACT_NOT_DUAL") showToast("⚠️ الجهة ليست عميل + مورد");
+      else if(msg === "SETTLE_AMOUNT_INVALID") showToast("⚠️ المبلغ غير صالح");
+      else if(msg === "CONTACT_NOT_FOUND") showToast("⚠️ الجهة غير موجودة");
+      else { console.error("[ContactsPg] settle error:", e); showToast("⛔ خطأ — راجع الـ console"); }
     }
   };
 
@@ -1013,12 +1192,14 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
         />
       )}
 
-      {/* V21.9.116: detail modal with cross-account ledger + edit */}
+      {/* V21.9.116: detail modal with cross-account ledger + edit.
+          V21.9.119: + onSettle handler for cross-account مقاصة. */}
       {viewing && (
         <ContactDetailModal
           contact={viewing}
           data={data}
           onSave={handleEditSave}
+          onSettle={handleSettle}
           onClose={() => setViewing(null)}
           canEdit={canEdit}
           user={user}

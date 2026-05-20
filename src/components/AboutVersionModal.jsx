@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.119",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "💱 Phase 22d — Contacts Phase 4: Cross-Account Settlement (مقاصة)",
+    changes: [
+      { type: "feature", text: "💱 [Phase 4 من الـ Unified Contacts — تـ completes الـ user's original ask: 'الشركة اللي بنتعامل معاها عميل + مورد عاوز الحسابات تكون مدين وداين طبيعي'.]\n\nالـ Phase 2 عرض الـ ledger. الـ Phase 4 دلوقتي بـ allows offset (مقاصة) — تـ reduces الـ 2 balances مرة واحدة بدون أي حركة نقدية فعلية.\n\n**Workflow:**\n1. افتح contact هو عميل + مورد\n2. الـ ledger يعرض الـ 2 balances + الـ Net\n3. زر '💱 تسوية (X EGP)' يظهر بـ green لو الـ 2 balances > 0\n4. اضغطه → SettleContactModal:\n   • Snapshot للـ 2 balances + الحد الأقصى = min(cust, sup)\n   • Amount input (default = max)\n   • Date input (default = today)\n   • Notes (optional)\n   • Validation: amount > 0 و ≤ max\n5. Confirm → ask popup بـ التفاصيل → on yes → 2 entries تـ created" },
+      { type: "feature", text: "🔧 [Backend — `settleContactCrossAccount` في utils/contacts.js]\n\nالـ helper الـ pure بـ يـ creates 2 records:\n\n**custPayment:**\n```js\n{\n  id, custId, custName, amount, date, method: \"مقاصة\",\n  note: \"مقاصة بين العميل والمورد — جهة موحّدة: <name>\",\n  by, createdAt,\n  settlementId,                  // shared with supPayment\n  contactId,                     // back-ref to the contact\n  settledAgainstSupplierId,      // forward-ref to the other leg\n}\n```\n\n**supPayment:** مرايا للـ custPayment مع settledAgainstCustomerId\n\n**Why method=\"مقاصة\":**\n• `buildCustomerSummary` بـ يـ counts الـ payment في الـ payCash branch (since method doesn't match 'شيك')\n• `buildSupplierSummary` (PurchasePg supplierStats) بـ يـ counts in totalPaid\n• الـ 2 balances بـ ينقصوا بالقيمة\n• الـ treasury مش بـ يتأثر (لأن مفيش treasury entry تـ created)\n\n**Audit linkage:**\n• الـ 2 entries بـ تـ share `settlementId` — للـ future 'reverse settlement' feature\n• كلاهما بـ تـ reference الـ `contactId` — للـ forensics\n• Cross-references (settledAgainstX) للـ navigation السريع" },
+      { type: "doc", text: "🛡️ [Safety + UX]\n\n**Pre-conditions enforced:**\n• الـ Settle button يظهر فقط لو الـ 2 balances > 0 AND user canEdit\n• Modal يـ disables الـ submit لو amount ≤ 0 أو > max\n• ask() confirmation chain قبل أي write\n• الـ helper بـ يـ throws على edge cases (CONTACT_NOT_DUAL, SETTLE_AMOUNT_INVALID, CONTACT_NOT_FOUND)\n\n**No treasury impact:**\n• الـ entries لا تـ create treasury records (مفيش حركة نقدية فعلية)\n• الـ هدف الـ accounting offset فقط — تـ keeps الـ books clean\n• الـ admin يقدر يـ verify بـ checking الـ treasury لم يتغير\n\n**Partial settlement supported:**\n• الـ amount field default = max لكن الـ user يقدر يـ enters less\n• مفيد لو فيه شك في جزء من الـ balance أو dispute pending\n\n**Cumulative Contacts roadmap status:**\n• ✅ V21.9.115 Phase 1 — Create + view\n• ✅ V21.9.116 Phase 2 — Detail + ledger\n• ✅ V21.9.117 — Fix balance formula\n• ✅ V21.9.118 Phase 3 — Link existing\n• ✅ V21.9.119 Phase 4 — Settlement (مقاصة)\n• ⏳ Phase 5: Type changes + reverse settlement + duplicate detection" },
+    ],
+  },
+  {
     version: "V21.9.118",
     date: "2026-05-20",
     types: ["feature"],
