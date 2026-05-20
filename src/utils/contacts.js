@@ -272,6 +272,166 @@ export function labelForType(typeKey){
   return t ? t.label : typeKey;
 }
 
+/* ── Link existing entities (V21.9.118, Phase 3) ──────────────────
+   Promote an existing customer/supplier/workshop/employee into the
+   contacts registry, optionally combining with other existing entities
+   (e.g., same person already exists as both customer + supplier).
+
+   The "source" is the entity the admin clicked from the page. Additional
+   links can either point to existing entities (the dropdown choice) or
+   trigger creation of a new entity with the same name/phone/tags.
+
+   IMPORTANT: any entity already linked to a contact CANNOT be re-linked
+   here — would create a duplicate. The caller checks via `findContactsLinkedToEntity`.
+*/
+export function linkExistingContact(seed, data, user){
+  const { sourceLinkedFrom, sourceEntityId, additionalLinks } = seed || {};
+  if(!sourceLinkedFrom || !sourceEntityId) throw new Error("CONTACT_LINK_SOURCE_REQUIRED");
+  if(!["customer","supplier","workshop","employee"].includes(sourceLinkedFrom)){
+    throw new Error("CONTACT_LINK_BAD_SOURCE_TYPE");
+  }
+  /* `additionalLinks` is an array of { type, action: "use"|"create", entityId?, workshopSubType? } */
+  const extras = Array.isArray(additionalLinks) ? additionalLinks : [];
+
+  /* 1. Find the source entity, get name/phone/tags */
+  const sourceCollection = (sourceLinkedFrom === "customer" ? "customers" :
+                             sourceLinkedFrom === "supplier" ? "suppliers" :
+                             sourceLinkedFrom === "workshop" ? "workshops" : "employees");
+  const sourceArr = Array.isArray(data && data[sourceCollection]) ? data[sourceCollection] : [];
+  const sourceEntity = sourceArr.find(e => String(e.id) === String(sourceEntityId));
+  if(!sourceEntity) throw new Error("CONTACT_LINK_SOURCE_NOT_FOUND");
+
+  /* Guard: source entity must not already be linked to a contact. */
+  if(sourceEntity.contactId){
+    throw new Error("CONTACT_LINK_SOURCE_ALREADY_LINKED:" + sourceEntity.contactId);
+  }
+
+  const name = String(sourceEntity.name || "").trim();
+  if(!name) throw new Error("CONTACT_NAME_EMPTY");
+  const phone = normalizePhone(String(sourceEntity.phone || "").trim());
+  const tags = Array.isArray(sourceEntity.tags) ? sourceEntity.tags.slice() : [];
+  const uid = (user && (user.uid || user.email)) || "";
+  const now = Date.now();
+
+  const contactId = generateContactId();
+  const linkedIds = { customer: null, supplier: null, workshop: null, employee: null };
+  linkedIds[sourceLinkedFrom] = sourceEntity.id;
+
+  const types = new Set([sourceLinkedFrom]);
+  let workshopSubType = "";
+  if(sourceLinkedFrom === "workshop") workshopSubType = sourceEntity.type || "";
+
+  const patch = {};
+
+  /* Helper: clone an array if not yet cloned in patch, return the working ref. */
+  const workingArr = (collectionKey) => {
+    if(patch[collectionKey]) return patch[collectionKey];
+    const existing = Array.isArray(data && data[collectionKey]) ? data[collectionKey] : [];
+    patch[collectionKey] = existing.slice();
+    return patch[collectionKey];
+  };
+
+  /* 2. Stamp `contactId` on the source entity */
+  const srcWorking = workingArr(sourceCollection);
+  const srcIdx = srcWorking.findIndex(e => String(e.id) === String(sourceEntity.id));
+  if(srcIdx >= 0){
+    srcWorking[srcIdx] = { ...srcWorking[srcIdx], contactId };
+  }
+
+  /* 3. Process each additional link */
+  for(const link of extras){
+    const t = link && link.type;
+    if(!t || !["customer","supplier","workshop","employee"].includes(t)) continue;
+    if(t === sourceLinkedFrom) continue;  /* defensive — source already handled */
+    if(types.has(t)) continue;            /* dedup */
+    types.add(t);
+
+    const collectionKey = (t === "customer" ? "customers" :
+                           t === "supplier" ? "suppliers" :
+                           t === "workshop" ? "workshops" : "employees");
+    const arr = workingArr(collectionKey);
+
+    if(link.action === "use"){
+      const found = arr.find(e => String(e.id) === String(link.entityId));
+      if(!found) throw new Error("CONTACT_LINK_TARGET_NOT_FOUND:" + t);
+      if(found.contactId) throw new Error("CONTACT_LINK_TARGET_ALREADY_LINKED:" + t + ":" + found.contactId);
+      /* Stamp contactId — propagate name/phone/tags to keep parity */
+      const idx = arr.findIndex(e => String(e.id) === String(link.entityId));
+      arr[idx] = { ...arr[idx], contactId, name, phone, tags: tags.slice() };
+      linkedIds[t] = found.id;
+      if(t === "workshop") workshopSubType = found.type || workshopSubType;
+    } else if(link.action === "create"){
+      /* Create a fresh entity with source's name/phone/tags */
+      let newEntity;
+      if(t === "customer"){
+        newEntity = {
+          id: "cust_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, address: "", type: "مكتب", discount: 0, archived: false,
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      } else if(t === "supplier"){
+        newEntity = {
+          id: "sup_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, address: "", notes: "",
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      } else if(t === "workshop"){
+        const subType = link.workshopSubType || "";
+        if(!subType) throw new Error("CONTACT_LINK_WORKSHOP_SUBTYPE_REQUIRED");
+        workshopSubType = subType;
+        newEntity = {
+          id: Math.floor(now / 1000) * 100 + Math.floor(Math.random() * 100),
+          name, owner: "", phone, address: "", idCard: "", ownerPhoto: "",
+          rating: 7, type: subType,
+          tags: tags.slice(), contactId,
+        };
+      } else { /* employee */
+        newEntity = {
+          id: "emp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, role: "", basicSalary: 0,
+          hireDate: new Date(now).toISOString().split("T")[0], active: true,
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      }
+      arr.push(newEntity);
+      linkedIds[t] = newEntity.id;
+    }
+  }
+
+  /* 4. Create contact registry record */
+  const newContact = {
+    id: contactId,
+    name, phone,
+    types: Array.from(types),
+    workshopSubType,
+    linkedIds,
+    tags,
+    notes: "",
+    createdAt: now,
+    createdBy: uid,
+    linkedFromExisting: true,  /* audit marker: this contact wasn't created from scratch */
+  };
+  patch.contacts = [...(Array.isArray(data && data.contacts) ? data.contacts : []), newContact];
+
+  return { patch, contact: newContact };
+}
+
+/* Find unlinked entities of a given type (for the link-existing dropdown).
+   Returns entities WITHOUT contactId, sorted by name. */
+export function getUnlinkedEntities(typeKey, data){
+  const collectionKey = (typeKey === "customer" ? "customers" :
+                         typeKey === "supplier" ? "suppliers" :
+                         typeKey === "workshop" ? "workshops" : "employees");
+  const arr = Array.isArray(data && data[collectionKey]) ? data[collectionKey] : [];
+  return arr
+    .filter(e => e && e.id && !e.contactId)
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+}
+
 /* ── Update / propagate (V21.9.116, Phase 2 — edit flow) ────────
    PURE function: produce a patch the caller applies via upConfig.
    Updates the contact registry record AND propagates name/phone/tags

@@ -17,7 +17,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useMemo, useState } from "react";
-import { Btn, Inp, Sel, Card } from "../components/ui.jsx";
+import { Btn, Inp, Sel, SearchSel, Card } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS, WS_TYPES } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -28,6 +28,8 @@ import {
   buildMergedContacts,
   createContact,
   updateContact,
+  linkExistingContact,
+  getUnlinkedEntities,
   findContactByPhone,
   labelForType,
 } from "../utils/contacts.js";
@@ -262,6 +264,182 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
           <Btn ghost onClick={onCancel} disabled={submitting}>إلغاء</Btn>
           <Btn primary onClick={submit} disabled={submitting || !name.trim() || types.length === 0}>
             {submitting ? "جاري الحفظ..." : "💾 إنشاء"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Link-Existing modal (V21.9.118 Phase 3) ───────────────────────
+   Source = the legacy entity the admin clicked from the list. The
+   modal lets the admin promote it to the contacts registry and
+   optionally link additional types — either pointing to an existing
+   entity (e.g., the same person already exists as a supplier) or
+   creating a fresh entity of that type with the same name/phone/tags. */
+function LinkContactModal({ source, data, onSave, onCancel, canEdit }){
+  const [extraTypes, setExtraTypes] = useState({});  /* { type: { action, entityId?, workshopSubType? } } */
+  const [submitting, setSubmitting] = useState(false);
+
+  const sourceType = source.linkedFrom;  /* "customer" | "supplier" | "workshop" | "employee" */
+
+  /* Available additional types = everything except the source type */
+  const addableTypes = CONTACT_TYPES.filter(t => t.key !== sourceType);
+
+  /* For each "use existing" option, precompute the unlinked entities + suggest best match. */
+  const optionsByType = useMemo(() => {
+    const out = {};
+    for(const t of addableTypes){
+      const unlinked = getUnlinkedEntities(t.key, data);
+      out[t.key] = unlinked.map(e => ({
+        value: String(e.id),
+        label: e.name + (e.phone ? " — " + e.phone : ""),
+      }));
+    }
+    return out;
+  }, [data, addableTypes]);
+
+  const toggleType = (key, defaultAction) => {
+    setExtraTypes(prev => {
+      const next = { ...prev };
+      if(next[key]) delete next[key];
+      else next[key] = { action: defaultAction || "create" };
+      return next;
+    });
+  };
+
+  const setLink = (key, patch) => {
+    setExtraTypes(prev => ({ ...prev, [key]: { ...(prev[key] || {}), ...patch } }));
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const additionalLinks = Object.entries(extraTypes).map(([type, cfg]) => ({
+        type,
+        action: cfg.action,
+        entityId: cfg.entityId,
+        workshopSubType: cfg.workshopSubType,
+      }));
+      await onSave({
+        sourceLinkedFrom: sourceType,
+        sourceEntityId: source.entityIds[sourceType],
+        additionalLinks,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100000,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget && !submitting) onCancel(); }}>
+      <div style={{
+        background: T.cardSolid, borderRadius: 16,
+        width:"100%", maxWidth: 580, padding: "22px 24px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd, maxHeight:"92vh", overflowY:"auto",
+      }}>
+        <div style={{fontSize: FS+3, fontWeight: 800, color: T.text, marginBottom: 6}}>
+          🔗 ربط الجهة في السجل الموحّد
+        </div>
+        <div style={{fontSize: FS-1, color: T.textSec, marginBottom: 14, lineHeight: 1.7}}>
+          الجهة <strong style={{color: T.text}}>{source.name}</strong> (مصدرها: {labelForType(sourceType)}) هـ يتـ promote-ها لسجل الـ contacts. اختر تصنيفات إضافية لو هي عميل + مورد مثلاً.
+        </div>
+
+        {/* Source — locked, just informational */}
+        <div style={{
+          padding: "10px 12px", marginBottom: 12,
+          background: T.bg, borderRadius: 8, border: "1px solid "+T.brd,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{fontSize: FS-2, color: T.textSec, fontWeight: 600}}>المصدر:</span>
+          <TypeChip typeKey={sourceType} small />
+          <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: "auto"}}>مقفل — مش هـ يتغير</span>
+        </div>
+
+        {/* Additional types */}
+        <div style={{marginBottom: 14}}>
+          <div style={{fontSize: FS-1, color: T.textSec, fontWeight: 700, marginBottom: 8}}>
+            ➕ تصنيفات إضافية (اختياري):
+          </div>
+          <div style={{display: "flex", flexDirection: "column", gap: 8}}>
+            {addableTypes.map(t => {
+              const cfg = extraTypes[t.key];
+              const on = !!cfg;
+              const opts = optionsByType[t.key] || [];
+              return (
+                <div key={t.key} style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: on ? t.color + "08" : "transparent",
+                  border: "1px solid " + (on ? t.color + "44" : T.brd),
+                }}>
+                  <label style={{display:"flex", alignItems:"center", gap: 8, cursor: "pointer"}}>
+                    <input type="checkbox" checked={on} onChange={() => toggleType(t.key, "create")} />
+                    <TypeChip typeKey={t.key} small />
+                  </label>
+
+                  {on && (
+                    <div style={{marginTop: 10, paddingInlineStart: 26}}>
+                      <div style={{display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8}}>
+                        <label style={{display:"flex", alignItems:"center", gap: 4, fontSize: FS-2, cursor: "pointer"}}>
+                          <input type="radio" name={"action-"+t.key} value="create" checked={cfg.action === "create"} onChange={() => setLink(t.key, { action: "create", entityId: undefined })} />
+                          <span>إنشاء جديد بنفس البيانات</span>
+                        </label>
+                        <label style={{display:"flex", alignItems:"center", gap: 4, fontSize: FS-2, cursor: opts.length === 0 ? "not-allowed" : "pointer", opacity: opts.length === 0 ? 0.5 : 1}}>
+                          <input type="radio" name={"action-"+t.key} value="use" disabled={opts.length === 0} checked={cfg.action === "use"} onChange={() => setLink(t.key, { action: "use" })} />
+                          <span>ربط بـ موجود {opts.length === 0 && "(مفيش متاح)"}</span>
+                        </label>
+                      </div>
+
+                      {cfg.action === "use" && opts.length > 0 && (
+                        <SearchSel
+                          value={cfg.entityId || ""}
+                          onChange={(v) => setLink(t.key, { entityId: v })}
+                          options={opts}
+                          placeholder={"ابحث عن " + t.label + "..."}
+                          showAllOnFocus
+                          maxResults={10}
+                        />
+                      )}
+                      {cfg.action === "create" && t.key === "workshop" && (
+                        <div>
+                          <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4}}>
+                            نوع الورشة *
+                          </label>
+                          <Sel value={cfg.workshopSubType || ""} onChange={(v) => setLink(t.key, { workshopSubType: v })}>
+                            <option value="">-- اختر النوع --</option>
+                            {WS_TYPES.map(wt => (
+                              <option key={wt.key} value={wt.key}>{wt.icon} {wt.key}</option>
+                            ))}
+                          </Sel>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{
+          padding: "8px 12px", marginBottom: 14,
+          background: T.accent + "08", borderRadius: 8,
+          fontSize: FS-2, color: T.textSec, lineHeight: 1.6,
+        }}>
+          💡 الـ "إنشاء جديد" بـ يـ creates entity جديد بنفس الاسم/التليفون/التاجز. الـ "ربط بـ موجود" بـ يـ stamps الـ contact ID على الـ entity الموجود (مفيش data duplication).
+        </div>
+
+        <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+          <Btn ghost onClick={onCancel} disabled={submitting}>إلغاء</Btn>
+          <Btn primary onClick={submit} disabled={submitting}>
+            {submitting ? "..." : "🔗 ربط"}
           </Btn>
         </div>
       </div>
@@ -587,6 +765,8 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
   const [showCreate, setShowCreate] = useState(false);
   /* V21.9.116: detail panel state. null = closed, otherwise a contact row from buildMergedContacts. */
   const [viewing, setViewing] = useState(null);
+  /* V21.9.118: link-existing modal state. null = closed, otherwise the source row. */
+  const [linking, setLinking] = useState(null);
 
   const merged = useMemo(() => buildMergedContacts(data || {}), [data]);
 
@@ -631,6 +811,27 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       else if(msg === "CONTACT_TYPES_EMPTY") showToast("⚠️ اختر تصنيف واحد على الأقل");
       else if(msg === "CONTACT_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
       else { console.error("[ContactsPg] save error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.118: link-existing handler. The source is the legacy row + the
+     selected additional links. Creates a contact registry record + stamps
+     contactId on every linked entity. */
+  const handleLinkSave = async (seed) => {
+    try {
+      const { patch } = linkExistingContact(seed, data, user);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("✓ تم الربط في السجل الموحّد");
+      setLinking(null);
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg.startsWith("CONTACT_LINK_SOURCE_ALREADY_LINKED")) showToast("⚠️ الجهة مربوطة بالفعل");
+      else if(msg.startsWith("CONTACT_LINK_TARGET_ALREADY_LINKED")) showToast("⚠️ الهدف المختار مربوط بـ contact آخر");
+      else if(msg === "CONTACT_LINK_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
+      else if(msg.startsWith("CONTACT_LINK_TARGET_NOT_FOUND")) showToast("⚠️ الهدف المختار غير موجود");
+      else { console.error("[ContactsPg] link error:", e); showToast("⛔ خطأ — راجع الـ console"); }
     }
   };
 
@@ -765,7 +966,25 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                     )}
                     {!isMob && (
                       <td style={{...colCell, fontSize: FS-3, color: T.textMut}}>
-                        {c.linkedFrom === "contact" ? "📇 سجل موحّد" : "📂 من قائمة " + labelForType(c.linkedFrom)}
+                        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8}}>
+                          <span>{c.linkedFrom === "contact" ? "📇 سجل موحّد" : "📂 من قائمة " + labelForType(c.linkedFrom)}</span>
+                          {/* V21.9.118: link button for legacy entries — opens the link modal.
+                              stopPropagation so the row's setViewing isn't triggered. */}
+                          {c.linkedFrom !== "contact" && canEdit && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setLinking(c); }}
+                              title="ربط في السجل الموحّد"
+                              style={{
+                                padding: "3px 8px", borderRadius: 6,
+                                background: T.accent + "12", color: T.accent,
+                                border: "1px solid " + T.accent + "33",
+                                fontSize: FS-3, fontWeight: 700,
+                                fontFamily: "inherit", cursor: "pointer",
+                                whiteSpace: "nowrap",
+                              }}
+                            >🔗 ربط</button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -780,7 +999,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           fontSize: FS-3, color: T.textSec, lineHeight: 1.7,
           background: T.bg, borderRadius: 8,
         }}>
-          💡 اضغط على أي صف لعرض التفاصيل + الحساب المالي المدمج (للـ "عميل+مورد"). الـ link-existing flow (ربط الجهات الموجودة بـ contact واحد) لسه قيد التطوير.
+          💡 اضغط على أي صف لعرض التفاصيل + الحساب المالي المدمج (للـ "عميل+مورد"). الـ <strong>🔗 ربط</strong> بجانب الجهات القديمة بـ يضمها للسجل الموحّد + يدمجها مع جهة أخرى (مثلاً نفس الشخص = عميل + مورد).
         </div>
       </Card>
 
@@ -804,6 +1023,17 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           canEdit={canEdit}
           user={user}
           isMob={isMob}
+        />
+      )}
+
+      {/* V21.9.118: link-existing modal — opens from the 🔗 button on legacy rows */}
+      {linking && (
+        <LinkContactModal
+          source={linking}
+          data={data}
+          onSave={handleLinkSave}
+          onCancel={() => setLinking(null)}
+          canEdit={canEdit}
         />
       )}
     </div>
