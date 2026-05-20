@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.124",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📎 Phase 23b — Wire Attachments to Customer",
+    changes: [
+      { type: "feature", text: "📎 [Wiring slice 1/5 — أول entity يـ get attachments support: العميل.]\n\n**ما تم:**\n• `CustDeliverPg.jsx` يـ import AttachmentList\n• تعديل/إضافة عميل modal دلوقتي يعرض section 'مستندات العميل (السجل التجاري، البطاقة الضريبية، إلخ)' لو الـ customer موجود (cEditId truthy)\n• ✅ كاميرا + 📁 ملف buttons + grid عرض\n• Click على thumbnail → full-screen viewer\n• اضغط ✏️ في الـ viewer لتعديل العنوان\n• اضغط 🗑️ للحذف (soft delete)\n\n**لا يظهر في:**\n• إنشاء عميل جديد — لازم يتـ saved أولاً (الـ ID مطلوب)\n• الـ user بـ يـ surface رسالة 'احفظ السجل أولاً' في الـ AttachmentList\n\n**الـ Storage path:**\n```\nattachments/customers/{customerId}/{timestamp}_{random}_{filename}\n```" },
+      { type: "doc", text: "🛡️ [Wiring roadmap status]\n\n• ✅ V21.9.123 Foundation\n• ✅ V21.9.124 Customer ← هنا\n• ⏳ V21.9.125 Supplier (PurchasePg)\n• ⏳ V21.9.126 Employee (HRPg)\n• ⏳ V21.9.127 Checks + Treasury (TreasuryPg)\n• ⏳ V21.9.128 Sales/Purchase Invoices\n\n**Permissions reminder:**\n• Upload يتطلب manager+ (per storage.rules + firestore.rules)\n• Sales accountants لسه ما يقدروش يرفعوا — قرار توسعة الـ rules بعدين\n\n**Testing checklist:**\n1. افتح عميل موجود → الـ form يظهر section 'مستندات العميل'\n2. اضغط 📁 ملف → اختر صورة → progress indicator → الـ thumbnail يظهر\n3. اضغط على الـ thumbnail → viewer full-screen\n4. اضغط ✏️ → askInput popup للـ caption\n5. اضغط 🗑️ → confirm → الـ thumbnail يختفي\n6. على iPad: اضغط 📷 كاميرا → التقاط صورة → upload\n7. جرب رفع PDF → يظهر بـ 📄 icon" },
+    ],
+  },
+  {
     version: "V21.9.123",
     date: "2026-05-20",
     types: ["feature", "architectural"],

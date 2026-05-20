@@ -36,6 +36,10 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
+/* V21.9.124: Universal Attachments — wire to customer edit form. Only mounts
+   for an existing customer (cEditId truthy) because attachments need a stable
+   entityId before they can be linked. */
+import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
@@ -5842,6 +5846,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </label>
           </div>}
           {cEditId&&cArchived&&<div style={{fontSize:FS-3,color:T.textMut,padding:"4px 8px",lineHeight:1.6}}>⚠️ العميل الموقوف هيختفي من القوائم والتقارير، ولو فتح رابط حسابه هيظهر رسالة "تم إيقاف التعامل". الكشف الكامل لسه متاح للمراجعة من الأدمن.</div>}
+          {/* V21.9.124: Attachments — only on existing customers. ID مطلوب للـ path. */}
+          {cEditId && (
+            <AttachmentList
+              entityType="customers"
+              entityId={cEditId}
+              user={user}
+              canEdit={canEdit}
+              label="مستندات العميل (السجل التجاري، البطاقة الضريبية، إلخ)"
+              compact
+            />
+          )}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>setShowCustForm(false)}>الغاء</Btn><Btn primary onClick={saveCust} title="حفظ التعديلات">💾 حفظ</Btn></div>
         </div>
       </div>
