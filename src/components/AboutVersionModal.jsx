@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.102",
+    date: "2026-05-19",
+    types: ["feature"],
+    title: "🏷️ Phase 20b — Tag Picker + Tag Filter components (Slice 2/8)",
+    changes: [
+      { type: "feature", text: "🏷️ [Slice 2 من Universal Tagging — الـ UI primitives اللي هـ يتـ wired في كل entity page (Slices 4-7).]\n\n**Components جديدة:**\n\n**1. `<TagPicker />` — multi-select picker للـ entity edit forms**\n• Pill-style chips للـ tags المختارة، × للإزالة\n• Search field داخلي للفلترة\n• Dropdown بـ portal (هـ يـ escape clipping ancestors زي SearchSel)\n• Inline create لو الـ name مش موجود + الـ user له allowCreate\n• Color auto-pick بـ deterministic FNV-1a hash (نفس الاسم = نفس اللون)\n• Keyboard: ↑↓ للتنقل، Enter للاختيار/الإنشاء، Backspace لإزالة آخر chip، Esc للإغلاق\n• Read-only mode للـ viewer roles\n\n**2. `<TagFilter />` — chip strip فوق الـ list views**\n• Horizontal scrollable strip بـ كل الـ active tags applicable للـ entityType\n• Click chip → toggle inclusion (visual: filled vs outlined)\n• AND/OR mode toggle (يظهر بس لما 2+ tags مختارة)\n• Reset button + counter\n• Collapse > 10 tags بـ \"+ N المزيد\" / \"إخفاء\" toggle\n• Selected-first sort + Arabic locale alphabetical secondary sort\n\n**3. `<TagChips />` (helper export)** — read-only chip display للجداول والـ row displays، بدون input UX." },
+      { type: "doc", text: "🛡️ [Data-safety guarantees]\n\n• الـ Components **presentation-only** — مفيش Firestore writes. الـ parent page تحول الـ onChange/onRegistryChange إلى upConfig.\n• `allowCreate` gate — Manager+Admin فقط يقدرون يـ inline-create (تطبيق قرار §0.1). Non-admin users يـ see hint \"إنشاء التاجز متاح للمديرين فقط\".\n• الـ TagPicker بـ يـ propagate registry changes أولاً (onRegistryChange) قبل onChange — يضمن إن الـ new tag ID قابل للـ resolve فوراً.\n• Soft-create semantics مـ utils/tags.js: لو user كتب اسم موجود (case-insensitive)، الـ tag الموجود يـ used، مفيش duplication.\n• Click-outside detection يـ ignore النقرات داخل الـ portal — مفيش accidental close.\n• Set-based filtering في TagFilter — O(N) للـ entity lists." },
+      { type: "doc", text: "📦 [الـ Components لسه مش mounted في أي page]\n\nالـ Slice الحالي يضيف الـ building blocks فقط. الـ Slices التالية هي اللي تـ wire-them:\n• Slice 3 — Settings → Tags management page (V21.9.103)\n• Slice 4 — Customer integration + Shopify migration (V21.9.104)\n• Slice 5 — Supplier integration (V21.9.105)\n• Slice 6 — Item/Product integration (V21.9.106)\n• Slice 7 — Order integration (V21.9.107)\n• Slice 8 — Cross-entity tag view (V21.9.108)\n\nالـ user مش هـ يلاحظ أي تغيير حتى Slice 3 على الأقل." },
+    ],
+  },
+  {
     version: "V21.9.101",
     date: "2026-05-19",
     types: ["architectural", "feature"],
