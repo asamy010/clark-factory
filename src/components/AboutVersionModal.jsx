@@ -25,6 +25,43 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.128",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📎 Phase 23f — Wire Attachments to Invoices (Sales + Purchase) — Feature Complete",
+    changes: [
+      { type: "feature", text: "📎 [Wiring slice 5/5 — الفواتير (الـ آخر slice). الـ Feature #01 Universal Attachments بقى **متكامل**.]\n\n**ما تم:**\n• `InvoiceDetailModal` في SalesInvoicesPg (الـ shared modal بين Sales + Purchase) دلوقتي يعرض section مرفقات\n• الـ entityType بـ derived من `invoice.type` (sales vs purchase)\n• labels مختلفة:\n  - Sales: 'مرفقات الفاتورة (ختم العميل، صورة)'\n  - Purchase: 'مرفقات الفاتورة (فاتورة المورد، الإيصال)'\n• canEdit gated على isDraft (الـ posted invoices مش بـ يـ accept attachments جديدة من هنا — يحمي الـ ledger integrity)\n\n**Storage paths:**\n• `attachments/salesInvoices/{invoiceId}/...`\n• `attachments/purchaseInvoices/{invoiceId}/...`\n\n**Universal Attachments Feature complete:**\n• ✅ V21.9.123 Foundation\n• ✅ V21.9.124 Customer\n• ✅ V21.9.125 Supplier\n• ✅ V21.9.126 Employee\n• ✅ V21.9.127 Treasury + Checks\n• ✅ V21.9.128 Sales/Purchase Invoices ← هنا" },
+      { type: "doc", text: "🎉 [Feature #01 — Universal Attachments Complete]\n\n**Coverage:**\n• 5 entity types: customers, suppliers, employees, checks, treasury, salesInvoices, purchaseInvoices\n• 6 wired pages: CustDeliverPg, PurchasePg, HRPg, TreasuryPg (×2), SalesInvoicesPg (shared with PurchaseInvoicesPg)\n\n**Reusability:**\n• الـ `<AttachmentList entityType=... entityId=... />` كـ pluggable component\n• إضافة entity تانية = سطرين فقط (import + mount)\n• Examples للـ future: orders, workshopSessions, contacts, fixed assets\n\n**Design highlights:**\n• Atomic upload (Storage + Firestore + rollback)\n• Client-side compression (1920px max, JPEG 70%)\n• Soft delete (30 days retention)\n• Full-screen viewer (keyboard nav + caption edit + download)\n• Camera capture للـ iPad (capture=\"environment\")\n• Single-field query (entityId) — no composite index needed\n• NO customMetadata (V21.9.77 trap avoided)\n\n**Permissions caveat:**\n• Upload requires manager+ (per storage.rules + firestore.rules)\n• Sales accountants can READ but not UPLOAD\n• قرار توسعة الـ rules لـ scope-specific (sales for invoices, hr for employees) لاحقاً لو محتاج\n\n**Cumulative session stats:**\n• 28 versions shipped (V21.9.101 → V21.9.128)\n• 4 major features: Universal Tagging + Contacts + Treasury cleanup + Universal Attachments\n• 14 bug fixes + 3 false positives caught\n• ~6000+ lines of new code" },
+    ],
+  },
+  {
+    version: "V21.9.127",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📎 Phase 23e — Wire Attachments to Treasury + Checks",
+    changes: [
+      { type: "feature", text: "📎 [Wiring slice 4/5 — الخزنة والشيكات. مهم جداً للـ audit trail.]\n\n**ما تم:**\n• `TreasuryPg.jsx` يـ imports AttachmentList\n• **Treasury entry edit form** (تعديل حركة خزنة): section 'مرفقات (إيصال، صورة، PDF)' لو `editId` truthy\n• **Check edit form** (تعديل شيك): section 'صور الشيك' لو `chkEditId` truthy — مهم لتوثيق الشيك الأصلي\n\n**Storage paths:**\n• `attachments/treasury/{txId}/...` — للحركات\n• `attachments/checks/{checkId}/...` — للشيكات\n\n**Wiring roadmap:**\n• ✅ V21.9.123 Foundation\n• ✅ V21.9.124 Customer\n• ✅ V21.9.125 Supplier\n• ✅ V21.9.126 Employee\n• ✅ V21.9.127 Checks + Treasury ← هنا\n• ⏳ V21.9.128 Sales/Purchase Invoices" },
+    ],
+  },
+  {
+    version: "V21.9.126",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📎 Phase 23d — Wire Attachments to Employee",
+    changes: [
+      { type: "feature", text: "📎 [Wiring slice 3/5 — الموظف.]\n\n**ما تم:**\n• `HRPg.jsx` يـ imports AttachmentList\n• Employee edit Card دلوقتي يعرض section 'مستندات الموظف (العقد، الشهادات، البطاقة الشخصية)'\n• فقط للـ existing employee (empEditId truthy)\n\n**Storage path:** `attachments/employees/{empId}/...`\n\n**Wiring roadmap:**\n• ✅ V21.9.123 Foundation\n• ✅ V21.9.124 Customer\n• ✅ V21.9.125 Supplier\n• ✅ V21.9.126 Employee ← هنا\n• ⏳ V21.9.127 Checks + Treasury\n• ⏳ V21.9.128 Sales/Purchase Invoices" },
+    ],
+  },
+  {
+    version: "V21.9.125",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "📎 Phase 23c — Wire Attachments to Supplier",
+    changes: [
+      { type: "feature", text: "📎 [Wiring slice 2/5 — المورد. Same pattern كـ Customer.]\n\n**ما تم:**\n• `PurchasePg.jsx` يـ imports AttachmentList\n• Supplier edit modal دلوقتي يعرض section 'مستندات المورد (السجل التجاري، البطاقة الضريبية، إلخ)'\n• فقط للـ existing supplier (supForm.id truthy)\n\n**Storage path:** `attachments/suppliers/{supplierId}/...`\n\n**Wiring roadmap:**\n• ✅ V21.9.123 Foundation\n• ✅ V21.9.124 Customer\n• ✅ V21.9.125 Supplier ← هنا\n• ⏳ V21.9.126 Employee (HRPg)\n• ⏳ V21.9.127 Checks + Treasury\n• ⏳ V21.9.128 Sales/Purchase Invoices" },
+    ],
+  },
+  {
     version: "V21.9.124",
     date: "2026-05-20",
     types: ["feature"],

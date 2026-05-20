@@ -20,6 +20,8 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
+/* V21.9.127: Universal Attachments — wire to treasury entry form + check form. */
+import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { computeWorkshopBalance } from "../utils/accountSummary.js";
 import { nowISO, cairoDateStr } from "../utils/serverTime.js";
 import { T } from "../theme.js";
@@ -2696,6 +2698,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </label><Inp type="date" value={txDate} onChange={setTxDate}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الموسم</label><Inp value={txSeason} onChange={setTxSeason} placeholder={data.activeSeason||"W26"}/></div>
         </div>
+        {/* V21.9.127: Attachments — only on existing tx (editId). */}
+        {editId && (
+          <div style={{marginTop: 14}}>
+            <AttachmentList
+              entityType="treasury"
+              entityId={editId}
+              user={user}
+              canEdit={canEdit}
+              label="مرفقات (إيصال، صورة، PDF)"
+              compact
+            />
+          </div>
+        )}
         <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{if(savingTx)return;setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary disabled={savingTx} onClick={saveTx} style={savingTx?{opacity:0.55,cursor:"wait",pointerEvents:"none"}:undefined}>{savingTx?"⏳ جاري الحفظ...":(editId?"💾 حفظ التعديل":"💾 حفظ")}</Btn></div>
         </div>
       </div>}
@@ -3691,6 +3706,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>
               </div>}
             </div>}
+            {/* V21.9.127: Attachments — only on existing check (chkEditId). Cheque scan الأصلي مهم للـ audit. */}
+            {chkEditId && (
+              <div style={{marginTop: 12}}>
+                <AttachmentList
+                  entityType="checks"
+                  entityId={chkEditId}
+                  user={user}
+                  canEdit={canEdit}
+                  label="صور الشيك"
+                  compact
+                />
+              </div>
+            )}
             <div style={{marginTop:10}}><Btn primary onClick={saveCheck}>{chkEditId?"💾 حفظ التعديل":(chkBatchEnabled?"💾 حفظ "+Math.max(1,Math.min(60,Number(chkBatchCount)||1))+" شيك":"💾 حفظ")}</Btn></div>
           </Card>})()}
           {/* Checks table */}

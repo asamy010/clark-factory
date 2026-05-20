@@ -19,6 +19,9 @@ import {
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printInvoice } from "../utils/printInvoice.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
+/* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
+   The entityType is derived dynamically from invoice.type (sales vs purchase). */
+import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 /* V19.39: Bulk-post toolbar shared with PurchaseInvoicesPg + CreditNotesPg */
@@ -525,6 +528,21 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
           {invoice.voidedAt && <div style={{color:T.err}}>❌ مُلغية: <b>{invoice.voidedAt.split("T")[0]}</b> {invoice.voidedBy && <>بواسطة <b>{invoice.voidedBy}</b></>} {invoice.voidReason && <>— {invoice.voidReason}</>}</div>}
         </div>
       </div>
+
+      {/* V21.9.128: Attachments — shared by sales + purchase invoices via this modal.
+          entityType derived from invoice type. ID is invoice.id (always exists in this modal). */}
+      {invoice.id && (
+        <div style={{marginBottom: 14}}>
+          <AttachmentList
+            entityType={isPurchase ? "purchaseInvoices" : "salesInvoices"}
+            entityId={invoice.id}
+            user={user}
+            canEdit={isDraft}
+            label={isPurchase ? "مرفقات الفاتورة (فاتورة المورد، الإيصال)" : "مرفقات الفاتورة (ختم العميل، صورة)"}
+            compact
+          />
+        </div>
+      )}
 
       {/* Action buttons */}
       <div style={{display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap"}}>

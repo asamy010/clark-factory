@@ -17,6 +17,8 @@ import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.j
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
+/* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
+import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
@@ -1843,6 +1845,20 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
             />
           </div>
         </div>
+
+        {/* V21.9.125: Attachments — only on existing suppliers (need supplier.id for path). */}
+        {supForm.id && (
+          <div style={{marginTop: 14}}>
+            <AttachmentList
+              entityType="suppliers"
+              entityId={supForm.id}
+              user={user}
+              canEdit={canEdit}
+              label="مستندات المورد (السجل التجاري، البطاقة الضريبية، إلخ)"
+              compact
+            />
+          </div>
+        )}
 
         <div style={{display:"flex",gap:8,marginTop:18,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>{setShowSupForm(false);setSupForm(null)}}>إلغاء</Btn>

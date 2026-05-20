@@ -13,6 +13,8 @@ import { loadJsQR, scanQR, loadXLSX } from "../utils/qr.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, showToast } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
+/* V21.9.126: Universal Attachments — wire to employee edit form. Existing employees only. */
+import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { printPage, printEmpQrCards, printSalaryEnvelopes, openPrintWindow } from "../utils/print.js";
 import { CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { formatBlockerMessage } from "../utils/dataIntegrity.js";
@@ -7400,6 +7402,19 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           </div>
           <div style={{display:"flex",alignItems:"flex-end"}}><Btn primary onClick={saveEmp} style={{width:"100%"}}>💾</Btn></div>
         </div>
+        {/* V21.9.126: Attachments — only on existing employees (need ID for path). */}
+        {empEditId && (
+          <div style={{marginTop: 14}}>
+            <AttachmentList
+              entityType="employees"
+              entityId={empEditId}
+              user={user}
+              canEdit={canEdit}
+              label="مستندات الموظف (العقد، الشهادات، البطاقة الشخصية)"
+              compact
+            />
+          </div>
+        )}
       </Card>}
       {(()=>{
         /* Filter employees by search query across multiple fields */
