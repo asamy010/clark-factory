@@ -38,6 +38,12 @@ import {
   normalizeTagName,
   sanitizeAppliesTo,
 } from "../utils/tags.js";
+/* V21.9.104: Customer tags migration helpers (Slice 4 of Universal Tagging).
+   Pure functions — analyze + commit two-phase pattern. */
+import {
+  planTagsMigration,
+  commitTagsMigration,
+} from "../utils/tagsMigration.js";
 
 function fmtDate(ts){
   if(!ts) return "—";
@@ -307,6 +313,11 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
   const [showArchived, setShowArchived] = useState(false);
   const [selection, setSelection] = useState([]);            // tag IDs selected for merge
   const [merging, setMerging] = useState(false);
+  /* V21.9.104: Migration state. `migrationPlan` is null until the admin
+     clicks "تحليل"; then it holds the read-only preview. `migrationCommitting`
+     blocks duplicate commits while upConfig is in flight. */
+  const [migrationPlan, setMigrationPlan] = useState(null);
+  const [migrationCommitting, setMigrationCommitting] = useState(false);
 
   /* Usage counts across all entity arrays in `data`. Recomputed when data
      or registry changes. Optionally includes the orders array passed
@@ -457,6 +468,60 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
     showToast(`✅ تم دمج ${losersIds.length} تاج. الـ entities المتأثرة: ${changedFields.join(", ") || "—"}`);
   };
 
+  /* ── Migration handlers (V21.9.104) ── */
+
+  const analyzeMigration = () => {
+    /* Pure analysis — no writes. Always safe to call. */
+    const plan = planTagsMigration(data);
+    setMigrationPlan(plan);
+  };
+
+  const commitMigration = async () => {
+    if(!migrationPlan || !migrationPlan.hasWork){
+      setMigrationPlan(null);
+      return;
+    }
+    /* Confirm one last time before the upConfig call — multi-array write is
+       the most invasive operation in this panel. */
+    const yes = await ask(
+      "تأكيد الترحيل",
+      `هـ يتم إنشاء ${migrationPlan.summary.newTagsToCreate} تاج جديد، تحديث ${migrationPlan.summary.customersToUpdate} عميل و ${migrationPlan.summary.shopifyCustomersToUpdate} عميل Shopify. غير قابل للتراجع التلقائي.`,
+      { confirmText: "تنفيذ الترحيل" }
+    );
+    if(!yes) return;
+
+    setMigrationCommitting(true);
+    try{
+      const { patch, stats } = commitTagsMigration(migrationPlan, data, user);
+      upConfig(prev => ({ ...prev, ...patch }));
+      setMigrationPlan(null);
+      await tell(
+        "تم الترحيل",
+        `إجمالي:\n• ${stats.newTags} تاج جديد في الـ registry\n• ${stats.customersUpdated} عميل محدّث\n• ${stats.shopifyCustomersUpdated} عميل Shopify محدّث\n\nالـ Shopify push هـ يـ resolve الـ IDs إلى أسماء تلقائياً بعد الـ deploy التالي.`,
+        { type:"success" }
+      );
+    }catch(e){
+      const msg = (e && e.message) || "خطأ غير معروف";
+      await tell("فشل الترحيل", "تعذر تنفيذ الترحيل: " + msg + "\n\nالـ data لم تتغير. حاول مرة أخرى أو راجع الـ console.", { type:"error" });
+    }finally{
+      setMigrationCommitting(false);
+    }
+  };
+
+  /* Compute migration banner state without committing. We do a quick scan
+     to detect whether there's work — used to show/hide the migration card. */
+  const migrationStatus = useMemo(() => {
+    const quick = planTagsMigration(data);
+    return {
+      hasWork: quick.hasWork,
+      customersToUpdate: quick.summary.customersToUpdate,
+      shopifyCustomersToUpdate: quick.summary.shopifyCustomersToUpdate,
+      newTagsToCreate: quick.summary.newTagsToCreate,
+      lastRunAt: data && data._tagsCustomerMigrationV21_104_LastRunAt,
+      everRun: !!(data && data._tagsCustomerMigrationV21_104_Done),
+    };
+  }, [data]);
+
   if(!canEdit){
     return (
       <Card title="🏷️ إدارة التاجز" style={{marginBottom:14}}>
@@ -472,6 +537,49 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
 
   return (
     <>
+      {/* V21.9.104: Customer Tags Migration card.
+          Visible only when there's actual work (legacy string tags in
+          c.tags or shopifyCustomer.tags). Hidden when migration is clean
+          to keep the UI uncluttered. */}
+      {migrationStatus.hasWork && (
+        <Card style={{marginBottom: 14}}>
+          <div style={{
+            display:"flex", alignItems:"flex-start", gap: 12,
+            padding: "6px 4px",
+          }}>
+            <div style={{
+              fontSize: 26, lineHeight: 1, flexShrink: 0,
+            }}>🚚</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize: FS+1, fontWeight: 800, color: T.warn, marginBottom: 4}}>
+                ترحيل tags العملاء — مطلوب إجراء
+              </div>
+              <div style={{fontSize: FS-1, color: T.textSec, lineHeight: 1.7, marginBottom: 10}}>
+                تم اكتشاف <strong>{migrationStatus.customersToUpdate + migrationStatus.shopifyCustomersToUpdate}</strong> عميل
+                بـ tags بـ صيغة قديمة (نص). الترحيل هـ يحوّلهم لـ ID references في الـ registry
+                وينشئ <strong>{migrationStatus.newTagsToCreate}</strong> تاج جديد لـ الأسماء غير الموجودة.
+                <br/>
+                <strong>الـ Shopify push هـ يفضل شغّال</strong> — الـ adapter يـ resolve الـ IDs إلى أسماء قبل الإرسال.
+              </div>
+              <div style={{display:"flex", gap: 8, flexWrap:"wrap"}}>
+                <Btn primary onClick={analyzeMigration}>
+                  🔍 تحليل الترحيل (preview)
+                </Btn>
+                {migrationStatus.everRun && migrationStatus.lastRunAt && (
+                  <div style={{
+                    fontSize: FS-2, color: T.textMut,
+                    padding: "6px 10px", borderRadius: 8,
+                    background: T.bg, alignSelf:"center",
+                  }}>
+                    آخر تشغيل: {fmtDate(migrationStatus.lastRunAt)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card title="🏷️ إدارة التاجز" style={{marginBottom: 14}}>
         {/* Stats strip */}
         <div style={{display:"flex", gap: 10, flexWrap:"wrap", marginBottom: 12}}>
@@ -712,6 +820,149 @@ export default function TagsManagerPanel({ data, upConfig, canEdit, user, isMob,
           onCancel={() => setMerging(false)}
         />
       )}
+
+      {/* V21.9.104: Migration preview modal. Shows the read-only plan with
+          stats + the list of new tags that will be created. Admin reviews
+          before committing the write. */}
+      {migrationPlan && (
+        <MigrationPreviewModal
+          plan={migrationPlan}
+          onConfirm={commitMigration}
+          onCancel={() => setMigrationPlan(null)}
+          committing={migrationCommitting}
+        />
+      )}
     </>
+  );
+}
+
+/* ── Migration preview modal (V21.9.104) ──────────────────────────────────
+   Read-only preview of the migration plan. Admin can review every new tag
+   that will be created before committing. */
+function MigrationPreviewModal({ plan, onConfirm, onCancel, committing }){
+  if(!plan) return null;
+  const s = plan.summary;
+  const totalTouched = s.customersToUpdate + s.shopifyCustomersToUpdate;
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100000,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget && !committing) onCancel(); }}>
+      <div style={{
+        background: T.cardSolid,
+        borderRadius: 16,
+        width:"100%", maxWidth: 620,
+        padding: "22px 24px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd,
+        maxHeight:"90vh", overflowY:"auto",
+      }}>
+        <div style={{fontSize: FS+3, fontWeight:800, color: T.text, marginBottom: 6, display:"flex", alignItems:"center", gap: 8}}>
+          🚚 <span>معاينة ترحيل tags العملاء</span>
+        </div>
+        <div style={{fontSize: FS-1, color: T.textSec, marginBottom: 14, lineHeight: 1.7}}>
+          هذه معاينة فقط — لا يتم أي تغيير حتى تضغط زر التنفيذ.
+        </div>
+
+        {!plan.hasWork ? (
+          <div style={{
+            padding: "16px 18px",
+            background: T.ok + "10",
+            color: T.ok,
+            borderRadius: 10,
+            fontSize: FS-1, fontWeight: 600, lineHeight: 1.7,
+          }}>
+            ✅ مفيش tags strings قديمة محتاجة ترحيل. كل العملاء بـ صيغة الـ IDs الجديدة بالفعل.
+          </div>
+        ) : (
+          <>
+            {/* Stats grid */}
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:"1fr 1fr",
+              gap: 8, marginBottom: 14,
+            }}>
+              <div style={{padding:"10px 12px", borderRadius: 8, background: T.bg, border:"1px solid "+T.brd}}>
+                <div style={{fontSize: FS-2, color: T.textSec, marginBottom: 2}}>عملاء عاديين</div>
+                <div style={{fontSize: FS+2, fontWeight: 800, color: T.text}}>
+                  {s.customersToUpdate} <span style={{fontSize: FS-2, color: T.textMut, fontWeight: 500}}>/ {s.customersAnalyzed}</span>
+                </div>
+                <div style={{fontSize: FS-3, color: T.textMut, marginTop: 2}}>
+                  ✅ {s.customersAlreadyMigrated} في الصيغة الجديدة بالفعل
+                </div>
+              </div>
+              <div style={{padding:"10px 12px", borderRadius: 8, background: T.bg, border:"1px solid "+T.brd}}>
+                <div style={{fontSize: FS-2, color: T.textSec, marginBottom: 2}}>عملاء Shopify</div>
+                <div style={{fontSize: FS+2, fontWeight: 800, color: T.text}}>
+                  {s.shopifyCustomersToUpdate} <span style={{fontSize: FS-2, color: T.textMut, fontWeight: 500}}>/ {s.shopifyCustomersAnalyzed}</span>
+                </div>
+                <div style={{fontSize: FS-3, color: T.textMut, marginTop: 2}}>
+                  ✅ {s.shopifyCustomersAlreadyMigrated} في الصيغة الجديدة بالفعل
+                </div>
+              </div>
+            </div>
+
+            {/* New tags preview */}
+            {plan.newTagsToCreate.length > 0 && (
+              <div style={{marginBottom: 14}}>
+                <div style={{fontSize: FS, fontWeight:700, color: T.text, marginBottom: 6}}>
+                  ➕ تاجز جديدة هـ تتـ created ({plan.newTagsToCreate.length}):
+                </div>
+                <div style={{
+                  maxHeight: 200, overflowY:"auto",
+                  padding: "8px 10px",
+                  border:"1px solid "+T.brd,
+                  borderRadius: 8,
+                  background: T.bg,
+                }}>
+                  {plan.newTagsToCreate.map(t => (
+                    <div key={t.nameLC} style={{
+                      display:"flex", justifyContent:"space-between", alignItems:"center",
+                      padding: "4px 0",
+                      borderBottom:"1px solid "+T.brd+"30",
+                      fontSize: FS-1,
+                    }}>
+                      <span style={{color: T.text, fontWeight: 600}}>{t.name}</span>
+                      <span style={{color: T.textMut, fontSize: FS-2}}>
+                        مستخدم في {t.count} عميل
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize: FS-3, color: T.textMut, marginTop: 4, lineHeight: 1.6}}>
+                  💡 الـ tags الجديدة هـ تـ created بـ <strong>appliesTo = ["customer"] فقط</strong>.
+                  لو محتاج توسعتها على Suppliers/Items/Orders، عدّل من الجدول بعد الترحيل.
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              padding: "10px 12px", marginBottom: 16,
+              background: T.warn + "10",
+              border: "1px solid "+T.warn+"33",
+              borderRadius: 10,
+              fontSize: FS-2, color: T.warn, lineHeight: 1.7,
+            }}>
+              ⚠️ <strong>إجمالي العملاء المتأثرين: {totalTouched}</strong>
+              <br/>
+              العملية تحدّث الـ tagRegistry + customers + shopifyCustomers في كتابة واحدة عبر upConfig.
+              الـ Shopify push بعدها هـ يـ resolve الـ IDs لأسماء تلقائياً (backward-compatible).
+            </div>
+          </>
+        )}
+
+        <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+          <Btn ghost onClick={onCancel} disabled={committing}>إلغاء</Btn>
+          {plan.hasWork && (
+            <Btn primary onClick={onConfirm} disabled={committing}>
+              {committing ? "جاري التنفيذ..." : "تنفيذ الترحيل"}
+            </Btn>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

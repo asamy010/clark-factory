@@ -25,6 +25,12 @@
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { getShopifyCreds, shopifyFetch } from "./_shopifyAdmin.js";
 import { readAllShopifyCustomers, FLAG_V2192, CUSTOMERS_COL } from "./_partitioned.js";
+/* V21.9.104: Universal Tagging adapter — resolves tag IDs (e.g. "tag_kf3a_xyz")
+   to display names using cfg.tagRegistry before pushing to Shopify. Backward
+   compatible: pre-migration legacy strings ("VIP", "Cairo") pass through
+   untouched. Without this resolver, post-migration pushes would send literal
+   ID strings as Shopify tags — visible garbage to the user in Shopify admin. */
+import { resolveTagIdsToNames } from "../../src/utils/tagsMigration.js";
 
 async function pushOneCustomer(creds, shopifyId, tagsString, note){
   const r = await shopifyFetch(creds, "/customers/" + shopifyId + ".json", {
@@ -83,8 +89,13 @@ export default async function handler(req, res){
       errors.push({ id: c.id, reason: "no_shopify_id" });
       continue;
     }
-    /* Compute final tags string */
-    const userTags = Array.isArray(c.tags) ? c.tags : [];
+    /* Compute final tags string.
+       V21.9.104: c.tags may now hold tag IDs (post-migration) instead of
+       legacy display strings. resolveTagIdsToNames() handles both formats
+       transparently — IDs are looked up in cfg.tagRegistry, strings pass
+       through. shopify_tags remain raw strings (the mirror from Shopify). */
+    const userTagsRaw = Array.isArray(c.tags) ? c.tags : [];
+    const userTags = resolveTagIdsToNames(userTagsRaw, cfg.tagRegistry || []);
     const shopifyTags = Array.isArray(c.shopify_tags) ? c.shopify_tags : [];
     let finalTags;
     if(mode === "replace"){
