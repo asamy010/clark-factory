@@ -31,6 +31,7 @@ import {
   linkExistingContact,
   getUnlinkedEntities,
   findContactByPhone,
+  findSimilarContacts,
   labelForType,
   settleContactCrossAccount,
   getContactSettlements,
@@ -75,7 +76,7 @@ function TypeChip({ typeKey, small }){
 }
 
 /* ── Create modal ──────────────────────────────────────────────── */
-function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
+function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExisting }){
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [types, setTypes] = useState([]);
@@ -83,6 +84,12 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
   const [tags, setTags] = useState([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /* V21.9.122: fuzzy dup detection — recomputes when name or phone changes.
+     Returns up to 5 similar contacts/entities with a confidence score. */
+  const similar = useMemo(() => {
+    if(!name.trim() && !phone.trim()) return [];
+    return findSimilarContacts(name, phone, data);
+  }, [name, phone, data]);
 
   const toggleType = (key) => {
     setTypes(prev => prev.includes(key) ? prev.filter(x => x !== key) : [...prev, key]);
@@ -173,6 +180,63 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
             )}
           </div>
         </div>
+
+        {/* V21.9.122: fuzzy similar-contacts banner. Shows up when the entered
+            name/phone resembles an existing entity (exact or substring).
+            Clicking "عرض" closes this modal and opens the detail view on that
+            contact — admin can then use AddTypeModal to extend instead of
+            creating a duplicate. */}
+        {similar.length > 0 && (
+          <div style={{
+            padding: "10px 12px", marginBottom: 12,
+            background: T.warn + "08",
+            border: "1px solid " + T.warn + "33",
+            borderRadius: 10,
+          }}>
+            <div style={{fontSize: FS-1, color: T.warn, fontWeight: 700, marginBottom: 8, display:"flex", alignItems:"center", gap: 6}}>
+              ⚠️ <span>تم العثور على {similar.length} جهة قد تكون مطابقة:</span>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap: 6, maxHeight: 180, overflowY: "auto"}}>
+              {similar.map(s => (
+                <div key={s.id} style={{
+                  padding: "8px 10px", borderRadius: 8,
+                  background: T.cardSolid, border: "1px solid " + T.brd,
+                  display:"flex", alignItems:"center", justifyContent:"space-between", gap: 8, flexWrap: "wrap",
+                }}>
+                  <div style={{flex: 1, minWidth: 0}}>
+                    <div style={{display:"flex", alignItems:"center", gap: 6, marginBottom: 2, flexWrap: "wrap"}}>
+                      <span style={{fontSize: FS-1, color: T.text, fontWeight: 700}}>{s.name}</span>
+                      {s.phone && <span style={{fontSize: FS-3, color: T.textMut, fontFamily: "monospace", direction: "ltr"}}>{s.phone}</span>}
+                    </div>
+                    <div style={{display:"flex", alignItems:"center", gap: 4, flexWrap: "wrap"}}>
+                      {(s.types || []).map(t => <TypeChip key={t} typeKey={t} small />)}
+                      <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
+                        ({s._reason})
+                      </span>
+                    </div>
+                  </div>
+                  {onSelectExisting && (
+                    <button
+                      onClick={() => onSelectExisting(s)}
+                      title="فتح الجهة الموجودة"
+                      style={{
+                        padding: "4px 12px", borderRadius: 6,
+                        background: T.accent + "12", color: T.accent,
+                        border: "1px solid " + T.accent + "33",
+                        fontSize: FS-2, fontWeight: 700,
+                        fontFamily: "inherit", cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >👁️ عرض</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize: FS-3, color: T.textMut, marginTop: 8, lineHeight: 1.6}}>
+              💡 لو فيه جهة من دول هي فعلاً نفس الـ entity، اضغط "عرض" → في الـ detail modal تقدر تضيف تصنيف بـ "+ تصنيف" بدل ما تنشئ contact مكرر.
+            </div>
+          </div>
+        )}
 
         <div style={{marginBottom: 12}}>
           <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600, display:"block", marginBottom: 6}}>
@@ -1547,6 +1611,12 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           onCancel={() => setShowCreate(false)}
           user={user}
           canEdit={canEdit}
+          /* V21.9.122: when admin clicks "عرض" on a similar suggestion,
+             close create modal + open that contact in the detail modal. */
+          onSelectExisting={(s) => {
+            setShowCreate(false);
+            setViewing(s);
+          }}
         />
       )}
 

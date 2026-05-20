@@ -502,6 +502,96 @@ export function settleContactCrossAccount(seed, data, user){
   return { patch, settlementId, custPayment, supPayment };
 }
 
+/* ── Duplicate detection (V21.9.122, Phase 5c) ────────────────────
+   Fuzzy matching to surface similar existing contacts during create —
+   prevents the admin from accidentally creating a duplicate when the
+   same party already exists under a slight variant of the name or
+   with a different phone format. */
+
+/* Normalize Arabic + Latin name for fuzzy compare. Strips:
+   - tashkeel (diacritics)
+   - alef variants (أإآ → ا)
+   - taa marbuta (ة → ه)
+   - alef maksura (ى → ي)
+   - whitespace runs */
+export function normalizeArabicName(name){
+  return String(name == null ? "" : name)
+    .trim()
+    .toLowerCase()
+    .replace(/[ً-ْ]/g, "")     /* tashkeel */
+    .replace(/[أإآ]/g, "ا")  /* أإآ → ا */
+    .replace(/ى/g, "ي")        /* ى → ي */
+    .replace(/ة/g, "ه")        /* ة → ه */
+    .replace(/\s+/g, " ");
+}
+
+/* Returns up to 5 contacts/entities that resemble the input. Confidence
+   thresholds:
+     • Phone exact match (after normalizePhone)     → 100
+     • Phone last-9-digits match (covers leading 0) →  80
+     • Name exact match (Arabic-normalized)          →  70
+     • Name substring match (either direction)       →  40
+   We sum the matched signals — so a contact with both name AND phone
+   match scores 100+70 = 170. Sorting by score puts the strongest
+   suggestions first.
+
+   `excludeContactId` lets the caller skip the current contact when
+   used in an edit flow (avoid suggesting "yourself"). */
+export function findSimilarContacts(name, phone, data, excludeContactId){
+  const nameNorm = normalizeArabicName(name);
+  const phoneCanon = normalizePhone(String(phone || "").trim());
+  if(!nameNorm && !phoneCanon) return [];
+
+  const merged = buildMergedContacts(data);
+  const out = [];
+
+  for(const c of merged){
+    if(excludeContactId && c.contactId === excludeContactId) continue;
+    let score = 0;
+    const reasons = [];
+
+    if(phoneCanon){
+      const cPhone = normalizePhone(c.phone || "");
+      if(cPhone){
+        if(cPhone === phoneCanon){
+          score += 100;
+          reasons.push("تليفون مطابق");
+        } else {
+          const ps = phoneCanon.slice(-9);
+          const cs = cPhone.slice(-9);
+          if(ps && cs && ps === cs){
+            score += 80;
+            reasons.push("آخر 9 أرقام مطابقة");
+          }
+        }
+      }
+    }
+
+    if(nameNorm){
+      const cName = normalizeArabicName(c.name);
+      if(cName){
+        if(cName === nameNorm){
+          score += 70;
+          reasons.push("اسم مطابق");
+        } else if(nameNorm.length >= 3 && cName.length >= 3){
+          /* substring match — require ≥3 chars to avoid silly matches */
+          if(cName.includes(nameNorm) || nameNorm.includes(cName)){
+            score += 40;
+            reasons.push("اسم متشابه");
+          }
+        }
+      }
+    }
+
+    if(score >= 40){
+      out.push({ ...c, _confidence: score, _reason: reasons.join(" + ") });
+    }
+  }
+
+  out.sort((a, b) => b._confidence - a._confidence);
+  return out.slice(0, 5);
+}
+
 /* ── Add types to existing contact (V21.9.121, Phase 5b) ──────────
    Lets the admin extend a contact's classifications. The behavior is
    parallel to linkExistingContact() but operates on an existing

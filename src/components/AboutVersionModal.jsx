@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.122",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🔍 Phase 22g — Contacts Phase 5c: Duplicate Detection (Fuzzy)",
+    changes: [
+      { type: "feature", text: "🔍 [Phase 5c — يمنع الـ admin من إنشاء duplicate contact بدون قصد. الـ Phase 1 كان عنده exact phone check فقط، الآن بقى fuzzy name + phone.]\n\n**Live suggestions banner في الـ Create modal:**\n• تظهر بـ live update لما الـ admin يكتب الاسم أو التليفون\n• تعرض حتى 5 جهات مطابقة محتملة\n• كل suggestion يعرض:\n  - الاسم + التليفون\n  - الـ type chips الموجودة\n  - الـ confidence reason (تليفون مطابق + اسم متشابه إلخ)\n  - زر '👁️ عرض' يفتح الـ Detail modal على تلك الجهة\n\n**الـ Workflow الجديد:**\n1. Admin يكتب 'محمد على' في الاسم\n2. الـ banner يظهر فوراً: 'تم العثور على 2 جهة قد تكون مطابقة'\n3. الـ admin يشوف: 'محمد علي' (اسم مطابق) — الـ existing customer\n4. اضغط '👁️ عرض' → الـ create modal يقفل + الـ detail modal يفتح\n5. في الـ detail، يستخدم '+ تصنيف' لـ extend الـ existing contact بدلاً من إنشاء duplicate" },
+      { type: "feature", text: "🔧 [Backend — utils/contacts.js]\n\n**`normalizeArabicName(name)`:**\n• Strips tashkeel (الحركات)\n• Unifies أإآ → ا\n• ى → ي، ة → ه\n• Lowercase + collapse whitespace\n• 'مُحَمَّدُ' === 'محمد' بعد الـ normalization\n\n**`findSimilarContacts(name, phone, data, excludeContactId)`:**\n• Pure function\n• Scoring system (additive):\n  - Phone exact (بعد normalizePhone): 100\n  - Phone last-9-digits match: 80\n  - Name exact (Arabic-normalized): 70\n  - Name substring (≥3 chars): 40\n• Threshold: total score ≥ 40\n• Returns top 5 sorted by score DESC\n• Includes both registry contacts + standalone entities\n• `excludeContactId` skips current contact (للـ edit flow)\n\n**Why fuzzy matching matters:**\n• 'محمد علي' vs 'محمد على' — كانوا duplicate قبل\n• '+201234567890' vs '01234567890' — phone normalization يمسك ده\n• 'sherif' vs 'Sherif Co.' — substring match يمسك ده\n• كلهم بقوا قابلين للاكتشاف" },
+      { type: "doc", text: "🛡️ [Safety + UX]\n\n**No blocking, just suggestion:**\n• الـ admin يقدر يـ ignore الـ banner وي continues بـ create لو فعلاً عاوز (طالب فعلاً entity جديد بنفس الاسم — rare but valid).\n• الـ existing dupHint (exact phone match) لسه موجود — warning inline تحت الـ phone field.\n• الـ banner يـ surfaces broader matches بـ confidence reasons واضحة.\n\n**Cross-modal navigation:**\n• Click 'عرض' → setShowCreate(false) + setViewing(suggestion)\n• الـ state transitions atomic (لا flicker)\n• الـ admin يقدر يـ cancel ويرجع للـ create لو السجاية كانت غلط\n\n**Limitations (deferred):**\n• مفيش Levenshtein distance — substring فقط. 'محمد' vs 'مهمد' (typo) لا يـ match\n• مفيش phonetic matching — 'ahmed' vs 'احمد' لا يـ match\n• مفيش Tag-based dedup (لو فيه 2 جهات بنفس الـ tag VIP، مش بنقترح merge)\n\n**Cumulative Contacts roadmap COMPLETE:**\n• ✅ Phase 1 — Create + view\n• ✅ Phase 2 — Detail + ledger\n• ✅ Fix — Balance formula\n• ✅ Phase 3 — Link existing\n• ✅ Phase 4 — Settlement (مقاصة)\n• ✅ Phase 5a — History + Reverse\n• ✅ Phase 5b — Type Add/Remove\n• ✅ Phase 5c — Duplicate Detection ← هنا\n• ⏳ Phase 6 (optional): Mobile UX optimization\n\n🎉 **الـ Contacts feature بقى متكامل** — كل user stories الأصلية من الـ user request تـ implemented." },
+    ],
+  },
+  {
     version: "V21.9.121",
     date: "2026-05-20",
     types: ["feature"],
