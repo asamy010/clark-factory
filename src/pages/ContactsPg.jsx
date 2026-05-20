@@ -27,10 +27,15 @@ import {
   CONTACT_TYPE_KEYS,
   buildMergedContacts,
   createContact,
+  updateContact,
   findContactByPhone,
   labelForType,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
+/* V21.9.116: cross-account ledger uses the same rollup helpers as
+   the Customer/Supplier statement pages — single source of truth. */
+import { computeCustomerStatement, computeSupplierStatement } from "../utils/rollups.js";
+import { computeWorkshopBalance } from "../utils/accountSummary.js";
 
 /* Map type key → meta from the contacts module, for chips. */
 const TYPE_META = CONTACT_TYPES.reduce((acc, t) => { acc[t.key] = t; return acc; }, {});
@@ -258,11 +263,308 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
   );
 }
 
+/* ── Contact Detail modal (V21.9.116 Phase 2) ──────────────────────
+   Read-only ledger view + inline edit (name, phone, tags, notes).
+   Type changes (adding/removing a classification) deferred. */
+function ContactDetailModal({ contact, data, onSave, onClose, canEdit, user, isMob }){
+  const [editMode, setEditMode] = useState(false);
+  const [name, setName] = useState(contact.name || "");
+  const [phone, setPhone] = useState(contact.phone || "");
+  const [tags, setTags] = useState(Array.isArray(contact.tags) ? contact.tags.slice() : []);
+  const [notes, setNotes] = useState(contact.notes || "");
+  const [saving, setSaving] = useState(false);
+
+  const isRegistryContact = contact.linkedFrom === "contact";
+  const linkedIds = contact.entityIds || {};
+
+  /* Compute ledger balances. Each is independent — only renders the
+     row when the corresponding link exists. */
+  const ledger = useMemo(() => {
+    const out = {};
+    if(linkedIds.customer){
+      const s = computeCustomerStatement(data, linkedIds.customer);
+      if(s) out.customer = s.totals;
+    }
+    if(linkedIds.supplier){
+      const s = computeSupplierStatement(data, linkedIds.supplier);
+      if(s) out.supplier = s.totals;
+    }
+    if(linkedIds.workshop){
+      /* Workshops use name (not id) per the legacy convention. Find the
+         workshop name first, then call the rollup helper. */
+      const ws = (data.workshops || []).find(w => String(w.id) === String(linkedIds.workshop));
+      if(ws) out.workshop = computeWorkshopBalance(ws.name, data);
+    }
+    return out;
+  }, [data, linkedIds]);
+
+  /* Net cross-account: customer balance (مدين when +ve) minus supplier
+     balance (دائن when +ve). Positive net = customer owes us more than
+     we owe supplier. */
+  const netSide = useMemo(() => {
+    const cust = ledger.customer ? Number(ledger.customer.balance) || 0 : 0;
+    const sup  = ledger.supplier ? Number(ledger.supplier.balance) || 0 : 0;
+    if(!ledger.customer && !ledger.supplier) return null;
+    const net = cust - sup;
+    return { value: net, abs: Math.abs(net), side: net > 0 ? "مدين" : net < 0 ? "دائن" : "صفر" };
+  }, [ledger]);
+
+  const handleSave = async () => {
+    if(!isRegistryContact){
+      showToast("⚠️ التعديل متاح فقط للجهات المسجّلة في الـ registry");
+      return;
+    }
+    if(!name.trim()){ showToast("⚠️ ادخل الاسم"); return; }
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), phone: phone.trim(), tags, notes: notes.trim() });
+      setEditMode(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100000,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        background: T.cardSolid,
+        borderRadius: 16,
+        width:"100%", maxWidth: 640,
+        padding: "22px 24px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd,
+        maxHeight:"92vh", overflowY:"auto",
+      }}>
+        {/* Header */}
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom: 14, gap: 8}}>
+          <div style={{flex:1, minWidth: 0}}>
+            <div style={{fontSize: FS+3, fontWeight: 800, color: T.text, marginBottom: 4}}>
+              {contact.name}
+            </div>
+            <div style={{fontSize: FS-1, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>
+              {contact.phone || "—"}
+            </div>
+            <div style={{display:"flex", flexWrap:"wrap", gap: 4, marginTop: 6}}>
+              {(contact.types || []).map(t => <TypeChip key={t} typeKey={t} small />)}
+              {contact.workshopSubType && (
+                <span style={{fontSize: FS-3, color: T.textMut, padding: "3px 8px"}}>
+                  ({contact.workshopSubType})
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background:"transparent", border:"none", cursor:"pointer",
+            fontSize: FS+4, color: T.textMut, padding: "4px 10px",
+          }}>✕</button>
+        </div>
+
+        {/* Cross-account ledger */}
+        {(ledger.customer || ledger.supplier || ledger.workshop) && (
+          <div style={{
+            padding: "12px 14px",
+            background: T.bg,
+            borderRadius: 10,
+            border: "1px solid " + T.brd,
+            marginBottom: 14,
+          }}>
+            <div style={{fontSize: FS, fontWeight: 700, color: T.text, marginBottom: 10}}>
+              📊 الحساب المالي
+            </div>
+
+            {ledger.customer && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 0", borderBottom: ledger.supplier || ledger.workshop ? "1px solid "+T.brd+"30" : "none",
+              }}>
+                <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                  <span style={{fontSize: FS}}>👥</span>
+                  <span style={{fontSize: FS-1, color: T.textSec}}>رصيد العميل</span>
+                </div>
+                <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.customer.balance > 0 ? "#0EA5E9" : T.textMut}}>
+                  {fmt(ledger.customer.balance)} <span style={{fontSize: FS-2}}>EGP</span>
+                  <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
+                    {ledger.customer.balance > 0 ? "(مدين)" : ledger.customer.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {ledger.supplier && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 0", borderBottom: ledger.workshop ? "1px solid "+T.brd+"30" : "none",
+              }}>
+                <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                  <span style={{fontSize: FS}}>🏭</span>
+                  <span style={{fontSize: FS-1, color: T.textSec}}>رصيد المورد</span>
+                </div>
+                <div style={{fontSize: FS+1, fontWeight: 700, color: ledger.supplier.balance > 0 ? "#F59E0B" : T.textMut}}>
+                  {fmt(ledger.supplier.balance)} <span style={{fontSize: FS-2}}>EGP</span>
+                  <span style={{fontSize: FS-3, color: T.textMut, marginInlineStart: 6}}>
+                    {ledger.supplier.balance > 0 ? "(دائن)" : ledger.supplier.balance < 0 ? "(زيادة سداد)" : "(مسدد)"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {ledger.workshop && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 0",
+              }}>
+                <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                  <span style={{fontSize: FS}}>🛠️</span>
+                  <span style={{fontSize: FS-1, color: T.textSec}}>رصيد الورشة</span>
+                </div>
+                <div style={{fontSize: FS+1, fontWeight: 700, color: "#8B5CF6"}}>
+                  {fmt(ledger.workshop)} <span style={{fontSize: FS-2}}>EGP</span>
+                </div>
+              </div>
+            )}
+
+            {/* Net — shown only when both customer + supplier exist */}
+            {ledger.customer && ledger.supplier && netSide && (
+              <div style={{
+                marginTop: 10, padding: "10px 12px",
+                background: netSide.value > 0 ? "#0EA5E910" : netSide.value < 0 ? "#F59E0B10" : T.bg,
+                borderRadius: 8,
+                border: "1.5px solid " + (netSide.value > 0 ? "#0EA5E930" : netSide.value < 0 ? "#F59E0B30" : T.brd),
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <div style={{fontSize: FS, fontWeight: 800, color: T.text, display:"flex", alignItems:"center", gap: 6}}>
+                  💰 <span>الصافي</span>
+                </div>
+                <div style={{fontSize: FS+2, fontWeight: 800, color: netSide.value > 0 ? "#0EA5E9" : netSide.value < 0 ? "#F59E0B" : T.textMut}}>
+                  {fmt(netSide.abs)} <span style={{fontSize: FS-2}}>EGP</span>
+                  <span style={{fontSize: FS-2, color: T.textSec, marginInlineStart: 8, fontWeight: 600}}>
+                    ({netSide.side})
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {ledger.customer && ledger.supplier && (
+              <div style={{fontSize: FS-3, color: T.textMut, marginTop: 8, lineHeight: 1.6}}>
+                💡 الـ Net = رصيد العميل − رصيد المورد. + = العميل عليه أكتر من اللي إحنا عليه للمورد. تسوية الحساب لسه manual (treasury entry) — التحويل التلقائي feature لاحقة.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Linked entities — quick info */}
+        <div style={{marginBottom: 14}}>
+          <div style={{fontSize: FS-2, color: T.textSec, fontWeight: 700, marginBottom: 6}}>
+            🔗 الجهات المرتبطة
+          </div>
+          <div style={{display:"flex", flexWrap:"wrap", gap: 6}}>
+            {linkedIds.customer && <span style={{padding:"4px 10px",borderRadius:8,background:"#0EA5E912",color:"#0EA5E9",fontSize:FS-2,fontWeight:600}}>عميل #{String(linkedIds.customer).slice(-6)}</span>}
+            {linkedIds.supplier && <span style={{padding:"4px 10px",borderRadius:8,background:"#F59E0B12",color:"#F59E0B",fontSize:FS-2,fontWeight:600}}>مورد #{String(linkedIds.supplier).slice(-6)}</span>}
+            {linkedIds.workshop && <span style={{padding:"4px 10px",borderRadius:8,background:"#8B5CF612",color:"#8B5CF6",fontSize:FS-2,fontWeight:600}}>ورشة #{String(linkedIds.workshop).slice(-6)}</span>}
+            {linkedIds.employee && <span style={{padding:"4px 10px",borderRadius:8,background:"#10B98112",color:"#10B981",fontSize:FS-2,fontWeight:600}}>موظف #{String(linkedIds.employee).slice(-6)}</span>}
+          </div>
+        </div>
+
+        {/* Edit section — only for registry-managed contacts */}
+        {isRegistryContact ? (
+          <div style={{padding: "12px 14px", borderRadius: 10, border: "1px dashed " + T.brd, marginBottom: 12}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 10}}>
+              <div style={{fontSize: FS, fontWeight: 700, color: T.text}}>✏️ التعديل</div>
+              {!editMode && canEdit && (
+                <Btn small primary onClick={() => setEditMode(true)}>تعديل</Btn>
+              )}
+            </div>
+            {editMode ? (
+              <>
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 10, marginBottom: 10}}>
+                  <div>
+                    <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>الاسم</label>
+                    <Inp value={name} onChange={setName} />
+                  </div>
+                  <div>
+                    <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>التليفون</label>
+                    <Inp value={phone} onChange={setPhone} />
+                  </div>
+                </div>
+                <div style={{marginBottom: 10}}>
+                  <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>التاجز</label>
+                  <TagPicker
+                    entityType="customer"
+                    registry={data.tagRegistry || []}
+                    value={tags}
+                    onChange={setTags}
+                    allowCreate={canEdit}
+                    currentUser={user}
+                  />
+                </div>
+                <div style={{marginBottom: 10}}>
+                  <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>ملاحظات</label>
+                  <textarea
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    rows={2}
+                    style={{
+                      width:"100%", padding: "8px 12px",
+                      borderRadius: 8, border: "1px solid "+T.brd,
+                      fontSize: FS-1, fontFamily: "inherit",
+                      background: T.inputBg || T.cardSolid, color: T.text,
+                      boxSizing: "border-box", resize: "vertical", minHeight: 50, outline: "none",
+                    }}
+                  />
+                </div>
+                <div style={{fontSize: FS-3, color: T.warn, padding: "6px 10px", background: T.warn+"08", borderRadius: 6, lineHeight: 1.6, marginBottom: 10}}>
+                  ⚠️ الاسم + التليفون + التاجز هـ يتـ propagated على كل الجهات المرتبطة (عميل + مورد + إلخ). الملاحظات تخص الـ contact registry فقط.
+                </div>
+                <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+                  <Btn ghost onClick={() => setEditMode(false)} disabled={saving}>إلغاء</Btn>
+                  <Btn primary onClick={handleSave} disabled={saving || !name.trim()}>
+                    {saving ? "..." : "💾 حفظ"}
+                  </Btn>
+                </div>
+              </>
+            ) : (
+              <>
+                {contact.notes && (
+                  <div style={{padding: "8px 10px", background: T.bg, borderRadius: 6, fontSize: FS-2, color: T.text, lineHeight: 1.6}}>
+                    📝 {contact.notes}
+                  </div>
+                )}
+                {!contact.notes && !canEdit && (
+                  <div style={{fontSize: FS-2, color: T.textMut, fontStyle: "italic"}}>مفيش ملاحظات</div>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            padding: "10px 14px", borderRadius: 8, marginBottom: 12,
+            background: T.warn + "10", border: "1px solid " + T.warn + "33",
+            fontSize: FS-2, color: T.warn, lineHeight: 1.7,
+          }}>
+            ℹ️ ده record من قائمة "{labelForType(contact.linkedFrom)}" القديمة، مش في الـ contacts registry. للتعديل، استخدم الصفحة الأصلية. الـ link-existing flow (يـ promotes هذا الـ record إلى الـ registry) هـ يجي في slice لاحقة.
+          </div>
+        )}
+
+        <div style={{display:"flex", justifyContent:"flex-end"}}>
+          <Btn ghost onClick={onClose}>إغلاق</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main page ─────────────────────────────────────────────────── */
 export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");  /* "all" | type key | "multi" */
   const [showCreate, setShowCreate] = useState(false);
+  /* V21.9.116: detail panel state. null = closed, otherwise a contact row from buildMergedContacts. */
+  const [viewing, setViewing] = useState(null);
 
   const merged = useMemo(() => buildMergedContacts(data || {}), [data]);
 
@@ -307,6 +609,34 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       else if(msg === "CONTACT_TYPES_EMPTY") showToast("⚠️ اختر تصنيف واحد على الأقل");
       else if(msg === "CONTACT_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
       else { console.error("[ContactsPg] save error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.116: edit + propagate to linked entities. Only called for
+     contacts that are in the registry (linkedFrom === "contact").
+     The patch returned by updateContact() carries the registry update
+     PLUS any propagated changes to customers/suppliers/workshops/employees. */
+  const handleEditSave = async (updates) => {
+    if(!viewing || viewing.linkedFrom !== "contact"){
+      showToast("⚠️ التعديل متاح فقط للجهات المسجّلة");
+      return;
+    }
+    try {
+      const { patch } = updateContact(viewing.contactId, updates, data);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("✓ تم الحفظ + تحديث الجهات المرتبطة");
+      /* Don't close the modal — let user keep viewing the updated state.
+         The next re-render will rebuild `viewing` from the updated merged list. */
+      const updatedMerged = buildMergedContacts({ ...data, ...patch });
+      const refreshed = updatedMerged.find(c => c.id === viewing.id);
+      if(refreshed) setViewing(refreshed);
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg === "CONTACT_NAME_EMPTY") showToast("⚠️ ادخل الاسم");
+      else if(msg === "CONTACT_NOT_FOUND") showToast("⚠️ الجهة غير موجودة");
+      else { console.error("[ContactsPg] edit error:", e); showToast("⛔ خطأ — راجع الـ console"); }
     }
   };
 
@@ -387,7 +717,13 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
               </thead>
               <tbody>
                 {filtered.map(c => (
-                  <tr key={c.id}>
+                  <tr
+                    key={c.id}
+                    onClick={() => setViewing(c)}
+                    style={{cursor:"pointer", transition: "background 0.15s"}}
+                    onMouseEnter={e => e.currentTarget.style.background = T.accent + "06"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
                     <td style={{...colCell, fontWeight: 700}}>{c.name || "—"}</td>
                     <td style={{...colCell, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>{c.phone || "—"}</td>
                     <td style={colCell}>
@@ -422,7 +758,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           fontSize: FS-3, color: T.textSec, lineHeight: 1.7,
           background: T.bg, borderRadius: 8,
         }}>
-          💡 الـ MVP الحالي: <strong>عرض + إنشاء فقط</strong>. التعديل + حساب مدين/دائن المدمج للجهات الـ "عميل+مورد" + ربط الجهات الموجودة قديمة هـ يكون في الـ slices الجاية.
+          💡 اضغط على أي صف لعرض التفاصيل + الحساب المالي المدمج (للـ "عميل+مورد"). الـ link-existing flow (ربط الجهات الموجودة بـ contact واحد) لسه قيد التطوير.
         </div>
       </Card>
 
@@ -433,6 +769,19 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           onCancel={() => setShowCreate(false)}
           user={user}
           canEdit={canEdit}
+        />
+      )}
+
+      {/* V21.9.116: detail modal with cross-account ledger + edit */}
+      {viewing && (
+        <ContactDetailModal
+          contact={viewing}
+          data={data}
+          onSave={handleEditSave}
+          onClose={() => setViewing(null)}
+          canEdit={canEdit}
+          user={user}
+          isMob={isMob}
         />
       )}
     </div>

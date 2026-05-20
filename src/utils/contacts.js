@@ -271,3 +271,60 @@ export function labelForType(typeKey){
   const t = CONTACT_TYPES.find(x => x.key === typeKey);
   return t ? t.label : typeKey;
 }
+
+/* ── Update / propagate (V21.9.116, Phase 2 — edit flow) ────────
+   PURE function: produce a patch the caller applies via upConfig.
+   Updates the contact registry record AND propagates name/phone/tags
+   to every linked entity (customer, supplier, workshop, employee).
+
+   Type changes are NOT handled here — that requires creating/deleting
+   linked entities and is deferred to a future phase.
+*/
+export function updateContact(contactId, updates, data){
+  if(!contactId) throw new Error("CONTACT_ID_REQUIRED");
+  const contacts = Array.isArray(data && data.contacts) ? data.contacts : [];
+  const existing = contacts.find(c => c && c.id === contactId);
+  if(!existing) throw new Error("CONTACT_NOT_FOUND");
+
+  const newName = updates.name !== undefined ? String(updates.name).trim() : existing.name;
+  if(!newName) throw new Error("CONTACT_NAME_EMPTY");
+  const newPhone = updates.phone !== undefined ? normalizePhone(String(updates.phone).trim()) : existing.phone;
+  const newTags = Array.isArray(updates.tags) ? updates.tags.filter(Boolean) : existing.tags;
+  const newNotes = updates.notes !== undefined ? String(updates.notes).trim() : (existing.notes || "");
+
+  /* 1. Updated contact registry entry */
+  const nextContacts = contacts.map(c =>
+    c.id === contactId
+      ? { ...c, name: newName, phone: newPhone, tags: newTags, notes: newNotes, updatedAt: Date.now() }
+      : c
+  );
+
+  const patch = { contacts: nextContacts };
+
+  /* 2. Propagate shared fields (name, phone, tags) to linked entities.
+     Notes live ONLY on the contact registry — don't overwrite entity notes
+     because each entity (e.g., supplier) may have its own context-specific notes. */
+  const linkedIds = existing.linkedIds || {};
+
+  const mapList = (arr, idField, linkedId) => {
+    if(!Array.isArray(arr) || !linkedId) return null;
+    let touched = false;
+    const out = arr.map(e => {
+      if(!e || String(e[idField]) !== String(linkedId)) return e;
+      touched = true;
+      return { ...e, name: newName, phone: newPhone, tags: newTags.slice() };
+    });
+    return touched ? out : null;
+  };
+
+  const custOut = mapList(data && data.customers, "id", linkedIds.customer);
+  if(custOut) patch.customers = custOut;
+  const supOut  = mapList(data && data.suppliers, "id", linkedIds.supplier);
+  if(supOut)  patch.suppliers = supOut;
+  const wsOut   = mapList(data && data.workshops, "id", linkedIds.workshop);
+  if(wsOut)   patch.workshops = wsOut;
+  const empOut  = mapList(data && data.employees, "id", linkedIds.employee);
+  if(empOut)  patch.employees = empOut;
+
+  return { patch, contact: nextContacts.find(c => c.id === contactId) };
+}
