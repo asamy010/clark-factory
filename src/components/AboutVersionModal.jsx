@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.121",
+    date: "2026-05-20",
+    types: ["feature"],
+    title: "🔀 Phase 22f — Contacts Phase 5b: Type Management (Add/Remove)",
+    changes: [
+      { type: "feature", text: "🔀 [Phase 5b — الـ admin يقدر دلوقتي يـ add أو يـ remove تصنيف من contact موجود بدون ما يحتاج delete + recreate.]\n\n**Add type flow (+ تصنيف):**\n• زر '+ تصنيف' يظهر في الـ Detail modal header (بـ dashed border) لو الـ contact ليه أقل من 4 تصنيفات\n• Click → AddTypeModal — مشابه لـ LinkContactModal بس لـ contact موجود\n• الـ checkboxes تعرض فقط الـ types اللي مش مربوطة لسه\n• لكل type: create new (بنفس البيانات) أو ربط بـ موجود\n• Workshop subType selector لو create new للـ ورشة\n• على Save → تحديث contact.types[] + contact.linkedIds + stamp contactId على الـ entity\n\n**Remove type flow (× chip):**\n• كل type chip في الـ header بقت تعرض × button صغير (للـ canEdit only)\n• Disabled تلقائياً لما يكون فيه type واحد فقط (تجنب orphaned contact)\n• Click → ask popup → atomic update:\n  - contact.types[] filter out\n  - contact.linkedIds[type] = null\n  - entity.contactId = null (الـ entity نفسه يفضل في قائمته)\n• Workshop subType بـ يـ cleared لو الـ workshop type اتـ removed" },
+      { type: "feature", text: "🔧 [Backend — utils/contacts.js]\n\n**`addTypesToContact(contactId, additionalLinks, data, user)`:**\n• Pure function، نفس shape مثل linkExistingContact لكن لـ existing contact\n• Skips الـ types الموجودة بالفعل (idempotent)\n• Propagates name/phone/tags للـ entities الجديدة (use أو create)\n• Returns { patch, contact } — caller commits via upConfig\n\n**`removeTypeFromContact(contactId, typeKey, data)`:**\n• Validates: type linked، not last\n• Clears entity.contactId (delete الـ field، مش set to null — للـ clean schema)\n• Updates contact.types + contact.linkedIds\n• Workshop subType cleared لو الـ type=workshop\n• Throws clear errors: CONTACT_CANNOT_REMOVE_LAST_TYPE، CONTACT_TYPE_NOT_LINKED\n\n**Symmetry with create + link:**\n• addTypesToContact يـ uses نفس الـ entity creation logic مثل createContact + linkExistingContact (نفس الـ default fields)\n• removeTypeFromContact هو الـ inverse الـ partial لـ link — يـ undoes الـ contactId stamping بدون حذف الـ entity" },
+      { type: "doc", text: "🛡️ [Safety + UX]\n\n**Guards:**\n• Add: target entity must not already be contactId'd (CONTACT_LINK_TARGET_ALREADY_LINKED)\n• Add: workshop create must have subType (CONTACT_LINK_WORKSHOP_SUBTYPE_REQUIRED)\n• Remove: can't remove last type (avoids orphan contacts)\n• Remove: ask() confirmation required (destructive — disconnects an entity)\n\n**UX details:**\n• الـ × button صغير وله opacity 0.7 — مش بـ يـ accidentally click\n• الـ + تصنيف button له dashed border — visual cue إنه action مش chip\n• Workshop subType بـ يـ shows next to chips فقط لو workshop type موجود (auto-clear على remove)\n• على Add: الـ AddTypeModal بـ يـ shows 'الجهة مكتملة' لو الـ 4 types كلها مربوطة\n\n**Cumulative Contacts roadmap:**\n• ✅ V21.9.115 Phase 1 — Create + view\n• ✅ V21.9.116 Phase 2 — Detail + ledger\n• ✅ V21.9.117 — Fix balance formula\n• ✅ V21.9.118 Phase 3 — Link existing\n• ✅ V21.9.119 Phase 4 — Settlement (مقاصة)\n• ✅ V21.9.120 Phase 5a — History + Reverse\n• ✅ V21.9.121 Phase 5b — Type management\n• ⏳ Phase 5c: Duplicate detection (name+phone fuzzy matching على create)\n• ⏳ Phase 6: Mobile UX optimization" },
+    ],
+  },
+  {
     version: "V21.9.120",
     date: "2026-05-20",
     types: ["feature"],

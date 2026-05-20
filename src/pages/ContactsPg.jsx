@@ -35,6 +35,8 @@ import {
   settleContactCrossAccount,
   getContactSettlements,
   reverseContactSettlement,
+  addTypesToContact,
+  removeTypeFromContact,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 /* V21.9.117: cross-account ledger uses the OPERATIONAL balance helpers
@@ -267,6 +269,172 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit }){
           <Btn ghost onClick={onCancel} disabled={submitting}>إلغاء</Btn>
           <Btn primary onClick={submit} disabled={submitting || !name.trim() || types.length === 0}>
             {submitting ? "جاري الحفظ..." : "💾 إنشاء"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Add Type modal (V21.9.121 Phase 5b) ──────────────────────────
+   Extends an existing registry contact with additional types. Same
+   shape as LinkContactModal but applied to a contact rather than a
+   legacy entity, and pre-locks the types already linked. */
+function AddTypeModal({ contact, data, onSave, onCancel }){
+  const currentTypes = new Set(Array.isArray(contact.types) ? contact.types : []);
+  const addable = CONTACT_TYPES.filter(t => !currentTypes.has(t.key));
+
+  const [picks, setPicks] = useState({});  /* { type: {action, entityId?, workshopSubType?} } */
+  const [submitting, setSubmitting] = useState(false);
+
+  const optionsByType = useMemo(() => {
+    const out = {};
+    for(const t of addable){
+      const unlinked = getUnlinkedEntities(t.key, data);
+      out[t.key] = unlinked.map(e => ({
+        value: String(e.id),
+        label: e.name + (e.phone ? " — " + e.phone : ""),
+      }));
+    }
+    return out;
+  }, [data, addable]);
+
+  const toggleType = (key) => {
+    setPicks(prev => {
+      const next = { ...prev };
+      if(next[key]) delete next[key];
+      else next[key] = { action: "create" };
+      return next;
+    });
+  };
+
+  const setLink = (key, patch) => {
+    setPicks(prev => ({ ...prev, [key]: { ...(prev[key] || {}), ...patch } }));
+  };
+
+  const submit = async () => {
+    const list = Object.entries(picks);
+    if(list.length === 0){ showToast("⚠️ اختر تصنيف واحد على الأقل"); return; }
+    setSubmitting(true);
+    try {
+      await onSave(list.map(([type, cfg]) => ({
+        type, action: cfg.action,
+        entityId: cfg.entityId,
+        workshopSubType: cfg.workshopSubType,
+      })));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if(addable.length === 0){
+    return (
+      <div style={{
+        position:"fixed", inset:0, zIndex:100002,
+        background:"rgba(15,23,42,0.55)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+      }} onClick={onCancel}>
+        <div onClick={(e) => e.stopPropagation()} style={{
+          background: T.cardSolid, borderRadius: 16,
+          padding: "22px 24px", maxWidth: 400, width: "100%",
+          border: "1px solid " + T.brd,
+        }}>
+          <div style={{fontSize: FS+2, fontWeight: 800, color: T.text, marginBottom: 8}}>الجهة مكتملة</div>
+          <div style={{fontSize: FS-1, color: T.textSec, marginBottom: 14, lineHeight: 1.7}}>
+            الـ contact ده مرتبط بكل التصنيفات المتاحة (عميل + مورد + ورشة + موظف).
+          </div>
+          <div style={{display:"flex", justifyContent:"flex-end"}}>
+            <Btn ghost onClick={onCancel}>إغلاق</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:100002,
+      background:"rgba(15,23,42,0.55)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:16, direction:"rtl", fontFamily:"'Cairo',sans-serif",
+    }} onClick={(e) => { if(e.target === e.currentTarget && !submitting) onCancel(); }}>
+      <div style={{
+        background: T.cardSolid, borderRadius: 16,
+        width:"100%", maxWidth: 560, padding: "22px 24px",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+        border:"1px solid "+T.brd, maxHeight:"92vh", overflowY:"auto",
+      }}>
+        <div style={{fontSize: FS+3, fontWeight: 800, color: T.text, marginBottom: 6}}>
+          ➕ إضافة تصنيف لـ {contact.name}
+        </div>
+        <div style={{fontSize: FS-1, color: T.textSec, marginBottom: 14, lineHeight: 1.7}}>
+          التصنيفات الحالية: {(contact.types || []).map(t => labelForType(t)).join("، ")}
+        </div>
+
+        <div style={{display:"flex", flexDirection:"column", gap: 8, marginBottom: 14}}>
+          {addable.map(t => {
+            const cfg = picks[t.key];
+            const on = !!cfg;
+            const opts = optionsByType[t.key] || [];
+            return (
+              <div key={t.key} style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: on ? t.color + "08" : "transparent",
+                border: "1px solid " + (on ? t.color + "44" : T.brd),
+              }}>
+                <label style={{display:"flex", alignItems:"center", gap: 8, cursor: "pointer"}}>
+                  <input type="checkbox" checked={on} onChange={() => toggleType(t.key)} />
+                  <TypeChip typeKey={t.key} small />
+                </label>
+
+                {on && (
+                  <div style={{marginTop: 10, paddingInlineStart: 26}}>
+                    <div style={{display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8}}>
+                      <label style={{display:"flex", alignItems:"center", gap: 4, fontSize: FS-2, cursor: "pointer"}}>
+                        <input type="radio" name={"act-"+t.key} value="create" checked={cfg.action === "create"} onChange={() => setLink(t.key, { action: "create", entityId: undefined })} />
+                        <span>إنشاء جديد بنفس البيانات</span>
+                      </label>
+                      <label style={{display:"flex", alignItems:"center", gap: 4, fontSize: FS-2, cursor: opts.length === 0 ? "not-allowed" : "pointer", opacity: opts.length === 0 ? 0.5 : 1}}>
+                        <input type="radio" name={"act-"+t.key} value="use" disabled={opts.length === 0} checked={cfg.action === "use"} onChange={() => setLink(t.key, { action: "use" })} />
+                        <span>ربط بـ موجود {opts.length === 0 && "(مفيش متاح)"}</span>
+                      </label>
+                    </div>
+                    {cfg.action === "use" && opts.length > 0 && (
+                      <SearchSel
+                        value={cfg.entityId || ""}
+                        onChange={(v) => setLink(t.key, { entityId: v })}
+                        options={opts}
+                        placeholder={"ابحث عن " + t.label + "..."}
+                        showAllOnFocus
+                        maxResults={10}
+                      />
+                    )}
+                    {cfg.action === "create" && t.key === "workshop" && (
+                      <div>
+                        <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4}}>
+                          نوع الورشة *
+                        </label>
+                        <Sel value={cfg.workshopSubType || ""} onChange={(v) => setLink(t.key, { workshopSubType: v })}>
+                          <option value="">-- اختر النوع --</option>
+                          {WS_TYPES.map(wt => (
+                            <option key={wt.key} value={wt.key}>{wt.icon} {wt.key}</option>
+                          ))}
+                        </Sel>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+          <Btn ghost onClick={onCancel} disabled={submitting}>إلغاء</Btn>
+          <Btn primary onClick={submit} disabled={submitting}>
+            {submitting ? "..." : "💾 إضافة"}
           </Btn>
         </div>
       </div>
@@ -583,7 +751,7 @@ function LinkContactModal({ source, data, onSave, onCancel, canEdit }){
 /* ── Contact Detail modal (V21.9.116 Phase 2) ──────────────────────
    Read-only ledger view + inline edit (name, phone, tags, notes).
    Type changes (adding/removing a classification) deferred. */
-function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, onClose, canEdit, user, isMob }){
+function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, onAddType, onRemoveType, onClose, canEdit, user, isMob }){
   const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState(contact.name || "");
   const [phone, setPhone] = useState(contact.phone || "");
@@ -592,6 +760,8 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
   const [saving, setSaving] = useState(false);
   /* V21.9.119: settlement modal state — null = closed, true = open */
   const [showSettle, setShowSettle] = useState(false);
+  /* V21.9.121: add-type modal state */
+  const [showAddType, setShowAddType] = useState(false);
   /* V21.9.120: settlement history for this contact (sorted recent-first). */
   const settlements = useMemo(
     () => contact.linkedFrom === "contact" ? getContactSettlements(contact.contactId, data) : [],
@@ -679,12 +849,57 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
             <div style={{fontSize: FS-1, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>
               {contact.phone || "—"}
             </div>
-            <div style={{display:"flex", flexWrap:"wrap", gap: 4, marginTop: 6}}>
-              {(contact.types || []).map(t => <TypeChip key={t} typeKey={t} small />)}
+            {/* V21.9.121: type chips with × remove + "+" add button.
+                Remove only enabled when types.length > 1 (can't orphan the contact).
+                Add+remove only for registry contacts with canEdit. */}
+            <div style={{display:"flex", flexWrap:"wrap", gap: 6, marginTop: 6, alignItems: "center"}}>
+              {(contact.types || []).map(t => {
+                const meta = TYPE_META[t];
+                const canRemove = canEdit && isRegistryContact && (contact.types || []).length > 1;
+                return (
+                  <span key={t} style={{
+                    display:"inline-flex", alignItems:"center", gap: 4,
+                    padding:"2px 4px 2px 8px",
+                    borderRadius: 10,
+                    background: meta ? meta.color + "18" : T.bg,
+                    color: meta ? meta.color : T.textSec,
+                    border: "1px solid " + (meta ? meta.color + "44" : T.brd),
+                    fontSize: FS-3, fontWeight: 700,
+                  }}>
+                    {meta && <span>{meta.icon}</span>}
+                    <span>{meta ? meta.label : t}</span>
+                    {canRemove && (
+                      <button
+                        onClick={() => onRemoveType && onRemoveType(t)}
+                        title={"إزالة تصنيف " + (meta ? meta.label : t)}
+                        style={{
+                          background: "transparent", border: "none",
+                          color: meta ? meta.color : T.textSec,
+                          cursor: "pointer", padding: "0 4px",
+                          fontSize: FS-2, fontWeight: 700, lineHeight: 1, opacity: 0.7,
+                        }}
+                      >×</button>
+                    )}
+                  </span>
+                );
+              })}
               {contact.workshopSubType && (
                 <span style={{fontSize: FS-3, color: T.textMut, padding: "3px 8px"}}>
                   ({contact.workshopSubType})
                 </span>
+              )}
+              {canEdit && isRegistryContact && (contact.types || []).length < 4 && (
+                <button
+                  onClick={() => setShowAddType(true)}
+                  title="إضافة تصنيف"
+                  style={{
+                    padding: "3px 10px", borderRadius: 10,
+                    background: "transparent", color: T.accent,
+                    border: "1px dashed " + T.accent + "55",
+                    fontSize: FS-3, fontWeight: 700,
+                    fontFamily: "inherit", cursor: "pointer",
+                  }}
+                >+ تصنيف</button>
               )}
             </div>
           </div>
@@ -981,6 +1196,19 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
         onCancel={() => setShowSettle(false)}
       />
     )}
+
+    {/* V21.9.121: add-type modal — adds 1+ new classifications to the contact */}
+    {showAddType && (
+      <AddTypeModal
+        contact={contact}
+        data={data}
+        onSave={async (additionalLinks) => {
+          await onAddType(contact.contactId, additionalLinks);
+          setShowAddType(false);
+        }}
+        onCancel={() => setShowAddType(false)}
+      />
+    )}
     </>
   );
 }
@@ -1038,6 +1266,47 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
       else if(msg === "CONTACT_TYPES_EMPTY") showToast("⚠️ اختر تصنيف واحد على الأقل");
       else if(msg === "CONTACT_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
       else { console.error("[ContactsPg] save error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.121: add types to existing contact (creates new entities or links existing). */
+  const handleAddType = async (contactId, additionalLinks) => {
+    try {
+      const { patch } = addTypesToContact(contactId, additionalLinks, data, user);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("✓ تم إضافة التصنيفات");
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg === "CONTACT_NO_TYPES_TO_ADD") showToast("⚠️ اختر تصنيف واحد على الأقل");
+      else if(msg.startsWith("CONTACT_LINK_TARGET_ALREADY_LINKED")) showToast("⚠️ الهدف المختار مربوط بـ contact آخر");
+      else if(msg === "CONTACT_LINK_WORKSHOP_SUBTYPE_REQUIRED") showToast("⚠️ اختر نوع الورشة");
+      else if(msg === "CONTACT_NOT_FOUND") showToast("⚠️ الجهة غير موجودة");
+      else { console.error("[ContactsPg] add-type error:", e); showToast("⛔ خطأ — راجع الـ console"); }
+    }
+  };
+
+  /* V21.9.121: remove a type from contact — clears the back-reference on the entity
+     and shrinks the contact's types[]. The underlying entity stays in its collection. */
+  const handleRemoveType = async (contactId, typeKey) => {
+    const yes = await ask(
+      "إزالة تصنيف",
+      "هـ يـ disconnects الـ " + labelForType(typeKey) + " من جهة الاتصال (الـ entity نفسه هـ يفضل في قائمته).",
+      { confirmText: "إزالة", danger: true }
+    );
+    if(!yes) return;
+    try {
+      const { patch } = removeTypeFromContact(contactId, typeKey, data);
+      upConfig(d => {
+        for(const k of Object.keys(patch)) d[k] = patch[k];
+      });
+      showToast("✓ تم إزالة التصنيف");
+    } catch(e){
+      const msg = (e && e.message) || "";
+      if(msg === "CONTACT_CANNOT_REMOVE_LAST_TYPE") showToast("⚠️ لا يمكن إزالة آخر تصنيف — الـ contact هـ يـ orphaned");
+      else if(msg === "CONTACT_TYPE_NOT_LINKED") showToast("⚠️ التصنيف غير مربوط");
+      else { console.error("[ContactsPg] remove-type error:", e); showToast("⛔ خطأ — راجع الـ console"); }
     }
   };
 
@@ -1283,7 +1552,8 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
 
       {/* V21.9.116: detail modal with cross-account ledger + edit.
           V21.9.119: + onSettle for مقاصة.
-          V21.9.120: + onReverseSettle for un-doing past settlements. */}
+          V21.9.120: + onReverseSettle for un-doing past settlements.
+          V21.9.121: + onAddType + onRemoveType for type management. */}
       {viewing && (
         <ContactDetailModal
           contact={viewing}
@@ -1291,6 +1561,8 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           onSave={handleEditSave}
           onSettle={handleSettle}
           onReverseSettle={handleReverseSettle}
+          onAddType={handleAddType}
+          onRemoveType={(typeKey) => handleRemoveType(viewing.contactId, typeKey)}
           onClose={() => setViewing(null)}
           canEdit={canEdit}
           user={user}

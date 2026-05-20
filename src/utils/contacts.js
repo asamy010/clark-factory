@@ -502,6 +502,182 @@ export function settleContactCrossAccount(seed, data, user){
   return { patch, settlementId, custPayment, supPayment };
 }
 
+/* ── Add types to existing contact (V21.9.121, Phase 5b) ──────────
+   Lets the admin extend a contact's classifications. The behavior is
+   parallel to linkExistingContact() but operates on an existing
+   registry record instead of creating one.
+
+   `additionalLinks` shape:
+     [
+       { type: "supplier", action: "create" },
+       { type: "workshop", action: "use", entityId: "5142..." },
+     ]
+
+   For each link:
+     - "create" → spawn a new entity carrying the contact's name/phone/tags
+     - "use"    → stamp contactId on the existing entity + propagate fields
+*/
+export function addTypesToContact(contactId, additionalLinks, data, user){
+  if(!contactId) throw new Error("CONTACT_ID_REQUIRED");
+  const contacts = Array.isArray(data && data.contacts) ? data.contacts : [];
+  const contactIdx = contacts.findIndex(c => c && c.id === contactId);
+  if(contactIdx < 0) throw new Error("CONTACT_NOT_FOUND");
+  const contact = contacts[contactIdx];
+
+  const extras = Array.isArray(additionalLinks) ? additionalLinks.filter(l => l && l.type) : [];
+  if(extras.length === 0) throw new Error("CONTACT_NO_TYPES_TO_ADD");
+
+  const name = String(contact.name || "").trim();
+  const phone = normalizePhone(String(contact.phone || "").trim());
+  const tags = Array.isArray(contact.tags) ? contact.tags.slice() : [];
+  const uid = (user && (user.uid || user.email)) || "";
+  const now = Date.now();
+
+  const newLinkedIds = { ...(contact.linkedIds || { customer:null, supplier:null, workshop:null, employee:null }) };
+  const newTypes = new Set(Array.isArray(contact.types) ? contact.types : []);
+  let newWorkshopSubType = contact.workshopSubType || "";
+
+  const patch = {};
+  const workingArr = (collectionKey) => {
+    if(patch[collectionKey]) return patch[collectionKey];
+    const existing = Array.isArray(data && data[collectionKey]) ? data[collectionKey] : [];
+    patch[collectionKey] = existing.slice();
+    return patch[collectionKey];
+  };
+
+  for(const link of extras){
+    const t = link.type;
+    if(!["customer","supplier","workshop","employee"].includes(t)) continue;
+    if(newTypes.has(t)) continue;  /* skip — already linked */
+
+    const collectionKey = (t === "customer" ? "customers" :
+                           t === "supplier" ? "suppliers" :
+                           t === "workshop" ? "workshops" : "employees");
+    const arr = workingArr(collectionKey);
+
+    if(link.action === "use"){
+      const idx = arr.findIndex(e => String(e.id) === String(link.entityId));
+      if(idx < 0) throw new Error("CONTACT_LINK_TARGET_NOT_FOUND:" + t);
+      if(arr[idx].contactId) throw new Error("CONTACT_LINK_TARGET_ALREADY_LINKED:" + t + ":" + arr[idx].contactId);
+      arr[idx] = { ...arr[idx], contactId, name, phone, tags: tags.slice() };
+      newLinkedIds[t] = arr[idx].id;
+      if(t === "workshop") newWorkshopSubType = arr[idx].type || newWorkshopSubType;
+    } else if(link.action === "create"){
+      let entity;
+      if(t === "customer"){
+        entity = {
+          id: "cust_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, address: "", type: "مكتب", discount: 0, archived: false,
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      } else if(t === "supplier"){
+        entity = {
+          id: "sup_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, address: "", notes: "",
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      } else if(t === "workshop"){
+        const subType = link.workshopSubType || "";
+        if(!subType) throw new Error("CONTACT_LINK_WORKSHOP_SUBTYPE_REQUIRED");
+        newWorkshopSubType = subType;
+        entity = {
+          id: Math.floor(now / 1000) * 100 + Math.floor(Math.random() * 100),
+          name, owner: "", phone, address: "", idCard: "", ownerPhoto: "",
+          rating: 7, type: subType,
+          tags: tags.slice(), contactId,
+        };
+      } else { /* employee */
+        entity = {
+          id: "emp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+          name, phone, role: "", basicSalary: 0,
+          hireDate: new Date(now).toISOString().split("T")[0], active: true,
+          tags: tags.slice(), contactId,
+          createdAt: new Date(now).toISOString(), createdBy: uid,
+        };
+      }
+      arr.push(entity);
+      newLinkedIds[t] = entity.id;
+    }
+    newTypes.add(t);
+  }
+
+  /* Update the contact record */
+  const updatedContacts = contacts.slice();
+  updatedContacts[contactIdx] = {
+    ...contact,
+    types: Array.from(newTypes),
+    linkedIds: newLinkedIds,
+    workshopSubType: newWorkshopSubType,
+    updatedAt: now,
+  };
+  patch.contacts = updatedContacts;
+
+  return { patch, contact: updatedContacts[contactIdx] };
+}
+
+/* Remove a type from an existing contact. Disconnects (does NOT delete) the
+   underlying entity — it stays in data.<collection> as a "legacy/standalone"
+   row. Admin can re-link or delete it from its own page later.
+
+   Guards:
+     - The contact must keep at least 1 type. Removing the last type would
+       orphan the contact. Caller should delete the contact instead in that
+       case (future feature).
+*/
+export function removeTypeFromContact(contactId, typeKey, data){
+  if(!contactId) throw new Error("CONTACT_ID_REQUIRED");
+  if(!["customer","supplier","workshop","employee"].includes(typeKey)){
+    throw new Error("CONTACT_BAD_TYPE");
+  }
+  const contacts = Array.isArray(data && data.contacts) ? data.contacts : [];
+  const idx = contacts.findIndex(c => c && c.id === contactId);
+  if(idx < 0) throw new Error("CONTACT_NOT_FOUND");
+  const contact = contacts[idx];
+  const currentTypes = Array.isArray(contact.types) ? contact.types : [];
+  if(!currentTypes.includes(typeKey)) throw new Error("CONTACT_TYPE_NOT_LINKED");
+  if(currentTypes.length <= 1) throw new Error("CONTACT_CANNOT_REMOVE_LAST_TYPE");
+
+  const linkedIds = contact.linkedIds || {};
+  const entityId = linkedIds[typeKey];
+  const collectionKey = (typeKey === "customer" ? "customers" :
+                         typeKey === "supplier" ? "suppliers" :
+                         typeKey === "workshop" ? "workshops" : "employees");
+
+  const patch = {};
+
+  /* 1. Clear contactId on the entity (keep the entity itself!). */
+  if(entityId){
+    const sourceArr = Array.isArray(data && data[collectionKey]) ? data[collectionKey] : [];
+    const eIdx = sourceArr.findIndex(e => String(e.id) === String(entityId));
+    if(eIdx >= 0){
+      const next = sourceArr.slice();
+      const e = next[eIdx];
+      const cleaned = { ...e };
+      delete cleaned.contactId;
+      next[eIdx] = cleaned;
+      patch[collectionKey] = next;
+    }
+  }
+
+  /* 2. Update the contact record. */
+  const nextLinkedIds = { ...linkedIds, [typeKey]: null };
+  const nextTypes = currentTypes.filter(t => t !== typeKey);
+  const updatedContacts = contacts.slice();
+  updatedContacts[idx] = {
+    ...contact,
+    types: nextTypes,
+    linkedIds: nextLinkedIds,
+    /* If we removed the workshop type, clear the subType too. */
+    workshopSubType: typeKey === "workshop" ? "" : contact.workshopSubType,
+    updatedAt: Date.now(),
+  };
+  patch.contacts = updatedContacts;
+
+  return { patch, contact: updatedContacts[idx] };
+}
+
 /* ── Settlement history + reverse (V21.9.120, Phase 5a) ──────────────
    Settlements are stored as paired entries in custPayments + supplierPayments
    sharing a `settlementId`. This helper finds both legs and groups them. */
