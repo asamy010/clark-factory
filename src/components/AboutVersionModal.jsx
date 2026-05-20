@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.114",
+    date: "2026-05-20",
+    types: ["fix"],
+    title: "💰 Phase 21d — Treasury Float-Drift Defensive r2() (3 spots)",
+    changes: [
+      { type: "fix", text: "💰 [Treasury module audit (Phase 0) كشف 3 spots محتاجة r2() defensive rounding. الـ module في حالة جيدة عموماً (audits سابقة V21.9.42/44/45/83 شالت الـ bugs الكبيرة). الـ 3 fixes كلها additive، صفر risk.]\n\n**Spot 1 — `TreasuryPg.jsx:790` (totalBalance):**\n```diff\n-const totalBalance = Object.values(accBalances).reduce((s,a)=>s+(a.in-a.out),0);\n+const totalBalance = r2(Object.values(accBalances).reduce((s,a)=>s+(a.in-a.out),0));\n```\n\n**Spot 2 — `TreasuryPg.jsx:794-795` (todayIn/todayOut):**\n```diff\n-const todayIn  = todayTxns.filter(t=>t.type===\"in\").reduce((s,t)=>s+(Number(t.amount)||0),0);\n-const todayOut = todayTxns.filter(t=>t.type===\"out\").reduce((s,t)=>s+(Number(t.amount)||0),0);\n+const todayIn  = r2(todayTxns.filter(t=>t.type===\"in\").reduce((s,t)=>s+(Number(t.amount)||0),0));\n+const todayOut = r2(todayTxns.filter(t=>t.type===\"out\").reduce((s,t)=>s+(Number(t.amount)||0),0));\n```\n\n**Spot 3 — `TreasuryPg.jsx:559` (Odoo sync preview total):**\nالـ preview total اللي بـ يـ display للـ admin قبل الـ Odoo export كان بدون rounding. دلوقتي r2()-ed." },
+      { type: "fix", text: "💰 [Bonus Spot 4 — `src/utils/recurring.js:166`]\n\nبـ buildTxFromRule kept the float-drift risk: لو rule.amount جاية بـ artifact (e.g. 1234.9999999 من float arithmetic), الـ generated tx بـ يـ inherit الـ drift. كل recurring run بـ يـ generate tx بدرفت متراكم.\n\n**Fix:** Inlined r2 logic داخل buildTxFromRule (recurring.js كان dependency-free، فحفاظاً على ذلك inlined بدل import):\n```diff\n-amount: Number(rule.amount) || 0,\n+const amt = Math.round((Number(rule.amount)||0) * 100) / 100;\n+// ...\n+amount: amt,\n```\n\nالـ semantics متطابقة مع format.js#r2 (Math.round*100/100)." },
+      { type: "doc", text: "🛡️ [Audit Verdict — Treasury module]\n\n**الـ Good News:**\n• 31 upConfig calls كلهم mutator pattern ✅\n• Empty catches: واحد فقط على document.fonts.ready (DOM, آمن swallow) ✅\n• Approval race: 3-layer protection (inflightRef + idempotency + finally cleanup) ✅\n• Async writes: مفيش missing-await في hot paths ✅\n\n**Skipped findings (false positives):**\n• Approval race condition window — needs stress test، 3-layer guard موجود\n• partyId fallback tolerance — edge case، defensive code\n\n**Cumulative Bug Hunt (الجلسة كلها):**\n• 13 real bugs fixed (V21.9.110 → V21.9.114)\n• 3 false positives caught بـ verification\n• 4 audits done: Settings + Users + Shopify + Treasury\n• Areas remaining: CustDeliver, Invoices, Accounting, HR, Stock, DetPg/OrdForm" },
+    ],
+  },
+  {
     version: "V21.9.113",
     date: "2026-05-20",
     types: ["improvement"],

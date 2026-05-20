@@ -160,10 +160,16 @@ export function calculatePending(rules, todayIsoDate){
    firing the autoPost. */
 export function buildTxFromRule(rule, dueDate, userName){
   const txId = "rec_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  /* V21.9.114: round amount to 2 decimals before storing. Pre-fix, if a rule was
+     ever populated via float arithmetic (programmatic, edit-then-revert, etc.),
+     drift like 1234.9999999 leaked into the generated tx and accumulated downstream.
+     Math.round*100/100 is the same logic as format.js#r2 — inlined to keep
+     recurring.js dependency-free. */
+  const amt = Math.round((Number(rule.amount)||0) * 100) / 100;
   return {
     id: txId,
     type: rule.type || "out",
-    amount: Number(rule.amount) || 0,
+    amount: amt,
     desc: rule.description || rule.name || "",
     notes: rule.notes || "",
     category: rule.category || "",

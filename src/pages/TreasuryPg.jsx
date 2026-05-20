@@ -553,7 +553,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Flag unmapped categories */
       const mapping=os.accountMapping||{};const defaultSet=!!(os.defaultAccountCode||"").trim();
       const unmapped=Object.keys(byCategory).filter(c=>!mapping[c]&&!mapping[c.trim()]&&!defaultSet);
-      setOdooSyncPreview({total:filtered.length,newTxns,existing:existingRefs.size,byCategory,unmapped,totalAmount:newTxns.reduce((s,t)=>s+(Number(t.amount)||0),0)});
+      /* V21.9.114: r2() wrap on preview total — Odoo expects clean decimals and
+         the preview popup displays this value to the admin for reconciliation. */
+      setOdooSyncPreview({total:filtered.length,newTxns,existing:existingRefs.size,byCategory,unmapped,totalAmount:r2(newTxns.reduce((s,t)=>s+(Number(t.amount)||0),0))});
     }catch(e){showToast("⚠️ خطأ في جلب المعاينة: "+e.message);setOdooSyncPreview(null)}
   };
 
@@ -784,12 +786,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     txns.forEach(t=>{const acc=t.account||"MAIN CASH";if(!bal[acc])bal[acc]={in:0,out:0};
       if(t.type==="in")bal[acc].in+=(Number(t.amount)||0);else bal[acc].out+=(Number(t.amount)||0)});
     return bal},[txns,accounts]);
-  const totalBalance=Object.values(accBalances).reduce((s,a)=>s+(a.in-a.out),0);
+  /* V21.9.114: round final summations so any accumulated float drift (e.g. from
+     `0.1 + 0.2 = 0.30000000000000004` after 1000+ txns) doesn't leak into
+     comparisons or expose visible decimals on themes that bypass fmt(). */
+  const totalBalance=r2(Object.values(accBalances).reduce((s,a)=>s+(a.in-a.out),0));
 
   /* ── Today summary ── */
   const todayTxns=txns.filter(t=>t.date===today);
-  const todayIn=todayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0);
-  const todayOut=todayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const todayIn=r2(todayTxns.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0));
+  const todayOut=r2(todayTxns.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0));
 
   /* ── Filtered & sorted ── */
   let filtered=[...txns].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
