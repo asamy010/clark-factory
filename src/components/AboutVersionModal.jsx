@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.145",
+    date: "2026-05-21",
+    types: ["improvement", "fix"],
+    title: "🎨 إشعارات احترافية + محاذاة الأزرار + فتح صفحة التحويلات مباشر",
+    changes: [
+      { type: "improvement", text: "Tile grid + action buttons في column الـ 50% دلوقتي في inline-block container واحد centered → الـ buttons تبدأ من نفس X coordinate للـ leftmost tile (alignment صحيح بدل ما كانوا two-centered غير متوافقين)." },
+      { type: "improvement", text: "Notification chips redesigned: النص بـ يـ wrap بدل ما يـ truncate (لا scrollbar أفقي), الـ chip بـ يكبر مع المحتوى، الـ link بقى زرار full-width واضح بـ background ملون بدل ما كان نص في الـ meta line. الـ ✕ + ⏹ في vertical stack على اليمين." },
+      { type: "fix", text: "زرار 'موافقة على التحويل' كان بـ يفتح الـ treasury tab ثم يـ switch لـ transfers view بعد 150ms (flash). دلوقتي بـ يـ stash الـ initial view في sessionStorage قبل الـ navigate → TreasuryPg بـ يقرأها في useState initializer → الـ transfers view يظهر من أول render بدون flash." },
+    ],
+  },
+  {
     version: "V21.9.144",
     date: "2026-05-21",
     types: ["improvement"],

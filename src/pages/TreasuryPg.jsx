@@ -504,7 +504,24 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* View */
   const subAccId=(rawAccounts.length>0?rawAccounts:["MAIN CASH","SUB CASH"]).find(a=>{const n=typeof a==="string"?a:a.name||a.id;return n.toUpperCase().includes("SUB")})||"SUB CASH";
   const subAccKey="acc_"+(typeof subAccId==="string"?subAccId:subAccId.id||subAccId.name||"SUB CASH");
-  const[view,setView]=useState(subAccKey);
+  /* V21.9.145: read deep-link target from sessionStorage on first mount so a
+     notification click that wants `view="transfers"` lands directly on that
+     view — no flash of the default sub-account view. The existing
+     `notif-deeplink` event still runs (handles scrolling to the row), but the
+     view-switch happens BEFORE the first render. */
+  const[view,setView]=useState(()=>{
+    try {
+      const raw = sessionStorage.getItem("treasury-deep-link");
+      if(raw){
+        const dl = JSON.parse(raw);
+        if(dl && dl.ts && (Date.now() - dl.ts) < 5000 && typeof dl.view === "string"){
+          sessionStorage.removeItem("treasury-deep-link");
+          return dl.view;
+        }
+      }
+    } catch(_) {}
+    return subAccKey;
+  });
   /* ── Odoo Sync ── */
   const[odooSyncing,setOdooSyncing]=useState(false);const[odooResult,setOdooResult]=useState(null);
   /* Selective sync popup state */

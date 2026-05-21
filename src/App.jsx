@@ -5546,8 +5546,15 @@ export default function App(){
     }else if(type==="order"){
       setSel(id);setTab("details");
     }else if(type==="treasury"){
-      /* V19.48: Sub-type "transfer_pending" → opens transfers view in TreasuryPg */
-      navigate("treasury",{entryId:id,view:subType==="transfer_pending"?"transfers":undefined});
+      /* V19.48: Sub-type "transfer_pending" → opens transfers view in TreasuryPg.
+         V21.9.145: stash the initial view in sessionStorage so TreasuryPg reads it
+         on FIRST render (no flash of the default tab before the event listener kicks
+         in 150ms later). The existing event still fires to handle scrolling. */
+      const targetView=subType==="transfer_pending"?"transfers":undefined;
+      if(targetView){
+        try { sessionStorage.setItem("treasury-deep-link",JSON.stringify({view:targetView,entryId:id,ts:Date.now()})); } catch(_) {}
+      }
+      navigate("treasury",{entryId:id,view:targetView});
     }else if(type==="workshop"){
       navigate("external",{wsName:id});
     }else if(type==="hrWeek"){
@@ -6156,25 +6163,38 @@ export default function App(){
                 </div>
                 {subBarNotifs.length>0&&<span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8,whiteSpace:"nowrap"}}>عرض الكل</span>}
               </div>
-              {subBarNotifs.length>0?<div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:"calc(100vh - 200px)",overflowY:"auto"}}>
+              {/* V21.9.145: chip layout redesigned — text wraps naturally instead of
+                  truncating, link surfaces as a real BUTTON below the meta (no longer
+                  text in the meta line), chip height grows with content. No horizontal
+                  overflow → no horizontal scrollbar. overflowX:"hidden" on the list
+                  belt-and-suspenders against any inner element overflowing. */}
+              {subBarNotifs.length>0?<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"calc(100vh - 200px)",overflowY:"auto",overflowX:"hidden"}}>
                 {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
                   const canEnd=userRole==="admin"||n.fromEmail===userEmail;
                   const hasLink=!!n.link;
+                  /* V21.9.145: meta excludes the link (it's a separate button now) */
                   const metaParts=[];
                   if(n.fromName) metaParts.push("👤 "+n.fromName);
                   if(remain) metaParts.push("⏰ "+remain);
-                  if(hasLink) metaParts.push("🔗 "+(n.link.label||"فتح"));
                   const metaText=metaParts.join(" · ");
-                  return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS-1,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
-                    <span style={{fontSize:FS+2,lineHeight:1,flexShrink:0}}>{st.icon}</span>
-                    <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
-                      <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{n.msg}</span>
-                      {metaText&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",lineHeight:1.3}}>{metaText}</span>}
+                  return<div key={n.id} style={{padding:"12px 12px 10px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS-1,fontWeight:700,transition:"transform 0.15s"}} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")}>
+                    {/* Top row: icon + (wrapping msg/meta) + actions */}
+                    <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                      <span style={{fontSize:FS+2,lineHeight:1.2,flexShrink:0,marginTop:1}}>{st.icon}</span>
+                      <div style={{flex:"1 1 auto",minWidth:0}}>
+                        <div style={{lineHeight:1.5,wordBreak:"break-word",whiteSpace:"normal"}}>{n.msg}</div>
+                        {metaText&&<div style={{fontSize:FS-3,fontWeight:600,opacity:0.75,marginTop:4,lineHeight:1.4,wordBreak:"break-word",whiteSpace:"normal"}}>{metaText}</div>}
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+                        <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,fontSize:FS+1,fontWeight:800,padding:"0 2px",lineHeight:1}}>✕</span>
+                        {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"40",fontSize:FS-3,fontWeight:800,lineHeight:1}}>⏹</span>}
+                      </div>
                     </div>
-                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flexShrink:0}}>
-                      <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,fontSize:FS+1,fontWeight:800,padding:"0 2px",lineHeight:1}}>✕</span>
-                      {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"1px 5px",borderRadius:4,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"40",fontSize:FS-3,fontWeight:800,lineHeight:1}}>⏹</span>}
-                    </div>
+                    {/* Link button row — only when hasLink. Full-width, clear CTA. */}
+                    {hasLink&&<button onClick={()=>handleNotifLinkClick(n)} style={{marginTop:10,width:"100%",padding:"8px 12px",borderRadius:8,background:st.text,color:"#fff",border:"none",fontSize:FS-1,fontWeight:800,fontFamily:"inherit",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"opacity 0.15s"}} onMouseOver={(e)=>{e.currentTarget.style.opacity="0.88"}} onMouseOut={(e)=>{e.currentTarget.style.opacity="1"}}>
+                      <span>🔗</span>
+                      <span>{n.link.label||"فتح"}</span>
+                    </button>}
                   </div>;
                 })}
               </div>:<div style={{textAlign:"center",padding:"30px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
@@ -6190,21 +6210,28 @@ export default function App(){
                 per cell so tiles cap at 105px (V21.9.138 size) when the
                 column is wide enough, shrinking gracefully on narrower
                 viewports without breaking the aspect ratio.
+
+                V21.9.145: tile grid + quick action buttons wrapped in an
+                inline-block container centered in the column. Both elements
+                inside align to the SAME left edge → buttons start exactly
+                where the leftmost tile starts (per user request).
                 ═══════════════════════════════════════════════════════════ */}
             <div>
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 105px))":"repeat(6, minmax(0, 105px))",gap:24,justifyContent:"center"}}>
-                {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"7px 6px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
-                    <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
-                      <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
-                    </div>
-                    <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
-                    {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
-                  </div>})}
-              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{display:"inline-block",textAlign:"start"}}>
+                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 105px))":"repeat(6, minmax(0, 105px))",gap:24}}>
+                    {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
+                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"7px 6px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                        <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
+                          <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
+                        </div>
+                        <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
+                        {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
+                      </div>})}
+                  </div>
 
-              {/* Quick Action Buttons — centered under the tile grid */}
-              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:18,justifyContent:"center"}}>
+                  {/* Quick Action Buttons — same left edge as the leftmost tile */}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:18}}>
                 <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
                   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة جديدة</span>
@@ -6214,10 +6241,12 @@ export default function App(){
                   <span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>إرسال اشعار</span>
                 </div>
                 <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
-                </div>
-              </div>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                    </div>
+                  </div>
+                </div>{/* /inline-block (V21.9.145) */}
+              </div>{/* /center wrapper */}
 
               {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
               {(data.odooEnabled !== false) && (()=>{
