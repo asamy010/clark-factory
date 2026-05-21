@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.136",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "📐 Phase 28 — Sidebar Side-by-Side + Tile Labels No-Wrap",
+    changes: [
+      { type: "improvement", text: "📐 [User feedback: tasks تحت notes كانت ضيقة — عاوزها عمود جنبها. والـ tile labels بتعمل word-wrap على سطرين بعد ما الـ tiles اتـ shrink-ت في V21.9.135.]\n\n**التغيير #1 — Sidebar 2-column layout:**\n• الـ page grid: `1fr 300px` → `1fr 420px` (sidebar اتـ widen 40%)\n• الـ sidebar inner layout: stacked → grid `1fr 1fr` بـ gap 12\n• **Column 1** (left): tab strip بـ ملاحظات/نشاط + الـ content\n• **Column 2** (right): مهام دائماً ظاهرة + header tile أصفر (matches الـ note styling)\n• حذف الـ divider اللي كان بين الـ sections (لم يعد needed)\n• Tasks maxHeight: 320 → 520 (column كاملة لها لوحدها)\n\n**التغيير #2 — Tile labels no-wrap:**\n• `fontSize: FS-1` (12px) → `fontSize: FS-3` (10px)\n• Added `whiteSpace:nowrap` — منع word-wrap نهائياً\n• Added `overflow:hidden + textOverflow:ellipsis` — لو لسه فيه label طويل جداً (15+ char Arabic)، يتقطع بـ ellipsis بدل ما يـ overflow\n• Added `title={t.label}` — hover tooltip بـ الـ full label لو اتقطع\n• Added `width:100%` — لازم للـ ellipsis يشتغل\n\n**Affected labels (no longer wrap):**\n• فواتير المشتريات • الحملات والرسائل • مرتبات + موظفين\n• إشعارات مدينة • قاعدة البيانات • فواتير المبيعات\n• إشعارات دائنة • تتبع القطع (QR) • سجل التدقيق\n\n**Surface:** 3 edits في App.jsx (page grid + sidebar restructure + tile label).\nZero data/schema impact.\n\n**Mobile (no change):** الـ mobile layout كان فعلاً بـ يعرض tasks inline + activity منفصل، الـ tile labels كانت بـ FS (13). كل ده untouched." },
+    ],
+  },
+  {
     version: "V21.9.135",
     date: "2026-05-20",
     types: ["improvement"],

@@ -6075,8 +6075,10 @@ export default function App(){
                 greeting-bar single-row even when notifications are present. */}
           </div>
 
-          {/* ═══ MAIN CONTENT: Tabs Grid + Sidebar (Desktop) / Stacked (Mobile) ═══ */}
-          {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
+          {/* ═══ MAIN CONTENT: Tabs Grid + Sidebar (Desktop) / Stacked (Mobile) ═══
+              V21.9.136: sidebar widened 300→420px to host the tasks side-by-side
+              with notes/activity (was stacked vertically in V21.9.134). */}
+          {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 420px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
             <div>
               {/* V19.48: Tile width capped to ~130px (was filling the column = ~160-180px),
@@ -6093,7 +6095,11 @@ export default function App(){
                     <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                       <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                     </div>
-                    <div style={{fontSize:FS-1,fontWeight:800,color:T.text,lineHeight:1.15}}>{t.label}</div>
+                    {/* V21.9.136: label nowrap + smaller font (was wrapping to 2 lines
+                        after V21.9.135 shrunk the tile to 91px). Width 100% lets the
+                        ellipsis trim labels that are still too long (e.g. very long
+                        Arabic labels) instead of bleeding outside the tile. */}
+                    <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
                     {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                   </div>})}
               </div>
@@ -6150,18 +6156,24 @@ export default function App(){
               })()}
             </div>
 
-            {/* ═══ RIGHT: Sidebar — V21.9.134 ═══
-                Split into 2 stacked sections:
-                ① TOP: ملاحظات / نشاط tabs (user toggles)
-                ② BOTTOM: مهام — ALWAYS VISIBLE (separated section)
+            {/* ═══ RIGHT: Sidebar — V21.9.136 ═══
+                Two side-by-side columns inside the sticky sidebar:
+                ┌─────────────┐ ┌─────────────┐
+                │ Notes /     │ │ Tasks       │
+                │ Activity    │ │ (always     │
+                │ (tabs)      │ │  visible)   │
+                └─────────────┘ └─────────────┘
 
-                Why: per user feedback, users were missing assigned tasks because
-                the tasks tab was hidden under the same tab strip as notes. By
-                always rendering the tasks section below, any new assignment is
-                immediately visible the moment the user opens the home screen. */}
-            <div style={{position:"sticky",top:12}}>
+                Why: V21.9.134 stacked them vertically — the bottom tasks section
+                got tight on viewport space and felt cramped. Side-by-side gives
+                each section its own column with proportional height.
+                Outer grid is widened to 420px to accommodate two 200px columns. */}
+            <div style={{position:"sticky",top:12, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"flex-start"}}>
 
-              {/* ─── TOP SECTION — Notes / Activity tabs ─── */}
+              {/* ═══ COLUMN 1 — Notes / Activity tabs ═══ */}
+              <div>
+
+              {/* ─── Tab strip ─── */}
               <div style={{display:"flex",gap:4,marginBottom:14,background:T.bg,padding:4,borderRadius:10,border:"1px solid "+T.brd}}>
                 <div onClick={()=>setSidebarTab("notes")} className={"sb-tab "+(sidebarTab==="notes"?"active":"")} style={{flex:1}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -6216,35 +6228,32 @@ export default function App(){
                 <ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/>
               </div>}
 
-              {/* ─── DIVIDER — separates the two sections visually ─── */}
-              <div style={{margin:"18px 0 14px",height:1,background:T.brd,position:"relative"}}>
-                <span style={{position:"absolute",top:-9,left:"50%",transform:"translateX(-50%)",background:T.bg||"#F9FAFB",padding:"0 10px",fontSize:FS-3,color:T.textMut,fontWeight:700,letterSpacing:"0.5px"}}>✅ المهام</span>
-              </div>
+              </div>{/* /COLUMN 1 */}
 
-              {/* ─── BOTTOM SECTION — Tasks (V21.9.134: always visible) ─── */}
+              {/* ═══ COLUMN 2 — Tasks (V21.9.136: always visible side-by-side) ═══ */}
               <div>
-                {myTasks.length>0?<>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>
-                      مهامي ({myTasks.length})
-                    </span>
-                    <span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,fontWeight:700,padding:"3px 10px",borderRadius:6,background:T.accent+"10"}}>عرض الكل</span>
+                {/* Header — matches the tab strip height so both columns align at top */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:14,background:"#FEF9C3",padding:"8px 12px",borderRadius:10,border:"1px solid #EAB30840"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span style={{fontSize:FS-1,fontWeight:700,color:"#92400E"}}>مهامي{myTasks.length>0?" ("+myTasks.length+")":""}</span>
                   </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:320,overflowY:"auto"}}>
-                    {myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:"#FEF9C3",border:"1px solid #EAB30830"}}>
-                      <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}} title="إتمام المهمة">⬜</span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
-                        <div style={{fontSize:FS-3,color:"#78716C",marginTop:3}}>{"من: "+(t.fromName||"—")}</div>
-                      </div>
-                    </div>)}
-                  </div>
-                </>:<div style={{textAlign:"center",padding:"20px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
-                  <div style={{fontSize:24,marginBottom:4,opacity:0.5}}>✅</div>
+                  {myTasks.length>0&&<span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,fontWeight:700,padding:"2px 8px",borderRadius:6,background:T.accent+"15"}}>الكل</span>}
+                </div>
+                {myTasks.length>0?<div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:520,overflowY:"auto"}}>
+                  {myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:"#FEF9C3",border:"1px solid #EAB30830"}}>
+                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}} title="إتمام المهمة">⬜</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
+                      <div style={{fontSize:FS-3,color:"#78716C",marginTop:3}}>{"من: "+(t.fromName||"—")}</div>
+                    </div>
+                  </div>)}
+                </div>:<div style={{textAlign:"center",padding:"30px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
+                  <div style={{fontSize:30,marginBottom:6,opacity:0.5}}>✅</div>
                   <div style={{fontSize:FS-1,fontWeight:600}}>لا توجد مهام مسندة</div>
-                  <div style={{fontSize:FS-3,marginTop:2}}>المهام اللي يبعتها أي حد هنا هـ تظهر فوراً</div>
+                  <div style={{fontSize:FS-3,marginTop:2}}>المهام اللي تتبعت لك هـ تظهر هنا فوراً</div>
                 </div>}
-              </div>
+              </div>{/* /COLUMN 2 */}
             </div>
           </div>
           :/* ═══ MOBILE LAYOUT ═══ */<div>
