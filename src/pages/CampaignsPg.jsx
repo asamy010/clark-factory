@@ -1152,9 +1152,10 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
   const [manualSelection, setManualSelection] = useState(new Set());
   const [searchQ, setSearchQ] = useState("");
   /* V21.9.132: type + tag filters apply across all 4 entity tables.
-     Defaults: all types selected, no tag filter → matches the V19.19
-     pre-filter behavior of "all customers" plus suppliers/workshops/employees. */
-  const [selectedTypes, setSelectedTypes] = useState(() => new Set(ALL_TYPE_KEYS));
+     V21.9.133: Default = customer only (was: all 4 types). Per user feedback —
+     campaigns are >90% customer marketing; forcing the user to deselect the
+     other 3 types on every campaign creation was unergonomic. */
+  const [selectedTypes, setSelectedTypes] = useState(() => new Set(["customer"]));
   const [tagFilter, setTagFilter] = useState([]);
   const [tagMode, setTagMode] = useState("OR");
 
@@ -1298,10 +1299,29 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
       </div>
 
       {/* V21.9.132: Tag filter — applies to BOTH segments. Uses universal
-          TagFilter component with entityType=null to show every active tag. */}
-      <div style={{marginBottom:14, padding:12, borderRadius:10, background:T.bg, border:"1px solid "+T.brd}}>
-        <div style={{fontSize:FS-2, color:T.textSec, fontWeight:700, marginBottom:8}}>
-          🏷️ فلترة بالتاجز (اختياري)
+          TagFilter component with entityType=null to show every active tag.
+          V21.9.133: Adds prominent "Clear" button when at least one tag is
+          selected — keeps Ahmed from missing an active filter that's silently
+          narrowing his audience (Ahmed reported this confusion). */}
+      <div style={{marginBottom:14, padding:12, borderRadius:10,
+                   background: tagFilter.length > 0 ? T.warn + "08" : T.bg,
+                   border: "1px solid " + (tagFilter.length > 0 ? T.warn + "44" : T.brd)}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, flexWrap:"wrap", gap:8}}>
+          <div style={{fontSize:FS-2, color: tagFilter.length > 0 ? T.warn : T.textSec, fontWeight:700}}>
+            🏷️ فلترة بالتاجز (اختياري) {tagFilter.length > 0 && <span style={{marginInlineStart:6}}>— نشط ({tagFilter.length})</span>}
+          </div>
+          {tagFilter.length > 0 && (
+            <button
+              onClick={() => { setTagFilter([]); setManualSelection(new Set()); }}
+              style={{
+                padding: "4px 10px", borderRadius: 6,
+                background: T.warn + "15", color: T.warn,
+                border: "1px solid " + T.warn + "44",
+                fontSize: FS-2, fontWeight: 700,
+                fontFamily: "inherit", cursor: "pointer",
+              }}
+            >✕ امسح الفلتر</button>
+          )}
         </div>
         <TagFilter
           entityType={null}

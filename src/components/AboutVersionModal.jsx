@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.133",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "🎨 Phase 25c — Campaigns: UX Improvements (default + filter visibility)",
+    changes: [
+      { type: "improvement", text: "🎨 [User feedback على V21.9.132: default غلط + الـ tag filter مش بـ يـ surface بوضوح إنه active.]\n\n**Default type filter:**\n• كان: كل الـ 4 types محددين by default → الـ user كان لازم يفصل supplier/workshop/employee في كل حملة جديدة\n• دلوقتي: 'عميل' فقط محدد by default → matches الـ majority use case (>90% campaigns are customer marketing)\n• الـ user يقدر يضيف types تانية لما يحتاجها (clicking on chip)\n\n**Tag filter — clearer active state:**\n• لما tag filter active → الـ section بـ يـ change لون warning (amber) — بـ يـ stand out\n• الـ header بـ يعرض count: '🏷️ فلترة بالتاجز — نشط (2)'\n• زرار '✕ امسح الفلتر' يظهر لما filter selected → one-click clear\n• Resets manualSelection على clearance لمنع entities متحددة لكنها خرجت من الـ scope\n\n**السياق:**\n• Ahmed بلّغ '2 employees فقط ظاهرين، فيه bug' — بس الـ root cause كان tag filter بـ VIP active. Only 2 employees في الـ data بـ tag VIP. الـ behavior صح، لكن الـ UX ما كانش بـ يـ communicate إن الـ tag filter بـ يضيق النتائج.\n\n**Surface:**\n• 1 ملف (CampaignsPg.jsx)\n• ~15 سطر تغيير\n• Zero data impact" },
+    ],
+  },
+  {
     version: "V21.9.132",
     date: "2026-05-20",
     types: ["feature", "improvement"],
