@@ -29,6 +29,9 @@ import { Btn, Inp, Sel, Card } from "../components/ui.jsx";
 import { T, TH, TD } from "../theme.js";
 import { analyzeCustomer } from "../utils/customerAnalytics.js";
 import { auth } from "../firebase.js"; /* V19.32: for portal URL generation */
+/* V21.9.132: tag-based + entity-type-based audience filtering */
+import { filterByTags } from "../utils/tags.js";
+import { TagFilter } from "../components/TagFilter.jsx";
 /* V19.35: Template images live in Firebase Storage now (was: base64 in factory/config doc) */
 /* V19.38: Plus generic attachments (PDFs, docs, video, audio, ZIP) */
 import {
@@ -138,14 +141,24 @@ const STARTER_TEMPLATES = [
   },
 ];
 
-/* Smart segments — predefined audience filters */
+/* V21.9.132: Segments simplified — removed balance_due / recent_delivery /
+   inactive per user request. Audience now spans ALL contact types (customer,
+   supplier, workshop, employee), with type + tag filters applied separately. */
 const SEGMENTS = [
-  { key: "all",             label: "كل العملاء",                              icon: "👥", needsParam: false },
-  { key: "balance_due",     label: "عملاء عليهم متأخرات",                  icon: "💰", needsParam: true,  paramLabel: "الحد الأدنى للرصيد (ج.م)", paramDefault: 1000 },
-  { key: "recent_delivery", label: "عملاء استلموا أوردر مؤخراً",          icon: "📦", needsParam: true,  paramLabel: "خلال آخر كم يوم؟",          paramDefault: 30 },
-  { key: "inactive",        label: "عملاء لم يشتروا منذ مدة",             icon: "💤", needsParam: true,  paramLabel: "غير نشطين منذ كم يوم؟",     paramDefault: 90 },
-  { key: "manual",          label: "اختيار يدوي",                              icon: "✏️", needsParam: false },
+  { key: "all",    label: "كل جهات الاتصال", icon: "👥", needsParam: false },
+  { key: "manual", label: "اختيار يدوي",        icon: "✏️", needsParam: false },
 ];
+
+/* V21.9.132: 4 entity types eligible for campaigns — each maps to its
+   own table in factory/config (partitioned per V19.57). Phone is the
+   required field — entities without phone are excluded. */
+const ENTITY_TYPES = [
+  { key: "customer", label: "عميل",  icon: "👥", color: "#3B82F6", table: "customers" },
+  { key: "supplier", label: "مورد",  icon: "🏪", color: "#F59E0B", table: "suppliers" },
+  { key: "workshop", label: "ورشة", icon: "🔨", color: "#8B5CF6", table: "workshops" },
+  { key: "employee", label: "موظف", icon: "👤", color: "#10B981", table: "employees" },
+];
+const ALL_TYPE_KEYS = ENTITY_TYPES.map(t => t.key);
 
 /* ─── Helpers ─── */
 const cleanPhone = (ph) => {
@@ -209,82 +222,116 @@ async function portalUrlBatch(custIds, onProgress){
 }
 
 const todayStr = () => new Date().toISOString().slice(0,10);
-const daysAgo = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0,10);
-};
+/* V21.9.132: removed daysAgo() — was only used by the deleted segments
+   (balance_due / recent_delivery / inactive). */
+
+/* V21.9.132: Build a unified pool of entities across customers + suppliers +
+   workshops + employees. Each pool item is tagged with `_entityType` (the
+   table it came from) so downstream code (filter UI, manual list, context
+   builder) can distinguish entity types. Excludes archived + phoneless. */
+function buildEntityPool(data, allowedTypeKeys){
+  const allowed = (allowedTypeKeys && allowedTypeKeys.length > 0) ? allowedTypeKeys : ALL_TYPE_KEYS;
+  const pool = [];
+  for(const t of ENTITY_TYPES){
+    if(!allowed.includes(t.key)) continue;
+    const list = Array.isArray(data && data[t.table]) ? data[t.table] : [];
+    for(const e of list){
+      if(!e || !e.phone) continue;
+      if(e.archived === true) continue;  /* customers may have archived flag */
+      pool.push({
+        ...e,
+        _entityType: t.key,
+        _entityLabel: t.label,
+        _entityIcon: t.icon,
+      });
+    }
+  }
+  return pool;
+}
 
 /* Build audience array from a segment definition.
-   V19.29: Automatically excludes customers in data.campaignBlocklist[] */
+   V19.29: Automatically excludes entities in data.campaignBlocklist[]
+   V21.9.132: Spans all entity types (was: customers only). Honors
+   `params.entityTypes` (default all) + `params.tagFilter` (default empty). */
 function buildAudience(data, segment){
-  const customers = (data.customers||[]).filter(c => c.phone);
-  /* V19.29: Apply blocklist */
+  if(!segment || !segment.key) return [];
+
+  const allowedTypes = Array.isArray(segment.params?.entityTypes) && segment.params.entityTypes.length > 0
+    ? segment.params.entityTypes
+    : ALL_TYPE_KEYS;
+  const tagIds  = Array.isArray(segment.params?.tagFilter) ? segment.params.tagFilter : [];
+  const tagMode = segment.params?.tagMode === "AND" ? "AND" : "OR";
+
+  /* V19.29 blocklist — keyed by id OR phone (canonical) */
   const blocked = new Set();
   (data.campaignBlocklist||[]).forEach(b => {
     if(b.id) blocked.add(b.id);
     if(b.phone) blocked.add(cleanPhone(b.phone));
   });
-  const filterBlocked = (c) => !blocked.has(c.id) && !blocked.has(cleanPhone(c.phone));
-  if(!segment || !segment.key)return [];
+  const notBlocked = (e) => !blocked.has(e.id) && !blocked.has(cleanPhone(e.phone));
 
-  if(segment.key === "all"){
-    return customers.filter(filterBlocked).map(c => buildContext(c, data));
+  let pool = buildEntityPool(data, allowedTypes).filter(notBlocked);
+
+  /* Apply tag filter — works across all entity types since `filterByTags`
+     just reads entity.tags */
+  if(tagIds.length > 0){
+    pool = filterByTags(pool, tagIds, tagMode);
   }
+
   if(segment.key === "manual"){
-    /* For manual, segment.params.ids is the explicit list */
-    const ids = new Set(segment.params?.ids || []);
-    return customers.filter(c => ids.has(c.id)).filter(filterBlocked).map(c => buildContext(c, data));
+    const ids = new Set((segment.params?.ids || []).map(String));
+    pool = pool.filter(e => ids.has(String(e.id)));
   }
-  if(segment.key === "balance_due"){
-    const minBal = Number(segment.params?.minBalance) || 0;
-    return customers
-      .filter(filterBlocked)
-      .map(c => buildContext(c, data))
-      .filter(c => (c.balance || 0) >= minBal);
-  }
-  if(segment.key === "recent_delivery"){
-    const days = Number(segment.params?.days) || 30;
-    const cutoff = daysAgo(days);
-    return customers
-      .filter(filterBlocked)
-      .map(c => buildContext(c, data))
-      .filter(c => c.lastDeliveryDate && c.lastDeliveryDate >= cutoff);
-  }
-  if(segment.key === "inactive"){
-    const days = Number(segment.params?.days) || 90;
-    const cutoff = daysAgo(days);
-    return customers
-      .filter(filterBlocked)
-      .map(c => buildContext(c, data))
-      .filter(c => !c.lastOrderDate || c.lastOrderDate < cutoff);
-  }
-  return [];
+  /* "all" → no further filter; legacy segment keys (balance_due/recent_delivery/
+     inactive) silently fall through to empty until removed from history. */
+
+  return pool.map(e => buildContext(e, data));
 }
 
-/* Build the personalization context for a customer */
-function buildContext(cust, data){
-  const analytics = analyzeCustomer(cust.id, data);
-  const orders = (data.orders||[]).filter(o => o.custId === cust.id);
-  let lastDeliveryDate = null, lastOrderDate = null;
-  orders.forEach(o => {
-    const oDate = o.poDate || o.createdAt?.slice(0,10);
-    if(oDate && (!lastOrderDate || oDate > lastOrderDate))lastOrderDate = oDate;
-    (o.deliveriesToCust||[]).forEach(d => {
-      if(d.date && (!lastDeliveryDate || d.date > lastDeliveryDate))lastDeliveryDate = d.date;
-    });
-  });
-  return {
-    id: cust.id,
-    name: cust.name || "العميل",
-    phone: cust.phone || "",
-    balance: analytics?.finance?.balance || 0,
-    lastPaymentDate: analytics?.finance?.lastPaymentDate || "",
-    lastPaymentAmount: analytics?.finance?.lastPaymentAmount || 0,
-    orderCount: analytics?.sales?.orderCount || 0,
-    lastDeliveryDate,
-    lastOrderDate,
+/* Build the personalization context for an entity.
+   V21.9.132: Now polymorphic — full analytics only for customers; other
+   entity types get basic context (name, phone, type) with customer-specific
+   fields defaulting to 0/empty so personalize() degrades gracefully. */
+function buildContext(entity, data){
+  const ctx = {
+    id: entity.id,
+    name: entity.name || "العميل",
+    phone: entity.phone || "",
+    /* V21.9.132: surface entity type for UI display + analytics */
+    entityType: entity._entityType || "customer",
+    entityLabel: entity._entityLabel || "عميل",
+    /* Customer-specific personalization fields — default values keep
+       {رصيد}, {آخر دفعة}, etc. rendering as 0 / "" for non-customers. */
+    balance: 0,
+    lastPaymentDate: "",
+    lastPaymentAmount: 0,
+    orderCount: 0,
+    lastDeliveryDate: null,
+    lastOrderDate: null,
+    /* Tags carried through so downstream features (filtering, display) can use them */
+    tags: Array.isArray(entity.tags) ? entity.tags.slice() : [],
   };
+
+  if(ctx.entityType === "customer"){
+    const analytics = analyzeCustomer(entity.id, data);
+    const orders = (data.orders||[]).filter(o => o.custId === entity.id);
+    let lastDeliveryDate = null, lastOrderDate = null;
+    orders.forEach(o => {
+      const oDate = o.poDate || o.createdAt?.slice(0,10);
+      if(oDate && (!lastOrderDate || oDate > lastOrderDate)) lastOrderDate = oDate;
+      (o.deliveriesToCust||[]).forEach(d => {
+        if(d.date && (!lastDeliveryDate || d.date > lastDeliveryDate)) lastDeliveryDate = d.date;
+      });
+    });
+    ctx.balance = analytics?.finance?.balance || 0;
+    ctx.lastPaymentDate = analytics?.finance?.lastPaymentDate || "";
+    ctx.lastPaymentAmount = analytics?.finance?.lastPaymentAmount || 0;
+    ctx.orderCount = analytics?.sales?.orderCount || 0;
+    ctx.lastDeliveryDate = lastDeliveryDate;
+    ctx.lastOrderDate = lastOrderDate;
+  }
+
+  return ctx;
 }
 
 /* Count campaigns sent today (for daily cap) */
@@ -1102,36 +1149,66 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
   const [step, setStep] = useState(1); /* 1=template · 2=audience · 3=preview */
   const [tpl, setTpl] = useState(null);
   const [segKey, setSegKey] = useState("all");
-  const [segParam, setSegParam] = useState(0);
   const [manualSelection, setManualSelection] = useState(new Set());
   const [searchQ, setSearchQ] = useState("");
+  /* V21.9.132: type + tag filters apply across all 4 entity tables.
+     Defaults: all types selected, no tag filter → matches the V19.19
+     pre-filter behavior of "all customers" plus suppliers/workshops/employees. */
+  const [selectedTypes, setSelectedTypes] = useState(() => new Set(ALL_TYPE_KEYS));
+  const [tagFilter, setTagFilter] = useState([]);
+  const [tagMode, setTagMode] = useState("OR");
 
   const segDef = SEGMENTS.find(s => s.key === segKey);
-  useEffect(() => {
-    if(segDef?.needsParam && !segParam)setSegParam(segDef.paramDefault || 30);
-  }, [segKey, segDef]);
+
+  const toggleType = (key) => {
+    setSelectedTypes(prev => {
+      const next = new Set(prev);
+      if(next.has(key)) next.delete(key); else next.add(key);
+      /* Don't allow zero — fall back to "customer" if user tries to clear all */
+      if(next.size === 0) next.add("customer");
+      return next;
+    });
+    /* Switching the type filter invalidates the current manual selection
+       (some entities may now be out of scope) */
+    setManualSelection(new Set());
+  };
 
   const segment = useMemo(() => ({
     key: segKey,
     label: segDef?.label || "",
-    params: segKey === "manual"
-      ? { ids: Array.from(manualSelection) }
-      : segDef?.needsParam
-        ? (segKey === "balance_due" ? { minBalance: Number(segParam) } : { days: Number(segParam) })
-        : {}
-  }), [segKey, segDef, segParam, manualSelection]);
+    params: {
+      entityTypes: Array.from(selectedTypes),
+      tagFilter: tagFilter.slice(),
+      tagMode,
+      ...(segKey === "manual" ? { ids: Array.from(manualSelection) } : {}),
+    },
+  }), [segKey, segDef, selectedTypes, tagFilter, tagMode, manualSelection]);
 
   const audience = useMemo(() => {
     if(!tpl)return [];
     return buildAudience(data, segment).slice(0, MAX_AUDIENCE);
   }, [data, segment, tpl]);
 
-  const filteredCustomersForManual = useMemo(() => {
+  /* V21.9.132: Manual list now spans all selected entity types, filtered by
+     tag filter + blocklist (same logic as buildAudience minus the manual id
+     filter — so the user picks FROM the post-filter pool). */
+  const manualPool = useMemo(() => {
+    const blocked = new Set();
+    (data.campaignBlocklist||[]).forEach(b => {
+      if(b.id) blocked.add(b.id);
+      if(b.phone) blocked.add(cleanPhone(b.phone));
+    });
+    let pool = buildEntityPool(data, Array.from(selectedTypes))
+      .filter(e => !blocked.has(e.id) && !blocked.has(cleanPhone(e.phone)));
+    if(tagFilter.length > 0){
+      pool = filterByTags(pool, tagFilter, tagMode);
+    }
     const q = searchQ.toLowerCase().trim();
-    return (data.customers||[])
-      .filter(c => c.phone)
-      .filter(c => !q || (c.name||"").toLowerCase().includes(q) || (c.phone||"").includes(q));
-  }, [data.customers, searchQ]);
+    if(q){
+      pool = pool.filter(e => (e.name||"").toLowerCase().includes(q) || (e.phone||"").includes(q));
+    }
+    return pool;
+  }, [data, selectedTypes, tagFilter, tagMode, searchQ]);
 
   const toggleManual = (id) => {
     setManualSelection(prev => {
@@ -1184,8 +1261,59 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
       </div>
     </Card>}
 
-    {/* STEP 2 — Audience selection */}
+    {/* STEP 2 — Audience selection (V21.9.132: type chips + tag filter + segment) */}
     {step === 2 && <Card title="اختر الجمهور">
+
+      {/* V21.9.132: Entity-type filter — applies to BOTH segments (all + manual) */}
+      <div style={{marginBottom:14, padding:12, borderRadius:10, background:T.bg, border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-2, color:T.textSec, fontWeight:700, marginBottom:8}}>
+          🎯 نوع جهة الاتصال (اختر اللي عاوز تخاطبه)
+        </div>
+        <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+          {ENTITY_TYPES.map(t => {
+            const on = selectedTypes.has(t.key);
+            return (
+              <button
+                key={t.key}
+                onClick={() => toggleType(t.key)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 18,
+                  fontSize: FS-1, fontWeight: 700,
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  background: on ? t.color : "transparent",
+                  color: on ? "#fff" : t.color,
+                  border: "1.5px solid " + t.color + (on ? "" : "55"),
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                }}
+              >
+                <span>{t.icon}</span>
+                <span>{t.label}</span>
+                {on && <span style={{opacity:0.85}}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* V21.9.132: Tag filter — applies to BOTH segments. Uses universal
+          TagFilter component with entityType=null to show every active tag. */}
+      <div style={{marginBottom:14, padding:12, borderRadius:10, background:T.bg, border:"1px solid "+T.brd}}>
+        <div style={{fontSize:FS-2, color:T.textSec, fontWeight:700, marginBottom:8}}>
+          🏷️ فلترة بالتاجز (اختياري)
+        </div>
+        <TagFilter
+          entityType={null}
+          registry={data.tagRegistry || []}
+          selectedTags={tagFilter}
+          mode={tagMode}
+          onChange={(ids, mode) => { setTagFilter(ids); setTagMode(mode); setManualSelection(new Set()); }}
+          compact
+        />
+      </div>
+
+      {/* Segment cards */}
       <div style={{display:"grid",gridTemplateColumns:isMobUI()?"1fr":"repeat(auto-fill,minmax(220px,1fr))",gap:10,marginBottom:14}}>
         {SEGMENTS.map(s => <div key={s.key}
           onClick={() => { setSegKey(s.key); setManualSelection(new Set()); }}
@@ -1198,30 +1326,45 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
         </div>)}
       </div>
 
-      {segDef?.needsParam && <div style={{marginBottom:14,padding:12,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
-        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:6}}>{segDef.paramLabel}</div>
-        <Inp type="number" value={segParam} onChange={setSegParam} style={{width:160}}/>
-      </div>}
-
+      {/* V21.9.132: Manual selection — pool spans all selected types, filtered
+          by tag filter. Each row shows entity type so the user can distinguish
+          عميل from مورد etc. */}
       {segKey === "manual" && <div style={{marginBottom:14}}>
         <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
           <Inp value={searchQ} onChange={setSearchQ} placeholder="🔍 ابحث بالاسم أو رقم الجوال..." style={{flex:1}}/>
-          <span style={{fontSize:FS-2,color:T.textSec}}>{manualSelection.size} مختار</span>
+          <span style={{fontSize:FS-2,color:T.textSec}}>{manualSelection.size} مختار من {manualPool.length}</span>
         </div>
         <div style={{maxHeight:300,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:8}}>
-          {filteredCustomersForManual.slice(0, 200).map(c => <label key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderBottom:"1px solid "+T.brd,cursor:"pointer",background:manualSelection.has(c.id)?T.accent+"08":"transparent"}}>
-            <input type="checkbox" checked={manualSelection.has(c.id)} onChange={() => toggleManual(c.id)}/>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:FS-1}}>{c.name}</div>
-              <div style={{fontSize:FS-3,color:T.textSec}}>{c.phone}</div>
-            </div>
-          </label>)}
-          {filteredCustomersForManual.length === 0 && <div style={{padding:24,textAlign:"center",color:T.textMut}}>لا توجد نتائج</div>}
+          {manualPool.slice(0, 200).map(e => {
+            const typeMeta = ENTITY_TYPES.find(t => t.key === e._entityType);
+            return (
+              <label key={e._entityType+":"+e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderBottom:"1px solid "+T.brd,cursor:"pointer",background:manualSelection.has(e.id)?T.accent+"08":"transparent"}}>
+                <input type="checkbox" checked={manualSelection.has(e.id)} onChange={() => toggleManual(e.id)}/>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:FS-1, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+                    <span>{e.name}</span>
+                    {typeMeta && (
+                      <span style={{
+                        fontSize:FS-3, fontWeight:600,
+                        padding:"1px 8px", borderRadius:10,
+                        color: typeMeta.color,
+                        background: typeMeta.color + "12",
+                        border: "1px solid " + typeMeta.color + "33",
+                      }}>{typeMeta.icon} {typeMeta.label}</span>
+                    )}
+                  </div>
+                  <div style={{fontSize:FS-3,color:T.textSec}}>{e.phone}</div>
+                </div>
+              </label>
+            );
+          })}
+          {manualPool.length === 0 && <div style={{padding:24,textAlign:"center",color:T.textMut}}>لا توجد نتائج بـ الـ filters الحالية</div>}
+          {manualPool.length > 200 && <div style={{padding:8,textAlign:"center",color:T.textMut,fontSize:FS-3}}>عرض أول 200 من {manualPool.length} — ضيّق البحث للأقل</div>}
         </div>
       </div>}
 
       <div style={{padding:12,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"25",fontSize:FS-1,color:T.accent,fontWeight:700}}>
-        🎯 الجمهور المحدد: <span style={{fontSize:FS+2}}>{audience.length}</span> عميل
+        🎯 الجمهور المحدد: <span style={{fontSize:FS+2}}>{audience.length}</span> جهة
         {audience.length >= MAX_AUDIENCE && <span style={{marginInlineStart:8,fontSize:FS-2,color:T.warn}}>(الحد الأقصى للحملة الواحدة)</span>}
       </div>
 
@@ -1236,7 +1379,7 @@ function NewCampaignWizard({data, templates, onCancel, onLaunch}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
         <Stat label="القالب" value={tpl?.name} color={T.accent}/>
         <Stat label="الجمهور" value={segDef?.label} color="#7C3AED"/>
-        <Stat label="عدد العملاء" value={audience.length} color={T.ok}/>
+        <Stat label="عدد الجهات" value={audience.length} color={T.ok}/>
       </div>
 
       <div style={{marginBottom:14}}>
