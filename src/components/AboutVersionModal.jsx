@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.138",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "🎯 Phase 30 — Home: Notifs Below Sidebar + Wider Sidebar + Bigger Tiles",
+    changes: [
+      { type: "improvement", text: "🎯 [User feedback: notifications مش في المكان المناسب، والـ greeting bar لازم يبقى أصغر، والـ tiles + sidebar أكبر]\n\n**التغيير #1 — Notifications panel في المساحة الفاضية:**\n• قبل (V21.9.137): الـ notifs panel جنب الـ quick action buttons في الـ bottom row\n• بعد: الـ notifs panel **تحت** الـ sticky sidebar في الـ left column (في RTL = left visually)\n• المكان ده كان فاضي قبل كده — دلوقتي بـ يستفاد منه للـ notifications\n• الـ subBarNotifs source واحد — يعني treasury transfers + reminders + system notifs كلهم بـ يظهروا في المكان ده تلقائياً\n• Header badge: '🔔 الإشعارات النشطة (N)' + 'عرض الكل' link للـ full popup\n• maxHeight 420 + overflowY auto لو في notifications كتيرة\n• كل notif chip: icon + msg + (from + remaining) في column secondary, + action buttons (link/⏹/✕)\n\n**التغيير #2 — Greeting bar أصغر + date inline:**\n• Padding: `12px 20px` → `10px 20px` (desktop)\n• Padding mobile: `10px 14px` → `8px 14px`\n• borderRadius: 16 → 14\n• الـ name + date دلوقتي في **نفس الصف** عبر `display:flex` بـ `alignItems:'baseline'`، gap 14\n• FontSize name: FS+6 (19px) → FS+3 (16px) — أنسب للـ single row\n• FontSize date: FS-1 (12px) → FS-2 (11px)\n• date color: textSec → textMut (أنعم visually)\n• النتيجة: greeting bar بقى ~1 line tall بدل ما كان ~2 lines\n\n**التغيير #3 — Tiles أكبر بـ 15% + ازاحة ناحية الـ sidebar:**\n• Tile width: 91 → 105 (+15%)\n• Tile padding: 6/5 → 7/6 (proportional)\n• Icon box + SVG: **ثابت** زي ما كان (44×44 + 22×22)\n• Wrapper alignment: `textAlign:'center'` → `textAlign:'end'` — يعني الـ inline-block بـ يـ push للـ left في RTL = ناحية الـ sidebar\n\n**التغيير #4 — Sidebar أعرض بـ 15%:**\n• Page grid: `1fr 420px` → `1fr 484px` (+15.2%)\n• الـ inner grid (notes/activity + tasks) بـ يـ adapt تلقائياً — كل column ~228px بدل ~200px\n• Tasks المهام: مساحة أكتر لعرض task text كامل\n• Notes/Activity: نفس الـ comfort\n\n**Structural fix:**\n• الـ second child of the page grid اتـ wrap في `<div>` parent\n• Inside: sticky sidebar (الـ 2-column grid) + notifs section (below)\n• قبل كده الـ notifs كانت هـ تبقى third child of page grid → wrap لـ new row في column 1 (غلط)\n\n**Surface:** 1 ملف (App.jsx)، ~120 سطر تغيير\n**Mobile:** untouched — كل التغييرات desktop only" },
+    ],
+  },
+  {
     version: "V21.9.137",
     date: "2026-05-21",
     types: ["improvement"],

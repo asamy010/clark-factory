@@ -6041,10 +6041,14 @@ export default function App(){
               they now render as a vertical stack beside the quick-action buttons (see below).
               Mobile keeps the existing inline notifications since the bottom row layout
               doesn't apply there. ═══ */}
-          <div className="home-greet" style={{padding:isMob?"10px 14px":"12px 20px",borderRadius:16,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
-            <div style={{flexShrink:0,minWidth:0}}>
-              <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
-              <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
+          {/* V21.9.138: Name + date inline on a single row → bar is now ~1 line tall.
+              Padding tightened further (12→8/10). FontSize trimmed (FS+6→FS+3) so a
+              single row stays compact. Date moved to be a sibling with `alignItems:"baseline"`
+              to keep the typographic baseline tidy. */}
+          <div className="home-greet" style={{padding:isMob?"8px 14px":"10px 20px",borderRadius:14,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
+            <div style={{flexShrink:0,minWidth:0,display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap"}}>
+              <div style={{fontSize:isMob?FS+1:FS+3,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
+              <div style={{fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
             {/* V19.48: Chips compress (shrink) instead of wrapping when space gets tight.
                 V21.9.137: Wrapped in `isMob` — desktop notifications relocated to bottom row. */}
@@ -6078,8 +6082,10 @@ export default function App(){
 
           {/* ═══ MAIN CONTENT: Tabs Grid + Sidebar (Desktop) / Stacked (Mobile) ═══
               V21.9.136: sidebar widened 300→420px to host the tasks side-by-side
-              with notes/activity (was stacked vertically in V21.9.134). */}
-          {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 420px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
+              with notes/activity (was stacked vertically in V21.9.134).
+              V21.9.138: sidebar widened 420→484px (+15%) per user request — both
+              inner columns (notes/activity + tasks) gain ~14% extra width each. */}
+          {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 484px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
             {/* ═══ LEFT: Tabs Grid (SVG icons) ═══
                 V21.9.137: Tile grid + bottom row wrapped in an inline-block centered
                 container. This makes the action buttons start at the EXACT same X
@@ -6093,14 +6099,18 @@ export default function App(){
                 Added vertical notification panel BESIDE the buttons in the leftover
                 space (only renders when subBarNotifs.length > 0). */}
             <div>
-              <div style={{textAlign:"center"}}>
+              {/* V21.9.138: textAlign:"end" shifts the inline-block toward the LEFT
+                  in RTL (= toward the sidebar) per user request. Was: "center". */}
+              <div style={{textAlign:"end"}}>
                 <div style={{display:"inline-block",textAlign:"start"}}>
 
                   {/* Tile grid — justifyContent:"center" removed (no longer needed,
-                      the inline-block wrapper handles centering) */}
-                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 91px))":"repeat(6, minmax(0, 91px))",gap:24}}>
+                      the inline-block wrapper handles centering).
+                      V21.9.138: tile width 91→105 (+15%). Padding 6/5 → 7/6 (slight
+                      bump to keep visual proportions consistent with the bigger tile). */}
+                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 105px))":"repeat(6, minmax(0, 105px))",gap:24}}>
                     {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"6px 5px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"7px 6px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
                         <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                           <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                         </div>
@@ -6109,45 +6119,24 @@ export default function App(){
                       </div>})}
                   </div>
 
-                  {/* ─── BOTTOM ROW — Quick action buttons (right in RTL) +
-                      vertical notification stack (left in RTL, takes leftover space) ─── */}
-                  <div style={{display:"flex",gap:14,marginTop:18,alignItems:"flex-start"}}>
-
-                    {/* Quick Action Buttons — only 3 now (removed: تتبع القطع + Automation) */}
-                    <div style={{display:"flex",gap:10,flexWrap:"wrap",flexShrink:0}}>
-                      <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
-                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة جديدة</span>
-                      </div>
-                      <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF615"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF608"}>
-                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                        <span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>إرسال اشعار</span>
-                      </div>
-                      <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
-                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
-                        <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
-                      </div>
+                  {/* ─── BOTTOM ROW — Quick action buttons ───
+                      V21.9.138: Notifications panel removed from here — moved to a
+                      dedicated section below the sidebar (left column in RTL, the
+                      empty area Ahmed flagged with the black rectangle). */}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:18}}>
+                    <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة جديدة</span>
                     </div>
-
-                    {/* Vertical notification stack — only renders when there are notifications.
-                        Takes the leftover space in the row via flex:1. Each notif chip is a
-                        full-width compact row with icon + message + meta + dismiss controls. */}
-                    {subBarNotifs.length>0&&<div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflowY:"auto"}}>
-                      {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
-                        const canEnd=userRole==="admin"||n.fromEmail===userEmail;
-                        const hasLink=!!n.link;
-                        return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s",minHeight:38}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="scale(1.01)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="scale(1)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
-                          <span style={{fontSize:FS+2,lineHeight:1,flexShrink:0}}>{st.icon}</span>
-                          <span style={{lineHeight:1.3,flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
-                          {hasLink&&<span style={{fontSize:FS-2,padding:"1px 7px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
-                          {n.fromName&&<span style={{fontSize:FS-2,opacity:0.7,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>— {n.fromName}</span>}
-                          {remain&&<span style={{fontSize:FS-3,opacity:0.7,padding:"0 5px",borderInlineStart:"1px solid "+st.text+"40",flexShrink:0,whiteSpace:"nowrap"}}>⏰ {remain}</span>}
-                          {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"1px 7px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
-                          <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,padding:"0 3px",fontSize:FS-1,flexShrink:0}}>✕</span>
-                        </div>;
-                      })}
-                    </div>}
-                  </div>{/* /BOTTOM ROW */}
+                    <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF615"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF608"}>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>إرسال اشعار</span>
+                    </div>
+                    <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
+                      <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                    </div>
+                  </div>
 
                 </div>{/* /inline-block wrapper */}
               </div>{/* /center wrapper */}
@@ -6178,18 +6167,28 @@ export default function App(){
               })()}
             </div>
 
-            {/* ═══ RIGHT: Sidebar — V21.9.136 ═══
-                Two side-by-side columns inside the sticky sidebar:
-                ┌─────────────┐ ┌─────────────┐
+            {/* ═══ RIGHT-SIDE WRAPPER — V21.9.138 ═══
+                This wrapper is the SECOND child of the page grid (`1fr 484px`).
+                It contains the sticky sidebar (notes/activity + tasks) AND, BELOW it,
+                the notifications section that Ahmed asked for ("black rectangle area").
+
+                Before V21.9.138 there was no wrapper — the sticky grid was the second
+                child directly, and adding notifs as a sibling made them a THIRD grid
+                child (wrapped to a new row in column 1). The wrapper keeps both
+                sections in the same grid cell.
+
+                Why this layout:
+                ┌─────────────┐ ┌─────────────┐  ← sticky (notes/activity + tasks)
                 │ Notes /     │ │ Tasks       │
                 │ Activity    │ │ (always     │
-                │ (tabs)      │ │  visible)   │
                 └─────────────┘ └─────────────┘
-
-                Why: V21.9.134 stacked them vertically — the bottom tasks section
-                got tight on viewport space and felt cramped. Side-by-side gives
-                each section its own column with proportional height.
-                Outer grid is widened to 420px to accommodate two 200px columns. */}
+                ╭───────────────────────────────╮
+                │ 🔔 الإشعارات النشطة (3)        │  ← non-sticky, flows below
+                │ ┌─ notif 1 ─────────────────┐ │
+                │ ├─ notif 2 ─────────────────┤ │
+                │ ╰─ notif 3 ─────────────────╯ │
+                ╰───────────────────────────────╯ */}
+            <div>
             <div style={{position:"sticky",top:12, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"flex-start"}}>
 
               {/* ═══ COLUMN 1 — Notes / Activity tabs ═══ */}
@@ -6277,6 +6276,47 @@ export default function App(){
                 </div>}
               </div>{/* /COLUMN 2 */}
             </div>
+
+            {/* ═══ V21.9.138: NOTIFICATIONS SECTION ═══
+                Sits in the LEFT column of the page (in RTL: left side visually = 2nd grid
+                child). Below the sticky 2-column sidebar (notes + tasks). Per user request:
+                "I need the notifications in the black rectangle area, including treasury
+                transfer notifications — all stacked vertically professionally."
+
+                Why here:
+                - Empty visual real estate below the sidebar (page was bottom-heavy on left)
+                - Notifications need to be SEEN (away from the secondary action buttons)
+                - Same `subBarNotifs` source = treasury transfers + system notifs + reminders
+                  all appear here automatically (no separate wiring needed) */}
+            {subBarNotifs.length>0&&<div style={{marginTop:14}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"6px 12px",borderRadius:10,background:"#6366F112",border:"1px solid #6366F125"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:FS+1}}>🔔</span>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5"}}>الإشعارات النشطة ({subBarNotifs.length})</span>
+                </div>
+                <span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)"}}>عرض الكل</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:420,overflowY:"auto"}}>
+                {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
+                  const canEnd=userRole==="admin"||n.fromEmail===userEmail;
+                  const hasLink=!!n.link;
+                  return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                    <span style={{fontSize:FS+3,lineHeight:1,flexShrink:0}}>{st.icon}</span>
+                    <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
+                      {(n.fromName||remain)&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {n.fromName&&<span>👤 {n.fromName}</span>}
+                        {remain&&<span>⏰ {remain}</span>}
+                      </span>}
+                    </div>
+                    {hasLink&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
+                    {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
+                    <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.5,padding:"0 4px",fontSize:FS,flexShrink:0,fontWeight:800}}>✕</span>
+                  </div>;
+                })}
+              </div>
+            </div>}
+            </div>{/* /right-side wrapper (V21.9.138) */}
           </div>
           :/* ═══ MOBILE LAYOUT ═══ */<div>
             {/* Tabs Grid */}
