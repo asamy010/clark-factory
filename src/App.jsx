@@ -6082,10 +6082,14 @@ export default function App(){
               {/* V19.48: Tile width capped to ~130px (was filling the column = ~160-180px),
                   giving a more compact dashboard. Gap (24), aspect-ratio (1), inner padding,
                   and icon size (44×44, SVG 22×22) all preserved as requested.
-                  justifyContent:"center" centers the grid since it no longer fills the column. */}
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 130px))":"repeat(6, minmax(0, 130px))",gap:24,justifyContent:"center"}}>
+                  justifyContent:"center" centers the grid since it no longer fills the column.
+                  V21.9.135: Tile width 130→91 (~30% smaller per user request). Icon box (44×44),
+                  SVG (22×22), and gap (24) preserved verbatim — only the white card shrinks
+                  around them. Padding tightened 10/8 → 6/5 so the (icon + label) content keeps
+                  fitting inside the smaller aspectRatio:1 square. */}
+              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 91px))":"repeat(6, minmax(0, 91px))",gap:24,justifyContent:"center"}}>
                 {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"10px 8px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"6px 5px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
                     <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                       <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                     </div>

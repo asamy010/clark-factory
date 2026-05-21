@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.135",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "🔳 Phase 27 — Home Tiles: 30% Smaller (icons + gaps preserved)",
+    changes: [
+      { type: "improvement", text: "🔳 [User-requested: تصغير الـ home tiles بنسبة 30% مع الحفاظ على حجم الأيقونات والمسافات]\n\n**التغييرات (desktop home grid فقط):**\n• Tile width: `minmax(0, 130px)` → `minmax(0, 91px)` (30% smaller)\n• Padding داخل الـ tile: `10px 8px` → `6px 5px` (tightened ليفضل الـ content يدخل في الـ smaller square)\n\n**ما لم يتغير (per request):**\n• ✅ Icon box: 44×44 — ثابت\n• ✅ SVG icon: 22×22 — ثابت\n• ✅ Icon border-radius: 11 — ثابت\n• ✅ Gap بين الـ tiles: 24 — ثابت\n• ✅ Label fontSize: FS-1 (12px) — ثابت\n• ✅ Tile borderRadius: 11 — ثابت\n• ✅ Hover/active transitions — ثابتين\n• ✅ Mobile layout (line 6232) — لم يتغير، الـ tablet/desktop only\n\n**النتيجة البصرية:** أيقونة بنفس الحجم لكن في tile أبيض أصغر = density أعلى للـ dashboard. الـ user يـ fit أكتر في نفس الـ viewport.\n\n**Surface:** 1 سطر تغيير في App.jsx، zero data impact." },
+    ],
+  },
+  {
     version: "V21.9.134",
     date: "2026-05-20",
     types: ["improvement"],
