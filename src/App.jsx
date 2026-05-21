@@ -6099,15 +6099,49 @@ export default function App(){
                 Added vertical notification panel BESIDE the buttons in the leftover
                 space (only renders when subBarNotifs.length > 0). */}
             <div>
-              {/* V21.9.138: textAlign:"end" shifts the inline-block toward the LEFT
-                  in RTL (= toward the sidebar) per user request. Was: "center". */}
-              <div style={{textAlign:"end"}}>
-                <div style={{display:"inline-block",textAlign:"start"}}>
+              {/* V21.9.139: inner grid inside the 1fr column.
+                  - Right side (in RTL = first grid col): NOTIFICATIONS panel
+                  - Left side (in RTL = second grid col): tile grid + action buttons
+                  This places notifs OPPOSITE the sidebar (which sits in the page-level
+                  484px column on the visual left). The tile grid stays adjacent to the
+                  sidebar (left edge of 1fr column), keeping the visual relationship
+                  Ahmed asked for in V21.9.138. */}
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:18,alignItems:"flex-start"}}>
 
-                  {/* Tile grid — justifyContent:"center" removed (no longer needed,
-                      the inline-block wrapper handles centering).
-                      V21.9.138: tile width 91→105 (+15%). Padding 6/5 → 7/6 (slight
-                      bump to keep visual proportions consistent with the bigger tile). */}
+                {/* ═══ INNER COLUMN A — Notifications (right in RTL, opposite from sidebar) ═══ */}
+                <div style={{minWidth:0}}>
+                  {subBarNotifs.length>0?<>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"6px 12px",borderRadius:10,background:"#6366F112",border:"1px solid #6366F125"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                        <span style={{fontSize:FS+1,flexShrink:0}}>🔔</span>
+                        <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>الإشعارات النشطة ({subBarNotifs.length})</span>
+                      </div>
+                      <span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8}}>عرض الكل</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:540,overflowY:"auto"}}>
+                      {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
+                        const canEnd=userRole==="admin"||n.fromEmail===userEmail;
+                        const hasLink=!!n.link;
+                        return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                          <span style={{fontSize:FS+3,lineHeight:1,flexShrink:0}}>{st.icon}</span>
+                          <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
+                            <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
+                            {(n.fromName||remain)&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,display:"flex",gap:8,flexWrap:"wrap"}}>
+                              {n.fromName&&<span>👤 {n.fromName}</span>}
+                              {remain&&<span>⏰ {remain}</span>}
+                            </span>}
+                          </div>
+                          {hasLink&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
+                          {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
+                          <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.5,padding:"0 4px",fontSize:FS,flexShrink:0,fontWeight:800}}>✕</span>
+                        </div>;
+                      })}
+                    </div>
+                  </>:null}
+                </div>
+
+                {/* ═══ INNER COLUMN B — Tile grid + Quick actions (left in RTL, adjacent to sidebar) ═══ */}
+                <div>
                   <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 105px))":"repeat(6, minmax(0, 105px))",gap:24}}>
                     {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
                       return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"7px 6px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
@@ -6119,10 +6153,7 @@ export default function App(){
                       </div>})}
                   </div>
 
-                  {/* ─── BOTTOM ROW — Quick action buttons ───
-                      V21.9.138: Notifications panel removed from here — moved to a
-                      dedicated section below the sidebar (left column in RTL, the
-                      empty area Ahmed flagged with the black rectangle). */}
+                  {/* Quick Action Buttons */}
                   <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:18}}>
                     <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
                       <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -6137,9 +6168,8 @@ export default function App(){
                       <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
                     </div>
                   </div>
-
-                </div>{/* /inline-block wrapper */}
-              </div>{/* /center wrapper */}
+                </div>
+              </div>
 
               {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
               {(data.odooEnabled !== false) && (()=>{
@@ -6167,28 +6197,10 @@ export default function App(){
               })()}
             </div>
 
-            {/* ═══ RIGHT-SIDE WRAPPER — V21.9.138 ═══
-                This wrapper is the SECOND child of the page grid (`1fr 484px`).
-                It contains the sticky sidebar (notes/activity + tasks) AND, BELOW it,
-                the notifications section that Ahmed asked for ("black rectangle area").
-
-                Before V21.9.138 there was no wrapper — the sticky grid was the second
-                child directly, and adding notifs as a sibling made them a THIRD grid
-                child (wrapped to a new row in column 1). The wrapper keeps both
-                sections in the same grid cell.
-
-                Why this layout:
-                ┌─────────────┐ ┌─────────────┐  ← sticky (notes/activity + tasks)
-                │ Notes /     │ │ Tasks       │
-                │ Activity    │ │ (always     │
-                └─────────────┘ └─────────────┘
-                ╭───────────────────────────────╮
-                │ 🔔 الإشعارات النشطة (3)        │  ← non-sticky, flows below
-                │ ┌─ notif 1 ─────────────────┐ │
-                │ ├─ notif 2 ─────────────────┤ │
-                │ ╰─ notif 3 ─────────────────╯ │
-                ╰───────────────────────────────╯ */}
-            <div>
+            {/* ═══ RIGHT: Sidebar (V21.9.139 — notifications moved OUT) ═══
+                Notifications no longer live here — Ahmed moved them to the opposite
+                side from notes/tasks (the right side of the page, beside the tile grid).
+                Sidebar is now just: notes/activity column + tasks column (2-col sticky grid). */}
             <div style={{position:"sticky",top:12, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"flex-start"}}>
 
               {/* ═══ COLUMN 1 — Notes / Activity tabs ═══ */}
@@ -6276,47 +6288,6 @@ export default function App(){
                 </div>}
               </div>{/* /COLUMN 2 */}
             </div>
-
-            {/* ═══ V21.9.138: NOTIFICATIONS SECTION ═══
-                Sits in the LEFT column of the page (in RTL: left side visually = 2nd grid
-                child). Below the sticky 2-column sidebar (notes + tasks). Per user request:
-                "I need the notifications in the black rectangle area, including treasury
-                transfer notifications — all stacked vertically professionally."
-
-                Why here:
-                - Empty visual real estate below the sidebar (page was bottom-heavy on left)
-                - Notifications need to be SEEN (away from the secondary action buttons)
-                - Same `subBarNotifs` source = treasury transfers + system notifs + reminders
-                  all appear here automatically (no separate wiring needed) */}
-            {subBarNotifs.length>0&&<div style={{marginTop:14}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"6px 12px",borderRadius:10,background:"#6366F112",border:"1px solid #6366F125"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:FS+1}}>🔔</span>
-                  <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5"}}>الإشعارات النشطة ({subBarNotifs.length})</span>
-                </div>
-                <span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)"}}>عرض الكل</span>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:420,overflowY:"auto"}}>
-                {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
-                  const canEnd=userRole==="admin"||n.fromEmail===userEmail;
-                  const hasLink=!!n.link;
-                  return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
-                    <span style={{fontSize:FS+3,lineHeight:1,flexShrink:0}}>{st.icon}</span>
-                    <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
-                      <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
-                      {(n.fromName||remain)&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {n.fromName&&<span>👤 {n.fromName}</span>}
-                        {remain&&<span>⏰ {remain}</span>}
-                      </span>}
-                    </div>
-                    {hasLink&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
-                    {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
-                    <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.5,padding:"0 4px",fontSize:FS,flexShrink:0,fontWeight:800}}>✕</span>
-                  </div>;
-                })}
-              </div>
-            </div>}
-            </div>{/* /right-side wrapper (V21.9.138) */}
           </div>
           :/* ═══ MOBILE LAYOUT ═══ */<div>
             {/* Tabs Grid */}

@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.139",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "🔁 Phase 31 — Notifications Moved to Opposite Side (NOT below sidebar)",
+    changes: [
+      { type: "improvement", text: "🔁 [User correction على V21.9.138: 'انا عاوز الاشعارات تكون الناحية التانية المقابلة عكس الملاحظات مش تحت الملاحظات والنشاط والمهام']\n\n**ما تغيّر:**\n\nالـ notifications panel كانت في V21.9.138 تحت الـ sidebar (notes/activity + tasks) في الـ left column. Ahmed أوضح إنه عاوزها **في الناحية المقابلة** للـ sidebar — يعني على يمين الـ tile grid في RTL (= الناحية الـ opposite للـ sidebar).\n\n**Layout الجديد:**\n\n```\n┌─ Greeting bar ─────────────────────────────────────┐\n│ مرحبا، Ahmed Samy    الخميس، 21 مايو 2026          │\n└────────────────────────────────────────────────────┘\n┌─ Notifs ─┐ ┌─ Tile grid ──────┐ ┌─ Sidebar ─────────┐\n│ 🔔 ...   │ │ [tile][tile][...] │ │ Notes  │ Tasks    │\n│ 🔔 ...   │ │ [tile][tile][...] │ │ Activity│ (always) │\n│ 🔔 ...   │ │ [tile][tile][...] │ │         │          │\n│          │ │                  │ │         │          │\n│          │ │ [btn][btn][btn]  │ │         │          │\n└──────────┘ └──────────────────┘ └────────────────────┘\n  (RIGHT in RTL)   (middle)        (LEFT in RTL)\n```\n\n**Technical:**\n• الـ first child of the page grid (1fr column) دلوقتي بـ يستخدم inner grid بـ `minmax(0,1fr) auto`\n• Inner col A (1fr): notifications panel — first child in RTL = right side visually\n• Inner col B (auto): tile grid + buttons — second child in RTL = left side (adjacent to sidebar)\n• Sidebar wrapper اتـ remove (notifs ما عادتش جواه)\n• الـ inline-block + textAlign:'end' الـ V21.9.138 trick اتـ remove برضه — الـ grid layout بـ يـ position الـ tile grid طبيعياً adjacent للـ sidebar\n\n**نتيجة بصرية:**\n• 3 أقسام عرضياً: notifs (يمين شاشة) — tiles (وسط) — sidebar (يسار شاشة)\n• الـ tile grid مرئياً بـ stays adjacent to sidebar زي V21.9.138\n• الـ notifs panel على الناحية المقابلة للـ sidebar (right edge of 1fr column)\n• On narrow screens: الـ notifs قد يبقى ضيق (~130-200px depending on viewport)\n  - مع overflow ellipsis + 'عرض الكل' link للـ full popup\n\n**Treasury transfer notifications:** بـ يـ continue يظهروا في الـ panel ده تلقائياً (نفس الـ subBarNotifs source)\n\n**Surface:** 1 ملف (App.jsx)، 2 edits (relocate + cleanup). Mobile untouched." },
+    ],
+  },
+  {
     version: "V21.9.138",
     date: "2026-05-21",
     types: ["improvement"],
