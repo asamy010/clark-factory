@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.141",
+    date: "2026-05-21",
+    types: ["fix", "improvement"],
+    title: "🩹 إصلاح طباعة QR + سلوك التحديث + تبسيط سجل التحديثات",
+    changes: [
+      { type: "fix", text: "إضافة rule لـ /pieces/{pieceId} في firestore.rules — كان مفيش match clause فالـ default-deny كان بـ يـ block الـ piece registration → toast 'فشل تسجيل القطع' كل مرة." },
+      { type: "improvement", text: "إزالة toast 'تحديث جديد' (V21.9.21). الـ SW دلوقتي بـ يـ skip-wait تلقائياً والصفحة بـ تـ reload silently. الـ version pill في الـ topbar بـ يتـ flash أحمر لمدة 60 ثانية بعد التحديث ثم يرجع طبيعي." },
+      { type: "improvement", text: "سجل التحديثات: عرض آخر 10 إصدارات فقط بـ title موجز + version + date + type badges. الـ verbose details المفصلة (code blocks + bidi RTL/LTR) اتـ removed من الـ display." },
+    ],
+  },
+  {
     version: "V21.9.140",
     date: "2026-05-21",
     types: ["improvement"],
@@ -3728,107 +3739,81 @@ export function AboutVersionModal({ open, onClose, currentVersion = "V16.79" }) 
           ))}
         </div>
 
-        {/* Body — scrollable list of versions */}
+        {/* Body — scrollable list of versions (V21.9.141: last 10 only, title-only display).
+            Before V21.9.141 the modal rendered the full `c.text` for every change of every
+            version → mixed Arabic + English + code snippets + \n's all bidi-merged into one
+            ugly block. Per user feedback ("بشكل بشع... عاوز ملخص بسيط") we now show only:
+              • version number
+              • date
+              • title (already a concise one-line summary per CLAUDE.md §8 convention)
+              • type badges
+            The detailed `c.text` content stays in the source for engineering reference but is
+            not rendered. */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
-          {CHANGELOG.map((v, idx) => {
+          {CHANGELOG.slice(0, 10).map((v) => {
             const isCurrent = v.version === currentVersion;
             return (
               <div
                 key={v.version}
                 style={{
-                  marginBottom: 18,
-                  padding: 14,
-                  borderRadius: 12,
+                  marginBottom: 10,
+                  padding: "12px 14px",
+                  borderRadius: 10,
                   border: "1px solid " + (isCurrent ? T.accent + "40" : T.brd),
                   background: isCurrent ? T.accent + "06" : T.cardSolid,
-                  position: "relative",
                 }}
               >
-                {/* Version header */}
+                {/* Header row: version + current badge + date */}
                 <div
                   style={{
                     display: "flex", justifyContent: "space-between",
-                    alignItems: "flex-start", marginBottom: 8, flexWrap: "wrap", gap: 8,
+                    alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8,
                   }}
                 >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: FS + 2, fontWeight: 800,
-                        color: isCurrent ? T.accent : T.text,
-                        display: "flex", alignItems: "center", gap: 8,
-                      }}
-                    >
-                      <span style={{ fontFamily: "monospace" }}>{v.version}</span>
-                      {isCurrent && (
-                        <span
-                          style={{
-                            fontSize: FS - 3, fontWeight: 700,
-                            padding: "2px 8px", borderRadius: 6,
-                            background: T.accent, color: "#fff",
-                          }}
-                        >
-                          الحالي
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: FS, color: T.textSec, marginTop: 2 }}>
-                      {v.title}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "monospace", fontSize: FS, fontWeight: 800, color: isCurrent ? T.accent : T.text }}>
+                      {v.version}
+                    </span>
+                    {isCurrent && (
+                      <span
+                        style={{
+                          fontSize: FS - 3, fontWeight: 700,
+                          padding: "1px 7px", borderRadius: 5,
+                          background: T.accent, color: "#fff",
+                        }}
+                      >
+                        الحالي
+                      </span>
+                    )}
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {(v.types || []).map((t) => {
+                        const meta = TYPE_META[t];
+                        if (!meta) return null;
+                        return (
+                          <span
+                            key={t}
+                            title={meta.label}
+                            style={{
+                              fontSize: FS - 3, fontWeight: 700,
+                              padding: "1px 6px", borderRadius: 5,
+                              background: meta.bg, color: meta.color,
+                              display: "inline-flex", alignItems: "center", gap: 3,
+                            }}
+                          >
+                            <span>{meta.icon}</span>
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace", flexShrink: 0 }}>
                     📅 {v.date}
                   </div>
                 </div>
 
-                {/* Type badges */}
-                <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                  {v.types.map((t) => {
-                    const meta = TYPE_META[t];
-                    if (!meta) return null;
-                    return (
-                      <span
-                        key={t}
-                        style={{
-                          fontSize: FS - 3, fontWeight: 700,
-                          padding: "2px 8px", borderRadius: 6,
-                          background: meta.bg, color: meta.color,
-                          display: "inline-flex", alignItems: "center", gap: 3,
-                        }}
-                      >
-                        <span>{meta.icon}</span>
-                        <span>{meta.label}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-
-                {/* Changes list */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {v.changes.map((c, i) => {
-                    const meta = TYPE_META[c.type] || TYPE_META.improvement;
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex", alignItems: "flex-start", gap: 8,
-                          fontSize: FS - 1, lineHeight: 1.7,
-                          padding: "4px 0",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: FS, marginTop: 1,
-                            flexShrink: 0,
-                            color: meta.color,
-                          }}
-                        >
-                          {meta.icon}
-                        </span>
-                        <span style={{ color: T.text }}>{c.text}</span>
-                      </div>
-                    );
-                  })}
+                {/* Title — the concise summary per release */}
+                <div style={{ fontSize: FS - 1, color: T.textSec, lineHeight: 1.5 }}>
+                  {v.title}
                 </div>
               </div>
             );

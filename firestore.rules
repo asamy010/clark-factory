@@ -510,6 +510,26 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
+       V21.9.141 — Pieces (per-piece QR tracking, V19.81.0 onwards)
+       Each piece is a Firestore doc at /pieces/{pieceId} created by
+       the "تتبع كل قطعة" toggle in the print barcode popup. The doc
+       holds modelNo, size, status (in_warehouse|with_customer|...),
+       and a history[] of transitions.
+
+       Read: any authenticated user — barcode scanners + status pills
+             need to look up pieces from any role.
+       Create/Update: manager+, or warehouse/purchase scope (production
+                      + warehouse keepers register pieces at print time
+                      and update them on delivery/return).
+       Delete: manager+ only — destructive operation.
+       ────────────────────────────────────────────────────────── */
+    match /pieces/{pieceId} {
+      allow read: if isAuthed();
+      allow create, update: if isManagerPlus() || isWarehouseScope();
+      allow delete: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
     match /{document=**} {

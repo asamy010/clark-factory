@@ -492,6 +492,38 @@ export default function App(){
   const[savingOverlay,setSavingOverlay]=useState(null);/* null or {message,progress} */
   const[stickyForm,setStickyForm]=useState(null);
   const[sidebarTab,setSidebarTab]=useState("notes");/* V21.9.134: "notes"|"activity" — tasks moved to always-visible bottom section. "tasks" value still accepted defensively (falls through to notes branch). */
+  /* V21.9.141: "Just updated" flag — when true, the topbar version pill flashes
+     red for ~60s to surface that the app refreshed itself to a new version.
+     Replaces the old "update available" toast (removed in V21.9.141). Two paths:
+       a. SW broadcast — main.jsx writes `clark-sw-just-updated-at` to localStorage
+          when the new SW activates. We pick it up here on mount.
+       b. Version diff — if `clark-last-seen-version` !== APP_VERSION, we infer an
+          update happened (covers cases where the user reload-skipped the SW path). */
+  const[justUpdated,setJustUpdated]=useState(false);
+  useEffect(()=>{
+    try {
+      const lastSeen = localStorage.getItem("clark-last-seen-version");
+      const swStamp = Number(localStorage.getItem("clark-sw-just-updated-at") || 0);
+      const versionChanged = lastSeen && lastSeen !== APP_VERSION;
+      const swRecent = swStamp > 0 && (Date.now() - swStamp) < 60_000;
+      if(versionChanged || swRecent){
+        setJustUpdated(true);
+        /* Persist the new version so we don't flash again on next reload */
+        localStorage.setItem("clark-last-seen-version", APP_VERSION);
+        /* Remaining time of the flash: ~60s from the SW stamp, or full 60s if version-diff */
+        const elapsed = swRecent ? (Date.now() - swStamp) : 0;
+        const remaining = Math.max(5_000, 60_000 - elapsed);
+        const t = setTimeout(() => {
+          setJustUpdated(false);
+          try { localStorage.removeItem("clark-sw-just-updated-at"); } catch(_) {}
+        }, remaining);
+        return () => clearTimeout(t);
+      } else if(!lastSeen) {
+        /* First-ever load — just record the version without flashing */
+        localStorage.setItem("clark-last-seen-version", APP_VERSION);
+      }
+    } catch(_) {}
+  }, []);
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
   /* V19.48: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
@@ -5564,22 +5596,30 @@ export default function App(){
             {justReconnected?"✓ تم المزامنة":isOnline?"● متصل":"⊘ أوفلاين · قراءة فقط"}
           </span>
           {/* V19.48: removed "مزامنة من X د" timestamp pill + "👥 الفريق" pill — too noisy in topbar */}
+          {/* V21.9.141: version pill flashes red for ~60s after an SW update
+              activates (instead of the old "update available" toast). Logic in
+              the `justUpdated` ref above + useEffect. */}
           <span
             onClick={()=>setShowAboutVersion(true)}
-            title="عرض سجل التحديثات"
+            title={justUpdated?"تم التحديث للتو — هذه أحدث نسخة":"عرض سجل التحديثات"}
             style={{
-              fontSize:FS-3,color:T.navText||T.textMut,fontWeight:600,fontFamily:"monospace",opacity:0.7,
+              fontSize:FS-3,
+              color:justUpdated?"#fff":(T.navText||T.textMut),
+              fontWeight:justUpdated?800:600,
+              fontFamily:"monospace",
+              opacity:justUpdated?1:0.7,
               cursor:"pointer",
               padding:"2px 8px",
               borderRadius:6,
-              transition:"all 0.15s",
+              background:justUpdated?"#DC2626":"transparent",
+              transition:"all 0.3s",
               display:"inline-flex",
               alignItems:"center",
               gap:4,
             }}
-            onMouseOver={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}
-            onMouseOut={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}
-          >{APP_VERSION} <span style={{fontSize:FS-3,opacity:0.7}}>📋</span></span>
+            onMouseOver={e=>{if(!justUpdated){e.currentTarget.style.opacity="1";e.currentTarget.style.background=(T.navText?"rgba(255,255,255,0.1)":T.accent+"10")}}}
+            onMouseOut={e=>{if(!justUpdated){e.currentTarget.style.opacity="0.7";e.currentTarget.style.background="transparent"}}}
+          >{APP_VERSION} <span style={{fontSize:FS-3,opacity:0.8}}>{justUpdated?"✨":"📋"}</span></span>
           {/* V21.9.47: Health pill — visible only when there are issues.
               Click → opens Settings (where DiagnosticsPanel lives). The
               count + severity color tells the user at a glance how bad
