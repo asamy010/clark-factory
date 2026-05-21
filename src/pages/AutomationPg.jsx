@@ -139,6 +139,13 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       a.dailyReport.alertThresholds[key] = Math.max(0, Number(value) || 0);
     });
   };
+  /* V21.9.151: Quiet Hours — owner-targeted events get dropped during these hours.
+     System-wide setting (applies across all event types). */
+  const quietHours = automation.quietHours || { enabled: false, start: "21:00", end: "08:00" };
+  const setQuietHoursField = (field, value) => updateAutomation(a => {
+    if (!a.quietHours) a.quietHours = { enabled: false, start: "21:00", end: "08:00" };
+    a.quietHours[field] = value;
+  });
 
   /* ── V19.70: Event Triggers state + helpers ── */
   const eventTriggers = automation.eventTriggers || DEFAULT_AUTOMATION_CONFIG.eventTriggers;
@@ -180,6 +187,16 @@ export function AutomationPg({ data, upConfig, isMob, user }){
   const setEventThreshold = (eventType, days) => updateAutomation(a => {
     const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
     ev.thresholdDays = Math.max(1, Math.min(60, Number(days) || 1));
+  });
+  /* V21.9.150: Min-value filter — owner only gets the event if payload value/amount
+     >= this threshold. Customer/supplier always get notified (they're the party
+     transacting). 0 (or missing) = no filter. */
+  const setEventMinValue = (eventType, role, value) => updateAutomation(a => {
+    const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
+    if (!ev.minValueFilter) ev.minValueFilter = {};
+    const n = Math.max(0, Number(value) || 0);
+    if (n > 0) ev.minValueFilter[role] = n;
+    else delete ev.minValueFilter[role];
   });
   const resetEventTemplate = (eventType, role) => updateAutomation(a => {
     const et = ensureTriggers(a); const ev = ensureEvent(et, eventType);
@@ -246,6 +263,66 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       else r.subscribedReports.push(reportKey);
     });
   };
+  /* V21.9.152: Per-recipient section filter — each recipient can opt into specific
+     daily-report sections (sales/purchases/treasury/...). Missing or empty filter
+     = recipient gets ALL sections enabled in dailyReport.sections (backward
+     compatible). The cron applies (recipient.sectionFilter ∩ dailyReport.sections). */
+  const toggleRecipientSection = (id, sectionKey) => {
+    updateAutomation(a => {
+      const r = (a.recipients || []).find(x => x.id === id);
+      if (!r) return;
+      /* On first toggle: seed sectionFilter with all sections enabled, then flip the clicked one */
+      if (!r.sectionFilter || typeof r.sectionFilter !== "object") {
+        r.sectionFilter = {};
+        Object.keys(SECTION_LABELS).forEach(k => { r.sectionFilter[k] = true; });
+      }
+      r.sectionFilter[sectionKey] = !r.sectionFilter[sectionKey];
+    });
+  };
+  /* Section-filter modal state */
+  const [sectionModal, setSectionModal] = useState(null);/* recipient id or null */
+
+  /* V21.9.153: Recipient Groups — organizational labels (مدراء، محاسبون، إلخ).
+     Groups are PURE LABELS — they don't auto-route notifications. Their purpose
+     is to organize the recipients table when you have 10+ subscribers, with
+     filter chips at the top + a group cell per row. Bulk-apply tools (e.g.
+     "apply section filter to all members of group X") can be added later. */
+  const groups = automation.groups || [];
+  const [groupFilter, setGroupFilter] = useState("");/* "" = all, else groupId */
+  const [newGroupName, setNewGroupName] = useState("");
+  const [recipientGroupsModal, setRecipientGroupsModal] = useState(null);/* recipient id or null */
+  const addGroup = () => {
+    const name = newGroupName.trim();
+    if (!name) { showToast("⚠️ ادخل اسم المجموعة"); return; }
+    if (groups.some(g => g.name === name)) { showToast("⚠️ المجموعة موجودة"); return; }
+    updateAutomation(a => {
+      if (!Array.isArray(a.groups)) a.groups = [];
+      a.groups.push({ id: gid(), name, createdAt: new Date().toISOString() });
+    });
+    setNewGroupName("");
+    showToast("✓ تم إنشاء المجموعة");
+  };
+  const deleteGroup = (id) => updateAutomation(a => {
+    a.groups = (a.groups || []).filter(g => g.id !== id);
+    /* Also remove this group from any recipient's groupIds */
+    (a.recipients || []).forEach(r => {
+      if (Array.isArray(r.groupIds)) {
+        r.groupIds = r.groupIds.filter(gid => gid !== id);
+      }
+    });
+  });
+  const toggleRecipientGroup = (recipientId, groupId) => updateAutomation(a => {
+    const r = (a.recipients || []).find(x => x.id === recipientId);
+    if (!r) return;
+    if (!Array.isArray(r.groupIds)) r.groupIds = [];
+    const i = r.groupIds.indexOf(groupId);
+    if (i >= 0) r.groupIds.splice(i, 1);
+    else r.groupIds.push(groupId);
+  });
+  /* Filtered recipients view */
+  const filteredRecipients = groupFilter
+    ? recipients.filter(r => Array.isArray(r.groupIds) && r.groupIds.includes(groupFilter))
+    : recipients;
 
   /* Generate preview */
   const onPreview = () => {
@@ -378,6 +455,48 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     showToast(`✓ ${ok} نجحت • ⛔ ${fail} فشلت`);
   };
 
+  /* V21.9.149: Test-send a specific trigger event with sample data.
+     Lets the admin verify a customized template by rendering it with the
+     event's `samplePayload` and sending to a chosen phone number. Mirrors
+     the daily-report "ارسل تجربة" button — same bridge call, same UX. */
+  const onTestSendEvent = async (eventType, role, phone) => {
+    if (!bridgeUrl) {
+      showToast("⛔ الـbridge URL غير مضبوط — افتح Campaigns → Bridge Settings أولاً");
+      return { ok:false };
+    }
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) {
+      showToast("⚠️ رقم غير صالح");
+      return { ok:false };
+    }
+    const eventCfg = eventTriggers.events?.[eventType] || {};
+    const template = eventCfg.templates?.[role]
+      || (DEFAULT_EVENT_TEMPLATES[eventType] && DEFAULT_EVENT_TEMPLATES[eventType][role])
+      || "";
+    if (!template) {
+      showToast("⚠️ مفيش template معرّف لـ " + role);
+      return { ok:false };
+    }
+    setBusy(true);
+    try {
+      const payload = samplePayload(eventType);
+      const message = substituteTemplate(template, payload);
+      const status = await bridgeStatus(bridgeUrl, bridgeToken);
+      if (!status?.ok || !status.waReady) {
+        showToast("⛔ الـbridge مش جاهز (" + (status?.waState || status?.error || "unknown") + ")");
+        return { ok:false };
+      }
+      await bridgeSend(bridgeUrl, bridgeToken, [{ phone: normalizedPhone, message }]);
+      showToast("✓ تم إرسال التجربة لـ " + normalizedPhone);
+      return { ok:true, message };
+    } catch(e) {
+      showToast("⛔ فشل: " + (e.message || ""));
+      return { ok:false, error: e.message };
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /* Manual "Send Test Now" — sends to all subscribed recipients via the bridge */
   const onSendTest = async () => {
     if (!bridgeUrl) {
@@ -399,11 +518,29 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       return;
     }
     try {
-      const report = buildDailyReport(data, { config: dailyReport });
-      const messages = reportRecipientsList.map(r => ({
-        phone: r.phone,
-        message: report.text,
-      }));
+      /* V21.9.152: build per-recipient with section filter (mirror of automation-tick) */
+      const baseSections = dailyReport.sections || {};
+      const reportCache = {};
+      /* Resolve recipients with their full data (sectionFilter etc.) */
+      const fullRecipients = reportRecipientsList.map(rr => {
+        const full = recipients.find(x => normalizePhone(x.phone) === rr.phone) || rr;
+        return { ...rr, sectionFilter: full.sectionFilter };
+      });
+      const messages = fullRecipients.map(r => {
+        const filter = r.sectionFilter;
+        let effectiveSections = baseSections;
+        if (filter && typeof filter === "object") {
+          effectiveSections = {};
+          for (const key of Object.keys(baseSections)) {
+            effectiveSections[key] = baseSections[key] && (filter[key] !== false);
+          }
+        }
+        const cacheKey = Object.keys(effectiveSections).sort().map(k => k + ":" + (effectiveSections[k] ? "1" : "0")).join("|");
+        if (!reportCache[cacheKey]) {
+          reportCache[cacheKey] = buildDailyReport(data, { config: { ...dailyReport, sections: effectiveSections } });
+        }
+        return { phone: r.phone, message: reportCache[cacheKey].text };
+      });
       const sendResult = await bridgeSend(bridgeUrl, bridgeToken, messages);
       const accepted = (sendResult?.queued || sendResult?.accepted || messages.length);
       /* Append to history */
@@ -590,6 +727,61 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </div>
       </div>
 
+      {/* V21.9.151: Quiet Hours — system-wide control over WhatsApp delivery times.
+          When enabled, events targeting the OWNER role get suppressed during the
+          configured time window (e.g. 21:00 → 08:00 = no owner pings overnight).
+          Customer/supplier still get notified — they're transacting parties.
+          Daily report uses its own scheduled time, so this only affects trigger events. */}
+      <div style={{marginBottom:14, padding:"10px 14px", background:"#8B5CF610",
+        border:"1px solid #8B5CF625", borderRadius:10}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, flexWrap:"wrap", gap:8}}>
+          <div style={{fontSize:FS-1, fontWeight:700, color:T.text, display:"flex", alignItems:"center", gap:6}}>
+            <span>🌙</span>
+            <span>ساعات الهدوء (Quiet Hours) — للأحداث الفورية فقط</span>
+          </div>
+          <div onClick={() => setQuietHoursField("enabled", !quietHours.enabled)} style={{
+            cursor:"pointer", padding:"4px 12px", borderRadius:8,
+            background: quietHours.enabled ? "#8B5CF6" : T.bg,
+            color: quietHours.enabled ? "#fff" : T.textMut,
+            fontSize:FS-2, fontWeight:700,
+            border:"1px solid " + (quietHours.enabled ? "#8B5CF6" : T.brd),
+          }}>
+            {quietHours.enabled ? "✓ مفعّل" : "متوقف"}
+          </div>
+        </div>
+        <div style={{fontSize:FS-3, color:T.textSec, marginBottom:8, lineHeight:1.6}}>
+          خلال هذه الساعات، الـ events التي تستهدف المالك تـ skip — العميل/المورد يستلموا طبيعي. مفيد لو ميعنش يصحوك ليلاً برسالة بيع/دفعة.
+        </div>
+        <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:3}}>
+              بداية الهدوء (الساعة)
+            </label>
+            <input type="time" value={quietHours.start || "21:00"}
+              onChange={e => setQuietHoursField("start", e.target.value)}
+              disabled={!quietHours.enabled}
+              style={{padding:"10px 14px", borderRadius:10, border:"1px solid "+T.brd,
+                background:quietHours.enabled?T.cardSolid:T.bg,
+                opacity:quietHours.enabled?1:0.5,
+                fontSize:FS, fontFamily:"inherit", width:"100%",
+                boxSizing:"border-box", color:T.text}}/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:3}}>
+              نهاية الهدوء (الساعة)
+            </label>
+            <input type="time" value={quietHours.end || "08:00"}
+              onChange={e => setQuietHoursField("end", e.target.value)}
+              disabled={!quietHours.enabled}
+              style={{padding:"10px 14px", borderRadius:10, border:"1px solid "+T.brd,
+                background:quietHours.enabled?T.cardSolid:T.bg,
+                opacity:quietHours.enabled?1:0.5,
+                fontSize:FS, fontFamily:"inherit", width:"100%",
+                boxSizing:"border-box", color:T.text}}/>
+          </div>
+        </div>
+      </div>
+
       {/* V19.80.15: editable WhatsApp message template with variable insertion.
           Lets the admin customize the daily report's wording without code changes.
           The default template mirrors the previous hardcoded layout, so behavior
@@ -662,17 +854,67 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         toggleEventRecipient={toggleEventRecipient}
         setEventTemplate={setEventTemplate}
         setEventThreshold={setEventThreshold}
+        setEventMinValue={setEventMinValue} /* V21.9.150 */
         resetEventTemplate={resetEventTemplate}
         addOwnerPhone={addOwnerPhone}
         removeOwnerPhone={removeOwnerPhone}
         discardPending={discardPending}
         sendPendingNow={sendPendingNow}
         sendAllPending={sendAllPending}
+        onTestSendEvent={onTestSendEvent} /* V21.9.149 */
       />
     </Card>}
 
     {/* ─── Recipients Tab ─── */}
     {tab === "recipients" && <Card title="👥 المستلمون">
+      {/* V21.9.153: Groups section — define orgs (مدراء، محاسبون، إلخ) and filter the
+          recipients table by group. Groups are organizational LABELS only — they don't
+          change routing logic (a recipient still gets reports based on their own
+          subscribedReports + sectionFilter). */}
+      <div style={{marginBottom:14, padding:"10px 14px", background:T.bg, border:"1px solid "+T.brd, borderRadius:10}}>
+        <div style={{fontSize:FS-1, fontWeight:700, color:T.text, marginBottom:8, display:"flex", alignItems:"center", gap:6}}>
+          <span>🏷️</span>
+          <span>المجموعات (تنظيم فقط — لا يغيّر التوجيه)</span>
+        </div>
+        <div style={{display:"flex", gap:6, marginBottom:8, flexWrap:"wrap"}}>
+          <Inp value={newGroupName} onChange={setNewGroupName} placeholder="اسم المجموعة..." style={{flex:"1 1 200px"}}/>
+          <Btn primary small onClick={addGroup}>➕ مجموعة</Btn>
+        </div>
+        {groups.length > 0 && (
+          <div style={{display:"flex", flexWrap:"wrap", gap:6, marginTop:6}}>
+            <span onClick={() => setGroupFilter("")} style={{
+              cursor:"pointer", padding:"4px 12px", borderRadius:8,
+              background: !groupFilter ? T.accent : T.bg,
+              color: !groupFilter ? "#fff" : T.textSec,
+              fontSize:FS-2, fontWeight:700,
+              border:"1px solid " + (!groupFilter ? T.accent : T.brd),
+            }}>الكل ({recipients.length})</span>
+            {groups.map(g => {
+              const memberCount = recipients.filter(r => Array.isArray(r.groupIds) && r.groupIds.includes(g.id)).length;
+              const isActive = groupFilter === g.id;
+              return (
+                <span key={g.id} style={{
+                  display:"inline-flex", alignItems:"center", gap:4,
+                  padding:"4px 10px", borderRadius:8,
+                  background: isActive ? T.accent : T.cardSolid,
+                  color: isActive ? "#fff" : T.text,
+                  fontSize:FS-2, fontWeight:700,
+                  border:"1px solid " + (isActive ? T.accent : T.brd),
+                }}>
+                  <span onClick={() => setGroupFilter(isActive ? "" : g.id)} style={{cursor:"pointer"}}>
+                    {g.name} ({memberCount})
+                  </span>
+                  <span onClick={async () => {
+                    const ok = await ask("حذف المجموعة \"" + g.name + "\"؟ المستلمون يفضلوا موجودين بس بدون عضوية في المجموعة.");
+                    if (ok) deleteGroup(g.id);
+                  }} title="حذف المجموعة" style={{cursor:"pointer", opacity:0.6, padding:"0 2px"}}>✕</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"2fr 2fr 1fr", gap:8, marginBottom:14, alignItems:"flex-end"}}>
         <div>
           <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:3}}>
@@ -695,16 +937,28 @@ export function AutomationPg({ data, upConfig, isMob, user }){
             <div style={{fontSize:FS-1, fontWeight:600}}>لم يتم إضافة مستلمين</div>
             <div style={{fontSize:FS-3, marginTop:4}}>أضف أول مستلم من الحقول فوق</div>
           </div>
+        : filteredRecipients.length === 0
+        ? <div style={{textAlign:"center", padding:30, color:T.textMut, background:T.bg, borderRadius:10, border:"1px dashed "+T.brd}}>
+            <div style={{fontSize:36, marginBottom:6, opacity:0.5}}>🔍</div>
+            <div style={{fontSize:FS-1, fontWeight:600}}>مفيش مستلمين في هذه المجموعة</div>
+          </div>
         : <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%", borderCollapse:"collapse", minWidth:500}}>
+            <table style={{width:"100%", borderCollapse:"collapse", minWidth:700}}>
               <thead>
-                <tr>{["الاسم", "الرقم", "تقرير يومي", "أُضيف", ""].map(h =>
+                <tr>{["الاسم", "الرقم", "تقرير يومي", "الأقسام", "المجموعات", "أُضيف", ""].map(h =>
                   <th key={h} style={{padding:"8px 10px", fontSize:FS-2, fontWeight:700, color:T.textSec, borderBottom:"1px solid "+T.brd, textAlign:"start"}}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {recipients.map(r => {
+                {filteredRecipients.map(r => {
                   const subscribed = !r.subscribedReports || r.subscribedReports.includes("dailyReport");
+                  /* V21.9.152: count active sections this recipient is subscribed to */
+                  const sectionFilter = r.sectionFilter;
+                  const sectionKeys = Object.keys(SECTION_LABELS);
+                  const activeSectionCount = sectionFilter
+                    ? sectionKeys.filter(k => sectionFilter[k] !== false).length
+                    : sectionKeys.length;
+                  const isCustom = !!sectionFilter;
                   return <tr key={r.id} style={{borderBottom:"1px solid "+T.brd}}>
                     <td style={{padding:"10px", fontWeight:600, color:T.text}}>{r.name}</td>
                     <td style={{padding:"10px", fontFamily:"monospace", color:T.textSec}}>{r.phone}</td>
@@ -717,6 +971,39 @@ export function AutomationPg({ data, upConfig, isMob, user }){
                         border:"1px solid " + (subscribed ? T.ok+"40" : T.brd),
                       }}>{subscribed ? "✓ مشترك" : "—"}</span>
                     </td>
+                    <td style={{padding:"10px"}}>
+                      {/* V21.9.152: per-recipient section subscription */}
+                      <span onClick={() => setSectionModal(r.id)} style={{
+                        cursor:"pointer", padding:"4px 12px", borderRadius:8,
+                        background: isCustom ? T.accent+"15" : T.bg,
+                        color: isCustom ? T.accent : T.textMut,
+                        fontSize:FS-2, fontWeight:700,
+                        border:"1px solid " + (isCustom ? T.accent+"40" : T.brd),
+                        whiteSpace:"nowrap",
+                      }} title="تخصيص الأقسام التي يستلمها">
+                        {isCustom
+                          ? "⚙️ مخصص (" + activeSectionCount + "/" + sectionKeys.length + ")"
+                          : "✓ كل الأقسام"}
+                      </span>
+                    </td>
+                    {/* V21.9.153: groups cell — chips + click-to-edit */}
+                    <td style={{padding:"10px"}}>
+                      <div onClick={() => setRecipientGroupsModal(r.id)} style={{cursor:"pointer", display:"flex", flexWrap:"wrap", gap:3, minWidth:80}}>
+                        {Array.isArray(r.groupIds) && r.groupIds.length > 0
+                          ? r.groupIds.map(gid => {
+                              const g = groups.find(x => x.id === gid);
+                              if (!g) return null;
+                              return <span key={gid} style={{
+                                padding:"2px 8px", borderRadius:6,
+                                background: T.accent+"15",
+                                color: T.accent,
+                                fontSize:FS-3, fontWeight:700,
+                                border:"1px solid "+T.accent+"30",
+                              }}>{g.name}</span>;
+                            })
+                          : <span style={{fontSize:FS-3, color:T.textMut, fontStyle:"italic"}}>—  اضغط للتعيين</span>}
+                      </div>
+                    </td>
                     <td style={{padding:"10px", fontSize:FS-2, color:T.textMut}}>
                       {r.addedAt ? new Date(r.addedAt).toLocaleDateString("ar-EG") : "—"}
                     </td>
@@ -728,6 +1015,101 @@ export function AutomationPg({ data, upConfig, isMob, user }){
               </tbody>
             </table>
           </div>}
+
+      {/* V21.9.153: Recipient-Groups assignment modal */}
+      {recipientGroupsModal && (() => {
+        const r = recipients.find(x => x.id === recipientGroupsModal);
+        if (!r) return null;
+        return (
+          <div onClick={() => setRecipientGroupsModal(null)} style={{position:"fixed", inset:0, zIndex:99999, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+            <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:480, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.3)", border:"1px solid "+T.brd}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+                <div style={{fontWeight:800, fontSize:FS+1, color:T.text}}>🏷️ تعيين المجموعات</div>
+                <Btn ghost small onClick={() => setRecipientGroupsModal(null)}>✕</Btn>
+              </div>
+              <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14}}>
+                المستلم: <b style={{color:T.text}}>{r.name}</b>
+              </div>
+              {groups.length === 0
+                ? <div style={{textAlign:"center", padding:20, color:T.textMut, fontSize:FS-2}}>
+                    لم يتم إنشاء مجموعات بعد. اقفل هذا الـ modal واستخدم زر '➕ مجموعة' فوق.
+                  </div>
+                : <div style={{display:"flex", flexDirection:"column", gap:6, marginBottom:14}}>
+                    {groups.map(g => {
+                      const on = Array.isArray(r.groupIds) && r.groupIds.includes(g.id);
+                      return <div key={g.id} onClick={() => toggleRecipientGroup(r.id, g.id)} style={{
+                        cursor:"pointer", padding:"10px 12px", borderRadius:8,
+                        background: on ? T.accent+"10" : T.bg,
+                        border: "1px solid " + (on ? T.accent+"40" : T.brd),
+                        display:"flex", alignItems:"center", gap:8,
+                      }}>
+                        <span style={{fontSize:18}}>{on ? "☑️" : "⬜"}</span>
+                        <span style={{fontSize:FS-1, fontWeight:700, color: on ? T.text : T.textMut}}>
+                          {g.name}
+                        </span>
+                      </div>;
+                    })}
+                  </div>}
+              <div style={{display:"flex", justifyContent:"flex-end"}}>
+                <Btn primary onClick={() => setRecipientGroupsModal(null)}>تم</Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* V21.9.152: Section-filter modal — toggle sections per recipient */}
+      {sectionModal && (() => {
+        const r = recipients.find(x => x.id === sectionModal);
+        if (!r) return null;
+        const filter = r.sectionFilter || {};
+        return (
+          <div onClick={() => setSectionModal(null)} style={{position:"fixed", inset:0, zIndex:99999, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+            <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:480, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.3)", border:"1px solid "+T.brd}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+                <div style={{fontWeight:800, fontSize:FS+1, color:T.text}}>⚙️ تخصيص الأقسام</div>
+                <Btn ghost small onClick={() => setSectionModal(null)}>✕</Btn>
+              </div>
+              <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14, lineHeight:1.6}}>
+                المستلم: <b style={{color:T.text}}>{r.name}</b> ({r.phone})<br/>
+                اختر الأقسام اللي بـ يستلمها في التقرير اليومي. لو الكل محدّد = يستلم نفس الـ default للتقرير.
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:8, marginBottom:14}}>
+                {Object.entries(SECTION_LABELS).map(([k, info]) => {
+                  const isDefaultFilter = !r.sectionFilter;
+                  /* If recipient has no custom filter yet, treat all as ON (default behavior) */
+                  const on = isDefaultFilter ? true : (filter[k] !== false);
+                  return <div key={k} onClick={() => toggleRecipientSection(r.id, k)} style={{
+                    cursor:"pointer", padding:"10px 12px", borderRadius:10,
+                    background: on ? T.accent+"10" : T.bg,
+                    border: "1px solid " + (on ? T.accent+"40" : T.brd),
+                    display:"flex", alignItems:"center", gap:8,
+                  }}>
+                    <span style={{fontSize:18}}>{on ? "☑️" : "⬜"}</span>
+                    <span style={{fontSize:18}}>{info.icon}</span>
+                    <span style={{fontSize:FS-1, fontWeight:700, color: on ? T.text : T.textMut}}>
+                      {info.label}
+                    </span>
+                  </div>;
+                })}
+              </div>
+              <div style={{display:"flex", gap:8, justifyContent:"space-between"}}>
+                {r.sectionFilter && (
+                  <Btn ghost small onClick={() => {
+                    updateAutomation(a => {
+                      const rec = (a.recipients || []).find(x => x.id === r.id);
+                      if (rec) delete rec.sectionFilter;
+                    });
+                    setSectionModal(null);
+                  }}>↩️ استعد الافتراضي (كل الأقسام)</Btn>
+                )}
+                <div style={{flex:1}}/>
+                <Btn primary onClick={() => setSectionModal(null)}>تم</Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </Card>}
 
     {/* ─── History Tab ─── */}
@@ -799,9 +1181,10 @@ function TriggersTab(props){
   const {
     eventTriggers, isMob, busy, bridgeUrl, userEmail,
     setTriggerMode, toggleEvent, toggleEventRecipient,
-    setEventTemplate, setEventThreshold, resetEventTemplate,
+    setEventTemplate, setEventThreshold, setEventMinValue, resetEventTemplate,
     addOwnerPhone, removeOwnerPhone,
     discardPending, sendPendingNow, sendAllPending,
+    onTestSendEvent, /* V21.9.149 */
   } = props;
 
   const mode = eventTriggers.mode || "auto";
@@ -880,11 +1263,14 @@ function TriggersTab(props){
           eventCfg={events[et] || {}}
           ownerCount={ownerPhones.length}
           isMob={isMob}
+          busy={busy}
           onToggle={() => toggleEvent(et)}
           onToggleRecipient={(role) => toggleEventRecipient(et, role)}
           onTemplateChange={(role, val) => setEventTemplate(et, role, val)}
           onThresholdChange={(d) => setEventThreshold(et, d)}
+          onMinValueChange={(role, v) => setEventMinValue(et, role, v)} /* V21.9.150 */
           onResetTemplate={(role) => resetEventTemplate(et, role)}
+          onTestSend={onTestSendEvent ? (role, phone) => onTestSendEvent(et, role, phone) : null} /* V21.9.149 */
         />
       ))}
     </div>
@@ -976,13 +1362,22 @@ function PendingQueueSection({ pending, busy, onSendOne, onSendAll, onDiscard })
 }
 
 /* ─── Event card (one per event type) ─── */
-function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleRecipient, onTemplateChange, onThresholdChange, onResetTemplate }){
+function EventCard({ eventType, eventCfg, ownerCount, isMob, busy, onToggle, onToggleRecipient, onTemplateChange, onThresholdChange, onMinValueChange, onResetTemplate, onTestSend }){
   const [open, setOpen] = useState(false);
+  /* V21.9.149: Test-send modal state — null = closed, else { role, phone } */
+  const [testModal, setTestModal] = useState(null);
   const meta = EVENT_VARIABLES[eventType] || {};
   const enabled = !!eventCfg.enabled;
   const recipients = eventCfg.recipients || {};
   const templates = eventCfg.templates || {};
   const isCronOnly = eventType === "lateOrder" || eventType === "checkDue";
+  /* V21.9.150: events that carry a value/amount field — eligible for min-value filtering */
+  const VALUE_EVENTS = ["saleCompleted","paymentReceived","supplierPaymentSent","checkPaymentReceived","checkPaymentIssued","checkEndorsed","checkCollected","checkBounced","checkRePresented","checkDue"];
+  const hasValue = VALUE_EVENTS.includes(eventType);
+  const minValueFilter = eventCfg.minValueFilter || {};
+
+  /* V21.9.149: Roles that have a template configured + are subscribed (used by Test Send) */
+  const sendableRoles = (meta.recipientRoles || []).filter(r => recipients[r] && (templates[r] || (DEFAULT_EVENT_TEMPLATES[eventType] && DEFAULT_EVENT_TEMPLATES[eventType][r])));
 
   return (
     <div style={{marginBottom:10, border:"1px solid " + (enabled ? T.accent+"50" : T.brd),
@@ -1061,6 +1456,27 @@ function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleR
             </div>
           </div>
 
+          {/* V21.9.150: Min-value filter (only for value/amount events) — owner skips
+              notifications below the threshold. Customer/supplier always get notified
+              (they're the transacting party). Set 0 or empty = no filter. */}
+          {hasValue && recipients.owner && onMinValueChange && (
+            <div style={{marginBottom:10, padding:"8px 12px", background:T.warn+"08", border:"1px solid "+T.warn+"30", borderRadius:8}}>
+              <div style={{fontSize:FS-2, fontWeight:700, color:T.text, marginBottom:6, display:"flex", alignItems:"center", gap:6}}>
+                <span>💰</span>
+                <span>الحد الأدنى لإبلاغ المالك (ج.م)</span>
+              </div>
+              <div style={{display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
+                <Inp type="number" value={minValueFilter.owner || ""}
+                  onChange={(v) => onMinValueChange("owner", v)}
+                  placeholder="0 = بدون حد"
+                  style={{width:140}}/>
+                <span style={{fontSize:FS-3, color:T.textMut, lineHeight:1.5, flex:1, minWidth:200}}>
+                  لو القيمة في الحدث أقل من ده، المالك لا يستلم — لكن العميل/المورد يستلم طبيعي.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Templates per recipient role */}
           {(meta.recipientRoles || []).filter(r => recipients[r]).map(role => (
             <TemplateEditor key={role}
@@ -1072,6 +1488,57 @@ function EventCard({ eventType, eventCfg, ownerCount, isMob, onToggle, onToggleR
               onReset={() => onResetTemplate(role)}
             />
           ))}
+
+          {/* V21.9.149: Test Send button — only when at least one role has a usable template */}
+          {onTestSend && sendableRoles.length > 0 && (
+            <div style={{marginTop:8, paddingTop:10, borderTop:"1px dashed "+T.brd, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center"}}>
+              <span style={{fontSize:FS-2, color:T.textSec, fontWeight:600}}>🧪 جرّب الـ template:</span>
+              {sendableRoles.map(role => {
+                const roleLabel = role === "customer" ? "العميل"
+                                : role === "supplier" ? "المورد"
+                                : role === "owner"    ? "المالك"
+                                : role === "salesperson" ? "البائع"
+                                : role;
+                return (
+                  <Btn key={role} small ghost onClick={() => setTestModal({ role, phone: "" })}>
+                    📤 إرسال تجربة ({roleLabel})
+                  </Btn>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.9.149: Test Send modal — phone input + send button */}
+      {testModal && (
+        <div onClick={() => setTestModal(null)} style={{position:"fixed", inset:0, zIndex:99999, background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+          <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid, borderRadius:14, padding:20, maxWidth:420, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.3)", border:"1px solid "+T.brd}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+              <div style={{fontWeight:800, fontSize:FS+1, color:T.text}}>🧪 إرسال تجربة</div>
+              <Btn ghost small onClick={() => setTestModal(null)}>✕</Btn>
+            </div>
+            <div style={{fontSize:FS-2, color:T.textSec, marginBottom:6}}>
+              الحدث: <b style={{color:T.text}}>{meta.label || eventType}</b>
+            </div>
+            <div style={{fontSize:FS-2, color:T.textSec, marginBottom:10}}>
+              الـ role: <b style={{color:T.text}}>{testModal.role}</b> · هـ نـ render الـ template بـ بيانات تجريبية ونبعتها لرقم واتساب يدوي.
+            </div>
+            <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>
+              رقم الواتساب
+            </label>
+            <Inp value={testModal.phone} onChange={(v) => setTestModal(m => ({ ...m, phone: v }))}
+              placeholder="01xxxxxxxxx أو +20..."/>
+            <div style={{marginTop:14, display:"flex", gap:8, justifyContent:"flex-end"}}>
+              <Btn ghost onClick={() => setTestModal(null)} disabled={busy}>إلغاء</Btn>
+              <Btn primary disabled={busy || !testModal.phone.trim()} onClick={async () => {
+                const r = await onTestSend(testModal.role, testModal.phone);
+                if (r?.ok) setTestModal(null);
+              }} style={{background:T.ok, color:"#fff", border:"none", fontWeight:800}}>
+                {busy ? "⏳..." : "📤 ارسل"}
+              </Btn>
+            </div>
+          </div>
         </div>
       )}
     </div>

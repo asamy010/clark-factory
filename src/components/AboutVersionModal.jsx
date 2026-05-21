@@ -25,6 +25,60 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.153",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "🏷️ مجموعات المستلمين (Groups) — تنظيم الأسماء بـ labels",
+    changes: [
+      { type: "feature", text: "أضفت Groups CRUD في Recipients tab. اعمل مجموعات (مدراء، محاسبون، إلخ) واعيّن مستلمين لهم. الـ Groups بـ تـ filter جدول المستلمين (chip strip فوق الجدول) + كل مستلم له column 'المجموعات' بـ chips clickable لإضافة/إزالة. الـ groups حالياً labels تنظيمية فقط (لا تـ change routing) — في المستقبل ممكن نضيف bulk operations عليها." },
+    ],
+  },
+  {
+    version: "V21.9.152",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "📋 اشتراكات الأقسام per-recipient في التقرير اليومي",
+    changes: [
+      { type: "feature", text: "كل مستلم يقدر يـ customize الأقسام التي يستلمها (المبيعات، المشتريات، الخزنة، التشغيل، التحذيرات، المهام، المقارنة). الـ default للجميع = كل الأقسام. في الـ Recipients tab، زر '⚙️ مخصص (N/7)' بجانب كل مستلم يفتح modal لاختيار الأقسام. الـ cron يبني تقرير منفصل لكل مستلم حسب فلتره (مع caching لو فيه recipients بنفس الفلتر)." },
+    ],
+  },
+  {
+    version: "V21.9.151",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "🌙 Quiet Hours — منع إزعاج المالك ليلاً",
+    changes: [
+      { type: "feature", text: "أضفت Quiet Hours setting في Automation → Daily Report tab. لما مفعّل (مثلاً 21:00 → 08:00)، الأحداث الفورية اللي تستهدف المالك تـ skip في الوقت ده — العميل/المورد يستلموا طبيعي. Server-side check في _eventProcessor.js يستخدم Cairo timezone (Africa/Cairo) ويـ handle الـ window اللي بـ يـ cross midnight." },
+    ],
+  },
+  {
+    version: "V21.9.150",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "💰 Min-value filter للـ events — المالك يـ skip الأحداث الصغيرة",
+    changes: [
+      { type: "feature", text: "كل event card بقيمة/قيمة (بيع، دفعة، شيك، إلخ) فيه دلوقتي input field 'الحد الأدنى لإبلاغ المالك'. لو الحدث قيمته أقل من ده، المالك لا يستلم — لكن العميل/المورد يستلم طبيعي. الـ server-side check في _eventProcessor.js يـ apply الفلتر قبل بناء الـ messages." },
+    ],
+  },
+  {
+    version: "V21.9.149",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "🧪 إرسال تجربة لكل event trigger (test send per event)",
+    changes: [
+      { type: "feature", text: "أضفت زرار '📤 إرسال تجربة' لكل event card في Automation → Triggers tab. الزرار بـ يفتح modal صغير تكتب فيه رقم واتساب، والـ system بـ يـ render الـ template بـ samplePayload (بيانات تجريبية موجودة في eventBuilder.js)، يـ بعت الرسالة مباشرة عبر الـ bridge. مفيد جداً عشان تتحقق من شكل الـ template قبل ما تـ ship event حقيقي." },
+    ],
+  },
+  {
+    version: "V21.9.148",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "💵 التقرير اليومي: تفصيل وارد ومنصرف لكل خزنة على حدة",
+    changes: [
+      { type: "improvement", text: "قسم الخزنة في التقرير اليومي اتـ restructure: بدل عرض إجمالي وارد/منصرف بالتصنيفات فقط، دلوقتي كل خزنة (MAIN CASH، SUB CASH، البنوك، إلخ) بتـ ظهر منفصلة بسطر وارد + منصرف + الرصيد الحالي لها. الفوتر فيه إجمالي محصلات وإجمالي مدفوعات وصافي اليوم وإجمالي الأرصدة. تصنيف الحركات بالكاتيجوريز (مرتبات/مبيعات/...) محتفظ بيه كـ sub-section للنظرة الـ P&L." },
+    ],
+  },
+  {
     version: "V21.9.147",
     date: "2026-05-21",
     types: ["improvement"],

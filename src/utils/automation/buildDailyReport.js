@@ -102,33 +102,49 @@ function _purchasesSection(data, date) {
    group by category. The report shows EVERY category that had movement today
    instead of fixed cash/transfer/checks columns. */
 function _treasurySection(data, date) {
-  const lines = [];
+  /* V21.9.148: Restructured to show in/out + current balance PER ACCOUNT
+     (per user request: "ترتيب في الرسالة للخزن يوضح وارد ومنصرف كل خزنة لوحدها").
 
-  /* 1. Today's treasury movements grouped by category */
+     Previous structure grouped today's movements by *category* (مرتبات/مبيعات/etc.)
+     which was useful for a P&L view but obscured which account the cash flowed through.
+     New structure leads with per-account breakdown — owner sees at a glance how each
+     cash drawer / bank account moved today + its current standing. Category totals
+     stay as an aggregate footer for quick P&L glance. */
+  const lines = [];
   const todayTx = _dayItems(data.treasury, date);
-  const inByCategory = {};/* {category: {total, count}} */
-  const outByCategory = {};
+
+  /* 1. Aggregate per-account: today's in/out + count */
+  const acctToday = {};/* {account: {in, out, inCount, outCount}} */
+  /* 2. Cumulative balance per account (all-time) */
+  const balByAcct = {};
+  /* 3. Category-level rollup for the footer */
+  const inByCategory = {}; const outByCategory = {};
   let totalIn = 0, totalOut = 0;
+
+  /* Pass 1 — today's movements (per-account + per-category) */
   todayTx.forEach(t => {
     const amt = Number(t.amount) || 0;
     if (amt <= 0) return;
+    const acct = (t.account || "").trim() || "غير محدد";
     const cat = (t.category || "").trim() ||
       (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
+    if (!acctToday[acct]) acctToday[acct] = { in: 0, out: 0, inCount: 0, outCount: 0 };
     if (t.type === "in") {
+      acctToday[acct].in += amt;
+      acctToday[acct].inCount++;
       totalIn += amt;
       if (!inByCategory[cat]) inByCategory[cat] = { total: 0, count: 0 };
-      inByCategory[cat].total += amt;
-      inByCategory[cat].count++;
+      inByCategory[cat].total += amt; inByCategory[cat].count++;
     } else if (t.type === "out") {
+      acctToday[acct].out += amt;
+      acctToday[acct].outCount++;
       totalOut += amt;
       if (!outByCategory[cat]) outByCategory[cat] = { total: 0, count: 0 };
-      outByCategory[cat].total += amt;
-      outByCategory[cat].count++;
+      outByCategory[cat].total += amt; outByCategory[cat].count++;
     }
   });
 
-  /* 2. Current balance per treasury account */
-  const balByAcct = {};
+  /* Pass 2 — cumulative balance per account (all time, from data.treasury) */
   (data.treasury || []).forEach(t => {
     const acct = (t.account || "").trim() || "غير محدد";
     if (!balByAcct[acct]) balByAcct[acct] = 0;
@@ -139,56 +155,78 @@ function _treasurySection(data, date) {
   /* Build message */
   lines.push("💵 *الخزنة*");
 
-  /* Incoming */
-  if (totalIn > 0 || Object.keys(inByCategory).length > 0) {
+  /* Union of accounts: any account that has activity today OR has a non-zero balance */
+  const accountSet = new Set([...Object.keys(acctToday), ...Object.keys(balByAcct)]);
+  /* Sort accounts by current balance descending (highest-balance account first) */
+  const accountsSorted = Array.from(accountSet).sort((a, b) =>
+    (balByAcct[b] || 0) - (balByAcct[a] || 0));
+
+  if (accountsSorted.length === 0) {
     lines.push("");
-    lines.push(`• *محصّلات اليوم:* ${_money(totalIn)}`);
-    /* Sort categories by total desc */
-    Object.entries(inByCategory)
-      .sort((a, b) => b[1].total - a[1].total)
-      .forEach(([cat, v]) => {
-        const cnt = v.count > 1 ? ` (${v.count} عمليات)` : "";
-        lines.push(`   ◦ ${cat}: ${_money(v.total)}${cnt}`);
-      });
+    lines.push("• لا توجد حركات أو أرصدة");
   } else {
-    lines.push("");
-    lines.push("• *محصّلات اليوم:* لا يوجد");
-  }
+    /* Per-account block: header + ⬇وارد / ⬆منصرف / 💰 الرصيد */
+    accountsSorted.forEach(acct => {
+      const today = acctToday[acct] || { in: 0, out: 0, inCount: 0, outCount: 0 };
+      const bal = balByAcct[acct] || 0;
+      /* Skip zero-balance accounts that had no activity today (keeps the report tidy) */
+      if (today.in === 0 && today.out === 0 && Math.abs(bal) < 1) return;
 
-  /* Outgoing */
-  if (totalOut > 0 || Object.keys(outByCategory).length > 0) {
-    lines.push("");
-    lines.push(`• *مدفوعات اليوم:* ${_money(totalOut)}`);
-    Object.entries(outByCategory)
-      .sort((a, b) => b[1].total - a[1].total)
-      .forEach(([cat, v]) => {
-        const cnt = v.count > 1 ? ` (${v.count} عمليات)` : "";
-        lines.push(`   ◦ ${cat}: ${_money(v.total)}${cnt}`);
-      });
-  } else {
-    lines.push("");
-    lines.push("• *مدفوعات اليوم:* لا يوجد");
-  }
+      lines.push("");
+      lines.push(`📦 *${acct}*`);
+      if (today.in > 0) {
+        const cnt = today.inCount > 1 ? ` (${today.inCount} عمليات)` : "";
+        lines.push(`   ⬇ وارد: ${_money(today.in)}${cnt}`);
+      } else {
+        lines.push(`   ⬇ وارد: —`);
+      }
+      if (today.out > 0) {
+        const cnt = today.outCount > 1 ? ` (${today.outCount} عمليات)` : "";
+        lines.push(`   ⬆ منصرف: ${_money(today.out)}${cnt}`);
+      } else {
+        lines.push(`   ⬆ منصرف: —`);
+      }
+      lines.push(`   💰 الرصيد الحالي: ${_money(bal)}`);
+    });
 
-  /* Net of the day */
-  const net = totalIn - totalOut;
-  if (totalIn > 0 || totalOut > 0) {
-    const arrow = net > 0 ? "▲" : net < 0 ? "▼" : "—";
+    /* Aggregate footer — totals across all accounts */
     lines.push("");
-    lines.push(`• *صافي اليوم:* ${arrow} ${_money(Math.abs(net))}`);
-  }
+    lines.push("━━━━━━━━━━━━━━━━");
+    lines.push(`• *إجمالي محصّلات اليوم:* ${_money(totalIn)}`);
+    lines.push(`• *إجمالي مدفوعات اليوم:* ${_money(totalOut)}`);
+    const net = totalIn - totalOut;
+    if (totalIn > 0 || totalOut > 0) {
+      const arrow = net > 0 ? "▲" : net < 0 ? "▼" : "—";
+      lines.push(`• *صافي اليوم:* ${arrow} ${_money(Math.abs(net))}`);
+    }
+    const totalBal = Object.values(balByAcct).reduce((s, v) => s + v, 0);
+    if (accountsSorted.length > 1) {
+      lines.push(`• *إجمالي الأرصدة:* ${_money(totalBal)}`);
+    }
 
-  /* Current balances */
-  const accts = Object.entries(balByAcct).filter(([, v]) => Math.abs(v) > 1);
-  if (accts.length > 0) {
-    lines.push("");
-    lines.push("• *أرصدة الخزنة الحالية:*");
-    accts.sort((a, b) => b[1] - a[1]).forEach(([n, v]) =>
-      lines.push(`   ◦ ${n}: ${_money(v)}`)
-    );
-    const totalBal = accts.reduce((s, [, v]) => s + v, 0);
-    if (accts.length > 1) {
-      lines.push(`   ◦ *الإجمالي: ${_money(totalBal)}*`);
+    /* Optional sub-section: today's movements grouped by category — kept for P&L
+       insight (e.g. "كم اتصرف على المرتبات اليوم"). Only shown if there's activity. */
+    if (totalIn > 0 || totalOut > 0) {
+      lines.push("");
+      lines.push("📊 *تصنيف حركات اليوم:*");
+      if (Object.keys(inByCategory).length > 0) {
+        lines.push("   ⬇ *وارد:*");
+        Object.entries(inByCategory)
+          .sort((a, b) => b[1].total - a[1].total)
+          .forEach(([cat, v]) => {
+            const cnt = v.count > 1 ? ` (${v.count})` : "";
+            lines.push(`      ◦ ${cat}: ${_money(v.total)}${cnt}`);
+          });
+      }
+      if (Object.keys(outByCategory).length > 0) {
+        lines.push("   ⬆ *منصرف:*");
+        Object.entries(outByCategory)
+          .sort((a, b) => b[1].total - a[1].total)
+          .forEach(([cat, v]) => {
+            const cnt = v.count > 1 ? ` (${v.count})` : "";
+            lines.push(`      ◦ ${cat}: ${_money(v.total)}${cnt}`);
+          });
+      }
     }
   }
   return lines.join("\n");

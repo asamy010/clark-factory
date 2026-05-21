@@ -420,13 +420,68 @@ export async function processEvent(db, params){
     return { ok: true, status: 200, body: { ok: true, queued: true, mode: "manual" } };
   }
 
+  /* V21.9.150: Min-value filter — admin can configure a threshold per role
+     so e.g. the owner only gets notified for sales/payments above N ج.م.
+     Customer/supplier always pass through (they're the transacting party
+     and need their receipt regardless of amount).
+     V21.9.151: also apply Quiet Hours filter — drop owner role during
+     configured night-window so the owner doesn't get pinged after hours. */
+  let effectiveEventCfg = eventCfg;
+  const filteredRecipients = { ...(eventCfg.recipients || {}) };
+  let anyDropped = false;
+
+  /* Min-value filter */
+  const minValueFilter = eventCfg.minValueFilter || {};
+  if (minValueFilter && Object.keys(minValueFilter).length > 0) {
+    const eventValue = Number(payload?.value ?? payload?.amount ?? 0) || 0;
+    for (const [role, minVal] of Object.entries(minValueFilter)) {
+      const threshold = Number(minVal) || 0;
+      if (threshold > 0 && eventValue < threshold && filteredRecipients[role]) {
+        filteredRecipients[role] = false;
+        anyDropped = true;
+      }
+    }
+  }
+
+  /* V21.9.151: Quiet Hours filter — applied to owner-targeted messages.
+     Cairo local time (no DST since 2020). If start < end, quiet window is
+     [start, end). If start > end (crosses midnight), quiet window is
+     now >= start OR now < end. */
+  const qh = cfg.automation?.quietHours;
+  if (qh?.enabled && filteredRecipients.owner) {
+    const parseHHMM = (s) => {
+      const m = String(s || "").match(/^(\d{1,2}):(\d{2})/);
+      return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : -1;
+    };
+    const cairoFmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+    const parts = cairoFmt.formatToParts(new Date()).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+    const nowM = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+    const startM = parseHHMM(qh.start || "21:00");
+    const endM = parseHHMM(qh.end || "08:00");
+    if (startM >= 0 && endM >= 0) {
+      const inQuiet = startM < endM
+        ? (nowM >= startM && nowM < endM)        /* same-day window */
+        : (nowM >= startM || nowM < endM);       /* crosses midnight */
+      if (inQuiet) {
+        filteredRecipients.owner = false;
+        anyDropped = true;
+      }
+    }
+  }
+
+  if (anyDropped) {
+    effectiveEventCfg = { ...eventCfg, recipients: filteredRecipients };
+  }
+
   /* Build messages. V19.70.18: pass recipientFilter so checkDue can split customer/owner
      into separate processEvent calls (each with its own idempotencyKey so they don't
      accidentally dedupe each other). buildEventMessages drops messages whose role isn't
      in the filter when one is provided. */
-  const messages = buildEventMessages(eventType, eventCfg, payload, phones, recipientFilter);
+  const messages = buildEventMessages(eventType, effectiveEventCfg, payload, phones, recipientFilter);
   if (messages.length === 0) {
-    return { ok: true, status: 200, body: { ok: true, skipped: true, reason: "no-recipients" } };
+    return { ok: true, status: 200, body: { ok: true, skipped: true, reason: "no-recipients-after-filter" } };
   }
 
   /* Bridge config */

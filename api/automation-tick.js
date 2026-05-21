@@ -1479,14 +1479,37 @@ export default async function handler(req, res) {
     if (dailyDue) {
       try {
         const { data } = await buildDataSnapshot(db);
-        const report = buildDailyReport(data, {
-          config: dailyReport,
-          date: cairo.date,
+        /* V21.9.152: per-recipient section filter — each recipient can opt into a
+           subset of sections. If a recipient has no sectionFilter, they get the
+           default report (backward compatible). Otherwise we intersect their filter
+           with dailyReport.sections and rebuild the report for them specifically.
+           Reports are cached by section-signature to avoid rebuilding identical
+           configs N times when many recipients share the same filter. */
+        const baseSections = dailyReport.sections || {};
+        const reportCache = {};
+        const messages = recipients.map(r => {
+          const filter = r.sectionFilter;
+          let effectiveSections = baseSections;
+          if (filter && typeof filter === "object") {
+            effectiveSections = {};
+            for (const key of Object.keys(baseSections)) {
+              effectiveSections[key] = baseSections[key] && (filter[key] !== false);
+            }
+            /* Also honor any extra sections the user enabled in filter but missing from base */
+            for (const key of Object.keys(filter)) {
+              if (!(key in effectiveSections)) effectiveSections[key] = filter[key] !== false;
+            }
+          }
+          /* Cache key — sorted serialized of effective sections */
+          const cacheKey = Object.keys(effectiveSections).sort().map(k => k + ":" + (effectiveSections[k] ? "1" : "0")).join("|");
+          if (!reportCache[cacheKey]) {
+            reportCache[cacheKey] = buildDailyReport(data, {
+              config: { ...dailyReport, sections: effectiveSections },
+              date: cairo.date,
+            });
+          }
+          return { phone: r.phone, message: reportCache[cacheKey].text };
         });
-        const messages = recipients.map(r => ({
-          phone: r.phone,
-          message: report.text,
-        }));
 
         const bridgeUrl = (cfg.campaignBridge || {}).url || "";
         const bridgeToken = (cfg.campaignBridge || {}).token || "";
