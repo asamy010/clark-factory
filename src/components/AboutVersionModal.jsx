@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.140",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "✨ Phase 32 — Notification Chips Redesigned (compact + container-sized)",
+    changes: [
+      { type: "improvement", text: "✨ [User feedback على V21.9.139: 'الاشعارات بتظهر كده. عاوزها تاخد حجم الكونتينر وتكون بشكل احترافي']\n\n**المشكلة:**\nفي V21.9.139، الـ notifs column كانت `minmax(0,1fr)` بـ يـ collapse لـ ~88px على tablet viewports (~1100px). الـ chip كانت:\n• 'Ahmed Samy' بـ يـ wrap لـ 2 lines (سيء بصرياً)\n• '⏰ 1س 59د' بـ stack على سطر مستقل\n• الـ 🔗 link badge + ⏹ end button بـ overflow horizontal\n• النتيجة: chip cramped + غير احترافي\n\n**الـ Fixes (التغيير #1 — chip redesign):**\n• الـ meta line (fromName + remaining + link) دلوقتي **سطر واحد** مع separator ' · ' بدل ما كانت flex-wrap\n• `whiteSpace:nowrap` + `textOverflow:ellipsis` على الـ msg AND الـ meta — مفيش 2-line wrapping\n• الـ 🔗 link badge المنفصل اتـ remove — الـ chip كله clickable لو hasLink (cursor:pointer + transform hover)\n• الـ link label اتـ merge في الـ meta line ('🔗 فتح')\n• الـ ⏹ end button (admin/sender فقط) نزل تحت ✕ في **vertical stack** على الـ right side — مش بـ overflow\n• الـ ✕ dismiss بـ يبقى دايماً ظاهر، كـ primary action\n• الـ full text + hover tooltip (`title=`) للـ discoverability في الـ narrow display\n\n**الـ Fixes (التغيير #2 — column min-width):**\n• الـ inner grid `minmax(0,1fr) auto` → `minmax(220px, 1fr) auto`\n• الـ notifs column دلوقتي بـ يـ guarantees 220px min\n• على narrow viewports (1100px tablet مثل Ahmed's screenshot): الـ tiles بـ تـ shrink لـ ~77px لـ accomodate الـ notifs — tradeoff acceptable\n• على wider viewports (1400px+): الـ tiles بـ stay 105px والـ notifs ~230-330px\n\n**Visual النتيجة:**\n```\n┌──────────────────────────────┐\n│ 🔔 message truncated...   ✕ │  ← line 1: msg + dismiss\n│    👤 sender · ⏰ time     ⏹│  ← line 2: meta + (admin) end\n└──────────────────────────────┘\n```\n\n**Surface:** 1 ملف (App.jsx)، 2 edits — chip redesign + column min-width. Treasury transfers لسه بـ يظهروا في نفس الـ panel تلقائياً." },
+    ],
+  },
+  {
     version: "V21.9.139",
     date: "2026-05-21",
     types: ["improvement"],

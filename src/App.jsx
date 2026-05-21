@@ -6105,35 +6105,57 @@ export default function App(){
                   This places notifs OPPOSITE the sidebar (which sits in the page-level
                   484px column on the visual left). The tile grid stays adjacent to the
                   sidebar (left edge of 1fr column), keeping the visual relationship
-                  Ahmed asked for in V21.9.138. */}
-              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:18,alignItems:"flex-start"}}>
+                  Ahmed asked for in V21.9.138.
+                  V21.9.140: notifs column got a `minmax(220px, 1fr)` min-width — was
+                  collapsing to ~88px at tablet viewports (~1100px) and forcing the chip
+                  content to wrap ugly. With the min, tiles shrink instead (minmax(0,105)
+                  on each tile cell allows that). Tradeoff: at narrow viewports tiles get
+                  smaller than the 105px Ahmed asked in V21.9.138, but notifications stay
+                  legible. At wider viewports (1400px+) both fit at their intended sizes. */}
+              <div style={{display:"grid",gridTemplateColumns:"minmax(220px,1fr) auto",gap:18,alignItems:"flex-start"}}>
 
-                {/* ═══ INNER COLUMN A — Notifications (right in RTL, opposite from sidebar) ═══ */}
+                {/* ═══ INNER COLUMN A — Notifications (right in RTL, opposite from sidebar) ═══
+                    V21.9.140: chip layout redesigned for narrow columns. Issue: V21.9.139
+                    had `flexWrap:"wrap"` on the meta row + inline 🔗/⏹ badges → at narrow
+                    column widths (130-200px typical at tablet viewports), "Ahmed Samy"
+                    would wrap to 2 lines + meta would stack ugly. New design:
+                    - msg + meta in a single VERTICAL column inside `flex:1`
+                    - Both lines use whiteSpace:nowrap + textOverflow:ellipsis
+                    - Meta concatenated with " · " separator (single line, ellipsis-safe)
+                    - 🔗 link badge REMOVED (entire chip is clickable, indicated by cursor)
+                    - ⏹ end button moved to a VERTICAL stack on the right (next to ✕)
+                    - Tooltip (title=) carries the full info for hover discovery */}
                 <div style={{minWidth:0}}>
                   {subBarNotifs.length>0?<>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"6px 12px",borderRadius:10,background:"#6366F112",border:"1px solid #6366F125"}}>
                       <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                         <span style={{fontSize:FS+1,flexShrink:0}}>🔔</span>
-                        <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>الإشعارات النشطة ({subBarNotifs.length})</span>
+                        <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>الإشعارات ({subBarNotifs.length})</span>
                       </div>
-                      <span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8}}>عرض الكل</span>
+                      <span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8,whiteSpace:"nowrap"}}>عرض الكل</span>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:540,overflowY:"auto"}}>
                       {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
                         const canEnd=userRole==="admin"||n.fromEmail===userEmail;
                         const hasLink=!!n.link;
-                        return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
-                          <span style={{fontSize:FS+3,lineHeight:1,flexShrink:0}}>{st.icon}</span>
-                          <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
-                            <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
-                            {(n.fromName||remain)&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,display:"flex",gap:8,flexWrap:"wrap"}}>
-                              {n.fromName&&<span>👤 {n.fromName}</span>}
-                              {remain&&<span>⏰ {remain}</span>}
-                            </span>}
+                        const metaParts=[];
+                        if(n.fromName) metaParts.push("👤 "+n.fromName);
+                        if(remain) metaParts.push("⏰ "+remain);
+                        if(hasLink) metaParts.push("🔗 "+(n.link.label||"فتح"));
+                        const metaText=metaParts.join(" · ");
+                        return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS-1,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s"}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="translateX(-2px)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="translateX(0)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                          {/* Icon */}
+                          <span style={{fontSize:FS+2,lineHeight:1,flexShrink:0}}>{st.icon}</span>
+                          {/* Content — msg (line 1) + meta (line 2). Both ellipsis-safe. */}
+                          <div style={{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",gap:1}}>
+                            <span style={{lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{n.msg}</span>
+                            {metaText&&<span style={{fontSize:FS-3,fontWeight:600,opacity:0.75,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",lineHeight:1.3}}>{metaText}</span>}
                           </div>
-                          {hasLink&&<span style={{fontSize:FS-2,padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
-                          {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"2px 8px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
-                          <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.5,padding:"0 4px",fontSize:FS,flexShrink:0,fontWeight:800}}>✕</span>
+                          {/* Actions — vertical stack on the right */}
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flexShrink:0}}>
+                            <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,fontSize:FS+1,fontWeight:800,padding:"0 2px",lineHeight:1}}>✕</span>
+                            {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"1px 5px",borderRadius:4,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"40",fontSize:FS-3,fontWeight:800,lineHeight:1}}>⏹</span>}
+                          </div>
                         </div>;
                       })}
                     </div>
