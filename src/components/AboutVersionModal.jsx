@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.144",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "📏 توسيع الصفحة الرئيسية + زيادة المسافات بين الأقسام",
+    changes: [
+      { type: "improvement", text: "maxWidth: 1500 → 1700 (تقليل الفراغ على يمين/يسار الصفحة على الشاشات الواسعة). Gap بين الـ 4 columns: 14 → 20 (~43% أوسع — visual breathing room أحسن)." },
+    ],
+  },
+  {
     version: "V21.9.143",
     date: "2026-05-21",
     types: ["fix"],

@@ -6137,7 +6137,10 @@ export default function App(){
                             secondary panels (notifs, notes, tasks) are now top-level columns
                             of the page grid so each takes its own slice cleanly. Mobile
                             (`isMob`) layout is untouched — keeps the stacked design. */}
-          {!isMob?<div style={{display:"grid",gridTemplateColumns:"20fr 50fr 15fr 15fr",gap:14,alignItems:"flex-start",maxWidth:1500,margin:"0 auto"}}>
+          {/* V21.9.144: maxWidth 1500→1700 (less side padding on wide screens),
+              gap 14→20 (~43% wider spacing between the 4 columns for a cleaner,
+              more "اطراف منفصلة" professional look per user feedback). */}
+          {!isMob?<div style={{display:"grid",gridTemplateColumns:"20fr 50fr 15fr 15fr",gap:20,alignItems:"flex-start",maxWidth:1700,margin:"0 auto"}}>
 
             {/* ═══════════════════════════════════════════════════════════
                 COL 1 (right in RTL — 20%) — NOTIFICATIONS
