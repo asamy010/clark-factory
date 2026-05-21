@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.142",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "📐 Home page بـ 4 columns (إشعارات 20% / أزرار 50% / ملاحظات 15% / مهام 15%)",
+    changes: [
+      { type: "improvement", text: "إعادة هيكلة الـ home layout على desktop لـ 4 columns جنباً إلى جنب — كل قسم بـ نسبته الخاصة من العرض. الـ mobile layout (isMob) لم يتغير." },
+    ],
+  },
+  {
     version: "V21.9.141",
     date: "2026-05-21",
     types: ["fix", "improvement"],
