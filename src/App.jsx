@@ -491,7 +491,7 @@ export default function App(){
   const[wsRcvQty,setWsRcvQty]=useState(0);
   const[savingOverlay,setSavingOverlay]=useState(null);/* null or {message,progress} */
   const[stickyForm,setStickyForm]=useState(null);
-  const[sidebarTab,setSidebarTab]=useState("notes");/* "notes"|"tasks"|"activity" — for home sidebar */
+  const[sidebarTab,setSidebarTab]=useState("notes");/* V21.9.134: "notes"|"activity" — tasks moved to always-visible bottom section. "tasks" value still accepted defensively (falls through to notes branch). */
   const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
   /* V19.48: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
@@ -6146,16 +6146,22 @@ export default function App(){
               })()}
             </div>
 
-            {/* ═══ RIGHT: Sidebar (Tabs: Notes / Tasks / Activity) ═══ */}
+            {/* ═══ RIGHT: Sidebar — V21.9.134 ═══
+                Split into 2 stacked sections:
+                ① TOP: ملاحظات / نشاط tabs (user toggles)
+                ② BOTTOM: مهام — ALWAYS VISIBLE (separated section)
+
+                Why: per user feedback, users were missing assigned tasks because
+                the tasks tab was hidden under the same tab strip as notes. By
+                always rendering the tasks section below, any new assignment is
+                immediately visible the moment the user opens the home screen. */}
             <div style={{position:"sticky",top:12}}>
+
+              {/* ─── TOP SECTION — Notes / Activity tabs ─── */}
               <div style={{display:"flex",gap:4,marginBottom:14,background:T.bg,padding:4,borderRadius:10,border:"1px solid "+T.brd}}>
                 <div onClick={()=>setSidebarTab("notes")} className={"sb-tab "+(sidebarTab==="notes"?"active":"")} style={{flex:1}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                   <span>ملاحظات{myNotes.length>0?" ("+myNotes.length+")":""}</span>
-                </div>
-                <div onClick={()=>setSidebarTab("tasks")} className={"sb-tab "+(sidebarTab==="tasks"?"active":"")} style={{flex:1}}>
-                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                  <span>مهام{myTasks.length>0?" ("+myTasks.length+")":""}</span>
                 </div>
                 <div onClick={()=>setSidebarTab("activity")} className={"sb-tab "+(sidebarTab==="activity"?"active":"")} style={{flex:1}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -6163,8 +6169,9 @@ export default function App(){
                 </div>
               </div>
 
-              {/* NOTES TAB */}
-              {sidebarTab==="notes"&&<div>
+              {/* NOTES TAB — V21.9.134: maxHeight reduced from 500→320 to share
+                  the sticky sidebar space with the always-visible tasks section. */}
+              {sidebarTab!=="activity"&&<div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>{myNotes.length}/20</span>
                   <span onClick={()=>setStickyForm({id:gid(),email:uemail,title:"",text:"",color:"#FEF9C3",date:new Date().toISOString().split("T")[0]})} style={{cursor:"pointer",fontSize:FS-2,padding:"5px 12px",borderRadius:6,background:T.accent+"12",color:T.accent,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
@@ -6181,7 +6188,7 @@ export default function App(){
                     <Btn primary small onClick={()=>{if(!stickyForm.title?.trim()&&!stickyForm.text?.trim())return;saveNote(stickyForm)}}>💾 حفظ</Btn>
                   </div>
                 </div>}
-                <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:500,overflowY:"auto"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:320,overflowY:"auto"}}>
                   {myNotes.length>0?myNotes.map(n=>{const bc=COLORS.find(c=>c.key===n.color);return<div key={n.id} style={{background:n.color||"#FEF9C3",borderRadius:10,padding:"8px 10px",border:"1px solid "+(bc?.border||"#EAB308")+"30"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
                       {n.title&&<div style={{fontWeight:700,fontSize:FS-1,color:"#1E293B",marginBottom:2,flex:1,lineHeight:1.3}}>{n.title}</div>}
@@ -6200,30 +6207,40 @@ export default function App(){
                 </div>
               </div>}
 
-              {/* TASKS TAB */}
-              {sidebarTab==="tasks"&&<div>
-                {myTasks.length>0?<>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:520,overflowY:"auto"}}>{myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:"#FEF9C3",border:"1px solid #EAB30830"}}>
-                    <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}} title="إتمام المهمة">⬜</span>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
-                      <div style={{fontSize:FS-3,color:"#78716C",marginTop:3}}>{"من: "+(t.fromName||"—")}</div>
-                    </div>
-                  </div>)}</div>
-                  <div style={{textAlign:"center",marginTop:10}}>
-                    <span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700,padding:"6px 14px",borderRadius:6,background:T.accent+"10",display:"inline-block"}}>عرض كل المهام</span>
-                  </div>
-                </>:<div style={{textAlign:"center",padding:"30px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
-                  <div style={{fontSize:30,marginBottom:6,opacity:0.5}}>✅</div>
-                  <div style={{fontSize:FS-1,fontWeight:600}}>لا توجد مهام</div>
-                  <div style={{fontSize:FS-3,marginTop:2}}>مهامك المسندة هتظهر هنا</div>
-                </div>}
-              </div>}
-
               {/* ACTIVITY TAB */}
               {sidebarTab==="activity"&&<div>
                 <ActivityFeed orders={data.orders} config={config} user={user} isMob={false}/>
               </div>}
+
+              {/* ─── DIVIDER — separates the two sections visually ─── */}
+              <div style={{margin:"18px 0 14px",height:1,background:T.brd,position:"relative"}}>
+                <span style={{position:"absolute",top:-9,left:"50%",transform:"translateX(-50%)",background:T.bg||"#F9FAFB",padding:"0 10px",fontSize:FS-3,color:T.textMut,fontWeight:700,letterSpacing:"0.5px"}}>✅ المهام</span>
+              </div>
+
+              {/* ─── BOTTOM SECTION — Tasks (V21.9.134: always visible) ─── */}
+              <div>
+                {myTasks.length>0?<>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>
+                      مهامي ({myTasks.length})
+                    </span>
+                    <span onClick={()=>goTo("tasks")} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,fontWeight:700,padding:"3px 10px",borderRadius:6,background:T.accent+"10"}}>عرض الكل</span>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:320,overflowY:"auto"}}>
+                    {myTasks.map(t=><div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",borderRadius:10,background:"#FEF9C3",border:"1px solid #EAB30830"}}>
+                      <span onClick={()=>upTasks(d=>{const arr=Array.isArray(d.tasks)?d.tasks:[];const tk=arr.find(x=>String(x.id)===String(t.id));if(tk){tk.done=true;tk.doneAt=new Date().toISOString()}})} style={{cursor:"pointer",fontSize:16,flexShrink:0,marginTop:1}} title="إتمام المهمة">⬜</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:FS-1,fontWeight:600,color:"#1C1917",lineHeight:1.4}}>{t.text}</div>
+                        <div style={{fontSize:FS-3,color:"#78716C",marginTop:3}}>{"من: "+(t.fromName||"—")}</div>
+                      </div>
+                    </div>)}
+                  </div>
+                </>:<div style={{textAlign:"center",padding:"20px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
+                  <div style={{fontSize:24,marginBottom:4,opacity:0.5}}>✅</div>
+                  <div style={{fontSize:FS-1,fontWeight:600}}>لا توجد مهام مسندة</div>
+                  <div style={{fontSize:FS-3,marginTop:2}}>المهام اللي يبعتها أي حد هنا هـ تظهر فوراً</div>
+                </div>}
+              </div>
             </div>
           </div>
           :/* ═══ MOBILE LAYOUT ═══ */<div>

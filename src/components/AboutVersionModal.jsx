@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.134",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "📋 Phase 26 — Home Sidebar: Tasks Always-Visible Section",
+    changes: [
+      { type: "improvement", text: "📋 [User feedback: 'المستخدمين مش بيشوفوا المهام' — لأن tasks كانت hidden تحت tab strip]\n\n**التغيير في الـ home screen sidebar (desktop):**\n\nقبل: 3 tabs (ملاحظات / مهام / نشاط) — الـ user كان لازم يختار tab مهام عشان يشوف المهام المسندة له. كتير من الـ users كانوا بـ يفوّتوا المهام لأنهم بـ يقعدوا على ملاحظات أو نشاط.\n\nبعد: الـ sidebar اتقسمت **عمودياً لـ نصين**:\n• ─ النص العلوي: tab strip بـ ملاحظات + نشاط فقط (2 tabs)\n• ─ النص السفلي: قسم 'مهام' **دائماً ظاهر** بـ divider واضح\n\n**النتيجة:** لما أي user يفتح الـ home screen، المهام المسندة له بـ تظهر فوراً بدون أي click. لو في 5 مهام جديدة، هـ تكون في وش الـ user مباشرة.\n\n**Details:**\n• الـ tasks section بـ يعرض count: 'مهامي (N)'\n• 'عرض الكل' link جوا الـ header للذهاب لصفحة المهام\n• Empty state واضح لما مفيش مهام: '✅ لا توجد مهام مسندة — المهام اللي يبعتها أي حد هنا هـ تظهر فوراً'\n• maxHeight=320 على كل قسم للحفاظ على الـ sidebar متوازن في الـ viewport\n• Divider بـ label '✅ المهام' لـ visual separation\n\n**Mobile (no change):** الـ mobile layout كان بالفعل بـ يعرض الـ tasks panel inline لما `myTasks.length > 0`. الـ feature ده desktop-only fix.\n\n**State migration:** لو user عنده sidebarTab='tasks' من before (stale React state)، بـ يـ fall through للـ notes branch (defensive default). الـ value 'tasks' لم يعد يـ set بواسطة أي UI control.\n\n**Surface:**\n• 1 ملف (App.jsx)\n• ~50 سطر تغيير\n• Zero data/schema impact" },
+    ],
+  },
+  {
     version: "V21.9.133",
     date: "2026-05-20",
     types: ["improvement"],
