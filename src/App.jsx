@@ -6233,11 +6233,22 @@ export default function App(){
                 <div style={{display:"inline-block",textAlign:"start"}}>
                   <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 105px))":"repeat(6, minmax(0, 105px))",gap:24}}>
                     {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"7px 6px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                      /* V21.9.147: dynamic label font size based on label length.
+                         Tile usable width is ~95px (105 - 10 padding). Cairo Arabic
+                         glyphs average ~6-7px per char at 12-13px font. Tiering:
+                           ≤ 9 chars  → 14px (e.g. "المهام", "Shopify") — biggest
+                           10-11 chars → 13px (e.g. "أصول ثابتة", "AI Agent")
+                           12-13 chars → 12px (e.g. "إشعارات مدينة")
+                           ≥ 14 chars  → 11px (e.g. "فواتير المشتريات") — smallest
+                         No ellipsis — every label fits its container at the size
+                         we pick for it (per user request: "يكبر على حجم الكونتينار"). */
+                      const labelLen=(t.label||"").length;
+                      const labelFs= labelLen<=9?14: labelLen<=11?13: labelLen<=13?12:11;
+                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"6px 4px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5,aspectRatio:"1"}}>
                         <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                           <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                         </div>
-                        <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
+                        <div style={{fontSize:labelFs,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
                         {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                       </div>})}
                   </div>

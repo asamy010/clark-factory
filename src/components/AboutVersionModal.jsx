@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.147",
+    date: "2026-05-21",
+    types: ["improvement"],
+    title: "🔤 خط الـ tile labels أكبر وأوضح (dynamic font size حسب طول النص)",
+    changes: [
+      { type: "improvement", text: "Tile labels دلوقتي بـ font size متغيّر حسب طول النص — short labels تظهر أكبر (14px) للوضوح، الـ longer ones تـ scale down (13/12/11) عشان تفضل تظهر كاملة في الـ container بدون ellipsis. الـ padding على الـ tile اتـ trim 7/6 → 6/4 لإفساح مساحة أكبر للنص. النتيجة: كل label readable + مفيش نص مقطوع." },
+    ],
+  },
+  {
     version: "V21.9.146",
     date: "2026-05-21",
     types: ["feature"],
