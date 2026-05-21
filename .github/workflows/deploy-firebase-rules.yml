@@ -106,17 +106,22 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> $GITHUB_ENV
 
       - name: Deploy Firestore rules
+        # V21.9.142: explicit --project flag (was: relying on env var that
+        # firebase-tools didn't read → silent no-op deploys). .firebaserc was
+        # also added so the CLI auto-detects the project even without the flag.
         run: |
-          firebase deploy --only firestore:rules --non-interactive
+          PROJECT_ID="${FIREBASE_PROJECT_ID:-clarkfactorymanagement}"
+          echo "Deploying Firestore rules to project: $PROJECT_ID"
+          firebase deploy --only firestore:rules --non-interactive --project "$PROJECT_ID"
         env:
-          # firebase-tools reads GOOGLE_APPLICATION_CREDENTIALS from env
-          # If FIREBASE_PROJECT_ID is set, also pass --project explicitly.
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
 
       - name: Deploy Storage rules
         run: |
+          PROJECT_ID="${FIREBASE_PROJECT_ID:-clarkfactorymanagement}"
           if [ -f storage.rules ]; then
-            firebase deploy --only storage --non-interactive
+            echo "Deploying Storage rules to project: $PROJECT_ID"
+            firebase deploy --only storage --non-interactive --project "$PROJECT_ID"
           fi
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}

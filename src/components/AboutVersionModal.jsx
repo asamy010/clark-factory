@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.143",
+    date: "2026-05-21",
+    types: ["fix"],
+    title: "🚑 إصلاح Firebase deploy workflow (root cause لـ 'فشل تسجيل القطع')",
+    changes: [
+      { type: "fix", text: "V21.9.141 ضافت rule لـ /pieces في firestore.rules، لكن الـ rules ما اتـ deploy-وش — لأن الـ deploy-firebase-rules workflow كان بـ يـ pass الـ FIREBASE_PROJECT_ID كـ env var لكن firebase-tools ما بـ يقرأها كده. النتيجة: الـ workflow كان بـ يـ run ويـ 'succeed' لكن في الواقع ما بـ يـ deploy لأي project. دلوقتي --project flag صراحةً + .firebaserc fallback (project: clarkfactorymanagement)." },
+    ],
+  },
+  {
     version: "V21.9.142",
     date: "2026-05-21",
     types: ["improvement"],
