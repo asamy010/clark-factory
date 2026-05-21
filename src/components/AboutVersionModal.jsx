@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.146",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "🔗 إشعارات بـ context — توجيه المستلم للأوردر/العميل/المورد/الفاتورة",
+    changes: [
+      { type: "feature", text: "الـ QuickPopup للإشعار دلوقتي فيه section '🔗 ربط بـ (اختياري)' — الـ sender يقدر يربط الإشعار بـ أوردر معين، عميل، مورد، أو فاتورة مبيعات. لما المستلم يضغط الـ link button في الـ notification chip، يتـ navigate تلقائياً للجهة المرتبطة (DetPg للأوردر، CustDeliverPg للعميل، إلخ)." },
+      { type: "improvement", text: "handleNotifLinkClick ضاف types جديدة: customer → CustDeliverPg، supplier → PurchasePg. (order → DetPg + treasury + invoice + workshop + hrWeek كانوا موجودين قبل كده)." },
+      { type: "fix", text: "قبل V21.9.146: إذا الـ sender أرسل إشعار من الـ QuickPopup، الـ notification ما كانش له link → الـ recipient ما يقدرش يـ navigate لأي مكان. كان بـ يفتقر للـ context entirely." },
+    ],
+  },
+  {
     version: "V21.9.145",
     date: "2026-05-21",
     types: ["improvement", "fix"],

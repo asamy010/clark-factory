@@ -528,6 +528,12 @@ export default function App(){
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
   /* V19.48: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
+  /* V21.9.146: optional link context for the notification — lets the sender
+     attach the notif to an order / customer / supplier / invoice so that the
+     recipient's click on the notif chip navigates them straight to the source.
+     "" = no link (notif is informational only, no navigation on click). */
+  const[qpLinkType,setQpLinkType]=useState("");/* ""|"order"|"customer"|"supplier"|"invoice" */
+  const[qpLinkId,setQpLinkId]=useState("");
   /* V19.48 HOTFIX: notifTick state must live BEFORE any early returns to keep hook order stable across renders */
   const[_notifTick,setNotifTick]=useState(0);
   /* V19.48: Toggle for the "all notifications" popup that opens when user clicks "+N more" chip */
@@ -5559,6 +5565,12 @@ export default function App(){
       navigate("external",{wsName:id});
     }else if(type==="hrWeek"){
       navigate("hr",{weekId:id});
+    }else if(type==="customer"){
+      /* V21.9.146: notification-attached customer → open CustDeliverPg + scroll to row */
+      navigate("custDeliver",{customerId:id});
+    }else if(type==="supplier"){
+      /* V21.9.146: notification-attached supplier → open PurchasePg + scroll to row */
+      navigate("purchase",{supplierId:id});
     }else{
       showToast("⚠️ نوع الوجهة غير مدعوم");
     }
@@ -6558,6 +6570,26 @@ export default function App(){
             <div><label style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700}}>⏱ مدة العرض</label><Sel value={qpDuration} onChange={setQpDuration}><option value="1h">🕐 ساعة</option><option value="2h">⏰ ساعتين</option><option value="1d">📅 يوم</option><option value="endday">🌅 آخر اليوم</option><option value="none">🔓 بدون حد</option></Sel></div>
           </div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرسالة</label><Inp value={qpText} onChange={setQpText} placeholder="اكتب الاشعار..."/></div>
+
+          {/* V21.9.146: Optional link context — recipient clicks the chip → jumps to the linked entity */}
+          <div style={{marginBottom:8,padding:"8px 10px",background:T.bg,borderRadius:8,border:"1px dashed "+T.brd}}>
+            <div style={{fontSize:FS-3,color:T.textMut,marginBottom:6,fontWeight:600}}>🔗 ربط بـ (اختياري) — للتوجيه التلقائي للمستلم</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:6}}>
+              <Sel value={qpLinkType} onChange={v=>{setQpLinkType(v);setQpLinkId("")}}>
+                <option value="">— بدون ربط —</option>
+                <option value="order">📋 أوردر</option>
+                <option value="customer">👤 عميل</option>
+                <option value="supplier">🏪 مورد</option>
+                <option value="invoice">🧾 فاتورة مبيعات</option>
+              </Sel>
+              {qpLinkType==="order"&&(()=>{const opts=(data.orders||[]).map(o=>({value:o.id,label:o.modelNo+" — "+(o.modelDesc||"")}));return<SearchSel value={qpLinkId} onChange={setQpLinkId} options={opts} placeholder="اختر أوردر..." showAllOnFocus maxResults={10}/>;})()}
+              {qpLinkType==="customer"&&(()=>{const opts=(data.customers||[]).filter(c=>!c.archived).map(c=>({value:c.id,label:c.name+(c.phone?" — "+c.phone:"")}));return<SearchSel value={qpLinkId} onChange={setQpLinkId} options={opts} placeholder="اختر عميل..." showAllOnFocus maxResults={10}/>;})()}
+              {qpLinkType==="supplier"&&(()=>{const opts=(data.suppliers||[]).map(s=>({value:s.id,label:s.name+(s.phone?" — "+s.phone:"")}));return<SearchSel value={qpLinkId} onChange={setQpLinkId} options={opts} placeholder="اختر مورد..." showAllOnFocus maxResults={10}/>;})()}
+              {qpLinkType==="invoice"&&(()=>{const opts=(data.salesInvoices||[]).slice(0,200).map(i=>({value:i.id,label:"#"+i.id+(i.custName?" — "+i.custName:"")}));return<SearchSel value={qpLinkId} onChange={setQpLinkId} options={opts} placeholder="اختر فاتورة..." showAllOnFocus maxResults={10}/>;})()}
+              {!qpLinkType&&<div style={{padding:"6px 10px",fontSize:FS-3,color:T.textMut,alignSelf:"center"}}>الإشعار بدون توجيه</div>}
+            </div>
+          </div>
+
           <Btn primary onClick={()=>{if(!qpText.trim())return;const to=qpTo||"all";const targetUser=targets.find(u=>u.email===to);
             /* V19.48: Compute expiresAt based on selected duration. */
             let expiresAt=null;
@@ -6567,8 +6599,25 @@ export default function App(){
             else if(qpDuration==="1d")expiresAt=new Date(now.getTime()+24*60*60*1000).toISOString();
             else if(qpDuration==="endday"){const eod=new Date(now);eod.setHours(23,59,59,999);expiresAt=eod.toISOString()}
             /* "none" → null = no expiry */
-            upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:qpText.trim(),type:qpType,fromName:me.name,fromEmail:me.email,createdAt:new Date().toISOString().split("T")[0],createdAtTs:new Date().toISOString(),expiresAt,endedAt:null,endedBy:null})});/* V19.53: readBy/dismissedBy moved to userNotifStates */
-            setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير");setQpDuration("2h");showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
+            /* V21.9.146: Compute link payload if the sender chose a context */
+            let link=null;
+            if(qpLinkType&&qpLinkId){
+              if(qpLinkType==="order"){
+                const o=(data.orders||[]).find(x=>x.id===qpLinkId);
+                if(o)link={type:"order",id:o.id,label:"الأوردر: "+(o.modelNo||"")+(o.modelDesc?" — "+o.modelDesc:"")};
+              } else if(qpLinkType==="customer"){
+                const c=(data.customers||[]).find(x=>x.id===qpLinkId);
+                if(c)link={type:"customer",id:c.id,label:"العميل: "+c.name};
+              } else if(qpLinkType==="supplier"){
+                const s=(data.suppliers||[]).find(x=>x.id===qpLinkId);
+                if(s)link={type:"supplier",id:s.id,label:"المورد: "+s.name};
+              } else if(qpLinkType==="invoice"){
+                const i=(data.salesInvoices||[]).find(x=>x.id===qpLinkId);
+                if(i)link={type:"invoice",id:i.id,subType:"sales",label:"فاتورة #"+i.id};
+              }
+            }
+            upConfig(d=>{if(!d.notifications)d.notifications=[];d.notifications.push({id:Date.now(),toEmail:to,toName:to==="all"?"الكل":targetUser?.name||to.split("@")[0],msg:qpText.trim(),type:qpType,fromName:me.name,fromEmail:me.email,createdAt:new Date().toISOString().split("T")[0],createdAtTs:new Date().toISOString(),expiresAt,endedAt:null,endedBy:null,...(link?{link}:{})})});/* V19.53: readBy/dismissedBy moved to userNotifStates */
+            setQuickPopup(null);setQpTo("");setQpText("");setQpType("تذكير");setQpDuration("2h");setQpLinkType("");setQpLinkId("");showToast("✓ تم ارسال الاشعار")}} style={{width:"100%",background:"#8B5CF6"}}>📩 ارسال الاشعار</Btn>
         </div>}
       </div>
     </div>})()}
