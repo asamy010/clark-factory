@@ -6036,18 +6036,19 @@ export default function App(){
             @keyframes chipPulse{0%,100%{opacity:1}50%{opacity:0.85}}
           `}</style>
 
-          {/* ═══ GREETING HEADER — V19.48: single-row guaranteed, chips shrink instead of wrapping ═══ */}
-          <div className="home-greet" style={{padding:isMob?"14px 16px":"18px 24px",borderRadius:16,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
+          {/* ═══ GREETING HEADER — V21.9.137: padding reduced (18→12 desktop, 14→10 mobile),
+              marginBottom 18→14. Notifications moved out of the greeting bar on DESKTOP —
+              they now render as a vertical stack beside the quick-action buttons (see below).
+              Mobile keeps the existing inline notifications since the bottom row layout
+              doesn't apply there. ═══ */}
+          <div className="home-greet" style={{padding:isMob?"10px 14px":"12px 20px",borderRadius:16,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"nowrap",gap:12,minWidth:0}}>
             <div style={{flexShrink:0,minWidth:0}}>
               <div style={{fontSize:isMob?FS+2:FS+6,fontWeight:800,color:T.text,lineHeight:1.2,whiteSpace:"nowrap"}}>{greetText}، {userName||"مستخدم"}</div>
               <div style={{fontSize:FS-1,color:T.textSec,marginTop:4,whiteSpace:"nowrap"}}>{dateStr}</div>
             </div>
             {/* V19.48: Chips compress (shrink) instead of wrapping when space gets tight.
-                - Outer container: nowrap + overflow:hidden (forces single row)
-                - Each chip: flex:1 1 auto with minWidth ~120-140 (chip can shrink as space dwindles)
-                - Chip's text span: flex:1, minWidth:0 (text truncates first via ellipsis)
-                - "+N more" button: flexShrink:0 (stays full size — most important to keep visible) */}
-            {subBarNotifs.length>0&&(()=>{
+                V21.9.137: Wrapped in `isMob` — desktop notifications relocated to bottom row. */}
+            {subBarNotifs.length>0&&isMob&&(()=>{
               const visibleCount=isMob?1:2;
               const visible=subBarNotifs.slice(0,visibleCount);
               const hiddenCount=subBarNotifs.length-visible.length;
@@ -6079,56 +6080,77 @@ export default function App(){
               V21.9.136: sidebar widened 300→420px to host the tasks side-by-side
               with notes/activity (was stacked vertically in V21.9.134). */}
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"1fr 420px",gap:18,alignItems:"flex-start",maxWidth:1400,margin:"0 auto"}}>
-            {/* ═══ LEFT: Tabs Grid (SVG icons) ═══ */}
-            <div>
-              {/* V19.48: Tile width capped to ~130px (was filling the column = ~160-180px),
-                  giving a more compact dashboard. Gap (24), aspect-ratio (1), inner padding,
-                  and icon size (44×44, SVG 22×22) all preserved as requested.
-                  justifyContent:"center" centers the grid since it no longer fills the column.
-                  V21.9.135: Tile width 130→91 (~30% smaller per user request). Icon box (44×44),
-                  SVG (22×22), and gap (24) preserved verbatim — only the white card shrinks
-                  around them. Padding tightened 10/8 → 6/5 so the (icon + label) content keeps
-                  fitting inside the smaller aspectRatio:1 square. */}
-              <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 91px))":"repeat(6, minmax(0, 91px))",gap:24,justifyContent:"center"}}>
-                {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
-                  return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"6px 5px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
-                    <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
-                      <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
-                    </div>
-                    {/* V21.9.136: label nowrap + smaller font (was wrapping to 2 lines
-                        after V21.9.135 shrunk the tile to 91px). Width 100% lets the
-                        ellipsis trim labels that are still too long (e.g. very long
-                        Arabic labels) instead of bleeding outside the tile. */}
-                    <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
-                    {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
-                  </div>})}
-              </div>
+            {/* ═══ LEFT: Tabs Grid (SVG icons) ═══
+                V21.9.137: Tile grid + bottom row wrapped in an inline-block centered
+                container. This makes the action buttons start at the EXACT same X
+                coordinate as the leftmost tile (per user request). Previously the
+                grid was centered via justifyContent but the buttons were left-aligned
+                in the 1fr column, so their start points were misaligned.
 
-              {/* Quick Action Buttons */}
-              <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
-                <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة جديدة</span>
-                </div>
-                <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF615"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF608"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>إرسال اشعار</span>
-                </div>
-                <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
-                </div>
-                {/* V19.81.0: Pieces lookup quick action */}
-                {canViewTab("pieces")&&<div onClick={()=>goTo("pieces")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E915"} onMouseLeave={e=>e.currentTarget.style.background="#0EA5E908"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><rect x="7" y="7" width="2.5" height="2.5"/><rect x="12.5" y="7" width="2.5" height="2.5"/><rect x="7" y="12.5" width="2.5" height="2.5"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#0EA5E9"}}>🔍 تتبع القطع</span>
-                </div>}
-                {/* V19.68: Automation quick action — gated by canViewTab */}
-                {canViewTab("automation")&&<div onClick={()=>goTo("automation")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E925",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#0EA5E915"} onMouseLeave={e=>e.currentTarget.style.background="#0EA5E908"}>
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
-                  <span style={{fontSize:FS-1,fontWeight:700,color:"#0EA5E9"}}>🤖 Automation</span>
-                </div>}
-              </div>
+                Removed 2 buttons (تتبع القطع + Automation) per user request — they live
+                in the tab grid already, so the redundant quick actions added noise.
+
+                Added vertical notification panel BESIDE the buttons in the leftover
+                space (only renders when subBarNotifs.length > 0). */}
+            <div>
+              <div style={{textAlign:"center"}}>
+                <div style={{display:"inline-block",textAlign:"start"}}>
+
+                  {/* Tile grid — justifyContent:"center" removed (no longer needed,
+                      the inline-block wrapper handles centering) */}
+                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 91px))":"repeat(6, minmax(0, 91px))",gap:24}}>
+                    {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
+                      return<div key={t.key} onClick={()=>goTo(t.key)} className="home-tile" style={{background:T.cardSolid,borderRadius:11,padding:"6px 5px",border:"1px solid "+T.brd,textAlign:"center",opacity:perm==="view"?0.75:1,position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,aspectRatio:"1"}}>
+                        <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
+                          <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
+                        </div>
+                        <div style={{fontSize:FS-3,fontWeight:800,color:T.text,lineHeight:1.15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",width:"100%",maxWidth:"100%"}} title={t.label}>{t.label}</div>
+                        {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
+                      </div>})}
+                  </div>
+
+                  {/* ─── BOTTOM ROW — Quick action buttons (right in RTL) +
+                      vertical notification stack (left in RTL, takes leftover space) ─── */}
+                  <div style={{display:"flex",gap:14,marginTop:18,alignItems:"flex-start"}}>
+
+                    {/* Quick Action Buttons — only 3 now (removed: تتبع القطع + Automation) */}
+                    <div style={{display:"flex",gap:10,flexWrap:"wrap",flexShrink:0}}>
+                      <div onClick={()=>setQuickPopup("task")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=T.accent+"15"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"08"}>
+                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>مهمة جديدة</span>
+                      </div>
+                      <div onClick={()=>setQuickPopup("notif")} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF625",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF615"} onMouseLeave={e=>e.currentTarget.style.background="#8B5CF608"}>
+                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <span style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6"}}>إرسال اشعار</span>
+                      </div>
+                      <div onClick={()=>setBarcodePopup({mode:"manual",modelId:"",size:"",qty:1,serial:1})} style={{cursor:"pointer",padding:"10px 18px",borderRadius:10,background:"#F59E0B08",border:"1px solid #F59E0B25",display:"flex",alignItems:"center",gap:8,transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#F59E0B15"} onMouseLeave={e=>e.currentTarget.style.background="#F59E0B08"}>
+                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="7" y1="7" x2="7" y2="17"/><line x1="11" y1="7" x2="11" y2="17"/><line x1="15" y1="7" x2="15" y2="17"/><line x1="17" y1="7" x2="17" y2="17"/></svg>
+                        <span style={{fontSize:FS-1,fontWeight:700,color:"#F59E0B"}}>طباعة QR</span>
+                      </div>
+                    </div>
+
+                    {/* Vertical notification stack — only renders when there are notifications.
+                        Takes the leftover space in the row via flex:1. Each notif chip is a
+                        full-width compact row with icon + message + meta + dismiss controls. */}
+                    {subBarNotifs.length>0&&<div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflowY:"auto"}}>
+                      {subBarNotifs.map(n=>{const st=NOTIF_STYLE[n.type]||NOTIF_STYLE["تذكير"];const remain=formatRemaining(n);
+                        const canEnd=userRole==="admin"||n.fromEmail===userEmail;
+                        const hasLink=!!n.link;
+                        return<div key={n.id} onClick={hasLink?()=>handleNotifLinkClick(n):undefined} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:st.bg,border:"1.5px solid "+st.border,color:st.text,fontSize:FS,fontWeight:700,cursor:hasLink?"pointer":"default",transition:"transform 0.15s",minHeight:38}} onMouseEnter={hasLink?(e)=>{e.currentTarget.style.transform="scale(1.01)"}:undefined} onMouseLeave={hasLink?(e)=>{e.currentTarget.style.transform="scale(1)"}:undefined} title={n.msg+(n.fromName?" • من: "+n.fromName:"")+(remain?" • متبقي: "+remain:"")+(hasLink?" • اضغط للذهاب لـ"+(n.link.label||""):"")}>
+                          <span style={{fontSize:FS+2,lineHeight:1,flexShrink:0}}>{st.icon}</span>
+                          <span style={{lineHeight:1.3,flex:"1 1 auto",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</span>
+                          {hasLink&&<span style={{fontSize:FS-2,padding:"1px 7px",borderRadius:5,background:"rgba(255,255,255,0.55)",border:"1px solid "+st.text+"40",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>🔗 {n.link.label||"فتح"}</span>}
+                          {n.fromName&&<span style={{fontSize:FS-2,opacity:0.7,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>— {n.fromName}</span>}
+                          {remain&&<span style={{fontSize:FS-3,opacity:0.7,padding:"0 5px",borderInlineStart:"1px solid "+st.text+"40",flexShrink:0,whiteSpace:"nowrap"}}>⏰ {remain}</span>}
+                          {canEnd&&<span onClick={(e)=>{e.stopPropagation();endNotif(n.id);showToast("⏹ تم إنهاء الإشعار للجميع")}} title="إنهاء (للجميع)" style={{cursor:"pointer",padding:"1px 7px",borderRadius:5,background:"rgba(255,255,255,0.65)",border:"1px solid "+st.text+"50",fontSize:FS-2,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>⏹</span>}
+                          <span onClick={(e)=>{e.stopPropagation();markRead(n.id)}} title="إخفاء عندي" style={{cursor:"pointer",opacity:0.55,padding:"0 3px",fontSize:FS-1,flexShrink:0}}>✕</span>
+                        </div>;
+                      })}
+                    </div>}
+                  </div>{/* /BOTTOM ROW */}
+
+                </div>{/* /inline-block wrapper */}
+              </div>{/* /center wrapper */}
 
               {/* Odoo Quick Links — V18.46: gated by config.odooEnabled */}
               {(data.odooEnabled !== false) && (()=>{
