@@ -81,6 +81,9 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
   const [phone, setPhone] = useState("");
   const [types, setTypes] = useState([]);
   const [workshopSubType, setWorkshopSubType] = useState("");
+  /* V21.9.131: customer type (مكتب/محل/...) — same options as CustDeliverPg edit form.
+     Default "مكتب" matches the pre-V21.9.131 hardcoded behavior in createContact(). */
+  const [customerType, setCustomerType] = useState("مكتب");
   const [tags, setTags] = useState([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -137,6 +140,7 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
         phone: phone.trim(),
         types,
         workshopSubType,
+        customerType,  /* V21.9.131 */
         tags,
         notes: notes.trim(),
       });
@@ -269,6 +273,22 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
             })}
           </div>
         </div>
+
+        {/* V21.9.131: customer-type dropdown — mirrors CustDeliverPg edit form
+            (مكتب / محل / أونلاين / أخرى). Optional — defaults to "مكتب". */}
+        {types.includes("customer") && (
+          <div style={{marginBottom: 12, padding: "10px 12px", background: "#3B82F608", borderRadius: 10, border: "1px solid #3B82F625"}}>
+            <label style={{fontSize: FS-2, color: T.textSec, fontWeight: 600, display:"block", marginBottom: 6}}>
+              نوع العميل
+            </label>
+            <Sel value={customerType} onChange={setCustomerType}>
+              <option value="مكتب">🏢 مكتب</option>
+              <option value="محل">🏪 محل</option>
+              <option value="أونلاين">🌐 أونلاين</option>
+              <option value="أخرى">📦 أخرى</option>
+            </Sel>
+          </div>
+        )}
 
         {types.includes("workshop") && (
           <div style={{marginBottom: 12, padding: "10px 12px", background: "#8B5CF608", borderRadius: 10, border: "1px solid #8B5CF625"}}>

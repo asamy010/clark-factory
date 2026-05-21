@@ -185,12 +185,17 @@ export function createContact(form, data, user){
   };
 
   if(types.includes("customer")){
+    /* V21.9.131: customer type honors form.customerType (مكتب/محل/أونلاين/أخرى).
+       Falls back to "مكتب" for backward compatibility (pre-V21.9.131 callers). */
+    const custType = (form && typeof form.customerType === "string" && form.customerType.trim())
+                       ? form.customerType.trim()
+                       : "مكتب";
     appendEntity("customers", () => ({
       id: "cust_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
       name: trimmedName,
       phone: phoneCanon,
       address: "",
-      type: "مكتب",
+      type: custType,
       discount: 0,
       archived: false,
       tags: tagsClean.slice(),

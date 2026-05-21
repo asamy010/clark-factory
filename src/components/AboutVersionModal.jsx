@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.131",
+    date: "2026-05-20",
+    types: ["improvement"],
+    title: "👥 Phase 25a — Customer Type Dropdown في ContactsPg",
+    changes: [
+      { type: "improvement", text: "👥 [User-requested: لما تنشئ جهة من ContactsPg واختار 'عميل'، لازم قائمة نوع العميل (مكتب/محل/أونلاين/أخرى) تظهر — زي شاشة CustDeliverPg بالظبط.]\n\n**ما تم:**\n• `ContactCreateModal` في ContactsPg دلوقتي بـ يـ render dropdown شرطي 'نوع العميل' لما الـ types includes 'customer'\n• 4 options: 🏢 مكتب، 🏪 محل، 🌐 أونلاين، 📦 أخرى — مطابقة لـ CustDeliverPg edit form\n• Default = 'مكتب' (نفس الـ pre-V21.9.131 hardcoded behavior)\n• الـ UI box بـ accent blue (مطابق لـ نمط customer chip)\n\n**في الـ utility:**\n• `createContact()` في `src/utils/contacts.js` بـ يـ accept الـ `form.customerType` field\n• لو الـ caller مش بـ يـ pass-ها → fallback لـ 'مكتب' (backward-compatible)\n\n**ما لم يتغير (intentional):**\n• الـ `linkExistingContact()` flow — الـ entity موجود بالفعل بـ type-ه الـ صحيح، مفيش hardcoding\n• الـ `addTypeToContact()` flow — حالياً بـ يـ create customer بـ 'مكتب' default. لو محتاج dropdown هنا كمان → ship منفصل\n\n**Surface:**\n• ملفين: ContactsPg.jsx + contacts.js\n• ~20 سطر تغيير\n• Zero risk على الـ existing contacts (الـ existing customers لا تتأثر)\n\n**Pending requests من نفس الـ batch (سيـ ship منفصل):**\n• Campaigns audience = جهات الاتصال كاملة (مش بس عملاء) — V21.9.132\n• Campaigns filter بـ tags + contact type — V21.9.132" },
+    ],
+  },
+  {
     version: "V21.9.130",
     date: "2026-05-20",
     types: ["fix"],
