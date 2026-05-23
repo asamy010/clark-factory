@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.160",
+    date: "2026-05-23",
+    types: ["fix"],
+    title: "🔙 إصلاح زر الباك على الموبيل — Browser history integration",
+    changes: [
+      { type: "fix", text: "قبل V21.9.160: لما الـ user يضغط زر الباك على الموبيل وهو داخل أي صفحة، الـ app كان بـ يخرج للهوم ويعمل reload (لأن الـ tab state مش متربط بالـ browser history). دلوقتي: كل تغيير في الـ tab أو الـ sel بـ يـ push entry جديد في history.pushState، والـ popstate listener بـ يـ restore الـ tab من history.state. النتيجة: زر الباك يـ navigate بـ شكل طبيعي بين الصفحات الـ visited بدون reload. الباك من شاشة الـ home بـ يـ exit الـ PWA (default browser behavior)." },
+    ],
+  },
+  {
     version: "V21.9.159",
     date: "2026-05-23",
     types: ["feature", "fix"],

@@ -485,6 +485,73 @@ export default function App(){
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
   /* Cross-page tab navigation via custom event (used by WarehousePg to open stock tab) */
   useEffect(()=>{const h=(e)=>{if(e?.detail)setTab(e.detail)};window.addEventListener("goto-tab",h);return()=>window.removeEventListener("goto-tab",h)},[]);
+
+  /* ═══════════════════════════════════════════════════════════
+     V21.9.160 — Browser back-button support
+     ───────────────────────────────────────────────────────────
+     Pre-V21.9.160: pressing the device/browser back button on mobile would
+     either reload the app (PWA) or exit it entirely, because the `tab` state
+     wasn't tracked in the browser's history stack. The user expected normal
+     back behavior (go to previous section, not exit).
+
+     Fix: every user-initiated tab change pushes a new history entry tagged
+     with `clarkTab`. The popstate listener catches back/forward and syncs
+     the tab state from the history entry. The internal `_tabFromPopstate`
+     flag prevents the next-frame `useEffect` from pushing a duplicate
+     entry (would cause forward to be unreachable).
+
+     Edge cases handled:
+     - Initial mount: replaceState so the FIRST entry has clarkTab. Otherwise
+       pressing back from the very first tab would lose context.
+     - Back from "home" with no prior history: handler returns early →
+       browser does its default (exit PWA or go to about:blank).
+     ═══════════════════════════════════════════════════════════ */
+  const _tabFromPopstate = useRef(false);
+  /* On first mount: stamp the initial history entry with the current tab. */
+  useEffect(() => {
+    try {
+      const existing = window.history.state || {};
+      window.history.replaceState({ ...existing, clarkTab: tab, clarkSel: sel }, "", window.location.pathname + window.location.search);
+    } catch(_) {}
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
+  /* On subsequent tab changes (user clicks a tab / sub-view / FAB action),
+     push a new history entry so back can return here. */
+  useEffect(() => {
+    if (_tabFromPopstate.current) {
+      _tabFromPopstate.current = false;
+      return;
+    }
+    try {
+      const current = window.history.state || {};
+      if (current.clarkTab === tab && current.clarkSel === sel) return;
+      window.history.pushState({ clarkTab: tab, clarkSel: sel }, "", window.location.pathname + window.location.search);
+    } catch(_) {}
+  }, [tab, sel]);
+  /* Popstate listener — back/forward button. Restores tab from history state. */
+  useEffect(() => {
+    const onPop = (e) => {
+      const s = e?.state;
+      /* No clarkTab in state → user navigated before our history entries (e.g.
+         deep-link from an external URL). Don't fight the browser — let it do
+         its default. */
+      if (!s || typeof s.clarkTab !== "string") return;
+      if (s.clarkTab !== tab || s.clarkSel !== sel) {
+        _tabFromPopstate.current = true;
+        setTab_(s.clarkTab);
+        sessionStorage.setItem("clark_tab", s.clarkTab);
+        if (s.clarkSel) {
+          setSel_(s.clarkSel);
+          sessionStorage.setItem("clark_sel", s.clarkSel);
+        } else {
+          setSel_(null);
+          sessionStorage.removeItem("clark_sel");
+        }
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [tab, sel]);
   const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);const[showAboutVersion,setShowAboutVersion]=useState(false);
   /* V17.1 FIX #12+#15: Migration status — blocks UI while a migration is running.
      Without this, users could add data during migration and the data would be lost
