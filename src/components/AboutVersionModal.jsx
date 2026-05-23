@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.162",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "⚡ Quick Treasury Modal — full fields بـ category picker + auto party linking",
+    changes: [
+      { type: "improvement", text: "إعادة تصميم الـ modal بـ نفس fields الـ TreasuryPg الطبيعية: النوع → المبلغ → نوع الحركة (SearchSel قابل للبحث) → الجهة (conditional حسب الـ category: عميل/مورد/موظف/ورشة) → التاريخ → الخزنة → ملاحظة. الـ SearchSel يـ filter حسب اللي بتكتبه. التاريخ default = اليوم لكن قابل للتعديل. تم إخفاء preview الرصيد الحالي زي ما طلبت." },
+      { type: "improvement", text: "Auto party linking — لما تختار 'دفعة عميل' بـ in: يفتح customer picker + يـ create custPayment auto. 'دفعة مورد' أو 'مشتريات' بـ out: supplier picker + supplierPayment. 'مرتبات' بـ out: employee picker + hrLog advance entry. 'تشغيل خارجي' بـ out: workshop picker + wsPayment. نفس تماماً للـ saveTx() في TreasuryPg — الـ party balance بـ يـ update فوراً." },
+    ],
+  },
+  {
     version: "V21.9.161",
     date: "2026-05-23",
     types: ["improvement"],
