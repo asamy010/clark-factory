@@ -473,43 +473,104 @@ export function WorkshopPortalPage({ params }) {
                     })}
                   </div>}
 
-                  {/* Receive equations (مبلغ التشغيل per receive batch).
-                      V21.9.165: each line now shows piece type (garment) as a
-                      label-pill at the start, and the date was removed per
-                      customer feedback (date is redundant — visible in the
-                      events log table above). Layout: [piece pill] price × qty = value */}
-                  {m.receives.length > 0 && <div style={{ marginTop: 8, padding: "9px 12px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 10, border: "1px solid #05966930" }}>
-                    <div style={{ fontSize: 11, color: "#065F46", fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>💰 مبلغ التشغيل</div>
-                    {m.receives.map((r, j) => <div key={j} style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      padding: "3px 0",
-                      flexWrap: "wrap",
-                    }}>
-                      {/* Piece (garment type) label — only when present */}
-                      {r.piece && <span style={{
-                        padding: "2px 8px",
-                        background: "#fff",
-                        color: "#065F46",
-                        borderRadius: 6,
-                        fontSize: 10,
-                        fontWeight: 800,
-                        border: "1px solid #05966940",
-                        whiteSpace: "nowrap",
-                        maxWidth: 120,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}>{r.piece}</span>}
-                      <span style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", whiteSpace: "nowrap" }}>
-                        {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "'Cairo', sans-serif" }}>ج.م</span>
-                      </span>
-                    </div>)}
-                    {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 6, paddingTop: 6, direction: "ltr", textAlign: "center", fontSize: 14, fontWeight: 800, color: "#065F46" }}>
-                      المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
-                    </div>}
-                  </div>}
+                  {/* Receive equations (مبلغ التشغيل) — V21.9.166: aggregated
+                      by piece (garment type). Customer feedback: "عاوز يعمل
+                      تجميع لنفس نوع القطعة — يعني استلمت القميص على 3 مرات،
+                      عاوز السطر الإجمالي لكل القميص مش 3 سطور".
+
+                      Math correctness (per "راجع المعادلات صح والحسابات تكون صح"):
+                      • Same piece + same price → simple equation:  total_qty × price = total_value
+                      • Same piece + DIFFERENT prices → expanded sum so the math
+                        stays exact:  (q1 × p1) + (q2 × p2) = total_value
+                        (we never lie with a fake "avg price × total_qty" that
+                         wouldn't equal total_value to the cent)
+                      • Each piece group is ONE row; multi-price case stays on a
+                        single row by expanding the addends inline. */}
+                  {m.receives.length > 0 && (() => {
+                    /* Group receives by piece, then sub-group by price for the
+                       multi-price expansion. Empty piece → "غير محدد" bucket. */
+                    const byPiece = new Map();
+                    m.receives.forEach(r => {
+                      const key = r.piece || "غير محدد";
+                      if (!byPiece.has(key)) byPiece.set(key, { piece: key, totalQty: 0, totalValue: 0, byPrice: new Map() });
+                      const g = byPiece.get(key);
+                      g.totalQty += (Number(r.qty) || 0);
+                      g.totalValue += (Number(r.value) || 0);
+                      const pk = String(Number(r.price) || 0);
+                      if (!g.byPrice.has(pk)) g.byPrice.set(pk, { price: Number(r.price) || 0, qty: 0, value: 0 });
+                      const pg = g.byPrice.get(pk);
+                      pg.qty += (Number(r.qty) || 0);
+                      pg.value += (Number(r.value) || 0);
+                    });
+                    /* Stable sort: largest total value first (most important first) */
+                    const groups = Array.from(byPiece.values()).sort((a, b) => b.totalValue - a.totalValue);
+                    /* Round totalValue to 2dp for clean display (avoids 12239.999...) */
+                    groups.forEach(g => { g.totalValue = Math.round(g.totalValue * 100) / 100; });
+
+                    return (
+                      <div style={{ marginTop: 8, padding: "9px 12px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 10, border: "1px solid #05966930" }}>
+                        <div style={{ fontSize: 11, color: "#065F46", fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>💰 مبلغ التشغيل</div>
+                        {groups.map((g, j) => {
+                          const prices = Array.from(g.byPrice.values());
+                          const singlePrice = prices.length === 1;
+                          return (
+                            <div key={j} style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 8,
+                              padding: "4px 0",
+                              flexWrap: "wrap",
+                              borderTop: j > 0 ? "1px dashed #05966920" : "none",
+                            }}>
+                              {/* Piece (garment type) label */}
+                              <span style={{
+                                padding: "2px 8px",
+                                background: "#fff",
+                                color: "#065F46",
+                                borderRadius: 6,
+                                fontSize: 10,
+                                fontWeight: 800,
+                                border: "1px solid #05966940",
+                                whiteSpace: "nowrap",
+                                maxWidth: 120,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                flexShrink: 0,
+                              }}>{g.piece}</span>
+                              {/* Equation */}
+                              {singlePrice ? (
+                                /* Clean case: total_qty × price = total_value */
+                                <span style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", whiteSpace: "nowrap" }}>
+                                  {fmt(g.totalQty)} × {fmt(prices[0].price)} = {fmt(g.totalValue)} <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "'Cairo', sans-serif" }}>ج.م</span>
+                                </span>
+                              ) : (
+                                /* Multi-price case: expanded sum keeps math exact.
+                                   (q1 × p1) + (q2 × p2) + ... = total_value */
+                                <span style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", display: "inline-flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                                  {prices.map((p, k) => <span key={k} style={{ whiteSpace: "nowrap" }}>
+                                    {k > 0 && <span style={{ color: "#10B981", marginInlineEnd: 4 }}>+</span>}
+                                    ({fmt(p.qty)} × {fmt(p.price)})
+                                  </span>)}
+                                  <span style={{ whiteSpace: "nowrap" }}>= {fmt(g.totalValue)} <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "'Cairo', sans-serif" }}>ج.م</span></span>
+                                </span>
+                              )}
+                              {/* Pieces count footer (always shown for clarity) */}
+                              <span style={{
+                                fontSize: 9,
+                                color: "#94A3B8",
+                                fontWeight: 700,
+                                whiteSpace: "nowrap",
+                              }}>{fmt(g.totalQty)} قطعة</span>
+                            </div>
+                          );
+                        })}
+                        {groups.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 6, paddingTop: 6, direction: "ltr", textAlign: "center", fontSize: 14, fontWeight: 800, color: "#065F46" }}>
+                          المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
+                        </div>}
+                      </div>
+                    );
+                  })()}
                 </div>}
               </div>;
             })

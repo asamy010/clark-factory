@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.166",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "🧮 Workshop Portal — تجميع مبلغ التشغيل لكل نوع قطعة (سطر واحد per piece)",
+    changes: [
+      { type: "improvement", text: "في مبلغ التشغيل: كل receives لـ نفس نوع القطعة دلوقتي بـ تتـ aggregate في سطر واحد. لو استلمت قميص على 3 مرات، بـ تشوف سطر قميص واحد بـ الإجمالي بدل 3 سطور. الـ grouping بـ يحصل بـ piece (garment type)، والـ groups بـ تتـ sort بـ totalValue desc (الأكتر قيمة الأول)." },
+      { type: "improvement", text: "Math correctness — صيغتين معتمدين على البيانات:\n• نفس piece + نفس price → معادلة بسيطة:  `total_qty × price = total_value`  مثال: 50 × 408 = 20,400 ج.م\n• نفس piece + prices مختلفة → expanded sum محافظ على دقة الحساب 100%:  `(q1 × p1) + (q2 × p2) = total_value`  مثال: (15 × 30) + (8 × 35) = 730 ج.م\n\nالـ multi-price case ما بـ يـ fake 'average price × total_qty' (اللي مش هـ يـ equal الـ total_value الحقيقي بسبب الـ weighted-avg drift). الـ expanded form بـ يضمن إن المعادلة تساوي الـ total بالضبط للقرش." },
+      { type: "improvement", text: "كل سطر group فيه: [piece pill] [equation] + footer رمادي صغير بـ '<total_qty> قطعة'. المجموع الإجمالي للكارت لسه ظاهر تحت لو فيه أكتر من piece group واحد. الـ receives بـ piece فاضي (legacy data) بـ تتـ aggregate تحت bucket 'غير محدد'. الـ dashed dividers بين الـ groups علشان visual clarity." },
+    ],
+  },
+  {
     version: "V21.9.165",
     date: "2026-05-23",
     types: ["fix", "improvement"],
