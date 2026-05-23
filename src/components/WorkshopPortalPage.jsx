@@ -283,6 +283,115 @@ export function WorkshopPortalPage({ params }) {
                     </span>
                     <span style={{ color: wsBalance > 0 ? "#8B5CF6" : "#64748B" }}><b>📦 رصيد بالورشة {wsBalance}</b></span>
                   </div>
+                  {/* V21.9.163: Chronological events log per model — each row shows
+                      date, action (تسليم/استلام), نوع القطعة specific to that row,
+                      qty (signed), and running balance. Lets the user trace exactly
+                      how the model balance evolved over time. */}
+                  {(m.deliveries.length + m.receives.length) > 0 && (() => {
+                    /* Merge + sort chronologically (ascending). Stable secondary sort
+                       on action: deliveries-before-receives on the same day, since
+                       a same-day delivery+receive must logically happen in that order. */
+                    const events = [];
+                    m.deliveries.forEach(d => events.push({
+                      date: d.date || "",
+                      action: "delivery",
+                      piece: d.piece || "",
+                      qty: Number(d.qty) || 0,
+                    }));
+                    m.receives.forEach(r => events.push({
+                      date: r.date || "",
+                      action: "receive",
+                      piece: r.piece || "",
+                      qty: Number(r.qty) || 0,
+                      price: Number(r.price) || 0,
+                      value: Number(r.value) || 0,
+                    }));
+                    events.sort((a, b) => {
+                      const cmp = (a.date || "").localeCompare(b.date || "");
+                      if (cmp !== 0) return cmp;
+                      /* same date → delivery first (added to ws), then receive (taken out) */
+                      if (a.action === b.action) return 0;
+                      return a.action === "delivery" ? -1 : 1;
+                    });
+                    /* Compute running balance (qty in workshop): +delivery, -receive */
+                    let running = 0;
+                    events.forEach(e => {
+                      if (e.action === "delivery") running += e.qty;
+                      else running -= e.qty;
+                      e.balance = running;
+                    });
+
+                    return (
+                      <div style={{ marginTop: 4, padding: "8px 10px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+                        <div style={{ fontSize: 10, color: "#475569", fontWeight: 700, marginBottom: 6 }}>📋 سجل العمليات ({events.length})</div>
+                        {/* Header row */}
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(60px, 0.8fr) 0.6fr minmax(70px, 1fr) 0.5fr 0.5fr",
+                          gap: 4,
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: "#94A3B8",
+                          padding: "4px 6px",
+                          borderBottom: "1px solid #E2E8F0",
+                          textAlign: "center",
+                        }}>
+                          <div>التاريخ</div>
+                          <div>الحركة</div>
+                          <div>نوع القطعة</div>
+                          <div>العدد</div>
+                          <div>الرصيد</div>
+                        </div>
+                        {/* Data rows */}
+                        {events.map((e, j) => {
+                          const isDel = e.action === "delivery";
+                          return (
+                            <div key={j} style={{
+                              display: "grid",
+                              gridTemplateColumns: "minmax(60px, 0.8fr) 0.6fr minmax(70px, 1fr) 0.5fr 0.5fr",
+                              gap: 4,
+                              fontSize: 10,
+                              padding: "4px 6px",
+                              borderBottom: j < events.length - 1 ? "1px solid #F1F5F9" : "none",
+                              alignItems: "center",
+                              textAlign: "center",
+                            }}>
+                              <div style={{ color: "#64748B", fontWeight: 600, direction: "ltr" }}>{fmtDate(e.date)}</div>
+                              <div style={{
+                                color: isDel ? "#0EA5E9" : "#059669",
+                                fontWeight: 700,
+                              }}>
+                                {isDel ? "📥 تسليم" : "📤 استلام"}
+                              </div>
+                              <div style={{
+                                color: "#475569",
+                                fontWeight: 600,
+                                background: "#fff",
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                border: "1px solid #E2E8F0",
+                                fontSize: 9,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}>{e.piece || "—"}</div>
+                              <div style={{
+                                color: isDel ? "#0EA5E9" : "#059669",
+                                fontWeight: 800,
+                                direction: "ltr",
+                              }}>{isDel ? "+" : "−"}{fmt(e.qty)}</div>
+                              <div style={{
+                                color: e.balance > 0 ? "#8B5CF6" : e.balance < 0 ? "#DC2626" : "#64748B",
+                                fontWeight: 800,
+                                direction: "ltr",
+                              }}>{fmt(e.balance)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
                   {/* Receive equations (مبلغ التشغيل per receive batch) */}
                   {m.receives.length > 0 && <div style={{ marginTop: 4, padding: "7px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940" }}>
                     <div style={{ fontSize: 10, color: "#065F46", fontWeight: 700, marginBottom: 4 }}>💰 مبلغ التشغيل</div>

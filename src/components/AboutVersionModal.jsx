@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.163",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "📋 Workshop Portal — سجل عمليات chronological لكل موديل (نوع القطعة + العدد + الرصيد)",
+    changes: [
+      { type: "improvement", text: "في كشف حساب الورشة (لينك public) → تاب سجل التسليم والاستلام: كل كارت موديل دلوقتي بـ يعرض جدول chronological بـ 5 أعمدة لكل عملية: التاريخ | الحركة (تسليم 🔵 / استلام 🟢) | نوع القطعة | العدد (+N للتسليم / −N للاستلام) | الرصيد المتراكم (بنفسجي للموجب / أحمر للسالب). الـ events بـ تتـ sort بـ التاريخ + (deliveries قبل receives في نفس اليوم) عشان الـ running balance يطلع صحيح. كل سطر بـ يـ show نوع القطعة الـ specific للعملية دي (مش الـ aggregated) — العميل دلوقتي يقدر يتـ track العمليات قطعة قطعة." },
+      { type: "improvement", text: "الـ Receive equations الـ existing لسه موجودة تحت الـ events log بـ يـ show الـ price × qty calculations لكل receive. الـ events log جاية كـ extra context قبل المعادلات — مش بـ تـ replace أي شيء existing." },
+    ],
+  },
+  {
     version: "V21.9.162",
     date: "2026-05-23",
     types: ["improvement"],
