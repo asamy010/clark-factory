@@ -256,154 +256,235 @@ export function WorkshopPortalPage({ params }) {
               /* V18.6: Last delivery / receive dates for inline display */
               const lastDelDate = m.deliveries.length ? [...m.deliveries].sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0].date : "";
               const lastRecDate = m.receives.length ? [...m.receives].sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0].date : "";
-              return <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)", display: "flex", gap: 14, alignItems: "stretch", minHeight: 130 }}>
-                {/* Thumbnail — bigger to match taller card */}
-                <div style={{ width: 100, minWidth: 100, borderRadius: 10, overflow: "hidden", background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {m.image ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ fontSize: 28, opacity: 0.3 }}>📦</span>}
-                </div>
-                {/* Data */}
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-                  {/* Model number ABOVE description (V18.6: explicit text-align right) */}
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0EA5E9", direction: "ltr", textAlign: "right" }}>{m.modelNo}</div>
-                  {m.modelDesc && <div style={{ fontSize: 13, color: "#1E293B", fontWeight: 600 }}>{m.modelDesc}</div>}
-                  {/* Piece type as text */}
-                  {m.pieces.length > 0 && <div style={{ fontSize: 11, color: "#475569", display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                    <span style={{ color: "#64748B", fontWeight: 600 }}>نوع القطعة:</span>
-                    {m.pieces.map((p, j) => <span key={j} style={{ padding: "1px 8px", background: "#F1F5F9", borderRadius: 4, fontWeight: 700, color: "#475569" }}>{p}</span>)}
-                  </div>}
-                  {/* V18.6: Summary line with inline dates */}
-                  <div style={{ display: "flex", gap: 10, fontSize: 11, marginTop: 2, flexWrap: "wrap", alignItems: "center" }}>
-                    <span style={{ color: "#0EA5E9", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                      <b>📥 تسليم {m.delQty}</b>
-                      {lastDelDate && <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>({fmtDate(lastDelDate)})</span>}
-                    </span>
-                    <span style={{ color: "#059669", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                      <b>📤 استلام {m.recQty}</b>
-                      {lastRecDate && <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>({fmtDate(lastRecDate)})</span>}
-                    </span>
-                    <span style={{ color: wsBalance > 0 ? "#8B5CF6" : "#64748B" }}><b>📦 رصيد بالورشة {wsBalance}</b></span>
-                  </div>
-                  {/* V21.9.163: Chronological events log per model — each row shows
-                      date, action (تسليم/استلام), نوع القطعة specific to that row,
-                      qty (signed), and running balance. Lets the user trace exactly
-                      how the model balance evolved over time. */}
-                  {(m.deliveries.length + m.receives.length) > 0 && (() => {
-                    /* Merge + sort chronologically (ascending). Stable secondary sort
-                       on action: deliveries-before-receives on the same day, since
-                       a same-day delivery+receive must logically happen in that order. */
-                    const events = [];
-                    m.deliveries.forEach(d => events.push({
-                      date: d.date || "",
-                      action: "delivery",
-                      piece: d.piece || "",
-                      qty: Number(d.qty) || 0,
-                    }));
-                    m.receives.forEach(r => events.push({
-                      date: r.date || "",
-                      action: "receive",
-                      piece: r.piece || "",
-                      qty: Number(r.qty) || 0,
-                      price: Number(r.price) || 0,
-                      value: Number(r.value) || 0,
-                    }));
-                    events.sort((a, b) => {
-                      const cmp = (a.date || "").localeCompare(b.date || "");
-                      if (cmp !== 0) return cmp;
-                      /* same date → delivery first (added to ws), then receive (taken out) */
-                      if (a.action === b.action) return 0;
-                      return a.action === "delivery" ? -1 : 1;
-                    });
-                    /* Compute running balance (qty in workshop): +delivery, -receive */
-                    let running = 0;
-                    events.forEach(e => {
-                      if (e.action === "delivery") running += e.qty;
-                      else running -= e.qty;
-                      e.balance = running;
-                    });
+              /* V21.9.164: Pre-compute events log so we can decide column layout
+                 (e.g., drop "نوع القطعة" column when ALL events have empty piece). */
+              const events = [];
+              m.deliveries.forEach(d => events.push({
+                date: d.date || "",
+                action: "delivery",
+                piece: (d.piece || "").trim(),
+                qty: Number(d.qty) || 0,
+              }));
+              m.receives.forEach(r => events.push({
+                date: r.date || "",
+                action: "receive",
+                piece: (r.piece || "").trim(),
+                qty: Number(r.qty) || 0,
+                price: Number(r.price) || 0,
+                value: Number(r.value) || 0,
+              }));
+              events.sort((a, b) => {
+                const cmp = (a.date || "").localeCompare(b.date || "");
+                if (cmp !== 0) return cmp;
+                if (a.action === b.action) return 0;
+                return a.action === "delivery" ? -1 : 1;
+              });
+              let running = 0;
+              events.forEach(e => {
+                if (e.action === "delivery") running += e.qty;
+                else running -= e.qty;
+                e.balance = running;
+              });
+              /* If NO event carries a piece value, drop the column entirely —
+                 prevents the ugly column of "—" placeholders in the screenshot. */
+              const hasAnyPiece = events.some(e => e.piece);
+              const eventCols = hasAnyPiece
+                ? "minmax(56px, 0.85fr) minmax(58px, 0.7fr) minmax(70px, 1.1fr) 0.55fr 0.55fr"
+                : "minmax(60px, 1fr) minmax(60px, 0.8fr) 0.6fr 0.6fr";
 
-                    return (
-                      <div style={{ marginTop: 4, padding: "8px 10px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
-                        <div style={{ fontSize: 10, color: "#475569", fontWeight: 700, marginBottom: 6 }}>📋 سجل العمليات ({events.length})</div>
-                        {/* Header row */}
-                        <div style={{
+              return <div key={i} style={{
+                background: "#fff",
+                borderRadius: 14,
+                boxShadow: "0 2px 10px rgba(15,23,42,0.05)",
+                border: "1px solid #F1F5F9",
+                overflow: "hidden",
+              }}>
+                {/* ═══ TOP: image (3:4 portrait, RTL → visually on the right)
+                       + model meta beside it ═══ */}
+                <div style={{ display: "flex", gap: 12, padding: 12, alignItems: "flex-start" }}>
+                  {/* Image: fixed 3:4 portrait ratio */}
+                  <div style={{
+                    width: 108,
+                    minWidth: 108,
+                    aspectRatio: "3 / 4",
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    background: "linear-gradient(135deg, #F8FAFC, #F1F5F9)",
+                    border: "1px solid #E2E8F0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>
+                    {m.image
+                      ? <img src={m.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+                      : <span style={{ fontSize: 32, opacity: 0.3 }}>📦</span>}
+                  </div>
+                  {/* Meta */}
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {/* Model number — primary heading */}
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#0EA5E9", direction: "ltr", textAlign: "right", lineHeight: 1.1 }}>{m.modelNo}</div>
+                    {/* Description */}
+                    {m.modelDesc && <div style={{ fontSize: 13, color: "#1E293B", fontWeight: 600, lineHeight: 1.3 }}>{m.modelDesc}</div>}
+                    {/* Pieces (overall) — only when present */}
+                    {m.pieces.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", marginTop: 2 }}>
+                      <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 600 }}>القطع:</span>
+                      {m.pieces.map((p, j) => <span key={j} style={{
+                        padding: "2px 8px",
+                        background: "#EFF6FF",
+                        color: "#1D4ED8",
+                        borderRadius: 999,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        border: "1px solid #BFDBFE",
+                      }}>{p}</span>)}
+                    </div>}
+                    {/* Summary chips */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: "auto", paddingTop: 4 }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 8px", background: "#EFF6FF", color: "#0EA5E9",
+                        borderRadius: 8, fontSize: 11, fontWeight: 700,
+                      }}>
+                        <span>📥</span>
+                        <b style={{ direction: "ltr" }}>{m.delQty}</b>
+                        {lastDelDate && <span style={{ fontSize: 9, color: "#7DD3FC", fontWeight: 600 }}>{fmtDate(lastDelDate)}</span>}
+                      </span>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 8px", background: "#ECFDF5", color: "#059669",
+                        borderRadius: 8, fontSize: 11, fontWeight: 700,
+                      }}>
+                        <span>📤</span>
+                        <b style={{ direction: "ltr" }}>{m.recQty}</b>
+                        {lastRecDate && <span style={{ fontSize: 9, color: "#86EFAC", fontWeight: 600 }}>{fmtDate(lastRecDate)}</span>}
+                      </span>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "3px 8px",
+                        background: wsBalance > 0 ? "#F5F3FF" : "#F1F5F9",
+                        color: wsBalance > 0 ? "#8B5CF6" : "#64748B",
+                        borderRadius: 8, fontSize: 11, fontWeight: 700,
+                      }}>
+                        <span>📦</span>
+                        <span style={{ fontSize: 10 }}>رصيد</span>
+                        <b style={{ direction: "ltr" }}>{wsBalance}</b>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ═══ BOTTOM: full-width events log + receive equations ═══ */}
+                {(events.length > 0 || m.receives.length > 0) && <div style={{
+                  borderTop: "1px solid #F1F5F9",
+                  padding: "10px 12px 12px",
+                  background: "linear-gradient(180deg, #FAFBFC 0%, #fff 100%)",
+                }}>
+                  {/* V21.9.163/164: Chronological events log — date | action | piece (if any) | qty | running balance */}
+                  {events.length > 0 && <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden" }}>
+                    <div style={{
+                      fontSize: 11, color: "#334155", fontWeight: 800,
+                      padding: "8px 12px", background: "#F8FAFC",
+                      borderBottom: "1px solid #E2E8F0",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}>
+                      📋 سجل العمليات
+                      <span style={{ fontSize: 10, color: "#94A3B8", fontWeight: 700 }}>({events.length})</span>
+                    </div>
+                    {/* Header */}
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: eventCols,
+                      gap: 6,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: "#64748B",
+                      padding: "7px 10px",
+                      background: "#F8FAFC",
+                      borderBottom: "1px solid #E2E8F0",
+                      textAlign: "center",
+                      letterSpacing: 0.2,
+                    }}>
+                      <div>التاريخ</div>
+                      <div>الحركة</div>
+                      {hasAnyPiece && <div>نوع القطعة</div>}
+                      <div>العدد</div>
+                      <div>الرصيد</div>
+                    </div>
+                    {/* Data rows */}
+                    {events.map((e, j) => {
+                      const isDel = e.action === "delivery";
+                      return (
+                        <div key={j} style={{
                           display: "grid",
-                          gridTemplateColumns: "minmax(60px, 0.8fr) 0.6fr minmax(70px, 1fr) 0.5fr 0.5fr",
-                          gap: 4,
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color: "#94A3B8",
-                          padding: "4px 6px",
-                          borderBottom: "1px solid #E2E8F0",
+                          gridTemplateColumns: eventCols,
+                          gap: 6,
+                          fontSize: 11,
+                          padding: "8px 10px",
+                          borderBottom: j < events.length - 1 ? "1px solid #F1F5F9" : "none",
+                          alignItems: "center",
                           textAlign: "center",
+                          background: j % 2 === 1 ? "#FAFBFC" : "#fff",
                         }}>
-                          <div>التاريخ</div>
-                          <div>الحركة</div>
-                          <div>نوع القطعة</div>
-                          <div>العدد</div>
-                          <div>الرصيد</div>
-                        </div>
-                        {/* Data rows */}
-                        {events.map((e, j) => {
-                          const isDel = e.action === "delivery";
-                          return (
-                            <div key={j} style={{
-                              display: "grid",
-                              gridTemplateColumns: "minmax(60px, 0.8fr) 0.6fr minmax(70px, 1fr) 0.5fr 0.5fr",
-                              gap: 4,
+                          <div style={{ color: "#475569", fontWeight: 700, direction: "ltr", fontSize: 11 }}>{fmtDate(e.date)}</div>
+                          <div>
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 3,
+                              padding: "2px 8px",
+                              background: isDel ? "#EFF6FF" : "#ECFDF5",
+                              color: isDel ? "#0EA5E9" : "#059669",
+                              borderRadius: 999,
                               fontSize: 10,
-                              padding: "4px 6px",
-                              borderBottom: j < events.length - 1 ? "1px solid #F1F5F9" : "none",
-                              alignItems: "center",
-                              textAlign: "center",
+                              fontWeight: 800,
+                              whiteSpace: "nowrap",
                             }}>
-                              <div style={{ color: "#64748B", fontWeight: 600, direction: "ltr" }}>{fmtDate(e.date)}</div>
-                              <div style={{
-                                color: isDel ? "#0EA5E9" : "#059669",
-                                fontWeight: 700,
-                              }}>
-                                {isDel ? "📥 تسليم" : "📤 استلام"}
-                              </div>
-                              <div style={{
-                                color: "#475569",
-                                fontWeight: 600,
-                                background: "#fff",
-                                padding: "1px 6px",
-                                borderRadius: 4,
-                                border: "1px solid #E2E8F0",
-                                fontSize: 9,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}>{e.piece || "—"}</div>
-                              <div style={{
-                                color: isDel ? "#0EA5E9" : "#059669",
-                                fontWeight: 800,
-                                direction: "ltr",
-                              }}>{isDel ? "+" : "−"}{fmt(e.qty)}</div>
-                              <div style={{
-                                color: e.balance > 0 ? "#8B5CF6" : e.balance < 0 ? "#DC2626" : "#64748B",
-                                fontWeight: 800,
-                                direction: "ltr",
-                              }}>{fmt(e.balance)}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                              {isDel ? "📥 تسليم" : "📤 استلام"}
+                            </span>
+                          </div>
+                          {hasAnyPiece && <div>
+                            {e.piece ? <span style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              background: "#F5F3FF",
+                              color: "#7C3AED",
+                              borderRadius: 6,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              border: "1px solid #DDD6FE",
+                              maxWidth: "100%",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>{e.piece}</span> : <span style={{ color: "#CBD5E1", fontSize: 11 }}>—</span>}
+                          </div>}
+                          <div style={{
+                            color: isDel ? "#0EA5E9" : "#DC2626",
+                            fontWeight: 800,
+                            direction: "ltr",
+                            fontSize: 12,
+                          }}>{isDel ? "+" : "−"}{fmt(e.qty)}</div>
+                          <div style={{
+                            color: e.balance > 0 ? "#8B5CF6" : e.balance < 0 ? "#DC2626" : "#94A3B8",
+                            fontWeight: 800,
+                            direction: "ltr",
+                            fontSize: 12,
+                          }}>{fmt(e.balance)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>}
 
                   {/* Receive equations (مبلغ التشغيل per receive batch) */}
-                  {m.receives.length > 0 && <div style={{ marginTop: 4, padding: "7px 10px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 8, border: "1px dashed #05966940" }}>
-                    <div style={{ fontSize: 10, color: "#065F46", fontWeight: 700, marginBottom: 4 }}>💰 مبلغ التشغيل</div>
-                    {m.receives.map((r, j) => <div key={j} style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "center", padding: "1px 0" }}>
+                  {m.receives.length > 0 && <div style={{ marginTop: 8, padding: "9px 12px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 10, border: "1px solid #05966930" }}>
+                    <div style={{ fontSize: 11, color: "#065F46", fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>💰 مبلغ التشغيل</div>
+                    {m.receives.map((r, j) => <div key={j} style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "center", padding: "2px 0" }}>
                       {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
                       <span style={{ fontSize: 9, color: "#94A3B8", marginInlineStart: 6, fontFamily: "'Cairo', sans-serif" }}>({fmtDate(r.date)})</span>
                     </div>)}
-                    {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 4, paddingTop: 4, direction: "ltr", textAlign: "center", fontSize: 13, fontWeight: 800, color: "#065F46" }}>
+                    {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 6, paddingTop: 6, direction: "ltr", textAlign: "center", fontSize: 14, fontWeight: 800, color: "#065F46" }}>
                       المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
                     </div>}
                   </div>}
-                </div>
+                </div>}
               </div>;
             })
           }

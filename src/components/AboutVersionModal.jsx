@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.164",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "🎨 Workshop Portal — إعادة تصميم كارت الموديل (صورة 3:4 + تخطيط احترافي)",
+    changes: [
+      { type: "improvement", text: "إعادة هيكلة كل كارت موديل في كشف الورشة لـ قسمين واضحين: قسم علوي بـ صورة 3:4 portrait (108×144px aspectRatio CSS) في الجنب + اسم الموديل والوصف والقطع وشريط الـ summary chips (تسليم/استلام/رصيد) كـ بادجات ملونة. قسم سفلي بعرض الكارت كامل: جدول سجل العمليات + مبلغ التشغيل. الـ divider بين القسمين بـ subtle border + gradient خفيف." },
+      { type: "improvement", text: "إصلاح عمود 'نوع القطعة' — قبل كان بـ يـ show عمود فاضي بـ '—' لو الـ data مفيهاش piece info. دلوقتي: الـ logic بـ يـ check `hasAnyPiece` أول، لو كل الـ events مالهاش piece → العمود يختفي كلياً (الـ grid يبقى 4 columns بدل 5). لو فيه على الأقل واحد → بـ يظهر كـ pill بنفسجي clean (#7C3AED على #F5F3FF) مع border خفيف. الـ empty rows في حالة mixed data بـ تـ show '—' بـ لون #CBD5E1 خفيف بدل الـ outlined box المزعج." },
+      { type: "improvement", text: "تحسينات بصرية: header للجدول بـ background رمادي فاتح + uppercase letter-spacing، rows مع zebra striping (alternating #fff/#FAFBFC)، action chips كـ rounded pills، balance بـ ألوان أكتر contrast (بنفسجي موجب / أحمر سالب)، spacing أكبر لـ tap targets أحسن على الموبيل، typography أنظف (font-weight 800 للأرقام، 12-14px للـ critical values)." },
+    ],
+  },
+  {
     version: "V21.9.163",
     date: "2026-05-23",
     types: ["improvement"],
