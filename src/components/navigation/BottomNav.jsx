@@ -35,52 +35,61 @@ export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs })
     onTabChange(tabId);
   }
 
+  /* V21.9.157: build the final list with a SPACER element at the exact center
+     so the FAB sits centered (50/50 split, not the previous best-effort spacer).
+     For 4 tabs → [tab0, tab1, SPACER, tab2, tab3]. For odd counts the spacer
+     still inserts at the midpoint (handles permission-hidden tabs gracefully). */
+  const items = [];
+  const half = Math.floor(tabs.length / 2);
+  tabs.forEach((tab, idx) => {
+    if (idx === half) {
+      items.push({ kind: "spacer", key: "spacer-mid" });
+    }
+    items.push({ kind: "tab", key: tab.id, tab });
+  });
+
   return (
     <nav style={navStyle} role="navigation" aria-label="التنقل الرئيسي">
-      {tabs.map((tab, idx) => {
+      {items.map(it => {
+        if (it.kind === "spacer") {
+          return <div key={it.key} style={spacerStyle} aria-hidden="true" />;
+        }
+        const tab = it.tab;
         const isActive = activeBottomTab === tab.id;
         const badge = badges?.[tab.id] || 0;
-        /* Insert a clear spacer between tab #2 (sales) and tab #3 (inventory)
-           so the centered FAB has room to sit without overlapping. If the
-           tab list is short (e.g. permissions hide some tabs) the spacer
-           still inserts at the midpoint. */
-        const insertSpacerBefore = idx === Math.ceil(tabs.length / 2);
         return (
-          <>
-            {insertSpacerBefore && <div key={"spacer-"+idx} style={spacerStyle} aria-hidden="true" />}
-            <button
-              key={tab.id}
-              onClick={() => handleClick(tab.id)}
-              style={{
-                ...tabItemStyle,
-                color: isActive ? "#0369a1" : "#64748b",
-              }}
-              aria-current={isActive ? "page" : undefined}
-              aria-label={tab.label}
-            >
-              {/* Active indicator (top bar) */}
-              {isActive && <span style={activeIndicatorStyle} aria-hidden="true" />}
-              {/* Badge (top-right of icon) */}
-              {badge > 0 && (
-                <span style={badgeStyle} aria-label={badge + " إشعار"}>
-                  {badge > 99 ? "+99" : toArabicDigits(badge)}
-                </span>
-              )}
-              {/* Icon */}
-              <span style={{
-                fontSize: 22,
-                lineHeight: 1,
-                transform: isActive ? "translateY(-1px) scale(1.08)" : "none",
-                transition: "transform 0.2s",
-              }} aria-hidden="true">{tab.icon}</span>
-              {/* Label */}
-              <span style={{
-                fontSize: 10.5,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-              }}>{tab.label}</span>
-            </button>
-          </>
+          <button
+            key={it.key}
+            onClick={() => handleClick(tab.id)}
+            style={{
+              ...tabItemStyle,
+              color: isActive ? "#0369a1" : "#64748b",
+            }}
+            aria-current={isActive ? "page" : undefined}
+            aria-label={tab.label}
+          >
+            {/* Active indicator (top bar) */}
+            {isActive && <span style={activeIndicatorStyle} aria-hidden="true" />}
+            {/* Badge (top-right of icon) */}
+            {badge > 0 && (
+              <span style={badgeStyle} aria-label={badge + " إشعار"}>
+                {badge > 99 ? "+99" : toArabicDigits(badge)}
+              </span>
+            )}
+            {/* Icon */}
+            <span style={{
+              fontSize: 24,/* V21.9.157: bigger icon — was 22 */
+              lineHeight: 1,
+              transform: isActive ? "translateY(-1px) scale(1.08)" : "none",
+              transition: "transform 0.2s",
+            }} aria-hidden="true">{tab.icon}</span>
+            {/* Label */}
+            <span style={{
+              fontSize: 11,/* V21.9.157: slightly bigger — was 10.5 */
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}>{tab.label}</span>
+          </button>
         );
       })}
     </nav>

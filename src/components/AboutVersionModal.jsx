@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.157",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "📱 تبسيط الموبيل — 4 tabs + FAB في النص + هوم بأزرار كبيرة",
+    changes: [
+      { type: "improvement", text: "الـ bottom nav: 5 → 4 tabs (الرئيسية / المبيعات / [+] / المالية / المزيد). الـ FAB دلوقتي في النص بالظبط (2-2 split). 'المخزون' tab اتـ remove — الـ items (details/warehouse/external/pieces) اتـ move لـ 'المزيد'." },
+      { type: "improvement", text: "الـ mobile home page بقت MobileHomePage جديدة — grid بـ 2 columns × 3 rows من الأزرار الكبيرة (6 sections: لوحة التحكم / المبيعات / الخزنة / فواتير / أوامر القص / مشتريات). كل button بـ icon ضخم 32px + label واضح. الـ desktop home (4-column) لم يتغير." },
+      { type: "improvement", text: "زرار 'التحويل لوضع سطح المكتب' في الـ mobile home — يحفظ localStorage flag ويـ override الـ isMob detection. لو الـ user رجع تاني، يلاقي زرار 📱 صغير في الـ corner للعودة لوضع الموبيل." },
+    ],
+  },
+  {
     version: "V21.9.156",
     date: "2026-05-23",
     types: ["fix"],

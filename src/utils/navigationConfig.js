@@ -23,15 +23,19 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ────────────────────────────────────────────────────────────
-   الـ 5 tabs الرئيسية في الـ bottom nav.
-   الـ badge بـ يتـ compute في App.jsx بـ useMemo.
+   الـ 4 tabs الرئيسية في الـ bottom nav (V21.9.157: 5→4).
+   الـ FAB يـ sit في النص بين tab #2 (sales) و tab #3 (finance).
+
+   "المخزون" tab اتـ removed — items (details/warehouse/external/pieces)
+   اتـ moved لـ "المزيد" tab بدلاً منها. السبب: per user feedback، الـ
+   mobile experience مطلوب يكون simpler — 4 categories أوضح من 5.
    ──────────────────────────────────────────────────────────── */
 export const BOTTOM_TABS = [
-  { id: "home",      label: "الرئيسية", icon: "🏠" },
-  { id: "sales",     label: "المبيعات",  icon: "🧾" },
-  { id: "inventory", label: "المخزون",   icon: "📦" },
-  { id: "finance",   label: "المالية",   icon: "💰" },
-  { id: "more",      label: "المزيد",    icon: "☰" },
+  { id: "home",    label: "الرئيسية", icon: "🏠" },
+  { id: "sales",   label: "المبيعات",  icon: "🧾" },
+  /* FAB goes here visually (centered) */
+  { id: "finance", label: "المالية",   icon: "💰" },
+  { id: "more",    label: "المزيد",    icon: "☰" },
 ];
 
 /* ────────────────────────────────────────────────────────────
@@ -60,12 +64,10 @@ export const TAB_SUBVIEWS = {
       /* shopify يـ hide تلقائياً لو غير enabled — checked in App.jsx */
       requiresShopify: true },
   ],
-  inventory: [
-    { id: "details",   label: "أوامر القص",  tabKey: "details" },
-    { id: "warehouse", label: "المخازن",     tabKey: "warehouse" },
-    { id: "external",  label: "تشغيل خارجي", tabKey: "external" },
-    { id: "pieces",    label: "تتبع القطع",  tabKey: "pieces" },
-  ],
+  /* V21.9.157: "inventory" tab removed. The 4 keys below moved to "more"
+     (see TAB_SUBVIEWS.more). Kept as commented placeholder in case the
+     user wants to restore the dedicated tab later. */
+  /* inventory: [details, warehouse, external, pieces], */
   finance: [
     { id: "treasury",          label: "الخزنة",            tabKey: "treasury" },
     { id: "purchase",          label: "مشتريات",           tabKey: "purchase" },
@@ -74,8 +76,17 @@ export const TAB_SUBVIEWS = {
     { id: "accounting",        label: "محاسبة",            tabKey: "accounting" },
     { id: "fixedAssets",       label: "أصول ثابتة",         tabKey: "fixedAssets" },
   ],
-  /* "more" — vertical menu page بدل chips */
+  /* "more" — vertical menu page بدل chips.
+     V21.9.157: ضم الـ inventory items (details / warehouse / external / pieces)
+     لأنهم كانوا في tab منفصل اتـ remove. الترتيب: الإنتاج أولاً (الأكثر استخداماً
+     في الفاكتوري daily) → ثم business → ثم admin. */
   more: [
+    /* ─── إنتاج (formerly inventory tab) ─── */
+    { id: "details",    label: "أوامر القص",      tabKey: "details",    icon: "✂️" },
+    { id: "warehouse",  label: "المخازن",         tabKey: "warehouse",  icon: "📦" },
+    { id: "external",   label: "تشغيل خارجي",     tabKey: "external",   icon: "🏗️" },
+    { id: "pieces",     label: "تتبع القطع",      tabKey: "pieces",     icon: "🔍" },
+    /* ─── business ─── */
     { id: "contacts",   label: "جهات الاتصال",     tabKey: "contacts",   icon: "👥" },
     { id: "hr",         label: "مرتبات + موظفين",  tabKey: "hr",         icon: "🧑‍💼" },
     { id: "reports",    label: "التقارير",          tabKey: "reports",    icon: "📑" },
@@ -85,6 +96,7 @@ export const TAB_SUBVIEWS = {
     { id: "db",         label: "قاعدة البيانات",    tabKey: "db",         icon: "🗃️" },
     { id: "documents",  label: "المستندات",         tabKey: "documents",  icon: "📁" },
     { id: "tasks",      label: "المهام",            tabKey: "tasks",      icon: "✅" },
+    /* ─── admin ─── */
     { id: "audit",      label: "سجل التدقيق",       tabKey: "audit",      icon: "🔍" },
     { id: "settings",   label: "الإعدادات",          tabKey: "settings",   icon: "⚙️" },
   ],

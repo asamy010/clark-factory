@@ -168,6 +168,7 @@ import { BottomNav } from "./components/navigation/BottomNav.jsx";
 import { BottomNavFab } from "./components/navigation/BottomNavFab.jsx";
 import { SubViewTabs } from "./components/navigation/SubViewTabs.jsx";
 import { MoreMenuPage } from "./pages/MoreMenuPage.jsx";
+import { MobileHomePage } from "./pages/MobileHomePage.jsx";
 import { BOTTOM_TABS, TAB_SUBVIEWS, visibleSubViews, bottomTabFromTabKey } from "./utils/navigationConfig.js";
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
@@ -941,7 +942,24 @@ export default function App(){
   const _appliedTheme=useRef(null);
   if(_appliedTheme.current!==theme){setActiveTheme(theme);_appliedTheme.current=theme}
   useEffect(()=>{try{localStorage.setItem(themeKey,theme)}catch(e){}document.body.style.background=T.bodyBg||T.bg},[theme,themeKey]);
-  const w=useWin();const isMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
+  const w=useWin();const rawIsMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
+  /* V21.9.157: persistent "force desktop layout" override.
+     User can opt out of the mobile shell from MobileHomePage's footer button,
+     or opt back in from the topbar's avatar menu. Stored in localStorage so
+     it survives page reloads. The hook is called UNCONDITIONALLY so it sits
+     before any early returns (per V21.9.156 hooks-order lesson). */
+  const[forceDesktop,setForceDesktop]=useState(()=>{
+    try { return localStorage.getItem("clark-force-desktop") === "1"; } catch(_) { return false; }
+  });
+  const setForceDesktopPersisted=(v)=>{
+    try { localStorage.setItem("clark-force-desktop", v ? "1" : "0"); } catch(_) {}
+    setForceDesktop(v);
+  };
+  /* `isMob` everywhere in App.jsx now respects the override. Pages that
+     received `isMob` as a prop continue to work identically — they see the
+     overridden value. `rawIsMob` (the genuine viewport check) is available
+     for code paths that specifically need to know the real device size. */
+  const isMob = rawIsMob && !forceDesktop;
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   /* V15.92: Prefetch IP + location once per session (silent — no error if offline) */
@@ -6191,7 +6209,17 @@ export default function App(){
     <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px",paddingBottom:isMob?"calc(80px + env(safe-area-inset-bottom, 0px))":"12px",paddingTop:isMob&&currentSubViews.length>1&&tab!=="moreMenu"?64:(isMob?8:12)}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
-      {tab==="home"&&(()=>{
+      {/* V21.9.157: simplified mobile home page replaces the full desktop home
+          (4-column layout) on mobile. The desktop home is sophisticated and
+          information-dense — overkill on a phone. The mobile version is just
+          a grid of 6 big buttons. Exit toggle lets the user override. */}
+      {tab==="home"&&isMob&&<MobileHomePage
+        user={user}
+        canViewTab={canViewTab}
+        onNavigate={(k)=>goTo(k)}
+        onExitMobileMode={()=>{setForceDesktopPersisted(true);showToast("✓ تم التحويل لوضع سطح المكتب");}}
+      />}
+      {tab==="home"&&!isMob&&(()=>{
         /* V18.25: Greeting fixed to "مرحبا" — always (was time-based) */
         const greetText="مرحبا";
         const dateStr=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
@@ -6698,6 +6726,22 @@ export default function App(){
       />
       <BottomNavFab onAction={onFabAction}/>
     </>}
+    {/* V21.9.157: "Switch back to mobile mode" button — appears only when the
+        user is on a small viewport but has opted into desktop mode. Fixed
+        button at the bottom corner, small + unobtrusive. */}
+    {rawIsMob&&forceDesktop&&<button
+      onClick={()=>{setForceDesktopPersisted(false);showToast("✓ تم التحويل لوضع الموبيل");}}
+      title="العودة لوضع الموبيل"
+      style={{
+        position:"fixed",bottom:14,insetInlineStart:14,zIndex:55,
+        width:48,height:48,borderRadius:"50%",
+        background:"#0EA5E9",color:"#fff",border:"none",
+        fontSize:20,fontFamily:"inherit",cursor:"pointer",
+        boxShadow:"0 4px 14px rgba(14,165,233,0.4)",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        WebkitTapHighlightColor:"transparent",
+      }}
+    >📱</button>}
     {/* Quick Task/Notification Popup */}
     {quickPopup&&(()=>{const allUsers=(config.usersList||[]);const me={email:user?.email||"",name:user?.displayName||(user?.email||"").split("@")[0],role:userRole};
       const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
