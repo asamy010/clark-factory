@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.155",
+    date: "2026-05-21",
+    types: ["feature"],
+    title: "📱 Mobile Phase A — Bottom Nav + FAB + Sub-view Chips (5 tabs)",
+    changes: [
+      { type: "feature", text: "موبايل (< 768px) دلوقتي بـ bottom nav بـ 5 tabs (الرئيسية / المبيعات / المخزون / المالية / المزيد) + FAB بـ 5 quick actions (فاتورة / خزنة / جهة اتصال / مهمة / إشعار). كل tab فيه sub-view chips أفقي للتنقل بين الـ existing pages بدون رجوع للـ bottom nav. الـ 'المزيد' page بـ vertical list. الـ desktop layout (4-column home + tile grid) لم يتغير. Adapted per V21.9.154 audit document — لا تغيير على الـ existing modals (66 ملف) ولا الـ pages. Pre-flight fix: index.html viewport-fit=cover للـ iPhone safe-area." },
+    ],
+  },
+  {
     version: "V21.9.153",
     date: "2026-05-21",
     types: ["feature"],

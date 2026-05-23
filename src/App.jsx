@@ -162,6 +162,14 @@ const PiecesPg = lazyNamed(() => import("./pages/PiecesPg.jsx"), "PiecesPg");
    N piece QRs (inside) so scanning the series at sale cascades to all pieces. */
 import { genPieceId, buildTrackedQr, createPiecesBulk, createLinkedSeriesBatch } from "./utils/pieces.js";
 
+/* V21.9.155: Mobile-only bottom navigation shell. Desktop unaffected — the
+   existing home tiles + topbar layout (V21.9.142-148) renders unchanged. */
+import { BottomNav } from "./components/navigation/BottomNav.jsx";
+import { BottomNavFab } from "./components/navigation/BottomNavFab.jsx";
+import { SubViewTabs } from "./components/navigation/SubViewTabs.jsx";
+import { MoreMenuPage } from "./pages/MoreMenuPage.jsx";
+import { BOTTOM_TABS, TAB_SUBVIEWS, visibleSubViews, bottomTabFromTabKey } from "./utils/navigationConfig.js";
+
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
    Rendered BEFORE auth check so it works without login. */
 import { ConfirmPage } from "./components/ConfirmPage.jsx";
@@ -5586,6 +5594,118 @@ export default function App(){
   /* V19.48: Live ticker is wired at top of component (before early returns) for hook-order stability. */
 
   const goHome=async()=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab("home");setSel(null)};
+
+  /* ═══════════════════════════════════════════════════════════
+     V21.9.155 — Mobile Bottom Nav state + helpers
+     ───────────────────────────────────────────────────────────
+     - `activeBottomTab` derives from the current `tab` state via
+       bottomTabFromTabKey() so deep-linking from anywhere stays in
+       sync with the bottom-nav highlight.
+     - When the user taps a bottom tab, we navigate to its first
+       VISIBLE (permission-passing) sub-view's tabKey.
+     - The "more" tab is a special case: we set `tab="moreMenu"` (a
+       new pseudo-tab key) to render MoreMenuPage instead of jumping
+       straight to a sub-page.
+     - Badges are computed lazily per tab via useMemo.
+     ═══════════════════════════════════════════════════════════ */
+  const isShopifyEnabled = data.shopifyEnabled !== false;
+  const navFlags = { shopifyEnabled: isShopifyEnabled };
+
+  /* Derive active bottom tab from current `tab`. "moreMenu" → "more". */
+  const activeBottomTab = tab === "moreMenu"
+    ? "more"
+    : bottomTabFromTabKey(tab);
+
+  /* Filter BOTTOM_TABS to those with at least one visible sub-view.
+     Computed each render — cheap since it's just 5 iterations × small lists. */
+  const visibleBottomTabs = BOTTOM_TABS.filter(bt => {
+    if (bt.id === "home") return canViewTab("home") || true;/* always allow home */
+    if (bt.id === "more") {
+      /* "more" visible if user has at least one entry in TAB_SUBVIEWS.more */
+      return (TAB_SUBVIEWS.more || []).some(sv => canViewTab(sv.tabKey));
+    }
+    return visibleSubViews(bt.id, canViewTab, navFlags).length > 0;
+  });
+
+  /* Compute the visible sub-views for the CURRENT bottom tab (for the chip strip) */
+  const currentSubViews = activeBottomTab && activeBottomTab !== "home" && activeBottomTab !== "more"
+    ? visibleSubViews(activeBottomTab, canViewTab, navFlags)
+    : [];
+
+  const onBottomTabChange = async (bottomTabId) => {
+    if (bottomTabId === activeBottomTab) return;/* no-op if same tab */
+    /* form-dirty guard — reuse the existing pattern from goTo() */
+    if (window.__formDirty) {
+      if (!await ask("الخروج بدون حفظ", "هل تريد الخروج بدون حفظ البيانات المدخلة؟", { danger: true, confirmText: "خروج" })) return;
+      window.__formDirty = false;
+    }
+    if (bottomTabId === "home") {
+      setTab("home"); setSel(null);
+    } else if (bottomTabId === "more") {
+      setTab("moreMenu"); setSel(null);
+    } else {
+      /* navigate to the first VISIBLE sub-view of the chosen bottom tab */
+      const subs = visibleSubViews(bottomTabId, canViewTab, navFlags);
+      if (subs.length === 0) { showToast("⚠️ مفيش صلاحية لأي عنصر في هذه الـ tab"); return; }
+      setTab(subs[0].tabKey);
+      setSel(null);
+    }
+  };
+
+  const onSubViewChange = (tabKey) => {
+    if (tabKey === tab) return;
+    /* Reuse goTo() so the form-dirty guard applies */
+    goTo(tabKey);
+  };
+
+  /* Bottom-nav badges (memoized). Counts surface unread alerts/items per tab. */
+  const bottomNavBadges = useMemo(() => {
+    /* home — unread notifications (subBarNotifs source) */
+    const homeCnt = Array.isArray(subBarNotifs) ? subBarNotifs.length : 0;
+    /* more — pending tasks for the current user */
+    const myEmail = user?.email || "";
+    const myUid = user?.uid || "";
+    const tasksList = Array.isArray(config?.tasks) ? config.tasks : [];
+    const moreCnt = tasksList.filter(t => (t.toEmail === myEmail || t.toUid === myUid) && !t.done).length;
+    return {
+      home: homeCnt,
+      sales: 0,
+      inventory: 0,
+      finance: 0,
+      more: moreCnt,
+    };
+  }, [subBarNotifs, config?.tasks, user]);
+
+  /* FAB action handler — wires each action to the appropriate side-effect.
+     Uses sessionStorage + a custom event so the target page can react on mount. */
+  const onFabAction = (action) => {
+    if (!action) return;
+    if (action.kind === "openQuickPopup") {
+      setQuickPopup(action.mode === "notif" ? "notif" : "task");
+      setQpTo(action.mode === "notif" ? "all" : "");
+      setQpText("");
+      return;
+    }
+    if (action.kind === "navigateAndAction") {
+      /* Stash the action so the target page can pick it up on next render */
+      try {
+        sessionStorage.setItem("clark-fab-action", JSON.stringify({
+          targetTab: action.targetTab,
+          action: action.action,
+          ts: Date.now(),
+        }));
+      } catch(_) {}
+      goTo(action.targetTab);
+      /* Also dispatch a window event for pages that prefer event-based wiring */
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent("clark-fab-action", {
+            detail: { targetTab: action.targetTab, action: action.action },
+          }));
+        } catch(_) {}
+      }, 200);
+    }
+  };
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
 
   return<div onClick={()=>{if(showAlerts)setShowAlerts(false);if(gSearch)setGSearch("");if(showLogout)setShowLogout(false)}} style={{minHeight:"100vh",direction:"rtl",fontFamily:"'Cairo',sans-serif",background:T.bg,color:T.text,fontSize:FS,display:"flex",flexDirection:"column"}}>
@@ -6067,7 +6187,10 @@ export default function App(){
         </span>
       </div>
     )}
-    <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px"}}>
+    {/* V21.9.155: paddingBottom on mobile adds clearance for the bottom-nav (64px)
+        + safe-area-inset-bottom + small breathing room. Sub-view chips strip
+        (when present) adds a paddingTop so first row of content isn't under it. */}
+    <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px",paddingBottom:isMob?"calc(80px + env(safe-area-inset-bottom, 0px))":"12px",paddingTop:isMob&&currentSubViews.length>1&&tab!=="moreMenu"?64:(isMob?8:12)}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
       {tab==="home"&&(()=>{
@@ -6556,7 +6679,27 @@ export default function App(){
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
+      {/* V21.9.155 — Mobile-only "More" menu page (vertical list of secondary sections) */}
+      {isMob&&tab==="moreMenu"&&<MoreMenuPage canViewTab={canViewTab} onNavigate={(k)=>goTo(k)}/>}
     </div>
+    {/* V21.9.155 — Mobile shell: bottom nav + FAB + sub-view chips.
+        Renders OUTSIDE the main scrollable container so they overlay
+        without affecting scroll calculations. Each component is
+        position:fixed and self-contained. */}
+    {isMob&&<>
+      {/* Sub-view chips — shown when on a tab with multiple sub-views.
+          Positioned just below the topbar (sticky top:60px to clear it). */}
+      {currentSubViews.length>1&&tab!=="moreMenu"&&<div style={{position:"fixed",top:52,left:0,right:0,zIndex:40,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+        <SubViewTabs subViews={currentSubViews} activeTabKey={tab} onChange={onSubViewChange}/>
+      </div>}
+      <BottomNav
+        activeBottomTab={activeBottomTab}
+        onTabChange={onBottomTabChange}
+        badges={bottomNavBadges}
+        visibleTabs={visibleBottomTabs}
+      />
+      <BottomNavFab onAction={onFabAction}/>
+    </>}
     {/* Quick Task/Notification Popup */}
     {quickPopup&&(()=>{const allUsers=(config.usersList||[]);const me={email:user?.email||"",name:user?.displayName||(user?.email||"").split("@")[0],role:userRole};
       const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
