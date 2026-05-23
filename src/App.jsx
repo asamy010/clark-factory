@@ -5793,18 +5793,16 @@ export default function App(){
   };
 
   /* V21.9.159: Special actions from the MobileHomePage big-buttons grid.
-     Currently handles QR scan + quick treasury in/out. */
+     V21.9.161: collapsed quick-treasury in/out into one entry — the modal
+     has its own in/out toggle. */
   const onMobileSpecialAction = (key) => {
     if (key === "__qrScan") {
       setShowScanner(true);
       return;
     }
-    if (key === "__quickTreasuryIn") {
+    if (key === "__quickTreasury") {
+      /* Default to "in" — user can switch to "out" inside the modal. */
       setQuickTreasury({ type: "in" });
-      return;
-    }
-    if (key === "__quickTreasuryOut") {
-      setQuickTreasury({ type: "out" });
       return;
     }
   };

@@ -21,20 +21,19 @@ import { FS } from "../constants/index.js";
 import { T } from "../theme.js";
 
 /* The primary actions shown on the mobile home.
-   V21.9.159: QR scan added (per user — "مهم للموبيل"). Positioned #2 right
-   after Dashboard for visibility. The action items below are NOT bound to
-   PERMISSION_TABS — they're either tabs (filtered via canViewTab) or named
-   "special" actions handled separately (qrScan, quickTreasuryIn, quickTreasuryOut).
-   Desktop-mode toggle removed in V21.9.159 — was trapping users. */
+   V21.9.159: QR scan added (per user — "مهم للموبيل").
+   V21.9.161: collapsed the two quick-treasury buttons into one ("حركة خزنة
+   سريعة") — the modal already has an in/out toggle, so two separate entry
+   points was redundant. Action items below are either tabs (filtered via
+   canViewTab) or "special" actions handled separately (qrScan, quickTreasury). */
 const HOME_BUTTONS = [
-  { key: "dashboard",        label: "لوحة التحكم",   icon: "📊", color: "#0EA5E9" },
-  { key: "__qrScan",         label: "مسح QR",        icon: "📷", color: "#0EA5E9", special: true },
-  { key: "custDeliver",      label: "المبيعات",       icon: "🛒", color: "#10B981" },
-  { key: "__quickTreasuryIn",  label: "وارد سريع",   icon: "⬇",  color: "#10b981", special: true },
-  { key: "__quickTreasuryOut", label: "منصرف سريع",  icon: "⬆",  color: "#dc2626", special: true },
-  { key: "salesInvoices",    label: "فواتير",        icon: "🧾", color: "#3B82F6" },
-  { key: "details",          label: "أوامر القص",     icon: "✂️", color: "#8B5CF6" },
-  { key: "purchase",         label: "مشتريات",        icon: "🛍️", color: "#F59E0B" },
+  { key: "dashboard",       label: "لوحة التحكم",       icon: "📊", color: "#0EA5E9" },
+  { key: "__qrScan",        label: "مسح QR",            icon: "📷", color: "#0EA5E9", special: true },
+  { key: "custDeliver",     label: "المبيعات",           icon: "🛒", color: "#10B981" },
+  { key: "__quickTreasury", label: "حركة خزنة سريعة",   icon: "💵", color: "#0D9488", special: true },
+  { key: "salesInvoices",   label: "فواتير",            icon: "🧾", color: "#3B82F6" },
+  { key: "details",         label: "أوامر القص",         icon: "✂️", color: "#8B5CF6" },
+  { key: "purchase",        label: "مشتريات",            icon: "🛍️", color: "#F59E0B" },
 ];
 
 export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }) {
@@ -50,7 +49,7 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }
      without treasury access don't see the quick entries. */
   const visible = HOME_BUTTONS.filter(b => {
     if (b.special) {
-      if (b.key === "__quickTreasuryIn" || b.key === "__quickTreasuryOut") {
+      if (b.key === "__quickTreasury") {
         return canViewTab("treasury");
       }
       return true;/* qrScan available to everyone */

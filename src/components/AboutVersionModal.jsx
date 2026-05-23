@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.161",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "🧹 Mobile home: تنظيف الأزرار — 'حركة خزنة سريعة' بدل 'وارد/منصرف'",
+    changes: [
+      { type: "improvement", text: "حذف زر 'منصرف سريع' من mobile home. الزر 'وارد سريع' أعيد تسميته لـ 'حركة خزنة سريعة' (icon 💵) — الـ modal أصلاً فيه toggle داخلي لـ وارد/منصرف، فالاثنين redundant. أكدت وجود زر 'أوامر القص' في الصف الثالث. النتيجة: 7 أزرار في الـ home بدل 8 — أنظف بصرياً." },
+    ],
+  },
+  {
     version: "V21.9.160",
     date: "2026-05-23",
     types: ["fix"],
