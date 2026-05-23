@@ -20,10 +20,13 @@ function toArabicDigits(n) {
   return String(n).replace(/\d/g, d => "٠١٢٣٤٥٦٧٨٩"[d]);
 }
 
-export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs }) {
+export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs, minimal }) {
   /* `visibleTabs` is the filtered list (after permissions) — passed from
      App.jsx so the component stays pure UI. Falls back to BOTTOM_TABS for
-     the rare case where the caller hasn't pre-filtered. */
+     the rare case where the caller hasn't pre-filtered.
+     `minimal` (V21.9.158): when true, render ONLY a centered home button
+     (no tabs, no spacer). Used on sub-screens per user feedback — the full
+     nav distracts from page content. */
   const tabs = Array.isArray(visibleTabs) && visibleTabs.length > 0
     ? visibleTabs
     : BOTTOM_TABS;
@@ -33,6 +36,22 @@ export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs })
       try { navigator.vibrate(8); } catch(_) {}
     }
     onTabChange(tabId);
+  }
+
+  /* V21.9.158: Minimal mode — only a centered home button. */
+  if (minimal) {
+    return (
+      <nav style={minimalNavStyle} role="navigation" aria-label="العودة للرئيسية">
+        <button
+          onClick={() => handleClick("home")}
+          style={minimalHomeBtnStyle}
+          aria-label="الرئيسية"
+        >
+          <span style={{ fontSize: 26, lineHeight: 1 }} aria-hidden="true">🏠</span>
+          <span style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>الرئيسية</span>
+        </button>
+      </nav>
+    );
   }
 
   /* V21.9.157: build the final list with a SPACER element at the exact center
@@ -165,4 +184,36 @@ const badgeStyle = {
   border: "2px solid #fff",
   boxSizing: "border-box",
   lineHeight: 1,
+};
+
+/* V21.9.158 — Minimal mode styles (single centered home button on sub-screens) */
+const minimalNavStyle = {
+  position: "fixed",
+  bottom: 0, left: 0, right: 0,
+  height: "calc(72px + env(safe-area-inset-bottom, 0px))",
+  paddingBottom: "env(safe-area-inset-bottom, 0px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 50,
+  pointerEvents: "none",/* let underlying content receive touches; button itself re-enables */
+};
+
+const minimalHomeBtnStyle = {
+  pointerEvents: "auto",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 64,
+  height: 64,
+  borderRadius: "50%",
+  background: "linear-gradient(135deg, #0EA5E9 0%, #0369a1 100%)",
+  color: "#fff",
+  border: "none",
+  boxShadow: "0 6px 20px rgba(3,105,161,0.4), 0 0 0 5px #f1f5f9",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  WebkitTapHighlightColor: "transparent",
+  transition: "transform .15s",
 };

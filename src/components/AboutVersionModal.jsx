@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.158",
+    date: "2026-05-23",
+    types: ["improvement", "fix"],
+    title: "📱 Mobile: bottom bar minimal على الشاشات الفرعية + إصلاح horizontal scroll",
+    changes: [
+      { type: "improvement", text: "على شاشة الـ home: الـ bottom bar كامل بـ 4 tabs + FAB. على أي شاشة فرعية: الـ bar يختفي ويظهر بس زرار home دائري في النص (بدون tabs بدون FAB). يـ reduce الـ noise البصري ويـ focus الـ user على المحتوى." },
+      { type: "fix", text: "إصلاح horizontal scroll على الموبيل — كانت الصفحة تتحرك يمين وشمال لو حاجة جوا الـ page بـ تـ overflow. دلوقتي: `html, body, #root` بـ overflow-x:hidden + max-width:100vw على mobile (CSS رئيسي). الـ main scroll container بـ overflowX:hidden + maxWidth:100vw. الـ sub-view chips strip لسه بـ تـ scroll أفقياً بشكل عادي (هي اللي بـ تتحرك)." },
+    ],
+  },
+  {
     version: "V21.9.157",
     date: "2026-05-23",
     types: ["improvement"],

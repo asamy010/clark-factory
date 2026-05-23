@@ -6205,8 +6205,11 @@ export default function App(){
     )}
     {/* V21.9.155: paddingBottom on mobile adds clearance for the bottom-nav (64px)
         + safe-area-inset-bottom + small breathing room. Sub-view chips strip
-        (when present) adds a paddingTop so first row of content isn't under it. */}
-    <div style={{flex:1,overflow:"auto",padding:isMob?"8px 10px":"12px 24px",paddingBottom:isMob?"calc(80px + env(safe-area-inset-bottom, 0px))":"12px",paddingTop:isMob&&currentSubViews.length>1&&tab!=="moreMenu"?64:(isMob?8:12)}}>
+        (when present) adds a paddingTop so first row of content isn't under it.
+        V21.9.158: overflowX:"hidden" on mobile prevents the page from drifting
+        left/right when a child element overflows. Vertical scroll still works.
+        On desktop we keep overflow:"auto" (both axes) for table-heavy pages. */}
+    <div style={{flex:1,overflowY:"auto",overflowX:isMob?"hidden":"auto",padding:isMob?"8px 10px":"12px 24px",paddingBottom:isMob?"calc(95px + env(safe-area-inset-bottom, 0px))":"12px",paddingTop:isMob&&currentSubViews.length>1&&tab!=="moreMenu"?64:(isMob?8:12),width:"100%",maxWidth:"100vw",boxSizing:"border-box"}}>
       {/* HOME SCREEN */}
       {/* ═══ PROFESSIONAL HOME SCREEN V14.47 ═══ */}
       {/* V21.9.157: simplified mobile home page replaces the full desktop home
@@ -6718,13 +6721,18 @@ export default function App(){
       {currentSubViews.length>1&&tab!=="moreMenu"&&<div style={{position:"fixed",top:52,left:0,right:0,zIndex:40,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
         <SubViewTabs subViews={currentSubViews} activeTabKey={tab} onChange={onSubViewChange}/>
       </div>}
+      {/* V21.9.158: Bottom nav adapts based on which screen the user is on:
+          - On HOME → full nav (4 tabs + spacer for FAB) + FAB visible
+          - On any SUB-SCREEN → only a single centered "home" button (minimal),
+            no FAB. Removes visual noise on focused work surfaces. */}
       <BottomNav
         activeBottomTab={activeBottomTab}
         onTabChange={onBottomTabChange}
         badges={bottomNavBadges}
         visibleTabs={visibleBottomTabs}
+        minimal={tab!=="home"}
       />
-      <BottomNavFab onAction={onFabAction}/>
+      {tab==="home"&&<BottomNavFab onAction={onFabAction}/>}
     </>}
     {/* V21.9.157: "Switch back to mobile mode" button — appears only when the
         user is on a small viewport but has opted into desktop mode. Fixed
