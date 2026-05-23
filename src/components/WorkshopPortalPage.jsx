@@ -473,12 +473,38 @@ export function WorkshopPortalPage({ params }) {
                     })}
                   </div>}
 
-                  {/* Receive equations (مبلغ التشغيل per receive batch) */}
+                  {/* Receive equations (مبلغ التشغيل per receive batch).
+                      V21.9.165: each line now shows piece type (garment) as a
+                      label-pill at the start, and the date was removed per
+                      customer feedback (date is redundant — visible in the
+                      events log table above). Layout: [piece pill] price × qty = value */}
                   {m.receives.length > 0 && <div style={{ marginTop: 8, padding: "9px 12px", background: "linear-gradient(135deg, #ECFDF5, #F0FDF4)", borderRadius: 10, border: "1px solid #05966930" }}>
                     <div style={{ fontSize: 11, color: "#065F46", fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>💰 مبلغ التشغيل</div>
-                    {m.receives.map((r, j) => <div key={j} style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "center", padding: "2px 0" }}>
-                      {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>
-                      <span style={{ fontSize: 9, color: "#94A3B8", marginInlineStart: 6, fontFamily: "'Cairo', sans-serif" }}>({fmtDate(r.date)})</span>
+                    {m.receives.map((r, j) => <div key={j} style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      padding: "3px 0",
+                      flexWrap: "wrap",
+                    }}>
+                      {/* Piece (garment type) label — only when present */}
+                      {r.piece && <span style={{
+                        padding: "2px 8px",
+                        background: "#fff",
+                        color: "#065F46",
+                        borderRadius: 6,
+                        fontSize: 10,
+                        fontWeight: 800,
+                        border: "1px solid #05966940",
+                        whiteSpace: "nowrap",
+                        maxWidth: 120,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}>{r.piece}</span>}
+                      <span style={{ direction: "ltr", fontFamily: "'Cairo', monospace", fontSize: 12, fontWeight: 700, color: "#065F46", whiteSpace: "nowrap" }}>
+                        {fmt(r.price)} × {r.qty} = {fmt(r.value)} <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "'Cairo', sans-serif" }}>ج.م</span>
+                      </span>
                     </div>)}
                     {m.receives.length > 1 && <div style={{ borderTop: "1px solid #05966940", marginTop: 6, paddingTop: 6, direction: "ltr", textAlign: "center", fontSize: 14, fontWeight: 800, color: "#065F46" }}>
                       المجموع: {fmt(m.totalValue)} <span style={{ fontSize: 10, opacity: 0.7 }}>ج.م</span>

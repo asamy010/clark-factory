@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.165",
+    date: "2026-05-23",
+    types: ["fix", "improvement"],
+    title: "🔧 Workshop Portal — إصلاح نوع القطعة (root cause) + label في مبلغ التشغيل",
+    changes: [
+      { type: "fix", text: "🚨 ROOT CAUSE — في api/workshop-portal.js: الـ field الحقيقي لـ نوع القطعة في `workshopDeliveries[]` اسمه `garmentType` (مش `piece`)، set في ExtProdPg.jsx:225 + batch path :968. الـ endpoint كان بـ يقرأ `wd.piece` اللي مش موجود في schema → كل rows في عمود 'نوع القطعة' كانت empty (الـ '—' في الـ screenshot قبل V21.9.165). الـ fix: `const garment = wd.garmentType || wd.piece || \"\"` للـ deliveries والـ receives (الـ receives بـ تأخد garment من parent wd لأنها nested). الـ JSON key 'piece' محفوظ في الـ response علشان الـ client الموجود يشتغل بدون تغيير." },
+      { type: "improvement", text: "في مبلغ التشغيل (block أخضر): كل سطر معادلة دلوقتي بـ يبدأ بـ label-pill أبيض بـ border أخضر يحمل اسم نوع القطعة (قميص/شورت/تيشيرت/إلخ). الـ label maxWidth 120px + textOverflow ellipsis علشان ما يـ overflow الكارت. الـ تاريخ اللي كان جنب المعادلة اتشال (redundant — موجود في جدول سجل العمليات فوقه). الـ layout flex مع flexWrap بحيث على الشاشات الضيقة الـ pill يـ wrap لـ سطر تحت الـ equation بدون ما الـ math يتـ break." },
+      { type: "improvement", text: "الـ design العام محفوظ زي V21.9.164 — صورة 3:4 + meta على اليمين + جدول العمليات بعرض الكارت كامل. كل التعديلات within الـ existing layout — مفيش data بـ يطلع برة الكارت أو الجدول (whitespace nowrap + maxWidth + ellipsis على كل الـ pills)." },
+    ],
+  },
+  {
     version: "V21.9.164",
     date: "2026-05-23",
     types: ["improvement"],

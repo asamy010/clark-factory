@@ -162,13 +162,23 @@ export default async function handler(req, res) {
       (o.workshopDeliveries || []).filter(wd => wd.wsName === wsName).forEach(wd => {
         const delQty = Number(wd.qty) || 0;
         totalDeliveredQty += delQty;
+        /* V21.9.165 ROOT-CAUSE FIX: the actual garment type field on a
+           workshopDelivery is `garmentType` (set in ExtProdPg.jsx:225 and the
+           batch path at :968), NOT `piece`. Pre-V21.9.165 this endpoint read
+           `wd.piece` which is undefined everywhere → the public portal
+           statement displayed "—" in the "نوع القطعة" column for every row.
+           The receive rows ALSO source garment type from the parent wd
+           (receives are nested in wd, no separate type field). Kept the
+           `piece` JSON key on the response for backwards-compat with the
+           existing client (WorkshopPortalPage). */
+        const garment = wd.garmentType || wd.piece || "";
         deliveries.push({
           date: wd.date || "",
           modelNo,
           modelDesc,
           image: modelImage,
           qty: delQty,
-          piece: wd.piece || "",
+          piece: garment,
         });
 
         /* receives nested inside wd */
@@ -183,7 +193,7 @@ export default async function handler(req, res) {
             modelNo,
             modelDesc,
             image: modelImage,
-            piece: wd.piece || "",
+            piece: garment,
             qty: rQty,
             price: rPrice,
             value: rValue,
