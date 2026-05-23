@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.156",
+    date: "2026-05-23",
+    types: ["fix"],
+    title: "🚑 إصلاح crash V21.9.155 — hooks order violation",
+    changes: [
+      { type: "fix", text: "V21.9.155 كانت بـ تـ crash بـ 'حصلت مشكلة غير متوقعة' لما الـ app يفتح. السبب: ضفت useMemo لـ bottomNavBadges بعد early returns موجودة في App.jsx (loading/stall screens). React hooks لازم تتـ call بالـ same order كل render — لو الـ useMemo سـ skipped في render واحد ومـ called في تاني، الـ hook count بـ يـ vary → crash. الإصلاح: تحويل الـ useMemo لـ plain IIFE const (مفيش memoization، لكن الـ computation رخيصة)." },
+    ],
+  },
+  {
     version: "V21.9.155",
     date: "2026-05-21",
     types: ["feature"],

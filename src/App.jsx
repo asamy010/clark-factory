@@ -5658,23 +5658,21 @@ export default function App(){
     goTo(tabKey);
   };
 
-  /* Bottom-nav badges (memoized). Counts surface unread alerts/items per tab. */
-  const bottomNavBadges = useMemo(() => {
-    /* home — unread notifications (subBarNotifs source) */
+  /* Bottom-nav badges. Plain const (NOT useMemo) — V21.9.155 had useMemo here
+     but this code sits AFTER conditional `return` statements in the component
+     (the stall/loading screens at line ~5334, ~5393). React hooks must be called
+     unconditionally in the same order every render. The useMemo was being skipped
+     in loading renders → "rendered more hooks than during the previous render"
+     crash → ErrorBoundary catch. The computation is cheap (filter on small array)
+     so just inline it. */
+  const bottomNavBadges = (() => {
     const homeCnt = Array.isArray(subBarNotifs) ? subBarNotifs.length : 0;
-    /* more — pending tasks for the current user */
     const myEmail = user?.email || "";
     const myUid = user?.uid || "";
     const tasksList = Array.isArray(config?.tasks) ? config.tasks : [];
     const moreCnt = tasksList.filter(t => (t.toEmail === myEmail || t.toUid === myUid) && !t.done).length;
-    return {
-      home: homeCnt,
-      sales: 0,
-      inventory: 0,
-      finance: 0,
-      more: moreCnt,
-    };
-  }, [subBarNotifs, config?.tasks, user]);
+    return { home: homeCnt, sales: 0, inventory: 0, finance: 0, more: moreCnt };
+  })();
 
   /* FAB action handler — wires each action to the appropriate side-effect.
      Uses sessionStorage + a custom event so the target page can react on mount. */
