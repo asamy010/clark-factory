@@ -20,27 +20,43 @@
 import { FS } from "../constants/index.js";
 import { T } from "../theme.js";
 
-/* The 6 primary actions shown on the mobile home. Sequenced by daily use:
-   dashboard → sales → treasury → invoices → cutting → purchases.
-   The rest live behind the "المزيد" tab. */
+/* The primary actions shown on the mobile home.
+   V21.9.159: QR scan added (per user — "مهم للموبيل"). Positioned #2 right
+   after Dashboard for visibility. The action items below are NOT bound to
+   PERMISSION_TABS — they're either tabs (filtered via canViewTab) or named
+   "special" actions handled separately (qrScan, quickTreasuryIn, quickTreasuryOut).
+   Desktop-mode toggle removed in V21.9.159 — was trapping users. */
 const HOME_BUTTONS = [
-  { key: "dashboard",     label: "لوحة التحكم",  icon: "📊", color: "#0EA5E9" },
-  { key: "custDeliver",   label: "المبيعات",      icon: "🛒", color: "#10B981" },
-  { key: "treasury",      label: "الخزنة",        icon: "💵", color: "#0D9488" },
-  { key: "salesInvoices", label: "فواتير",       icon: "🧾", color: "#3B82F6" },
-  { key: "details",       label: "أوامر القص",    icon: "✂️", color: "#8B5CF6" },
-  { key: "purchase",      label: "مشتريات",       icon: "🛍️", color: "#F59E0B" },
+  { key: "dashboard",        label: "لوحة التحكم",   icon: "📊", color: "#0EA5E9" },
+  { key: "__qrScan",         label: "مسح QR",        icon: "📷", color: "#0EA5E9", special: true },
+  { key: "custDeliver",      label: "المبيعات",       icon: "🛒", color: "#10B981" },
+  { key: "__quickTreasuryIn",  label: "وارد سريع",   icon: "⬇",  color: "#10b981", special: true },
+  { key: "__quickTreasuryOut", label: "منصرف سريع",  icon: "⬆",  color: "#dc2626", special: true },
+  { key: "salesInvoices",    label: "فواتير",        icon: "🧾", color: "#3B82F6" },
+  { key: "details",          label: "أوامر القص",     icon: "✂️", color: "#8B5CF6" },
+  { key: "purchase",         label: "مشتريات",        icon: "🛍️", color: "#F59E0B" },
 ];
 
-export function MobileHomePage({ user, canViewTab, onNavigate, onExitMobileMode }) {
+export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }) {
   const greetText = "مرحبا";
   const userName = user?.displayName || (user?.email || "").split("@")[0] || "مستخدم";
   const dateStr = new Date().toLocaleDateString("ar-EG", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
-  /* Filter by permissions */
-  const visible = HOME_BUTTONS.filter(b => canViewTab(b.key));
+  /* Filter by permissions. Special actions (qrScan, quickTreasuryIn/Out) are
+     always visible to authenticated users — they don't map to PERMISSION_TABS.
+     Treasury-related quick actions: gate them on canViewTab("treasury") so users
+     without treasury access don't see the quick entries. */
+  const visible = HOME_BUTTONS.filter(b => {
+    if (b.special) {
+      if (b.key === "__quickTreasuryIn" || b.key === "__quickTreasuryOut") {
+        return canViewTab("treasury");
+      }
+      return true;/* qrScan available to everyone */
+    }
+    return canViewTab(b.key);
+  });
 
   return (
     <div style={{ padding: "12px 14px 24px" }}>
@@ -74,7 +90,13 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onExitMobileMode 
         {visible.map(btn => (
           <button
             key={btn.key}
-            onClick={() => onNavigate(btn.key)}
+            onClick={() => {
+              if (btn.special && typeof onSpecialAction === "function") {
+                onSpecialAction(btn.key);
+              } else {
+                onNavigate(btn.key);
+              }
+            }}
             style={{
               background: "#fff",
               border: "1px solid #e5e7eb",
@@ -135,33 +157,7 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onExitMobileMode 
           <div style={{ fontSize: FS, fontWeight: 600 }}>لا يوجد أقسام متاحة بصلاحياتك</div>
         </div>
       )}
-
-      {/* ─── Exit-mobile-mode toggle ─── */}
-      {typeof onExitMobileMode === "function" && (
-        <button
-          onClick={onExitMobileMode}
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            background: "#fff",
-            border: "1px solid #d1d5db",
-            borderRadius: 12,
-            fontFamily: "inherit",
-            fontSize: FS - 1,
-            fontWeight: 700,
-            color: T.textSec,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            WebkitTapHighlightColor: "transparent",
-          }}
-        >
-          <span style={{ fontSize: 18 }}>💻</span>
-          <span>التحويل لوضع سطح المكتب</span>
-        </button>
-      )}
+      {/* V21.9.159: desktop-mode toggle removed — was trapping users. */}
     </div>
   );
 }

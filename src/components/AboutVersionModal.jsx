@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.159",
+    date: "2026-05-23",
+    types: ["feature", "fix"],
+    title: "⚡ Mobile: حركة خزنة سريعة + زر QR scan + شيل التحويل لسطح المكتب",
+    changes: [
+      { type: "fix", text: "حذف زر 'التحويل لوضع سطح المكتب' من الـ MobileHomePage. كان trap للمستخدم — لو ضغطه على الموبايل بـ يدخل في desktop layout غير قابل للـ recovery بسهولة. أضفت كمان `useEffect` يـ clear الـ localStorage flag الـ 'clark-force-desktop' عند أول mount → المستخدمين الـ stuck بـ يتـ unstuck تلقائياً." },
+      { type: "feature", text: "زر 'مسح QR 📷' كبير في المرتبة الثانية في الـ mobile home — مهم للموبيل (scan delivery labels, model QRs, إلخ). يفتح الـ existing QRScanner مباشرة مع smart-detect للنوع." },
+      { type: "feature", text: "Quick Treasury Modal جديد — bottom sheet بـ +وارد / -منصرف toggle ضخم، amount input بـ font 28px مع keypad numeric، account select مع preview للرصيد الحالي والـ projected balance بعد العملية، optional 1-line note، زر حفظ huge ملون بلون النوع. يـ write نفس الـ schema بتاع saveTx() في TreasuryPg + يـ fire autoPost.treasury. الـ FAB 💵 + 2 buttons في الـ mobile home (وارد سريع / منصرف سريع) كلهم يفتحوه دلوقتي بدل ما يـ navigate لـ TreasuryPg." },
+    ],
+  },
+  {
     version: "V21.9.158",
     date: "2026-05-23",
     types: ["improvement", "fix"],

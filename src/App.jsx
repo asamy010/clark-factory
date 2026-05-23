@@ -169,6 +169,7 @@ import { BottomNavFab } from "./components/navigation/BottomNavFab.jsx";
 import { SubViewTabs } from "./components/navigation/SubViewTabs.jsx";
 import { MoreMenuPage } from "./pages/MoreMenuPage.jsx";
 import { MobileHomePage } from "./pages/MobileHomePage.jsx";
+import { QuickTreasuryModal } from "./components/QuickTreasuryModal.jsx";
 import { BOTTOM_TABS, TAB_SUBVIEWS, visibleSubViews, bottomTabFromTabKey } from "./utils/navigationConfig.js";
 
 /* V15.50: Public delivery confirmation page — opened when customer scans QR from delivery receipt.
@@ -501,6 +502,9 @@ export default function App(){
   const[savingOverlay,setSavingOverlay]=useState(null);/* null or {message,progress} */
   const[stickyForm,setStickyForm]=useState(null);
   const[sidebarTab,setSidebarTab]=useState("notes");/* V21.9.134: "notes"|"activity" — tasks moved to always-visible bottom section. "tasks" value still accepted defensively (falls through to notes branch). */
+  /* V21.9.159: Quick Treasury modal — opens from FAB or mobile home special action.
+     `null` = closed. `{ type: "in" | "out" }` = open with that default type selected. */
+  const[quickTreasury,setQuickTreasury]=useState(null);
   /* V21.9.141: "Just updated" flag — when true, the topbar version pill flashes
      red for ~60s to surface that the app refreshed itself to a new version.
      Replaces the old "update available" toast (removed in V21.9.141). Two paths:
@@ -942,24 +946,16 @@ export default function App(){
   const _appliedTheme=useRef(null);
   if(_appliedTheme.current!==theme){setActiveTheme(theme);_appliedTheme.current=theme}
   useEffect(()=>{try{localStorage.setItem(themeKey,theme)}catch(e){}document.body.style.background=T.bodyBg||T.bg},[theme,themeKey]);
-  const w=useWin();const rawIsMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
-  /* V21.9.157: persistent "force desktop layout" override.
-     User can opt out of the mobile shell from MobileHomePage's footer button,
-     or opt back in from the topbar's avatar menu. Stored in localStorage so
-     it survives page reloads. The hook is called UNCONDITIONALLY so it sits
-     before any early returns (per V21.9.156 hooks-order lesson). */
-  const[forceDesktop,setForceDesktop]=useState(()=>{
-    try { return localStorage.getItem("clark-force-desktop") === "1"; } catch(_) { return false; }
-  });
-  const setForceDesktopPersisted=(v)=>{
-    try { localStorage.setItem("clark-force-desktop", v ? "1" : "0"); } catch(_) {}
-    setForceDesktop(v);
-  };
-  /* `isMob` everywhere in App.jsx now respects the override. Pages that
-     received `isMob` as a prop continue to work identically — they see the
-     overridden value. `rawIsMob` (the genuine viewport check) is available
-     for code paths that specifically need to know the real device size. */
-  const isMob = rawIsMob && !forceDesktop;
+  const w=useWin();const isMob=w<768;const isTab=w>=768&&w<1100;const season=config.activeSeason||"WS26";
+  /* V21.9.159: clean up V21.9.157's "force desktop layout" override.
+     The feature trapped users in desktop mode on small viewports without an
+     obvious way back (the 📱 recovery button was easy to miss). Per user
+     feedback, the entire toggle is removed. We also clear any stale flag
+     from previous installs so users currently stuck unstick automatically
+     on first mount of V21.9.159. */
+  useEffect(()=>{
+    try { localStorage.removeItem("clark-force-desktop"); } catch(_) {}
+  }, []);
 
   useEffect(()=>{const unsub=onAuthStateChanged(auth,u=>{setUser(u);setAuthLoading(false)});return unsub},[]);
   /* V15.92: Prefetch IP + location once per session (silent — no error if offline) */
@@ -5693,13 +5689,19 @@ export default function App(){
   })();
 
   /* FAB action handler — wires each action to the appropriate side-effect.
-     Uses sessionStorage + a custom event so the target page can react on mount. */
+     V21.9.159: the treasury action no longer navigates to TreasuryPg; it opens
+     the QuickTreasuryModal directly for a much faster in/out entry workflow. */
   const onFabAction = (action) => {
     if (!action) return;
     if (action.kind === "openQuickPopup") {
       setQuickPopup(action.mode === "notif" ? "notif" : "task");
       setQpTo(action.mode === "notif" ? "all" : "");
       setQpText("");
+      return;
+    }
+    /* V21.9.159: intercept treasury action → open quick modal instead of nav */
+    if (action.kind === "navigateAndAction" && action.action === "newEntry" && action.targetTab === "treasury") {
+      setQuickTreasury({ type: "in" });
       return;
     }
     if (action.kind === "navigateAndAction") {
@@ -5720,6 +5722,23 @@ export default function App(){
           }));
         } catch(_) {}
       }, 200);
+    }
+  };
+
+  /* V21.9.159: Special actions from the MobileHomePage big-buttons grid.
+     Currently handles QR scan + quick treasury in/out. */
+  const onMobileSpecialAction = (key) => {
+    if (key === "__qrScan") {
+      setShowScanner(true);
+      return;
+    }
+    if (key === "__quickTreasuryIn") {
+      setQuickTreasury({ type: "in" });
+      return;
+    }
+    if (key === "__quickTreasuryOut") {
+      setQuickTreasury({ type: "out" });
+      return;
     }
   };
   const goTo=async(key)=>{if(window.__formDirty){if(!await ask("الخروج بدون حفظ","هل تريد الخروج بدون حفظ البيانات المدخلة؟",{danger:true,confirmText:"خروج"}))return;window.__formDirty=false}setTab(key);if(key!=="details")setSel(null)};
@@ -6220,7 +6239,7 @@ export default function App(){
         user={user}
         canViewTab={canViewTab}
         onNavigate={(k)=>goTo(k)}
-        onExitMobileMode={()=>{setForceDesktopPersisted(true);showToast("✓ تم التحويل لوضع سطح المكتب");}}
+        onSpecialAction={onMobileSpecialAction}
       />}
       {tab==="home"&&!isMob&&(()=>{
         /* V18.25: Greeting fixed to "مرحبا" — always (was time-based) */
@@ -6734,22 +6753,16 @@ export default function App(){
       />
       {tab==="home"&&<BottomNavFab onAction={onFabAction}/>}
     </>}
-    {/* V21.9.157: "Switch back to mobile mode" button — appears only when the
-        user is on a small viewport but has opted into desktop mode. Fixed
-        button at the bottom corner, small + unobtrusive. */}
-    {rawIsMob&&forceDesktop&&<button
-      onClick={()=>{setForceDesktopPersisted(false);showToast("✓ تم التحويل لوضع الموبيل");}}
-      title="العودة لوضع الموبيل"
-      style={{
-        position:"fixed",bottom:14,insetInlineStart:14,zIndex:55,
-        width:48,height:48,borderRadius:"50%",
-        background:"#0EA5E9",color:"#fff",border:"none",
-        fontSize:20,fontFamily:"inherit",cursor:"pointer",
-        boxShadow:"0 4px 14px rgba(14,165,233,0.4)",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        WebkitTapHighlightColor:"transparent",
-      }}
-    >📱</button>}
+    {/* V21.9.157 mode-toggle button removed in V21.9.159 — see useEffect above. */}
+    {/* V21.9.159 — Quick Treasury Modal (opens from FAB treasury action + mobile home quick in/out buttons) */}
+    <QuickTreasuryModal
+      open={!!quickTreasury}
+      defaultType={quickTreasury?.type}
+      onClose={()=>setQuickTreasury(null)}
+      data={data}
+      upConfig={upConfig}
+      user={user}
+    />
     {/* Quick Task/Notification Popup */}
     {quickPopup&&(()=>{const allUsers=(config.usersList||[]);const me={email:user?.email||"",name:user?.displayName||(user?.email||"").split("@")[0],role:userRole};
       const targets=allUsers.find(u=>u.email===me.email)?allUsers:[me,...allUsers];
