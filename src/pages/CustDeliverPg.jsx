@@ -1339,20 +1339,34 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div class="stat s-chk"><div class="label">دفعات شيكات</div><div class="val">${fmt(r2(totalCheckPay))}</div></div>
           <div class="stat s-bal"><div class="label">رصيد عند العملاء</div><div class="val">${fmt(r2(totalBalance))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
         </div>
-        <table><thead><tr><th>العميل</th><th>تليفون</th><th>الخصم %</th><th>المبيعات بعد الخصم</th><th>مرتجعات بعد الخصم</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>الرصيد</th></tr></thead><tbody>`;
-        rows.forEach(r=>{html+=`<tr><td>${r.name}</td><td class="num">${r.phone}</td>
+        <table><thead><tr><th>العميل</th><th>تليفون</th><th>الخصم %</th><th>المبيعات بعد الخصم</th><th>مرتجعات بعد الخصم</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>الرصيد</th><th>نسبة مبيعات</th></tr></thead><tbody>`;
+        /* V21.9.168: نسبة مبيعات = (sales − returns) / sales × 100
+           بمعنى "العميل باع نسبة كام من اللي استلمه" — كل ما النسبة أعلى كل ما
+           المرتجعات أقل. لو الـ sales = 0 (مفيش استلام) → نطلع "—" بدل قسمة على صفر.
+           Color coding (qualitative bands):
+             ≥ 90%  أخضر  (ممتاز، مرتجعات قليلة)
+             70-89% أصفر  (متوسط)
+             < 70%  أحمر  (مرتجعات كتيرة، يستحق الانتباه) */
+        const pctColor = (pct) => pct >= 90 ? "#10b981" : pct >= 70 ? "#f59e0b" : "#ef4444";
+        rows.forEach(r=>{
+          const pct = r.sales > 0 ? Math.round((r.sales - r.returns) / r.sales * 100) : null;
+          html+=`<tr><td>${r.name}</td><td class="num">${r.phone}</td>
           <td class="num">${r.discPct>0?r.discPct+"%":"—"}</td>
           <td class="num">${fmt(r2(r.sales))}</td>
           <td class="num ${r.returns>0?"neg":""}">${r.returns>0?fmt(r2(r.returns)):"—"}</td>
           <td class="num ${r.cash>0?"pos":""}">${r.cash>0?fmt(r2(r.cash)):"—"}</td>
           <td class="num ${r.check>0?"pos":""}">${r.check>0?fmt(r2(r.check)):"—"}</td>
-          <td class="num" style="font-weight:800;color:${r.bal>0?"#ef4444":r.bal<0?"#10b981":"#64748b"}">${fmt(r2(r.bal))}</td></tr>`});
+          <td class="num" style="font-weight:800;color:${r.bal>0?"#ef4444":r.bal<0?"#10b981":"#64748b"}">${fmt(r2(r.bal))}</td>
+          <td class="num" style="font-weight:800;color:${pct===null?"#94a3b8":pctColor(pct)}">${pct===null?"—":pct+"%"}</td></tr>`});
+        /* Footer: نسبة المبيعات الإجمالية — (totalSales − totalReturns) / totalSales × 100 */
+        const totalPct = totalSales > 0 ? Math.round((totalSales - totalReturns) / totalSales * 100) : null;
         html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:right">الاجمالي</td>
           <td class="num">${fmt(r2(totalSales))}</td>
           <td class="num">${fmt(r2(totalReturns))}</td>
           <td class="num">${fmt(r2(totalCashPay))}</td>
           <td class="num">${fmt(r2(totalCheckPay))}</td>
-          <td class="num">${fmt(r2(totalBalance))}</td></tr></tfoot></table>
+          <td class="num">${fmt(r2(totalBalance))}</td>
+          <td class="num">${totalPct===null?"—":totalPct+"%"}</td></tr></tfoot></table>
         </body></html>`;
         w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
       return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>

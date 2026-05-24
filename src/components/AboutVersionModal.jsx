@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.168",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "📈 تقرير المبيعات — عمود 'نسبة مبيعات' الجديد (sell-through rate)",
+    changes: [
+      { type: "feature", text: "في تقرير مبيعات العملاء (طباعة من CustDeliverPg): تم إضافة عمود جديد 'نسبة مبيعات' بعد عمود 'الرصيد' (آخر عمود في الجدول). الـ formula: `(sales − returns) / sales × 100` — أي 'العميل باع نسبة كام من اللي استلمه'. مثلاً: لو استلم بـ 100,000 ج.م ورجّع بـ 20,000 → نسبة مبيعاته = 80%." },
+      { type: "feature", text: "Color coding (qualitative bands) علشان تـ scan الـ table بسرعة:\n• ≥ 90% أخضر — ممتاز (مرتجعات قليلة، يستحق التركيز)\n• 70-89% أصفر — متوسط\n• < 70% أحمر — مرتجعات عالية (يحتاج مراجعة)\n• sales = 0 → '—' (مفيش استلام، لا يـ calc قسمة على صفر)" },
+      { type: "feature", text: "في الـ footer row: نسبة الإجمالية للموسم بنفس الـ formula على الـ totals. الـ percentages dمحسوبة على البيانات بعد الخصم (consistent مع باقي الأعمدة)." },
+    ],
+  },
+  {
     version: "V21.9.167",
     date: "2026-05-23",
     types: ["improvement"],
