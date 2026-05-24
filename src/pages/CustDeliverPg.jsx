@@ -1255,26 +1255,30 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       orders.forEach(o=>{const sp=Number(o.sellPrice)||0;
         /* V15.45: Use per-delivery price when set (isDiscounted sales) — falls back to model sellPrice */
         (o.customerDeliveries||[]).forEach(d=>{const effPrice=Number(d.price)||sp;const v=(Number(d.qty)||0)*effPrice;
-          if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[d.custId].sales+=v});
+          if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0};perCust[d.custId].sales+=v});
         (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;
-          if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0,other:0};perCust[r.custId].returns+=v})});
+          if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0};perCust[r.custId].returns+=v})});
+      /* V21.9.167: Two buckets only — check vs non-check. Per customer
+         feedback: cash, transfer (تحويل/instapay), and any other non-check
+         method all consolidate into "دفعات كاش". The "أخرى" column was
+         removed from the printed report (was a 3rd bucket: not-cash &
+         not-check). Keeping only `cash` + `check` in perCust[]. */
       (config.custPayments||[]).forEach(p=>{const amt=Number(p.amount)||0;const m=(p.method||"").toLowerCase();
         const isCheck=m.includes("شيك")||m.includes("check");
-        const isCash=m.includes("كاش")||m.includes("cash")||!m;
-        if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0,other:0};
-        if(isCheck)perCust[p.custId].check+=amt;else if(isCash)perCust[p.custId].cash+=amt;else perCust[p.custId].other+=amt});
+        if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0};
+        if(isCheck)perCust[p.custId].check+=amt;else perCust[p.custId].cash+=amt});
       /* V18.23+V18.24: Include receivable checks ONLY when category = 'دفعة عميل' (real customer payment).
          Excludes: رصيد افتتاحي (carried from old season), تسوية مبالغ, تحويل بين الحسابات, أخرى — none of these are sales-related.
          Empty category defaults to 'دفعة عميل' for receivable checks (matches the helper default). */
       (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل")).forEach(c=>{
         const amt=Number(c.amount)||0;
         if(c.partyId){
-          if(!perCust[c.partyId])perCust[c.partyId]={sales:0,returns:0,cash:0,check:0,other:0};
+          if(!perCust[c.partyId])perCust[c.partyId]={sales:0,returns:0,cash:0,check:0};
           perCust[c.partyId].check+=amt;
         }
       });
       /* V18.27: Apply discount per customer + build totals */
-      let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0,totalOtherPay=0;
+      let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0;
       let totalSalesGross=0,totalReturnsGross=0;/* For tooltip detail */
       Object.keys(perCust).forEach(cid=>{
         const cust=customers.find(c=>c.id===cid);
@@ -1288,7 +1292,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         totalReturns+=returnsAfter;
         totalCashPay+=p.cash;
         totalCheckPay+=p.check;
-        totalOtherPay+=p.other;
         /* Annotate perCust for use in print report */
         p.discPct=discPct;
         p.salesGross=p.sales;
@@ -1296,15 +1299,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         p.salesAfter=salesAfter;
         p.returnsAfter=returnsAfter;
       });
-      const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay-totalOtherPay;
+      /* V21.9.167: balance = sales − returns − cash − check (no "other" anymore,
+         transfers etc. now flow into cash) */
+      const totalBalance=totalSales-totalReturns-totalCashPay-totalCheckPay;
       const printSalesReport=()=>{const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة وحاول مرة أخرى",{danger:true});return}
         const logo=(config.logo||"").trim();
         /* V18.27: Use AFTER-discount values per customer for the printed report (balance = sales_after - returns_after - paid) */
-        const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,other:0,salesAfter:0,returnsAfter:0,discPct:Number(c.discount)||0};
+        const rows=customers.map(c=>{const p=perCust[c.id]||{sales:0,returns:0,cash:0,check:0,salesAfter:0,returnsAfter:0,discPct:Number(c.discount)||0};
           const sales=p.salesAfter||Math.round(p.sales*(1-(Number(c.discount)||0)/100));
           const returns=p.returnsAfter||Math.round(p.returns*(1-(Number(c.discount)||0)/100));
-          const bal=sales-returns-p.cash-p.check-p.other;
-          return{name:c.name,phone:c.phone||"—",sales,returns,cash:p.cash,check:p.check,other:p.other,discPct:p.discPct||(Number(c.discount)||0),bal}}).filter(r=>r.sales>0||r.returns>0||r.cash>0||r.check>0||r.other>0||r.bal!==0).sort((a,b)=>b.bal-a.bal);
+          /* V21.9.167: balance = sales − returns − cash − check (no "other") */
+          const bal=sales-returns-p.cash-p.check;
+          return{name:c.name,phone:c.phone||"—",sales,returns,cash:p.cash,check:p.check,discPct:p.discPct||(Number(c.discount)||0),bal}}).filter(r=>r.sales>0||r.returns>0||r.cash>0||r.check>0||r.bal!==0).sort((a,b)=>b.bal-a.bal);
         let html=`<html dir="rtl"><head><meta charset="utf-8"><title>تقرير المبيعات</title>
         <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Cairo',Arial,sans-serif;font-size:11px;margin:0;padding:0;color:#1a1a1a}
         .hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid #0ea5e9;margin-bottom:12px}
@@ -1333,21 +1339,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div class="stat s-chk"><div class="label">دفعات شيكات</div><div class="val">${fmt(r2(totalCheckPay))}</div></div>
           <div class="stat s-bal"><div class="label">رصيد عند العملاء</div><div class="val">${fmt(r2(totalBalance))}</div><div style="font-size:8px;color:#94a3b8;margin-top:2px">بعد الخصم</div></div>
         </div>
-        <table><thead><tr><th>العميل</th><th>تليفون</th><th>الخصم %</th><th>المبيعات بعد الخصم</th><th>مرتجعات بعد الخصم</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>أخرى</th><th>الرصيد</th></tr></thead><tbody>`;
+        <table><thead><tr><th>العميل</th><th>تليفون</th><th>الخصم %</th><th>المبيعات بعد الخصم</th><th>مرتجعات بعد الخصم</th><th>دفعات كاش</th><th>دفعات شيكات</th><th>الرصيد</th></tr></thead><tbody>`;
         rows.forEach(r=>{html+=`<tr><td>${r.name}</td><td class="num">${r.phone}</td>
           <td class="num">${r.discPct>0?r.discPct+"%":"—"}</td>
           <td class="num">${fmt(r2(r.sales))}</td>
           <td class="num ${r.returns>0?"neg":""}">${r.returns>0?fmt(r2(r.returns)):"—"}</td>
           <td class="num ${r.cash>0?"pos":""}">${r.cash>0?fmt(r2(r.cash)):"—"}</td>
           <td class="num ${r.check>0?"pos":""}">${r.check>0?fmt(r2(r.check)):"—"}</td>
-          <td class="num">${r.other>0?fmt(r2(r.other)):"—"}</td>
           <td class="num" style="font-weight:800;color:${r.bal>0?"#ef4444":r.bal<0?"#10b981":"#64748b"}">${fmt(r2(r.bal))}</td></tr>`});
         html+=`</tbody><tfoot><tr><td colspan="3" style="text-align:right">الاجمالي</td>
           <td class="num">${fmt(r2(totalSales))}</td>
           <td class="num">${fmt(r2(totalReturns))}</td>
           <td class="num">${fmt(r2(totalCashPay))}</td>
           <td class="num">${fmt(r2(totalCheckPay))}</td>
-          <td class="num">${fmt(r2(totalOtherPay))}</td>
           <td class="num">${fmt(r2(totalBalance))}</td></tr></tfoot></table>
         </body></html>`;
         w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};

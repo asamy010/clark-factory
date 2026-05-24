@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.167",
+    date: "2026-05-23",
+    types: ["improvement"],
+    title: "📊 تقرير المبيعات — حذف عمود 'أخرى' ودمج التحويلات في 'دفعات كاش'",
+    changes: [
+      { type: "improvement", text: "في تقرير مبيعات العملاء (طباعة من CustDeliverPg): تم حذف عمود 'أخرى' كلياً من الجدول. كل الدفعات اللي مش شيك (كاش، تحويل بنكي، instapay، أي طريقة تانية بدون كلمة 'شيك') دلوقتي بـ تتـ تجميع تحت عمود واحد 'دفعات كاش'. النتيجة: عمودين بس للدفعات — كاش (الكل) + شيكات (لوحدها) — أوضح وأبسط للقراءة." },
+      { type: "improvement", text: "الـ classification logic اتبسط من 3-way (cash/check/other) لـ 2-way (check vs everything-else). الـ data integrity محفوظ: balance = sales − returns − cash − check (الـ totalOtherPay اتشال من المعادلة لأن totalCashPay دلوقتي بـ يشمل الـ تحويلات). كل الأرقام الإجمالية تماماً زي قبل التغيير — الفرق بصري بس (عمود واحد بدل عمودين للـ non-check payments)." },
+      { type: "improvement", text: "ملفات متأثرة: src/pages/CustDeliverPg.jsx فقط. الـ dashboard cards فوق التقرير محفوظ زي ما هو (كانت أصلاً 5 cards بدون 'أخرى')." },
+    ],
+  },
+  {
     version: "V21.9.166",
     date: "2026-05-23",
     types: ["improvement"],
