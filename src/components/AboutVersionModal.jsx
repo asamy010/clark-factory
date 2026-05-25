@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.169",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 1/14: Service Worker handlers",
+    changes: [
+      { type: "feature", text: "أولى slice في feature Push Notifications (4-5 أسابيع total، 14 slices). تم إضافة 3 event handlers في public/sw.js:\n• `push` — يـ display الـ OS notification بـ Arabic RTL + vibrate + icon. الـ payload schema موثق في الكود (title/body/icon/data/actions/urgency).\n• `notificationclick` — focus existing CLARK tab لو مفتوح + يعمل deep-link للـ relevant tab (treasury/task/instruction/warning/broadcast). لو مفيش tab مفتوح، يفتح new window.\n• `pushsubscriptionchange` — best-effort renewal endpoint call (الـ backend هـ يـ land في Slice 3)." },
+      { type: "feature", text: "⚠️ Slice 1 لوحدها no-op practically — مفيش subscription path لسه (Slice 2) ومفيش send endpoint (Slice 4)، فالـ push events ما هـ توصل. الـ SW جاهز يستقبل لما باقي الـ slices تـ land. شحن Slice 1 منفصل آمن + reversible — كل ما تم إضافته passive listeners ما بـ يـ touch أي logic موجود." },
+      { type: "doc", text: "Architectural decisions (confirmed):\n• Foreground behavior: native OS notification only (مفيش in-app toast duplicate)\n• Default subscriptions: كل users يـ receive كل categories (role filtering هـ يـ land في Slice 5 preferences)\n• Privacy: payload title/body ما تـ contain sensitive data (amounts, customer names) — generic copy + deep-link للتفاصيل\n• Tag-based grouping: 5 treasury notifications في 10 دقائق بـ نفس الـ tag → يـ replace بعض بدل ما يتكدسوا\n• iOS Safari: الـ user عنده iPhone test device → هـ يتأكد من الـ PWA install flow في Slice 2" },
+    ],
+  },
+  {
     version: "V21.9.168",
     date: "2026-05-24",
     types: ["feature"],

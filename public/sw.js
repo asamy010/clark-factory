@@ -38,7 +38,7 @@
    new JS. No manual cache clears needed.
    ═══════════════════════════════════════════════════════════════ */
 
-const SW_VERSION = 'v21.9.168';
+const SW_VERSION = 'v21.9.169';
 const APP_CACHE = 'clark-app-' + SW_VERSION;
 const IMG_CACHE = 'clark-images-' + SW_VERSION;
 const KEEP_CACHES = [APP_CACHE, IMG_CACHE];
@@ -82,6 +82,188 @@ self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   PUSH NOTIFICATIONS — V21.9.169 (Phase 22a — Slice 1 of 14)
+   ───────────────────────────────────────────────────────────────
+   Handlers for the Web Push protocol. As of V21.9.169 these are
+   STANDALONE: no client subscription path exists yet (Slice 2),
+   no backend send endpoint exists yet (Slice 4), so in practice
+   no push event will be received until those land. Shipping this
+   first slice ALONE is safe and reversible — the handlers are
+   passive listeners that only fire when a push actually arrives.
+
+   Three handlers:
+   1. push                    → show the OS notification with RTL Arabic
+   2. notificationclick       → focus an open tab or open a new one,
+                                deep-link to the relevant CLARK tab
+   3. pushsubscriptionchange  → best-effort renewal via backend
+
+   Payload schema the server should send (Slice 4):
+     {
+       title:   string,          // notification heading
+       body:    string,          // notification body text
+       icon:    string?,         // optional override (default /icon-192.png)
+       badge:   string?,         // small monochrome badge (Android)
+       image:   string?,         // optional banner image
+       tag:     string?,         // notifications with same tag REPLACE each other
+       data:    {                // routing payload — read by click handler
+         type:   "treasury" | "task" | "instruction" | "warning" | "broadcast",
+         url?:   string,         // explicit URL override
+         entryId?: string,       // for treasury → /?tab=treasury&entryId=...
+         taskId?:  string,
+         instructionId?: string,
+         target?:  string,       // generic tab name for warning
+       },
+       actions: [{ action, title }]?,  // up to 2 action buttons
+       urgency: "low" | "normal" | "high",  // high = requireInteraction
+     }
+
+   Privacy: NEVER put sensitive amounts/balances/customer names
+   in title/body — the OS shows these on the lock screen. Use
+   generic copy ("تحويل خزنة جديد — اضغط للتفاصيل") and pull the
+   actual numbers from inside the app after click. */
+
+self.addEventListener('push', (event) => {
+  /* Defensive: an empty push (no data) is sometimes used by browsers
+     to wake the SW — show a generic ping rather than crash. */
+  if (!event.data) {
+    event.waitUntil(
+      self.registration.showNotification('CLARK', {
+        body: 'لديك تحديث جديد',
+        icon: '/icon-192.png',
+        dir: 'rtl',
+        lang: 'ar-EG',
+      })
+    );
+    return;
+  }
+
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch (_) {
+    /* Server sent plain text — wrap as generic notification. */
+    payload = { title: 'CLARK', body: event.data.text() };
+  }
+
+  const {
+    title, body, icon, badge, image, tag, data, actions, urgency
+  } = payload || {};
+
+  const options = {
+    body: body || '',
+    icon: icon || '/icon-192.png',
+    badge: badge || '/icon-192.png',
+    image: image || undefined,
+    /* tag groups similar notifications. Without a tag, every push
+       creates a new banner. With a tag, a new push replaces the
+       previous one with the same tag (e.g. tag='treasury-summary'). */
+    tag: tag || ('clark-' + Date.now()),
+    data: data || {},
+    actions: Array.isArray(actions) ? actions.slice(0, 2) : [],
+    /* RTL Arabic — affects how Android lays out title/body. */
+    dir: 'rtl',
+    lang: 'ar-EG',
+    /* Vibration: short-long-short (matches WhatsApp-style attention). */
+    vibrate: [200, 100, 200],
+    /* high urgency → requires user interaction to dismiss
+       low urgency → silent (no sound, no vibration). */
+    requireInteraction: urgency === 'high',
+    silent: urgency === 'low',
+    timestamp: Date.now(),
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title || 'CLARK', options)
+  );
+});
+
+/* Notification click — focus an open CLARK tab if any, otherwise open
+   a new one. Deep-link to the relevant tab via URL params (the app
+   reads params on mount; see App.jsx browser history wiring). */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const data = event.notification.data || {};
+  const action = event.action || '';
+
+  /* Build destination URL based on payload type. Default to home. */
+  let url = '/';
+  if (data.url) {
+    url = data.url;
+  } else if (data.type === 'treasury') {
+    url = '/?tab=treasury' + (data.entryId ? ('&entryId=' + encodeURIComponent(data.entryId)) : '');
+  } else if (data.type === 'task') {
+    url = '/?tab=tasks' + (data.taskId ? ('&taskId=' + encodeURIComponent(data.taskId)) : '');
+  } else if (data.type === 'instruction') {
+    url = '/?tab=home' + (data.instructionId ? ('&inst=' + encodeURIComponent(data.instructionId)) : '');
+  } else if (data.type === 'warning') {
+    url = '/?tab=' + encodeURIComponent(data.target || 'home');
+  } else if (data.type === 'broadcast') {
+    url = '/?tab=home&broadcast=' + encodeURIComponent(data.broadcastId || '');
+  }
+
+  /* Action button override (e.g., "approve" → action-specific URL). */
+  if (action && data.actions && data.actions[action]) {
+    url = data.actions[action];
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
+      /* Prefer focusing an already-open CLARK tab — postMessage so the
+         app can react (switch tab, scroll to entry, etc.) without a
+         full reload. Falls back to navigating that tab to the URL. */
+      for (const win of wins) {
+        try {
+          if (win.url && win.url.includes(self.location.origin)) {
+            win.focus();
+            try {
+              win.postMessage({ type: 'NOTIFICATION_CLICK', data, action, url });
+            } catch (_) { /* ignore */ }
+            /* Also navigate that tab to the URL — in case the app's
+               in-memory listener for NOTIFICATION_CLICK isn't wired yet
+               (Slice 2 will wire it). The navigate is a no-op if the
+               URL is the same. */
+            try {
+              if (win.url !== self.location.origin + url) {
+                /* clients API doesn't expose .navigate on all browsers;
+                   guard. */
+                if (typeof win.navigate === 'function') {
+                  win.navigate(url);
+                }
+              }
+            } catch (_) { /* ignore */ }
+            return;
+          }
+        } catch (_) { /* ignore individual tab errors */ }
+      }
+      /* No CLARK tab open — open a new one at the destination. */
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
+/* Subscription renewal — the browser rotates push subscriptions on
+   its schedule (or after the user revokes/regrants permission). Best
+   effort: tell the backend so it can replace the stored token. The
+   /api/notifications/renew-subscription endpoint will land in Slice 3;
+   until then this fails silently which is fine — the next time the
+   user opens the app, the client-side init (Slice 2) will re-subscribe. */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    fetch('/api/notifications/renew-subscription', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldEndpoint: (event.oldSubscription && event.oldSubscription.endpoint) || null,
+        newSubscription: event.newSubscription
+          ? event.newSubscription.toJSON()
+          : null,
+      }),
+    }).catch(() => { /* backend not ready yet — silent */ })
+  );
 });
 
 function isImageRequest(url) {
