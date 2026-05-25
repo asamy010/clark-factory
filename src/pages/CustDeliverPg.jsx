@@ -110,6 +110,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      `localGridDirty` flips true on first edit; it gates the save button + warns on close. */
   const[localGrid,setLocalGrid]=useState({});
   const[localGridDirty,setLocalGridDirty]=useState(false);
+  /* V21.9.195 — defer session creation until explicit save.
+     Pre-V21.9.195 `createSession()` inserted the new session into Firestore
+     immediately on the new-session form save, so if the user opened the
+     matrix and clicked ✕ without entering anything, the empty session
+     stayed in the records list and had to be deleted manually.
+
+     The fix: hold the new session in `pendingSession` state (local only,
+     not persisted). All lookups for `activeSess` check this first. The
+     persisted insert happens inside the same `upSales` transaction that
+     writes the grid (on the explicit "حفظ التغييرات" click) — so if the
+     user clicks ✕/إلغاء before any save, the session never reaches the
+     records. */
+  const[pendingSession,setPendingSession]=useState(null);
   /* ── V21.9.190 — Phase 2 ──────────────────────────────────────────────
      Per-customer-per-session discount override. Stored in
      `sess.custDisc` (object map: { custId: pct }). Mirrored to local
@@ -255,6 +268,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      during editing — that would clobber the user's unsaved edits. Only on
      activeSession id change. The dirty flag resets too. */
   useEffect(() => {
+    /* V21.9.195: if user navigates AWAY from a pending session (selects a
+       different session OR clears activeSession), drop the pending state.
+       The pending session was never persisted, so dropping it is the
+       intended "discard" behavior. The closeMatrix() path explicitly
+       handles its own pending-aware confirm — this effect is the catch-all
+       for any other navigation. */
+    if (pendingSession && pendingSession.id !== activeSession) {
+      setPendingSession(null);
+    }
     if (!activeSession) {
       setLocalGrid({});
       setLocalGridDirty(false);
@@ -262,7 +284,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       setLocalCustDiscDirty(false);
       return;
     }
-    const sess = (data.custDeliverySessions || []).find(s => s.id === activeSession);
+    /* Check pendingSession first (not yet persisted) before the committed list. */
+    const sess =
+      (pendingSession && pendingSession.id === activeSession ? pendingSession : null) ||
+      (data.custDeliverySessions || []).find(s => s.id === activeSession);
     setLocalGrid({ ...(sess?.grid || {}) });
     setLocalGridDirty(false);
     /* V21.9.190: also hydrate per-customer discount map for this session */
@@ -534,8 +559,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const createSession=()=>{const mIds=Object.keys(selModels).filter(k=>selModels[k]);const cIds=Object.keys(selCusts).filter(k=>selCusts[k]);
     if(mIds.length===0||cIds.length===0){showToast("⚠️ اختر موديل وعميل على الأقل");return}
     const sess={id:gid(),date:cairoDateStr(),createdAt:nowISO(),modelIds:mIds,custIds:cIds,grid:{}};
-    upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.unshift(sess)});
-    setActiveSession(sess.id);setShowNewSession(false);setSelModels({});setSelCusts({});showToast("✓ تم انشاء التسليم")};
+    /* V21.9.195: hold in pendingSession; DON'T persist yet. The session
+       reaches Firestore only when the user clicks "حفظ التغييرات" inside
+       the matrix (or when they confirm "save & close" on the cancel
+       dialog). If they ✕/إلغاء before saving anything, the session is
+       discarded entirely — no orphan empty record in the list. */
+    setPendingSession(sess);
+    setActiveSession(sess.id);setShowNewSession(false);setSelModels({});setSelCusts({});showToast("⏳ توزيعة جديدة — اضغط حفظ للتأكيد")};
 
   const saveCell=(sessId,orderId,custId,newQty)=>{
     /* V14.64: Check if orderId is a virtual group id (starts with "GRP:") */
@@ -699,10 +729,20 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      session's grid wholesale — values that were in the old grid but cleared in
      localGrid get removed (we don't merge). Triggered by the footer save button.
      V21.9.190: also commits localCustDisc to session.custDisc so per-customer
-     discount overrides persist across reloads / users. */
+     discount overrides persist across reloads / users.
+     V21.9.195: if `pendingSession` matches sessId, INSERT the session as
+     part of the same write so creation + first-save are atomic. Clears
+     pendingSession state on success. */
   const saveAllLocalGrid = (sessId) => {
+    const pendingForCommit = (pendingSession && pendingSession.id === sessId) ? pendingSession : null;
     upSales(d => {
-      const si = (d.custDeliverySessions || []).findIndex(s => s.id === sessId);
+      if (!d.custDeliverySessions) d.custDeliverySessions = [];
+      let si = d.custDeliverySessions.findIndex(s => s.id === sessId);
+      /* V21.9.195: bootstrap a pending session if missing from the array */
+      if (si < 0 && pendingForCommit) {
+        d.custDeliverySessions.unshift({ ...pendingForCommit, grid: {}, custDisc: {} });
+        si = 0;
+      }
       if (si < 0) return;
       const sess = d.custDeliverySessions[si];
       /* Build a clean grid from localGrid: only positive entries */
@@ -727,7 +767,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     });
     setLocalGridDirty(false);
     setLocalCustDiscDirty(false);
-    showToast("✓ تم حفظ كل التغييرات");
+    /* V21.9.195: clear pendingSession once it's been persisted */
+    if (pendingForCommit) setPendingSession(null);
+    showToast(pendingForCommit ? "✓ تم انشاء التوزيعة وحفظ التغييرات" : "✓ تم حفظ كل التغييرات");
   };
 
   /* Same idea for the audit grid. We use upConfig (audits live on config doc). */
@@ -801,7 +843,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const getRemainingForSess=(custId,sessId,orderId,grid)=>{const planned=Number(grid[orderId+"_"+custId])||0;const delivered=getDeliveredForSess(custId,sessId,orderId);return Math.max(0,planned-delivered)};
   const getCustTotal=(custId)=>custTotalsMap.get(custId)||orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0);
   const sortedSessions=useMemo(()=>[...sessions].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")),[sessions]);
-  const activeSess=sessions.find(s=>s.id===activeSession);
+  /* V21.9.195: pending session takes precedence so the matrix view renders
+     even before the session reaches Firestore. Lookups elsewhere that
+     iterate `sessions` won't see it (intentional — pending session shouldn't
+     show in the list of saved sessions). */
+  const activeSess=(pendingSession&&pendingSession.id===activeSession)
+    ?pendingSession
+    :sessions.find(s=>s.id===activeSession);
   /* V14.64: Group models by modelNo — FIFO (oldest order first). Each group has virtual id and sub-orders sorted oldest→newest. */
   const aModsRaw=activeSess?activeSess.modelIds.map(id=>{const sm=stockModels.find(m=>m.id===id);const o=orders.find(x=>x.id===id);if(!o)return null;const sd=(o.deliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);return sm||{id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,seriesQty:getConfirmedSeriesStock(o),brokenQty:getConfirmedBrokenStock(o),rackSize:getRackSize(id)}}).filter(Boolean):[];
   /* Build grouped view — one entry per modelNo, with subOrders sorted by createdAt (FIFO) */
@@ -858,10 +906,39 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const isSessClosed=activeSess?.status==="تم التسليم";
   const sessCanEdit=canEdit&&!isSessClosed;/* Allow editing after sales — stock validation handles limits. Block only if closed */
   const closeMatrix=async(forceKeep)=>{if(!activeSess){setActiveSession(null);return}
-    /* V19.70.22: auto-save unsaved edits on close. The user explicitly clicks save
-       at the footer when they're done. Closing via ✕ or backdrop also commits —
-       no silent data loss. If they really want to discard, they can use the
-       discard button at the footer (separate from close). */
+    /* ── V21.9.195: pending-session aware close ───────────────────────────
+       Cases:
+         1. Pending + NO localGrid changes → silent discard. Nothing to save,
+            nothing to remember. The session never reaches Firestore.
+         2. Pending + has localGrid changes → ask the user:
+            "احفظ التوزيعة الجديدة أم تتجاهلها؟"
+            - Save  → commit via saveAllLocalGrid (which also inserts the session)
+            - Discard → just clear pending state + close (no Firestore touch)
+         3. Already-persisted session + dirty + !forceKeep → V19.70.22 auto-save
+         4. Already-persisted session + clean OR forceKeep → close as-is
+    */
+    const isPending = !!(pendingSession && pendingSession.id === activeSess.id);
+    if (isPending) {
+      if (localGridDirty || localCustDiscDirty) {
+        const save = await ask(
+          "توزيعة جديدة لم تـ تحفظ",
+          "في تغييرات في التوزيعة الجديدة. هل تريد حفظها أم تجاهلها؟",
+          { confirmText: "💾 حفظ", cancelText: "🗑 تجاهل" }
+        );
+        if (save) {
+          saveAllLocalGrid(activeSess.id);
+        } else {
+          setPendingSession(null);
+          showToast("🗑 تم تجاهل التوزيعة الجديدة");
+        }
+      } else {
+        /* Pending + no entries → silent discard */
+        setPendingSession(null);
+      }
+      setActiveSession(null); setCellError("");
+      return;
+    }
+    /* V19.70.22: auto-save unsaved edits on close for ALREADY-PERSISTED sessions. */
     if (localGridDirty && !forceKeep) {
       saveAllLocalGrid(activeSess.id);
     }
@@ -1581,7 +1658,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:isMob?"100%":"fit-content",minWidth:isMob?"100%":Math.min(600,220+aMods.length*120),maxWidth:isMob?"100%":Math.min(window.innerWidth-48,240+aMods.length*130+160),maxHeight:"92vh",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:isMob?"12px 16px":"16px 24px",borderBottom:"1px solid "+T.brd,flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"+(isSessClosed?" 🔒":"")}</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"+(isSessClosed?" 🔒":"")}</div>
+              {/* V21.9.195: visual cue that the session isn't persisted yet */}
+              {pendingSession&&pendingSession.id===activeSess.id&&(
+                <span title="هذه التوزيعة لم تـ حفظ بعد. لو ضغطت ✕ من غير حفظ سـ يتم تجاهلها." style={{padding:"3px 10px",borderRadius:8,background:T.warn+"15",color:T.warn,fontSize:FS-3,fontWeight:800,border:"1px solid "+T.warn+"40"}}>
+                  📝 مسودة — لم تـ حفظ
+                </span>
+              )}
+            </div>
             <div style={{display:"flex",gap:4}}>
               {sessCanEdit&&<Btn small onClick={()=>setAddCustPick({sessId:activeSess.id,sel:{},filter:""})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="اضافة عميل">+ عميل</Btn>}
               {sessCanEdit&&<Btn small onClick={()=>{const existing=new Set(activeSess.modelIds);const avail=stockModels.filter(m=>m.stockQty>0&&!existing.has(m.id));if(avail.length===0){showToast("⚠️ لا توجد موديلات متاحة");return}setAddCustPick({sessId:activeSess.id,sel:{},filter:"",_type:"model",_avail:avail})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="اضافة موديل">+ موديل</Btn>}
@@ -1981,17 +2066,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         {/* V19.70.22: dirty indicator + explicit save button. The save button lights
             up only when there are unsaved local edits. Clicking it commits the entire
             localGrid in one upSales call — no per-cell flicker. */}
-        {sessCanEdit && localGridDirty && (
+        {sessCanEdit && (localGridDirty || (pendingSession && pendingSession.id === activeSess.id)) && (
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 10px",borderRadius:8,background:T.warn+"15",border:"1px solid "+T.warn+"40"}}>
-            <span style={{fontSize:FS-2,color:T.warn,fontWeight:700}}>● تغييرات غير محفوظة</span>
+            <span style={{fontSize:FS-2,color:T.warn,fontWeight:700}}>
+              {pendingSession && pendingSession.id === activeSess.id ? "● توزيعة جديدة لم تـ حفظ" : "● تغييرات غير محفوظة"}
+            </span>
           </div>
         )}
-        {sessCanEdit && (
-          <Btn onClick={()=>saveAllLocalGrid(activeSess.id)} disabled={!localGridDirty}
-            style={{background:localGridDirty?T.ok:T.bg,color:localGridDirty?"#fff":T.textMut,border:"none",fontWeight:700,padding:"8px 24px",opacity:localGridDirty?1:0.6}}>
-            💾 حفظ التغييرات
-          </Btn>
-        )}
+        {/* V21.9.195: enable save button when EITHER localGrid is dirty OR
+            the session itself is pending (so the user can commit an empty
+            session structure for later filling). */}
+        {sessCanEdit && (() => {
+          const isPending = !!(pendingSession && pendingSession.id === activeSess.id);
+          const canSave = localGridDirty || isPending;
+          return (
+            <Btn onClick={()=>saveAllLocalGrid(activeSess.id)} disabled={!canSave}
+              style={{background:canSave?T.ok:T.bg,color:canSave?"#fff":T.textMut,border:"none",fontWeight:700,padding:"8px 24px",opacity:canSave?1:0.6}}>
+              💾 {isPending ? "حفظ التوزيعة" : "حفظ التغييرات"}
+            </Btn>
+          );
+        })()}
         <Btn onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30",padding:"8px 20px"}} title="طباعة جدول التوزيع">🖨 طباعة الجدول</Btn>
         <Btn onClick={()=>{const sel={};aCusts.forEach(c=>{sel[c.id]=true});setGroupPrint({sessId:activeSess.id,selCusts:sel,receiver:""})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630",padding:"8px 20px"}}>🖨 طباعة مجمعة</Btn>
         <Btn ghost onClick={()=>closeMatrix(true)} style={{padding:"8px 20px"}}>✕ إغلاق</Btn>

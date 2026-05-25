@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.195",
+    date: "2026-05-25",
+    types: ["fix", "improvement"],
+    title: "📝 توزيعة جديدة — لا تتسجل إلا بعد ضغط حفظ (no orphan empty sessions)",
+    changes: [
+      { type: "fix", text: "🎯 الـ bug report من Ahmed: لما الـ admin يـ create توزيعة جديدة وينقر إلغاء/✕ من غير ما يحفظ، التوزيعة كانت بـ تـ saved كـ سجل فاضي في القائمة برة، والـ admin بـ يضطر يمسحها يدوياً. الـ expected behavior: لو ضغط إلغاء قبل حفظ → التوزيعة ما تـ existsش أصلاً." },
+      { type: "fix", text: "✅ Fix architectural — Pending session pattern:\n\n• `createSession()` دلوقتي بـ يحفظ الـ session في local state (`pendingSession`)، **بدون** upSales — يعني مفيش Firestore write.\n• الـ matrix view بـ يـ render من `pendingSession` (الـ activeSess derivation بـ يـ check pending أولاً).\n• Badge جديد في الـ matrix header: '📝 مسودة — لم تـ حفظ' عشان الـ user يفهم بصرياً.\n• Save button label: '💾 حفظ التوزيعة' (بدل 'حفظ التغييرات') لما pending.\n• الـ explicit save (`saveAllLocalGrid`) دلوقتي بـ يـ insert الـ session في Firestore ضمن نفس الـ upSales call اللي بـ يحفظ الـ grid — atomic.\n• الـ close (✕/إلغاء):\n  - Pending + مفيش changes → discard silently\n  - Pending + فيه changes → popup 'احفظ التوزيعة الجديدة أم تتجاهلها؟' (حفظ / تجاهل)\n  - Already-persisted session → existing V19.70.22 behavior (auto-save على close)\n• Navigation away (user picks different session) → silent discard للـ pending (لو الـ user wanted it، كان حفظه)" },
+      { type: "improvement", text: "🎨 UX touches:\n• Toast بعد `createSession`: '⏳ توزيعة جديدة — اضغط حفظ للتأكيد' (بدل '✓ تم انشاء التسليم' المضلِّل)\n• Footer dirty indicator يـ show 'توزيعة جديدة لم تـ حفظ' بدل 'تغييرات غير محفوظة' لما pending\n• Save button enabled لما pending حتى لو الـ grid فاضي (الـ user يقدر يحفظ structure للـ session لـ filling later)\n• Success toast بعد الـ save: '✓ تم انشاء التوزيعة وحفظ التغييرات' لما pending، 'تم حفظ كل التغييرات' لما existing" },
+      { type: "architectural", text: "🛡 Edge cases handled:\n• User reloads browser while pending → state lost، nothing persisted (matches expectation)\n• User opens existing session, makes changes, closes → existing V19.70.22 auto-save (unchanged)\n• User creates pending, switches to different session → pending discarded silently (intended — no save click)\n• User creates pending, immediately clicks ✕ without entering → silent discard (no popup needed since no changes)\n• User creates pending, enters qty, clicks ✕ → popup confirms حفظ vs تجاهل\n• Other mutation paths (QR scan, returns) shouldn't happen on pending session (data flow requires saved deliveries first)" },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx`:\n  - New `pendingSession` state\n  - `createSession` defers insert\n  - `useEffect` hydrates from pending OR sessions\n  - `useEffect` discards pending on navigation away\n  - `saveAllLocalGrid` inserts pending atomically with grid write\n  - `closeMatrix` has 3-case logic (pending+dirty / pending+clean / non-pending)\n  - `activeSess` derivation includes pending\n  - Matrix header badge + footer dirty label + save button label\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
+    ],
+  },
+  {
     version: "V21.9.194",
     date: "2026-05-25",
     types: ["improvement"],
