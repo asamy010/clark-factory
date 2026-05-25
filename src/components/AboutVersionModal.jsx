@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.183",
+    date: "2026-05-25",
+    types: ["architectural", "improvement"],
+    title: "🛡 Bridge Token Proxy — إخفاء token الـ WhatsApp Bridge عن الـ client",
+    changes: [
+      { type: "architectural", text: "🎯 الـ root issue: من V19.28 وأنا بـ ship الـ token الـ WhatsApp Bridge في `factory/config.campaignBridge.token`، اللي بـ يـ readable لكل user بـ يقدر يـ read الـ config (= معظم authenticated users). أي حد يفتح DevTools → Network → يشوف الـ Bearer header. ده اتسجل في الـ deferred findings كـ V21.9.55 وفضل مؤجل لأن الـ fix يحتاج backend changes." },
+      { type: "feature", text: "✅ الحل: server-side proxy endpoint جديد في `api/whatsapp-bridge-proxy.js`. لما الـ proxy mode يكون مفعّل في BridgeSettings (`cfg.campaignBridge.useProxy = true`):\n• كل bridge call من الـ client بـ تـ POST لـ `/api/whatsapp-bridge-proxy` بـ Firebase ID token (admin/manager auth).\n• الـ server بـ يقرأ الـ bridge URL + token من Vercel env (`WHATSAPP_BRIDGE_URL` + `WHATSAPP_BRIDGE_TOKEN`) أو من `cfg.campaignBridge` كـ fallback.\n• الـ server بـ يـ forward الـ request بـ Authorization header بـ يـ holds الـ token حقيقي.\n• الـ client ما عمره يـ touch الـ token." },
+      { type: "architectural", text: "🔐 Defense-in-depth: الـ proxy فيه:\n• Path whitelist — بس `/status`, `/queue`, `/send`, `/pause`, `/resume`, `/stop`, `/clear`, `/optouts`, `/activity`, `/reset-daily`, `/stats` بـ تـ accepted. أي path آخر بـ يـ rejected بـ 400 (open-relay prevention).\n• AbortController timeout 8s (~80% من Vercel hobby's 10s function-kill window — per CLAUDE.md §10 anti-pattern).\n• Method whitelist (GET/POST بس).\n• Status-code passthrough — الـ client بـ يشوف الـ bridge errors زي ما هي (401, 404, 502)." },
+      { type: "feature", text: "🎛️ UI — في CampaignsPg → BridgeSettings → Settings tab: checkbox جديد '🛡 وضع الـ Proxy (V21.9.183)' بـ يـ flip الـ feature. لما enabled:\n• الـ App.jsx بـ يـ يستدعي `configureBridgeProxy({getIdToken: () => auth.currentUser.getIdToken()})` على عـ change.\n• `src/utils/whatsappBridge.js` بـ يـ check module-level `_proxyConfig` على كل call؛ لو set → routes through proxy، لو null → direct fetch زي قبل.\n• Zero changes for callers — `bridge.status(url, token)` لسه بـ يشتغل، الـ url والـ token بـ تـ ignored في proxy mode." },
+      { type: "architectural", text: "🚀 Migration path (recommended):\n1. Deploy V21.9.183.\n2. افتح BridgeSettings → فعّل '🛡 وضع الـ Proxy'. الـ proxy hنا بـ يقرأ الـ token من `cfg.campaignBridge.token` لأن env vars مش set لسه — الـ client دلوقتي بـ يـ stop sending الـ token مباشرة، لكن الـ token لسه موجود في الـ Firestore doc.\n3. تأكد إن كل bridge operations شغالة (status/send/queue) لمدة 24-48 ساعة.\n4. ضع `WHATSAPP_BRIDGE_URL` + `WHATSAPP_BRIDGE_TOKEN` في Vercel env vars.\n5. امسح `cfg.campaignBridge.token` من Firestore (set to empty string).\n6. الـ token دلوقتي محبوس server-side فقط — مفيش way client بـ يشوفه أبداً." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 جديد + 4 modified):\n• NEW: `api/whatsapp-bridge-proxy.js` — generic proxy endpoint بـ admin auth + path whitelist + 8s timeout\n• MODIFIED: `src/utils/whatsappBridge.js` — أضاف `configureBridgeProxy()` setter + `bridgeFetchViaProxy()` + `isBridgeProxyEnabled()` helper. الـ bridge.* API لم يتغير\n• MODIFIED: `src/App.jsx` — import + useEffect بـ يـ watch `data.campaignBridge?.useProxy` ويـ configure/clear الـ proxy\n• MODIFIED: `src/pages/CampaignsPg.jsx` — BridgeSettings بـ يشمل دلوقتي useProxy state + UI toggle في SettingsTab\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)." },
+      { type: "architectural", text: "🛡️ Pushback context: ده الثاني من 3 changes آمنين متفقين عليه (Custom role validation warn-only + Bridge token proxy + Configurable timezone). تـ ship-ت لوحدها على V21.9.183 — additive (الـ client القديم لسه يشتغل، الـ proxy opt-in). V21.9.184 (timezone) جاي بعدها."},
+    ],
+  },
+  {
     version: "V21.9.182",
     date: "2026-05-25",
     types: ["architectural", "improvement"],

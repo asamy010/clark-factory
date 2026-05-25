@@ -28,8 +28,101 @@
        or timeout. Returns real counts (not bridge-reported `added`).
    ═══════════════════════════════════════════════════════════════════════ */
 
+/* ─── V21.9.183 · Proxy mode ───────────────────────────────────────────
+   Module-level switch. When configured, bridgeFetch routes every call
+   through /api/whatsapp-bridge-proxy instead of fetching the bridge URL
+   directly. The client no longer needs to know the bridge token — the
+   server reads it from its env vars (or factory/config as fallback) and
+   appends the Authorization header before forwarding.
+
+   Why module-level (vs threading a flag through every call site): the
+   existing public API is (url, token) positional. Changing every call site
+   to pass {useProxy, getIdToken} would touch CampaignsPg, ShopifyIntegrationPg,
+   DiagnosticsPanel, ShopifyPushModal, etc. — risky in one shot. A module-
+   level setter keeps the call-site API identical and lets one useEffect in
+   App.jsx toggle the mode based on cfg.campaignBridge.useProxy.
+
+   App.jsx wires this on boot:
+     configureBridgeProxy(
+       data?.campaignBridge?.useProxy
+         ? { getIdToken: () => auth.currentUser.getIdToken() }
+         : null
+     );
+   ─────────────────────────────────────────────────────────────────────── */
+
+let _proxyConfig = null; /* { getIdToken: () => Promise<string>, endpoint?: string } | null */
+
+export function configureBridgeProxy(opts){
+  _proxyConfig = (opts && typeof opts.getIdToken === "function") ? opts : null;
+}
+
+export function isBridgeProxyEnabled(){
+  return !!_proxyConfig;
+}
+
+/* Route a bridge call through /api/whatsapp-bridge-proxy. The token argument
+   from the original call is IGNORED (server uses its own). The url argument
+   is ignored too — server reads bridge URL from env/config. Path may include
+   a "?…" query string which we split out so the server can re-assemble it. */
+async function bridgeFetchViaProxy(path, opts){
+  if(!_proxyConfig) throw new Error("Bridge proxy not configured");
+  const idToken = await _proxyConfig.getIdToken();
+  if(!idToken) throw new Error("Not authenticated — login required for bridge proxy");
+
+  /* Split "/activity?limit=200" into path+query for the proxy body. */
+  const qIdx = path.indexOf("?");
+  const cleanPath = qIdx >= 0 ? path.slice(0, qIdx) : path;
+  let query = undefined;
+  if(qIdx >= 0){
+    const qs = new URLSearchParams(path.slice(qIdx + 1));
+    query = {};
+    for(const [k, v] of qs.entries()) query[k] = v;
+  }
+
+  const endpoint = _proxyConfig.endpoint || "/api/whatsapp-bridge-proxy";
+  const ctrl = new AbortController();
+  /* Give the proxy 1s extra over its own 8s upstream timeout so we don't
+     race the server. 9s total round-trip vs Vercel's 10s function-kill. */
+  const tk = setTimeout(() => ctrl.abort(), opts.timeout || 9000);
+  try {
+    const r = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + idToken,
+      },
+      body: JSON.stringify({
+        path: cleanPath,
+        method: opts.method || "GET",
+        body: opts.body,
+        query,
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tk);
+    /* Try JSON first; fall back to text envelope for parity with direct mode. */
+    const text = await r.text().catch(() => "");
+    let payload;
+    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
+    if(!r.ok){
+      const msg = (payload && payload.error) ? payload.error : ("HTTP " + r.status + (text ? ": " + text.slice(0, 200) : ""));
+      throw new Error(msg);
+    }
+    return payload;
+  } catch(e) {
+    clearTimeout(tk);
+    throw e;
+  }
+}
+
 /* ─── HTTP helper ─── */
 async function bridgeFetch(url, path, opts = {}, token){
+  /* V21.9.183: if proxy mode is active, route through /api/whatsapp-bridge-proxy
+     instead of fetching the bridge URL directly. Token from caller is ignored
+     (the server side holds the real token). */
+  if(_proxyConfig){
+    return bridgeFetchViaProxy(path, opts);
+  }
   const base = (url || "").replace(/\/+$/, "");
   if(!base) throw new Error("Bridge URL not set");
   const ctrl = new AbortController();

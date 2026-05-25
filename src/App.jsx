@@ -62,6 +62,11 @@ import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.j
 /* V19.58: Zod-based schema validation in WARN-only mode. Surfaces drift in
    write shapes without blocking. See utils/validateData.js + schemas/index.js. */
 import { validateDoc } from "./utils/validateData.js";
+/* V21.9.183: configure module-level proxy mode for the WhatsApp bridge client.
+   When cfg.campaignBridge.useProxy === true, all bridge.* calls route through
+   /api/whatsapp-bridge-proxy instead of directly hitting the bridge URL — so
+   the token never leaves the server. */
+import { configureBridgeProxy } from "./utils/whatsappBridge.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
 import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
@@ -5278,6 +5283,26 @@ export default function App(){
   /* V15.76: Memoize `data` — was creating a new object on every render,
      triggering cascading re-renders in all child pages that receive it as prop. */
   const data=useMemo(()=>({...config,orders:resolvedOrders||orders}),[config,resolvedOrders,orders]);
+  /* V21.9.183: when the admin flips cfg.campaignBridge.useProxy on, every
+     subsequent bridge.* call goes through /api/whatsapp-bridge-proxy. We
+     reconfigure on every change so toggling the checkbox in CampaignsPg →
+     BridgeSettings takes effect without a page reload. The proxy fn closes
+     over `auth` directly (NOT `user`) so it always reads the current Firebase
+     Auth session token, even after token refresh. */
+  const useBridgeProxy=data?.campaignBridge?.useProxy===true;
+  useEffect(()=>{
+    if(useBridgeProxy){
+      configureBridgeProxy({
+        getIdToken:async()=>{
+          const u=auth.currentUser;
+          if(!u)throw new Error("Not signed in — bridge proxy requires authentication");
+          return await u.getIdToken();
+        },
+      });
+    }else{
+      configureBridgeProxy(null);
+    }
+  },[useBridgeProxy]);
   /* V16.11: SECURITY FIX — default role is now "viewer" instead of "admin".
      Previously, any user authenticated to Firebase Auth (even unprovisioned ones)
      received admin privileges by default, since:

@@ -2393,6 +2393,10 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
   /* Settings state — persisted */
   const [url, setUrl] = useState(bridgeCfg.url || DEFAULT_BRIDGE_URL);
   const [token, setToken] = useState(bridgeCfg.token || "");
+  /* V21.9.183: proxy mode — when on, all bridge calls route through
+     /api/whatsapp-bridge-proxy so the token is never sent from the
+     browser (server holds it from env or factory/config). */
+  const [useProxy, setUseProxy] = useState(bridgeCfg.useProxy === true);
   const [enabled, setEnabled] = useState(bridgeCfg.enabled !== false);
   const [delayMin, setDelayMin] = useState(bridgeCfg.delayMin || 8);
   const [delayMax, setDelayMax] = useState(bridgeCfg.delayMax || 25);
@@ -2462,7 +2466,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
 
   const save = () => {
     onSave({
-      enabled, url, token,
+      enabled, url, token, useProxy,
       delayMin, delayMax, dailyCap, batchSize,
       batchBreakMin, batchBreakMax,
       typingMin, typingMax,
@@ -2535,6 +2539,7 @@ function BridgeSettings({bridgeCfg, canEdit, onSave, onClose}){
     {tab === "settings" && <SettingsTab
       url={url} setUrl={setUrl}
       token={token} setToken={setToken}
+      useProxy={useProxy} setUseProxy={setUseProxy}
       enabled={enabled} setEnabled={setEnabled}
       delayMin={delayMin} setDelayMin={setDelayMin}
       delayMax={delayMax} setDelayMax={setDelayMax}
@@ -2709,7 +2714,7 @@ function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause,
 
 /* ─────── SETTINGS TAB ─────── */
 function SettingsTab(props){
-  const {url,setUrl,token,setToken,enabled,setEnabled,delayMin,setDelayMin,delayMax,setDelayMax,dailyCap,setDailyCap,batchSize,setBatchSize,batchBreakMin,setBatchBreakMin,batchBreakMax,setBatchBreakMax,typingMin,setTypingMin,typingMax,setTypingMax,retryFailures,setRetryFailures,detectOptOuts,setDetectOptOuts,canEdit,testResult,onTest,onSave} = props;
+  const {url,setUrl,token,setToken,useProxy,setUseProxy,enabled,setEnabled,delayMin,setDelayMin,delayMax,setDelayMax,dailyCap,setDailyCap,batchSize,setBatchSize,batchBreakMin,setBatchBreakMin,batchBreakMax,setBatchBreakMax,typingMin,setTypingMin,typingMax,setTypingMax,retryFailures,setRetryFailures,detectOptOuts,setDetectOptOuts,canEdit,testResult,onTest,onSave} = props;
   return <>
     <div style={{padding:12,borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"40",marginBottom:14,fontSize:FS-2,color:T.text,lineHeight:1.7}}>
       <b style={{color:T.warn}}>⚠️ تحذير قانوني:</b> الإرسال التلقائي مخالف لشروط استخدام WhatsApp.
@@ -2734,6 +2739,19 @@ function SettingsTab(props){
         <div style={{fontSize:FS-3,color:T.textMut,marginTop:4,lineHeight:1.6}}>
           الـ token من ملف <code>.env</code> على السيرفر (<code>cat .env</code>). خاليه فاضي بس لو شغال على localhost.
         </div>
+      </div>
+      {/* V21.9.183: Proxy mode toggle — server-side token holding */}
+      <div style={{marginBottom:10,padding:10,borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30"}}>
+        <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:canEdit?"pointer":"default"}}>
+          <input type="checkbox" checked={!!useProxy} onChange={e=>setUseProxy && setUseProxy(e.target.checked)} disabled={!canEdit} style={{width:18,height:18,cursor:canEdit?"pointer":"default",marginTop:2,flexShrink:0}}/>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,color:T.accent,fontSize:FS-1}}>🛡 وضع الـ Proxy (V21.9.183)</div>
+            <div style={{fontSize:FS-3,color:T.textSec,marginTop:4,lineHeight:1.7}}>
+              لما يكون مفعّل، كل اتصال بـ Bridge بـ يـ route من خلال <code>/api/whatsapp-bridge-proxy</code> على السيرفر بدلاً من فتح اتصال مباشر من المتصفح. الـ token ما هـ يطلعش في DevTools أبداً — السيرفر بـ يقرأه من Vercel env (<code>WHATSAPP_BRIDGE_TOKEN</code>) أو من <code>cfg.campaignBridge.token</code> كـ fallback.
+              <br/><b>التوصية:</b> فعّل ده، تأكد إن الاتصال شغّال يومين، وبعدها ضع الـ token في Vercel env vars وأخلِ الـ field فوق.
+            </div>
+          </div>
+        </label>
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <Btn onClick={onTest} disabled={!url} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40"}}>🔍 اختبار الاتصال</Btn>
