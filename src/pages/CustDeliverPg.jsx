@@ -2918,23 +2918,100 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>
     </div>}
     {custStatement&&custStatement!=="pick"&&(()=>{const cust=customers.find(c=>c.id===custStatement);if(!cust)return null;
+      /* ── V21.9.193 — per-delivery discount aggregation ──────────────────
+         Pre-V21.9.193 the statement summed gross sales/returns per ROW
+         (per model) and then applied customer.discount ONCE to the
+         aggregated total. After V21.9.190 added per-customer-per-session
+         overrides, this produced wrong numbers for any customer with
+         mixed-discount sessions:
+
+           Example (the bug report): customer with one invoice at 40%
+           and others at 10% would still see EVERYTHING discounted at
+           customer.discount (e.g. 10%) on the statement page + portal.
+           The card showed "10%" as a hardcoded badge.
+
+         Fix: walk each delivery / return entry once, apply its OWN
+         effective discount (entry.discPct → customer.discount → 10)
+         via the same chain used by invoices.js, accumulate net values.
+         Card displays the AMOUNT (sum of per-delivery discounts) — no
+         single % badge anymore since percentages vary across invoices.
+         A small "متوسط X%" hint shows the weighted-average effective
+         rate for context, not as a multiplier. */
+      const pickDiscPct = (entry) => {
+        if (entry && entry.discPct !== undefined && entry.discPct !== null) {
+          const n = Number(entry.discPct);
+          if (!isNaN(n)) return n;
+        }
+        if (cust.discount !== undefined && cust.discount !== null) {
+          const n = Number(cust.discount);
+          if (!isNaN(n)) return n;
+        }
+        return 10;
+      };
       const rows=[];let totalDel=0,totalRet=0;
-      orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custStatement).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custStatement).reduce((s,r)=>s+(Number(r.qty)||0),0);
-        if(del>0||ret>0){totalDel+=del;totalRet+=ret;rows.push({modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net:del-ret,sellPrice:Number(o.sellPrice)||0})}});
+      /* Per-DELIVERY aggregates (the fix). Distinct from rows[] (per-model
+         display) — totals must be computed from individual entries because
+         each entry can carry its own discPct. */
+      let totalValGross=0, totalSalesAfterDisc=0;
+      let retVal=0, retValAfterDisc=0;
+      orders.forEach(o=>{
+        const sp = Number(o.sellPrice) || 0;
+        const dels = (o.customerDeliveries || []).filter(d => d.custId === custStatement);
+        const rets = (o.customerReturns || []).filter(r => r.custId === custStatement);
+        const del = dels.reduce((s,d) => s + (Number(d.qty)||0), 0);
+        const ret = rets.reduce((s,r) => s + (Number(r.qty)||0), 0);
+        if (del > 0 || ret > 0) {
+          totalDel += del;
+          totalRet += ret;
+          rows.push({modelNo:o.modelNo, modelDesc:o.modelDesc, delivered:del, returned:ret, net:del-ret, sellPrice:sp});
+          dels.forEach(d => {
+            const gross = (Number(d.qty)||0) * sp;
+            const dPct = pickDiscPct(d);
+            totalValGross += gross;
+            totalSalesAfterDisc += Math.round(gross * (1 - dPct/100));
+          });
+          rets.forEach(r => {
+            const gross = (Number(r.qty)||0) * sp;
+            const dPct = pickDiscPct(r);
+            retVal += gross;
+            retValAfterDisc += Math.round(gross * (1 - dPct/100));
+          });
+        }
+      });
       const totalNet=totalDel-totalRet;
-      /* V18.4: totalValGross = ALL delivery value (ignoring returns) — what customer was billed */
-      const totalValGross=rows.reduce((s,r)=>s+r.delivered*r.sellPrice,0);
-      const totalVal=rows.reduce((s,r)=>s+r.net*r.sellPrice,0);     /* net of returns — used for table footer + balance */
-      const retVal=rows.reduce((s,r)=>s+r.returned*r.sellPrice,0);
-      /* V15.85: Customer discount applied uniformly to both sales and returns (user request —
-         critical for accounting accuracy). Also fixes V15.84 balance bug where returns were
-         double-counted: totalVal = sum(net × price) = sum((del-ret) × price) already excludes
-         returns, so subtracting retVal again was wrong. */
-      const discPct=Number(cust.discount)||0;
-      const discAmt=Math.round(totalVal*discPct/100);        /* discount on net value (for balance) */
-      const totalAfterDisc=totalVal-discAmt;                  /* net after discount (used for balance) */
-      const totalGrossAfterDisc=Math.round(totalValGross*(1-discPct/100)); /* V18.4: gross after disc — for card display */
-      const retValAfterDisc=Math.round(retVal*(1-discPct/100)); /* returns at discounted rate (display only) */
+      /* Card display + balance math (NEW formulas):
+           totalValGross         = gross sales (sum of all delivery values)
+           totalGrossAfterDisc   = gross sales after per-delivery discount
+           retVal                = gross returns
+           retValAfterDisc       = returns after per-return discount
+           discAmt               = derived = totalValGross − totalGrossAfterDisc
+                                   (no longer a single % × gross)
+           totalAfterDisc        = salesAfterDisc − returnsAfterDisc
+                                   (used for balance — formula matches the
+                                   invoice's discounted total minus discounted
+                                   credit-notes) */
+      const totalGrossAfterDisc = totalSalesAfterDisc;
+      const discAmt = totalValGross - totalGrossAfterDisc;
+      const totalAfterDisc = totalGrossAfterDisc - retValAfterDisc;
+      const totalVal = totalValGross - retVal; /* legacy alias (gross net of returns) — kept for any downstream that still references it */
+      /* Weighted-average effective discount % — used ONLY for display
+         context (a small hint label). Math no longer depends on a single
+         percentage. */
+      const discPct = totalValGross > 0
+        ? Math.round((1 - (totalGrossAfterDisc / totalValGross)) * 100)
+        : (Number(cust.discount) || 0);
+      const hasMixedDiscounts = (()=>{
+        /* Detect if any delivery has a discPct different from customer.discount
+           — used to decide whether to show "متوسط" hint vs the plain rate. */
+        const baseline = Number(cust.discount) || 0;
+        for (const o of orders) {
+          const dels = (o.customerDeliveries || []).filter(d => d.custId === custStatement);
+          for (const d of dels) {
+            if (d.discPct !== undefined && d.discPct !== null && Number(d.discPct) !== baseline) return true;
+          }
+        }
+        return false;
+      })();
       /* Customer payments */
       const custPayments=(config.custPayments||[]).filter(p=>p.custId===custStatement).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       /* V18.23+V18.24: Include receivable checks for this customer where category = 'دفعة عميل' only */
@@ -3071,9 +3148,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
         h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalDel+"</td><td style='text-align:center;color:#EF4444'>"+totalRet+"</td><td style='text-align:center;font-size:14px'>"+totalNet+"</td><td></td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+fmt(totalVal)+" ج.م</td></tr></tbody></table>";
         h+="<h3>💳 ملخص الحساب</h3><table>";
-        h+="<tr><td>"+(discPct>0?"إجمالي فواتير المبيعات (قبل الخصم)":"إجمالي فواتير المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalValGross)+" ج.م</td></tr>";
-        if(discPct>0){
-          h+="<tr><td>قيمة الخصم ("+discPct+"%)</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
+        /* V21.9.193: print template uses the new per-delivery aggregates.
+           Discount label no longer hardcodes a single % — for mixed-discount
+           customers it says "متوسط X%" instead so the customer doesn't read
+           the percentage as a universal multiplier on their invoices. */
+        const discLabel = discAmt > 0
+          ? (hasMixedDiscounts ? ("قيمة الخصم (متوسط "+discPct+"%)") : ("قيمة الخصم ("+discPct+"%)"))
+          : "قيمة الخصم";
+        h+="<tr><td>"+(discAmt>0?"إجمالي فواتير المبيعات (قبل الخصم)":"إجمالي فواتير المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalValGross)+" ج.م</td></tr>";
+        if(discAmt>0){
+          h+="<tr><td>"+discLabel+"</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
           h+="<tr><td>إجمالي فواتير المبيعات (بعد الخصم)</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalGrossAfterDisc)+" ج.م</td></tr>";
           if(retVal>0)h+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
         }else if(retVal>0){
@@ -3170,14 +3254,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <div style={{fontSize:FS-3,color:T.textMut}}>بعد الخصم</div>
               </div>}
             </div>
-            {/* Card 3: Total discount (only when discount > 0) */}
-            {discPct>0&&<div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.warn+"12,"+T.warn+"03)",border:"1px solid "+T.warn+"30"}}>
+            {/* Card 3: Total discount.
+                V21.9.193: removed the hardcoded "%" badge — per-delivery
+                discounts can vary across invoices (mixed-discount sessions).
+                Now shows the AMOUNT (sum of all per-delivery discounts).
+                Small hint at the bottom shows either:
+                  - "متوسط الخصم: X%"  when mixed (weighted-avg effective)
+                  - "نسبة الخصم: X%"    when uniform (single rate) */}
+            {discAmt>0&&<div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.warn+"12,"+T.warn+"03)",border:"1px solid "+T.warn+"30"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS-2,color:T.textSec,fontWeight:700}}>
                 <span>🏷️</span><span>إجمالي الخصم</span>
-                <span style={{marginInlineStart:"auto",padding:"2px 8px",borderRadius:6,background:T.warn+"25",color:T.warn,fontSize:FS-3,fontWeight:800}}>{discPct}%</span>
               </div>
               <div style={{fontSize:18,fontWeight:800,color:T.warn,lineHeight:1.2}}>{fmt(discAmt)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
-              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>قيمة الخصم المطبق</div>
+              <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{hasMixedDiscounts ? ("متوسط الخصم: " + discPct + "% (خصومات مختلفة لكل فاتورة)") : ("نسبة الخصم: " + discPct + "%")}</div>
             </div>}
             {/* Card 4: Total paid (cash + checks split) */}
             <div style={{padding:12,borderRadius:12,background:"linear-gradient(135deg,"+T.ok+"10,"+T.ok+"03)",border:"1px solid "+T.ok+"30"}}>

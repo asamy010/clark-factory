@@ -167,6 +167,23 @@ export default async function handler(req, res) {
     const returns = [];
     const activeModels = new Map();
 
+    /* V21.9.193 — precedence chain for per-delivery discount (mirrors
+       src/utils/invoices.js resolveDiscountPct + src/pages/CustDeliverPg.jsx
+       pickDiscPct in the customer statement). entry.discPct → customer.discount
+       → 10. Legacy entries without discPct fall through to customer.discount
+       (back-compat unchanged). */
+    const pickDiscPct = (entry) => {
+      if (entry && entry.discPct !== undefined && entry.discPct !== null) {
+        const n = Number(entry.discPct);
+        if (!isNaN(n)) return n;
+      }
+      if (customer && customer.discount !== undefined && customer.discount !== null) {
+        const n = Number(customer.discount);
+        if (!isNaN(n)) return n;
+      }
+      return 10;
+    };
+
     allOrders.forEach(o => {
       const sp = Number(o.sellPrice) || 0;
       const modelName = o.modelNo || "—";
@@ -174,6 +191,11 @@ export default async function handler(req, res) {
       const modelImage = o.image || null;
 
       (o.customerDeliveries || []).filter(d => d.custId === custId).forEach(d => {
+        const gross = (Number(d.qty) || 0) * sp;
+        const dPct = pickDiscPct(d);
+        /* V21.9.193: also expose the per-delivery effective discount + net
+           value so the client UI can render accurate per-row math.
+           Legacy `value` (gross) kept for back-compat with existing UI. */
         deliveries.push({
           date: d.date || "",
           modelNo: modelName,
@@ -181,12 +203,16 @@ export default async function handler(req, res) {
           image: modelImage,
           qty: Number(d.qty) || 0,
           sellPrice: sp,
-          value: (Number(d.qty) || 0) * sp,
+          value: gross,
+          discPct: dPct,
+          valueAfterDisc: Math.round(gross * (1 - dPct/100)),
           sessionId: d.sessionId || null,
         });
       });
 
       (o.customerReturns || []).filter(r => r.custId === custId).forEach(r => {
+        const gross = (Number(r.qty) || 0) * sp;
+        const dPct = pickDiscPct(r);
         returns.push({
           date: r.date || "",
           modelNo: modelName,
@@ -194,7 +220,9 @@ export default async function handler(req, res) {
           image: modelImage,
           qty: Number(r.qty) || 0,
           sellPrice: sp,
-          value: (Number(r.qty) || 0) * sp,
+          value: gross,
+          discPct: dPct,
+          valueAfterDisc: Math.round(gross * (1 - dPct/100)),
           /* V18.26: include sessionId for invoice grouping (note: returns store as sessId, not sessionId) */
           sessionId: r.sessId || r.sessionId || null,
           note: r.note || "",
@@ -255,17 +283,42 @@ export default async function handler(req, res) {
     receivableChecks.forEach(rc => payments.push(rc));
     payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    /* Calculate balance */
-    /* V21.9.56 (Sales Audit I8): clamp discount to 0..100 to prevent
-       data-entry errors (e.g., 150) from producing negative-discount math
-       that surfaces as inflated portal balance. */
-    const discPct = Math.max(0, Math.min(100, Number(customer.discount) || 0));
+    /* V21.9.193 — Per-delivery discount aggregation.
+       Pre-V21.9.193 the portal applied a single customer.discount to the
+       aggregated net sales — incorrect after V21.9.190 when per-session
+       overrides made each invoice's discount potentially different.
+
+       New formula:
+         totalDelValue       = sum gross deliveries
+         totalDelValueNet    = sum (gross × (1 − per-delivery discPct))
+         totalRetValue       = sum gross returns
+         returnsAfterDiscount= sum (gross × (1 − per-return discPct))
+         discountAmount      = totalDelValue − totalDelValueNet  (derived)
+         salesAfterDiscount  = totalDelValueNet − returnsAfterDiscount
+         avgDiscountPct      = display-only weighted-avg (1 − net/gross)
+
+       V21.9.56 clamp preserved: bad data entry (e.g., 150%) caught at the
+       entry source (CustDeliverPg input has min=0,max=100 + the pickDiscPct
+       function above accepts the stamped value as-is). The aggregation is
+       robust to outliers because it sums per-entry products. */
     const totalDelValue = deliveries.reduce((s, d) => s + d.value, 0);
+    const totalDelValueNet = deliveries.reduce((s, d) => s + (d.valueAfterDisc || 0), 0);
     const totalRetValue = returns.reduce((s, r) => s + r.value, 0);
-    const netSales = totalDelValue - totalRetValue;
-    const discountAmount = Math.round(netSales * discPct / 100);
-    const salesAfterDiscount = netSales - discountAmount;
-    const returnsAfterDiscount = Math.round(totalRetValue * (1 - discPct / 100));
+    const returnsAfterDiscount = returns.reduce((s, r) => s + (r.valueAfterDisc || 0), 0);
+    const discountAmount = totalDelValue - totalDelValueNet;
+    const salesAfterDiscount = totalDelValueNet - returnsAfterDiscount;
+    const netSales = totalDelValue - totalRetValue; /* legacy gross-net (no discount) — kept for back-compat */
+    /* Weighted-average effective discount % — display only, NOT used as a
+       multiplier on anything. Falls back to customer.discount when there
+       are no sales (avoid div-by-zero). */
+    const discPct = totalDelValue > 0
+      ? Math.round((1 - (totalDelValueNet / totalDelValue)) * 100)
+      : Math.max(0, Math.min(100, Number(customer.discount) || 0));
+    /* Flag whether any delivery has a per-session override different from
+       customer.discount — the client renders a "متوسط" hint instead of
+       a single % when this is true. */
+    const baselineDisc = Number(customer.discount) || 0;
+    const hasMixedDiscounts = deliveries.some(d => d.discPct !== undefined && d.discPct !== null && Number(d.discPct) !== baselineDisc);
     const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
     /* V18.3+V18.23: Split paid into cash (everything except شيك) and checks (incl. pending receivable checks) */
     const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
@@ -310,10 +363,17 @@ export default async function handler(req, res) {
       summary: {
         netSales: Math.round(netSales),
         totalDelValue: Math.round(totalDelValue),
-        discountAmount,
+        /* V21.9.193: totalDelValueAfterDisc = sum of per-delivery net values
+           (gross × (1 − discPct/100)). Replaces the old single-discount
+           computation. Display: '<gross> قبل الخصم → <net> بعد الخصم'. */
+        totalDelValueAfterDisc: Math.round(totalDelValueNet),
+        discountAmount: Math.round(discountAmount),
+        /* V21.9.193: hasMixedDiscounts tells the client to render the
+           "متوسط X%" hint instead of treating the % as a single multiplier. */
+        hasMixedDiscounts,
         salesAfterDiscount: Math.round(salesAfterDiscount),
         returnsValue: Math.round(totalRetValue),
-        returnsAfterDiscount,
+        returnsAfterDiscount: Math.round(returnsAfterDiscount),
         totalPaid: Math.round(totalPaid),
         cashPaid: Math.round(cashPaid),
         checksPaid: Math.round(checksPaid),
