@@ -262,12 +262,14 @@ export function CustomerPortalPage({ params }) {
       {/* Card 2: Total Returns */}
       <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={hasDiscount ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
         secondary={hasDiscount && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
-      {/* Card 3: Discount — V21.9.193: removed hardcoded badge.
-          Subtitle shows weighted-avg with "متوسط" prefix when invoices have
-          different discount rates, plain "نسبة" when uniform. */}
+      {/* Card 3: Discount — V21.9.194: clean amount-only display.
+          Per Ahmed: no percentage subtitle (mixed per-invoice rates make
+          any single % misleading). The amount comes from per-delivery
+          aggregation server-side, so it's always accurate regardless of
+          how many different rates the customer has across invoices. */}
       {hasDiscount && <MiniCard icon="🏷️" label="إجمالي الخصم"
         mainValue={fmt(summary.discountAmount)}
-        mainSub={hasMixedDiscounts ? ("متوسط " + effectiveDiscPct + "% — خصومات مختلفة لكل فاتورة") : ("نسبة الخصم " + effectiveDiscPct + "%")}
+        mainSub="قيمة الخصم المطبق"
         unit="ج.م" color="#F59E0B"/>}
       {/* Card 4: Paid (cash + checks) */}
       <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid #05966920" }}>

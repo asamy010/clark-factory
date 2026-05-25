@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.194",
+    date: "2026-05-25",
+    types: ["improvement"],
+    title: "🧹 بطاقة الخصم — شيل النسبة، خلي بس المبلغ",
+    changes: [
+      { type: "improvement", text: "🎯 Per Ahmed: نسبة الخصم في البطاقة (سواء 'متوسط X%' أو 'نسبة X%') كانت misleading لأن كل فاتورة ممكن يكون عندها rate مختلف. الـ amount لوحده هو اللي بـ يـ summarize الـ discount بدقة." },
+      { type: "improvement", text: "✅ Card subtitle بقى ثابت: 'قيمة الخصم المطبق' — مفيش نسبة. الـ amount نفسه (`discAmt`) محسوب من per-delivery aggregation فبـ يـ stay دقيق حتى لو في mixed-rate sessions.\n\nنفس التبسيط في 3 مواضع:\n• `CustDeliverPg` — Customer Statement modal card\n• `CustDeliverPg` — print template (label 'قيمة الخصم' بدون % parenthetical)\n• `CustomerPortalPage` — portal card\n\nالـ amount + balance + باقي الـ totals لـ تتغير — العملية حسابية same. التغيير cosmetic بس." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (3 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — card subtitle + print template label\n• MODIFIED: `src/components/CustomerPortalPage.jsx` — portal card subtitle\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
+    ],
+  },
+  {
     version: "V21.9.193",
     date: "2026-05-25",
     types: ["fix"],
