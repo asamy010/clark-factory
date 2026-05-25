@@ -30,6 +30,8 @@
 import { useMemo } from "react";
 import { Card } from "../ui.jsx";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+/* V21.9.188 — Phase 3: cross-page action handoff for "+ جديد" buttons. */
+import { setPendingAction } from "../../utils/pendingAction.js";
 
 /* ─── helpers ──────────────────────────────────────────────────────── */
 
@@ -101,7 +103,7 @@ function ChartTooltip({ active, payload, label, T, FS, color }) {
 
 /* ─── card primitive ──────────────────────────────────────────────── */
 
-function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabel, T, FS, extra }) {
+function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabel, onNewAction, newActionLabel, T, FS, extra }) {
   return (
     <div style={{
       position: "relative",
@@ -123,18 +125,34 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: FS + 1, fontWeight: 800, color: color }}>{title}</div>
-        {onMainAction && (
-          <button
-            onClick={onMainAction}
-            style={{
-              padding: "4px 12px", borderRadius: 6, fontSize: FS - 2, fontWeight: 700,
-              background: color + "12", color: color, border: "1px solid " + color + "30",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = color + "22"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = color + "12"; }}
-          >{mainActionLabel || "المعاملات"}</button>
-        )}
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {/* V21.9.188 — Phase 3: solid "+ جديد" primary action button */}
+          {onNewAction && (
+            <button
+              onClick={onNewAction}
+              style={{
+                padding: "4px 12px", borderRadius: 6, fontSize: FS - 2, fontWeight: 800,
+                background: color, color: "#fff", border: "1px solid " + color,
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(0.92)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; }}
+              title={newActionLabel || "جديد"}
+            >+ {newActionLabel || "جديد"}</button>
+          )}
+          {onMainAction && (
+            <button
+              onClick={onMainAction}
+              style={{
+                padding: "4px 12px", borderRadius: 6, fontSize: FS - 2, fontWeight: 700,
+                background: color + "12", color: color, border: "1px solid " + color + "30",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color + "22"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = color + "12"; }}
+            >{mainActionLabel || "المعاملات"}</button>
+          )}
+        </div>
       </div>
 
       {/* Stat lines */}
@@ -296,6 +314,24 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
     else window.dispatchEvent(new CustomEvent("goto-tab", { detail: tab }));
   };
 
+  /* V21.9.188 — Phase 3: bundle "set pending action + navigate" for the
+     "+ جديد" buttons. Order matters — set the action FIRST so the target
+     page's mount-effect finds it in sessionStorage right after navigation.
+     The 5s expiry in pendingAction.js prevents stale actions from re-firing
+     on later navigations. */
+  const newActionAndGoto = (tab, action, extra = {}) => {
+    setPendingAction({ tab, action, ...extra });
+    handleGoto(tab);
+  };
+
+  /* In-page "+ قيد جديد" — stays inside AccountingPg via setActive.
+     Same pendingAction mechanism, but the consumer is JournalTab (which
+     reads on its own mount when active === "journal"). */
+  const newJournalEntry = () => {
+    setPendingAction({ tab: "accounting-journal", action: "new" });
+    if (setActive) setActive("journal");
+  };
+
   /* ── Render ── */
   return (
     <div>
@@ -316,6 +352,8 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
       }}>
 
         {/* ─── 1. المبيعات ─── */}
+        {/* V21.9.188: "+ تسليم جديد" routes to CustDeliverPg — in CLARK,
+            sales invoices are GENERATED from deliveries, not created blank. */}
         <DashCard
           T={T} FS={FS}
           title="📤 المبيعات"
@@ -333,9 +371,13 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           chartData={salesChart}
           onMainAction={() => handleGoto("salesInvoices")}
           mainActionLabel="المعاملات"
+          onNewAction={() => handleGoto("custDeliver")}
+          newActionLabel="تسليم عميل"
         />
 
         {/* ─── 2. المشتريات ─── */}
+        {/* V21.9.188: "+ استلام جديد" routes to PurchasePg (where receipts
+            originate) since purchase invoices are generated from receipts. */}
         <DashCard
           T={T} FS={FS}
           title="📥 المشتريات"
@@ -353,9 +395,12 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           chartData={purchaseChart}
           onMainAction={() => handleGoto("purchaseInvoices")}
           mainActionLabel="المعاملات"
+          onNewAction={() => handleGoto("purchase")}
+          newActionLabel="استلام شراء"
         />
 
         {/* ─── 3. شيكات أوراق قبض ─── */}
+        {/* V21.9.188: "+ جديد" → TreasuryPg + auto-open check form with type=receivable */}
         <DashCard
           T={T} FS={FS}
           title="🟡 شيكات أوراق قبض"
@@ -371,9 +416,12 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           chartData={recvChecksChart}
           onMainAction={() => handleGoto("treasury")}
           mainActionLabel="إدارة الشيكات"
+          onNewAction={() => newActionAndGoto("treasury", "newCheck", { checkType: "receivable" })}
+          newActionLabel="شيك قبض"
         />
 
         {/* ─── 4. شيكات أوراق دفع ─── */}
+        {/* V21.9.188: "+ جديد" → TreasuryPg + auto-open check form with type=payable */}
         <DashCard
           T={T} FS={FS}
           title="🔴 شيكات أوراق دفع"
@@ -386,9 +434,12 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           chartData={payChecksChart}
           onMainAction={() => handleGoto("treasury")}
           mainActionLabel="إدارة الشيكات"
+          onNewAction={() => newActionAndGoto("treasury", "newCheck", { checkType: "payable" })}
+          newActionLabel="شيك دفع"
         />
 
         {/* ─── 5. الخزينة ─── */}
+        {/* V21.9.188: "+ جديد" → TreasuryPg + auto-open transaction form */}
         <DashCard
           T={T} FS={FS}
           title="💵 الخزينة"
@@ -402,9 +453,12 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           chartData={treasuryChart}
           onMainAction={() => handleGoto("treasury")}
           mainActionLabel="المعاملات"
+          onNewAction={() => newActionAndGoto("treasury", "newTx")}
+          newActionLabel="حركة خزنة"
         />
 
         {/* ─── 6. الأصول الثابتة ─── */}
+        {/* V21.9.188: "+ جديد" → FixedAssetsPg + auto-open new-asset modal */}
         <DashCard
           T={T} FS={FS}
           title="🏭 الأصول الثابتة"
@@ -417,9 +471,12 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           ]}
           onMainAction={() => handleGoto("fixedAssets")}
           mainActionLabel="إدارة الأصول"
+          onNewAction={() => newActionAndGoto("fixedAssets", "new")}
+          newActionLabel="أصل ثابت"
         />
 
         {/* ─── 7. متنوع · القيود اليدوية ─── */}
+        {/* V21.9.188: "+ قيد جديد" → switch to journal tab + auto-open new entry modal */}
         <DashCard
           T={T} FS={FS}
           title="📔 متنوع · القيود اليدوية"
@@ -430,6 +487,8 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
           ]}
           onMainAction={() => setActive && setActive("journal")}
           mainActionLabel="دفتر اليومية"
+          onNewAction={newJournalEntry}
+          newActionLabel="قيد يدوي"
           extra={
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button

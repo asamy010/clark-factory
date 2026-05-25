@@ -12,6 +12,8 @@ import { readDay, mutateDay, voidEntry, toDayId } from "../../utils/accounting/d
 import { postManualEntry, postEntry, reverseEntry, buildRefNo } from "../../utils/accounting/posting.js";
 import { fmt, gid } from "../../utils/format.js";
 import { ask, tell } from "../../utils/popups.js";
+/* V21.9.188: cross-page action handoff (Dashboard "+ قيد جديد" button). */
+import { consumePendingAction } from "../../utils/pendingAction.js";
 
 export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
   const today = new Date().toISOString().split("T")[0];
@@ -34,6 +36,20 @@ export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
     }
   };
   useEffect(() => { loadDay(date); /* eslint-disable-next-line */ }, [date]);
+
+  /* V21.9.188: consume pending action from Accounting Dashboard's "متنوع"
+     card. The tab key uses a namespaced form ("accounting-journal") because
+     JournalTab is rendered INSIDE AccountingPg — we want the action to fire
+     only when the user explicitly clicks the journal "+ قيد جديد" button,
+     not on every tab switch within AccountingPg. */
+  useEffect(() => {
+    const act = consumePendingAction("accounting-journal");
+    if (!act) return;
+    if (act.action === "new") {
+      setEditing("new");
+    }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
 
   const handleSave = async (entry) => {
     try {

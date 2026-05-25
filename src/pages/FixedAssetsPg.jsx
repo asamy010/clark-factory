@@ -20,6 +20,8 @@ import {
 } from "../utils/accounting/fixedAssets.js";
 import { fmt } from "../utils/format.js";
 import { ask, tell } from "../utils/popups.js";
+/* V21.9.188: cross-page action handoff (Dashboard "+ جديد" button). */
+import { consumePendingAction } from "../utils/pendingAction.js";
 
 const TAB_DEFS = [
   { key: "register",     label: "سجل الأصول",      icon: "📋" },
@@ -64,6 +66,19 @@ export function FixedAssetsPg({ data, config, isMob, user }){
       err => { setLoading(false); console.error(err); },
     );
     return () => unsub();
+  }, []);
+
+  /* V21.9.188: consume pending action from Accounting Dashboard's
+     "+ جديد" button. If action === "new", switch to the register tab
+     (where the asset edit modal lives) and open it in create mode. */
+  useEffect(() => {
+    const act = consumePendingAction("fixedAssets");
+    if (!act) return;
+    if (act.action === "new") {
+      setActive("register");
+      setEditingAsset("new");
+    }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
   /* Filters for register tab */

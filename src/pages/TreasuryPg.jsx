@@ -20,6 +20,8 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
+/* V21.9.188: cross-page action handoff (Dashboard "+ جديد" buttons). */
+import { consumePendingAction } from "../utils/pendingAction.js";
 /* V21.9.127: Universal Attachments — wire to treasury entry form + check form. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { computeWorkshopBalance } from "../utils/accountSummary.js";
@@ -713,6 +715,30 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      semantics (id = linked, free-text fallback when not linked). */
   const[chkPartySearch,setChkPartySearch]=useState("");
   const[chkPartyOpen,setChkPartyOpen]=useState(false);
+  /* ── V21.9.188: cross-page action consumption ──
+     When the Accounting Dashboard's "+ جديد" button routes here, it leaves
+     a pendingAction in sessionStorage. We consume it once on mount and
+     auto-open the matching form. Mutually exclusive actions:
+       - "newTx"    → open the transaction form (showForm=true)
+       - "newCheck" → switch to checks view + open the check form,
+                      optionally pre-setting chkType from action.checkType */
+  useEffect(() => {
+    const act = consumePendingAction("treasury");
+    if (!act) return;
+    if (act.action === "newTx") {
+      setShowForm(true);
+    } else if (act.action === "newCheck") {
+      if (act.checkType === "receivable" || act.checkType === "payable") {
+        setChkType(act.checkType);
+      } else {
+        setChkType("receivable");
+      }
+      setChkEditId(null);
+      setView("checks");
+      setShowCheckForm(true);
+    }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
   /* Endorse */
   const[endorsePopup,setEndorsePopup]=useState(null);const[endorseSearch,setEndorseSearch]=useState("");
   /* V16.33: optional custom endorsement date (defaults to today when popup opens) */
