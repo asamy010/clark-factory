@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.175",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 7/14: Warnings + critical error hooks",
+    changes: [
+      { type: "feature", text: "إنشاء `src/utils/notifyWarnings.js` بـ 3 utilities:\n• `notifyCriticalError({key, title, body, throttleMs, data})` — يـ fire warning push بـ dedup + throttle (افتراضي 5 دقائق per key) لمنع notification storms\n• `withWarningOnError(fn, {key, title})` — wrapper بـ يـ fire warning تلقائياً لو الـ wrapped function رمت exception، ثم يـ re-throw (مش بـ يـ swallow الـ error)\n• `installGlobalErrorWarnings()` — global window.onerror + unhandledrejection listeners بـ 10-min throttle. ينتظر wiring في App.jsx useEffect عند الحاجة" },
+      { type: "feature", text: "الـ warnings دلوقتي audience defaulted لـ `{mode: 'role', role: 'admin'}` — مش الكل. الفلسفة: التحذيرات system-level events للـ admin فقط. لو مطلوب لـ manager+ في المستقبل، الـ caller يقدر يـ override بـ audience param." },
+      { type: "feature", text: "الـ slice ده infrastructure-only — مفيش تكامل في paths موجودة (autoPost, listeners, إلخ). الـ wiring الفعلي بـ يحصل ad-hoc لما حدث critical يحتاج تحذير. الـ pattern الموصى به: `import { notifyCriticalError } from './utils/notifyWarnings.js'; try { ... } catch(e) { notifyCriticalError({key: 'autopost_treasury', title: 'فشل القيد', body: e.message}); throw e; }`" },
+    ],
+  },
+  {
     version: "V21.9.174",
     date: "2026-05-24",
     types: ["feature"],
