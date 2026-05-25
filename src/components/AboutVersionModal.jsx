@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.173",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 5/14: Settings UI + Enable + Admin Broadcast",
+    changes: [
+      { type: "feature", text: "إعدادات → 'التواصل والإشعارات' → كارت جديد '🔔 إعدادات الإشعارات' بـ كل اللي يحتاجه الـ user:\n• Status pane: capability + permission + active devices count\n• 'تفعيل الإشعارات على هذا الجهاز' button (يـ trigger user-gesture permission + subscribe)\n• iOS guidance modal لو محتاج install\n• 7 category toggles: 💰 خزنة، ✅ مهام، 📋 تعليمات، ⚠️ تحذيرات، 👍 موافقات، 📢 إعلانات، 📊 ملخص يومي\n• قائمة بكل الأجهزة المشتركة + revoke per-device\n• Admin/manager فقط: 📢 broadcast form (category + urgency + title + body + send to all)" },
+      { type: "feature", text: "الكارت standalone في `src/components/NotificationSettingsCard.jsx` — مفيش edits خطيرة في SettingsPg.jsx الكبيرة (7000+ سطر). الـ wiring بـ سطرين فقط: import + render في `activeTab==='comms'` section. الكارت بـ يـ subscribe live للـ Firestore collection `notificationSubscriptions where userId==auth.uid` فالـ device list بـ يـ update real-time لو الـ user عمل subscribe من جهاز تاني." },
+      { type: "feature", text: "Privacy reminder بـ يظهر في الـ broadcast form: 'العنوان والنص ظاهرين على شاشة قفل الموبايل. ما تكتبش معلومات حساسة'. الـ title/body limits ظاهرة (200/500 char) مع maxLength enforcement." },
+      { type: "doc", text: "بعد deploy لـ V21.9.173 + إعدادات الـ Vercel env vars + Firebase Console VAPID: الـ user يقدر يفتح Settings → التواصل والإشعارات → يضغط 'تفعيل الإشعارات' → يقبل الـ permission prompt → يـ receive push من admin broadcast فوراً. End-to-end functional flow متاح للـ user الـ regular لأول مرة." },
+    ],
+  },
+  {
     version: "V21.9.172",
     date: "2026-05-24",
     types: ["feature"],
