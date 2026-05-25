@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.197",
+    date: "2026-05-25",
+    types: ["doc"],
+    title: "🔬 Portal — diagnostic فقط (لا تغيير في الحساب)",
+    changes: [
+      { type: "doc", text: "🎯 الـ context: Ahmed بـ يـ report إن البورتال لسه بـ يـ show خصم/رصيد غلط حتى بعد V21.9.196 (في حين إن كشف الحساب اتصلح). الـ logic في الـ portal API mirrors الـ statement page بالظبط، فاحتمالين:\n• Pass 1 (invoices) مش بـ يـ load data → الـ split collection مش متقري صح\n• Pass 1 loaded لكن Pass 2 (orphans) برضو بـ يضيف للحساب → double counting" },
+      { type: "doc", text: "✅ V21.9.197 بـ يـ add `summary._debug` في الـ portal API response:\n• `splitFlags`: قيم `_splitDaysV1950Done` / `_splitDaysV2195Done` (تأكد إن الـ migration done)\n• `loaded`: عدد invoices/CNs اللي اتـ loaded + اللي ينتمي للعميل\n• `pass1`: الـ subtotal/total من الـ invoices/CNs\n• `pass2`: عدد orphan deliveries/returns + الـ values\n• `sampleInvoiceRefs` + `sampleDelivery`: عينة عشان نـ verify الـ match keys\n\n**كيف تـ inspect:** افتح البورتال للعميل في browser → DevTools (F12) → Network → click customer-portal request → Preview/Response → expand summary._debug → ابعت لي screenshot أو نص الـ debug." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `api/customer-portal.js` — diagnostic accumulators + _debug field\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx\n\n**صفر تغيير في الـ math.** ده diagnostic only — هـ يطلع من الـ next version بعد ما نـ identify الـ root cause." },
+    ],
+  },
+  {
     version: "V21.9.196",
     date: "2026-05-25",
     types: ["fix"],

@@ -333,13 +333,27 @@ export default async function handler(req, res) {
     let totalDelValueNet = 0;
     let totalRetValue = 0;
     let returnsAfterDiscount = 0;
+    /* V21.9.197: diagnostic accumulators — exposed in summary._debug
+       so we can pinpoint why a customer's portal totals diverge from
+       what the in-app statement shows. */
+    let p1InvSubtotal = 0, p1InvTotal = 0, p1CnSubtotal = 0, p1CnTotal = 0;
+    let p2OrphanDelGross = 0, p2OrphanDelNet = 0, p2OrphanRetGross = 0, p2OrphanRetNet = 0;
+    let p2OrphanDelCount = 0, p2OrphanRetCount = 0;
     customerInvoices.forEach(inv => {
-      totalDelValue += Number(inv.subtotal) || 0;
-      totalDelValueNet += Number(inv.total) || 0;
+      const s = Number(inv.subtotal) || 0;
+      const t = Number(inv.total) || 0;
+      totalDelValue += s;
+      totalDelValueNet += t;
+      p1InvSubtotal += s;
+      p1InvTotal += t;
     });
     customerCreditNotes.forEach(cn => {
-      totalRetValue += Number(cn.subtotal) || 0;
-      returnsAfterDiscount += Number(cn.total) || 0;
+      const s = Number(cn.subtotal) || 0;
+      const t = Number(cn.total) || 0;
+      totalRetValue += s;
+      returnsAfterDiscount += t;
+      p1CnSubtotal += s;
+      p1CnTotal += t;
     });
 
     /* Pass 2: orphan deliveries/returns (no matching invoice/CN — fall
@@ -348,14 +362,24 @@ export default async function handler(req, res) {
       const key = "k:" + (d._sourceKey || "");
       const altKey = "c:" + (d._sourceOrderId || "") + "|" + (d.custId || custId) + "|" + (d.sessionId || "");
       if ((d._sourceKey && invoicedDeliveryKeys.has(key)) || invoicedDeliveryKeys.has(altKey)) return;
-      totalDelValue += d.value || 0;
-      totalDelValueNet += (d.valueAfterDisc !== undefined ? d.valueAfterDisc : d.value) || 0;
+      const gross = d.value || 0;
+      const net = (d.valueAfterDisc !== undefined ? d.valueAfterDisc : d.value) || 0;
+      totalDelValue += gross;
+      totalDelValueNet += net;
+      p2OrphanDelGross += gross;
+      p2OrphanDelNet += net;
+      p2OrphanDelCount += 1;
     });
     returns.forEach(r => {
       const key = "k:" + (r._sourceKey || "");
       if (r._sourceKey && cnReturnKeys.has(key)) return;
-      totalRetValue += r.value || 0;
-      returnsAfterDiscount += (r.valueAfterDisc !== undefined ? r.valueAfterDisc : r.value) || 0;
+      const gross = r.value || 0;
+      const net = (r.valueAfterDisc !== undefined ? r.valueAfterDisc : r.value) || 0;
+      totalRetValue += gross;
+      returnsAfterDiscount += net;
+      p2OrphanRetGross += gross;
+      p2OrphanRetNet += net;
+      p2OrphanRetCount += 1;
     });
 
     const discountAmount = totalDelValue - totalDelValueNet;
@@ -440,6 +464,58 @@ export default async function handler(req, res) {
         deliveryCount: deliveries.length,
         orderCount: activeModels.size,
         rating,
+        /* V21.9.197 — diagnostic snapshot. Inspect via DevTools (Network
+           tab → portal request → response → summary._debug). Helps verify
+           whether Pass 1 (invoices) actually loaded data or whether the
+           portal fell through entirely to Pass 2 (orphan deliveries). */
+        _debug: {
+          splitFlags: {
+            v1949: !!config._splitDaysV1949Done,
+            v1950: !!config._splitDaysV1950Done,
+            v2195: !!config._splitDaysV2195Done,
+          },
+          loaded: {
+            allSalesInvoicesCount: allSalesInvoices.length,
+            allSalesCreditNotesCount: allSalesCreditNotes.length,
+            customerInvoicesCount: customerInvoices.length,
+            customerCreditNotesCount: customerCreditNotes.length,
+            invoicedDeliveryKeysCount: invoicedDeliveryKeys.size,
+            cnReturnKeysCount: cnReturnKeys.size,
+          },
+          pass1: {
+            invSubtotal: Math.round(p1InvSubtotal),
+            invTotal: Math.round(p1InvTotal),
+            cnSubtotal: Math.round(p1CnSubtotal),
+            cnTotal: Math.round(p1CnTotal),
+            invDiscountAmt: Math.round(p1InvSubtotal - p1InvTotal),
+          },
+          pass2: {
+            orphanDelCount: p2OrphanDelCount,
+            orphanRetCount: p2OrphanRetCount,
+            orphanDelGross: Math.round(p2OrphanDelGross),
+            orphanDelNet: Math.round(p2OrphanDelNet),
+            orphanRetGross: Math.round(p2OrphanRetGross),
+            orphanRetNet: Math.round(p2OrphanRetNet),
+          },
+          /* Sample first invoice's deliveryRefs so we can verify the
+             match keys against the deliveries' _sourceKey/_sourceOrderId. */
+          sampleInvoiceRefs: customerInvoices[0] ? {
+            invoiceNo: customerInvoices[0].invoiceNo,
+            discountPct: customerInvoices[0].discountPct,
+            subtotal: customerInvoices[0].subtotal,
+            total: customerInvoices[0].total,
+            deliveryRefs: (customerInvoices[0].deliveryRefs || []).slice(0, 3),
+            deliveryRef: customerInvoices[0].deliveryRef || null,
+          } : null,
+          sampleDelivery: deliveries[0] ? {
+            sessionId: deliveries[0].sessionId,
+            _sourceKey: deliveries[0]._sourceKey,
+            _sourceOrderId: deliveries[0]._sourceOrderId,
+            value: deliveries[0].value,
+            valueAfterDisc: deliveries[0].valueAfterDisc,
+            discPct: deliveries[0].discPct,
+          } : null,
+        },
       },
       activeModels: Array.from(activeModels.values()),
       /* V21.9.196: strip internal _source* fields from outbound payload
