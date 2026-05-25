@@ -216,7 +216,25 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     let maxAllowed=t.cutQty;
     if(pieces.length>0&&delType){const delForP=(ord.workshopDeliveries||[]).filter(wd=>wd.garmentType===delType).reduce((s,wd)=>s+(Number(wd.qty)||0),0);maxAllowed=t.cutQty-delForP}
     else if(pieces.length===0){const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);maxAllowed=t.cutQty-totalDel}
-    const saveQty=Math.min(Number(delQty),maxAllowed);if(saveQty<=0){await tell("لا توجد كمية متاحة","الكمية المطلوبة تتجاوز المتاح للتسليم",{type:"warning"});return}
+    /* V21.9.185: STRICT validation — reject (don't silently cap) when the
+       requested qty exceeds what's available on the floor. Pre-V21.9.185 the
+       code did `Math.min(delQty, maxAllowed)` which silently dropped the
+       user's input down to the cap, so a typo or stale-view could deliver
+       30 when the user typed 50 — both confusing AND a data-integrity risk
+       if Math.min capped to zero invisibly. */
+    const requestedQty=Number(delQty)||0;
+    if(maxAllowed<=0){await tell("لا توجد كمية متاحة","المتاح من الـ"+ (delType||"أوردر") +" على الأرض = 0. لا يمكن التسليم.",{type:"warning"});return}
+    if(requestedQty<=0){await tell("كمية غير صالحة","يرجى إدخال كمية أكبر من صفر.",{type:"warning"});return}
+    if(requestedQty>maxAllowed){
+      await tell(
+        "الكمية أكبر من المتاح",
+        "طلبت تسليم "+requestedQty+" قطعة من «"+(delType||"الأوردر")+"»، لكن المتاح على الأرض = "+maxAllowed+" بس.\n\n"+
+        "صحّح الكمية وحاول تاني. لا أقدر أسلّم ورشة أكتر من اللي اتقص فعلاً.",
+        {type:"warning"}
+      );
+      return;
+    }
+    const saveQty=requestedQty;
     const saveType=delType;const saveNote=delNote;const savePrice=Number(delPrice)||0;
     const saveModelNo=ord.modelNo;const saveDate=delDate||new Date().toISOString().split("T")[0];
     const availAfter=maxAllowed-saveQty;
@@ -235,15 +253,30 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
       openWA("https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+msg,"_blank")}
   };
 
-  const receiveFromWs=(orderId,wdIdx,andPrint,printData,cardKey,andWa,andLabel)=>{
+  const receiveFromWs=async(orderId,wdIdx,andPrint,printData,cardKey,andWa,andLabel)=>{
     const rv=getRcv(cardKey);
     if(!rv.qty)return;
     const ord=data.orders.find(o=>o.id===orderId);if(!ord)return;
     const wd=(ord.workshopDeliveries||[])[wdIdx];if(!wd)return;
     const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
     const maxRcv=(Number(wd.qty)||0)-rcvd;
-    if(Number(rv.qty)>maxRcv){showToast("⚠️ الكمية "+rv.qty+" أكبر من المتبقي "+maxRcv+" — الحد الأقصى: ما تم تسليمه للورشة");return}
-    const saveQty=Math.min(Number(rv.qty),maxRcv);if(saveQty<=0){showToast("⚠️ لا يوجد رصيد متبقي للاستلام");return}
+    /* V21.9.185: upgrade rejection from toast → tell (popup) so the user
+       can't miss it. Same logic; stronger UX. The Math.min cap below
+       became dead code after V21.9.185 (the if-guard catches >max first). */
+    const requestedQty=Number(rv.qty)||0;
+    if(maxRcv<=0){await tell("لا يوجد رصيد","تم استلام كل الكمية المسلّمة لهذه الورشة. لا يوجد متبقي للاستلام.",{type:"warning"});return}
+    if(requestedQty>maxRcv){
+      await tell(
+        "الكمية أكبر من المتبقي",
+        "طلبت استلام "+requestedQty+" قطعة، لكن المتبقي عند الورشة = "+maxRcv+" بس "+
+        "(اتسلّم "+(Number(wd.qty)||0)+"، اتـ استلم "+rcvd+").\n\n"+
+        "صحّح الكمية وحاول تاني. لا أقدر أستلم من ورشة أكتر من اللي سلمتها.",
+        {type:"warning"}
+      );
+      return;
+    }
+    const saveQty=requestedQty;
+    if(saveQty<=0){await tell("كمية غير صالحة","يرجى إدخال كمية أكبر من صفر.",{type:"warning"});return}
     const saveNote=rv.note;const wdPrice=Number(wd.price)||0;const saveDate=rv.date||new Date().toISOString().split("T")[0];const saveQuality=rv.quality||"جيد جداً";
     updOrder(orderId,o=>{
       if(!o.workshopDeliveries[wdIdx].receives)o.workshopDeliveries[wdIdx].receives=[];
@@ -958,6 +991,62 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     const totalQty=checked.reduce((s,x)=>s+x.qty,0);
 
     const doBatchDeliver=async(andPrint,andWa)=>{if(checked.length===0)return;
+      /* ── V21.9.185 · Pre-save validation ────────────────────────────────
+         Pre-V21.9.185 the batch deliver flow had NO price check (the single
+         deliver path had one for externals) AND no re-check of qty vs the
+         current floor availability. Two bugs:
+           1. Batch save would silently push price:0 for external workshops,
+              breaking the workshop-due calculation in wsAccounts.
+           2. The Math.min in updateItem capped the input at the items[i].maxQty
+              SNAPSHOT (computed when the user selected the workshop). If a
+              concurrent admin delivered to the same order, the snapshot went
+              stale and we'd over-commit on the floor.
+         Fix: walk the checked items once, surfacing every problem, and
+         abort the whole batch if anything is wrong. */
+      const isExt=!isInternal(selWs);
+      const missingPrice=[];
+      const overCommit=[];
+      const zeroQty=[];
+      checked.forEach(item=>{
+        if(isExt && (!Number(item.price) || Number(item.price)<=0)){
+          missingPrice.push("• موديل "+item.modelNo+" — "+item.garmentType);
+        }
+        if((Number(item.qty)||0)<=0){
+          zeroQty.push("• موديل "+item.modelNo+" — "+item.garmentType);
+        }
+        /* Recompute current available qty from data (not from item.maxQty). */
+        const ord=data.orders.find(o=>o.id===item.orderId);
+        if(!ord){overCommit.push("• موديل "+item.modelNo+" (الأوردر غير موجود)"); return;}
+        const t=calcOrder(ord);
+        const pieces=ord.orderPieces||[];
+        let curAvail;
+        if(pieces.length>0){
+          const delForP=(ord.workshopDeliveries||[]).filter(wd=>wd.garmentType===item.garmentType).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          curAvail=t.cutQty-delForP;
+        } else {
+          const totalDel=(ord.workshopDeliveries||[]).reduce((s,wd)=>s+(Number(wd.qty)||0),0);
+          curAvail=t.cutQty-totalDel;
+        }
+        if((Number(item.qty)||0)>curAvail){
+          overCommit.push("• موديل "+item.modelNo+" — "+item.garmentType+": طلبت "+item.qty+"، متاح "+Math.max(0,curAvail));
+        }
+      });
+      if(missingPrice.length){
+        await tell("سعر التشغيل مطلوب","الورشة «"+selWs+"» خارجية — لازم تـ specify سعر تشغيل > 0 لكل بند قبل الحفظ:\n\n"+missingPrice.join("\n"),{type:"warning"});
+        return;
+      }
+      if(zeroQty.length){
+        await tell("كمية غير صالحة","البنود التالية بـ qty=0 — صحّحها أو شيلها من التحديد:\n\n"+zeroQty.join("\n"),{type:"warning"});
+        return;
+      }
+      if(overCommit.length){
+        await tell(
+          "الكمية أكبر من المتاح على الأرض",
+          "بعد ما اخترت الورشة، الكميات المتاحة اتغيّرت (ممكن admin تاني سلّم نفس الأوردر).\n\nصحّح البنود دي قبل ما تـ retry:\n\n"+overCommit.join("\n"),
+          {type:"warning"}
+        );
+        return;
+      }
       /* Group items by orderId */
       const byOrder={};checked.forEach(item=>{if(!byOrder[item.orderId])byOrder[item.orderId]=[];byOrder[item.orderId].push(item)});
       /* Direct Firestore writes - bypass updOrder to avoid stale state */
@@ -1023,7 +1112,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
           <td style={{...TD,fontSize:FS-1}}>{item.modelDesc}</td>
           <td style={{...TD,fontWeight:700,color:"#8B5CF6",fontSize:FS}}>{item.garmentType}</td>
           <td style={{...TD,minWidth:70}}><Inp type="number" value={item.qty} onChange={v=>updateItem(i,"qty",v)} sx={{padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/></td>
-          <td style={{...TD,minWidth:70}}>{!isInternal(selWs)&&<Inp type="number" value={item.price||""} onChange={v=>updateItem(i,"price",v)} sx={{padding:"3px 6px",fontSize:FS-1}} placeholder="السعر"/>}</td>
+          <td style={{...TD,minWidth:70}}>{!isInternal(selWs)&&<Inp type="number" value={item.price||""} onChange={v=>updateItem(i,"price",v)} sx={{padding:"3px 6px",fontSize:FS-1,border:(item.checked&&(!Number(item.price)||Number(item.price)<=0))?"1px solid "+T.err:undefined,background:(item.checked&&(!Number(item.price)||Number(item.price)<=0))?T.err+"08":undefined}} placeholder="السعر مطلوب"/>}</td>
         </tr>)}</tbody></table></div>
         {checked.length>0&&<div style={{marginTop:12,padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -1053,6 +1142,39 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
     const totalRcvQty=checkedRcv.reduce((s,x)=>s+x.qty,0);
 
     const doBatchReceive=async(andPrint,andWa)=>{if(checkedRcv.length===0)return;
+      /* ── V21.9.185 · Pre-save validation ────────────────────────────────
+         Re-derive the current remaining balance for each checked item right
+         before write, so we catch concurrent receives by other admins. The
+         items snapshot was built when the user picked the workshop — if
+         someone else received from the same wd in between, the snapshot's
+         balance is stale. Reject the whole batch if any item over-commits. */
+      const overReceive=[];
+      const zeroQty=[];
+      checkedRcv.forEach(item=>{
+        const ord=data.orders.find(o=>o.id===item.orderId);
+        if(!ord){overReceive.push("• موديل "+item.modelNo+" (الأوردر غير موجود)"); return;}
+        const wd=(ord.workshopDeliveries||[])[item.wdIdx];
+        if(!wd){overReceive.push("• موديل "+item.modelNo+" (الـ delivery اتـ حذف)"); return;}
+        const curRcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        const curBalance=(Number(wd.qty)||0)-curRcvd;
+        if((Number(item.qty)||0)<=0){
+          zeroQty.push("• موديل "+item.modelNo+" — "+(wd.garmentType||"عام"));
+        } else if((Number(item.qty)||0)>curBalance){
+          overReceive.push("• موديل "+item.modelNo+" — "+(wd.garmentType||"عام")+": طلبت "+item.qty+"، المتبقي عند الورشة "+Math.max(0,curBalance)+" (اتسلّم "+(Number(wd.qty)||0)+"، اتـ استلم "+curRcvd+")");
+        }
+      });
+      if(zeroQty.length){
+        await tell("كمية غير صالحة","البنود التالية بـ qty=0 — صحّحها أو شيلها من التحديد:\n\n"+zeroQty.join("\n"),{type:"warning"});
+        return;
+      }
+      if(overReceive.length){
+        await tell(
+          "الاستلام أكبر من المتبقي عند الورشة",
+          "لا أقدر أستلم من ورشة أكتر من اللي سلّمتها. صحّح البنود دي قبل ما تـ retry:\n\n"+overReceive.join("\n"),
+          {type:"warning"}
+        );
+        return;
+      }
       const byOrder={};checkedRcv.forEach(item=>{if(!byOrder[item.orderId])byOrder[item.orderId]=[];byOrder[item.orderId].push(item)});
       for(const[orderId,items] of Object.entries(byOrder)){
         const ord=data.orders.find(o=>o.id===orderId);if(!ord||!ord._docId)continue;

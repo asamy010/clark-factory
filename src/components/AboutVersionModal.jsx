@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.185",
+    date: "2026-05-25",
+    types: ["fix", "architectural"],
+    title: "🛡 تشغيل خارجي — تشديد validation للتسليم/الاستلام (3 قواعد جوهرية)",
+    changes: [
+      { type: "fix", text: "🎯 الـ root issue — 3 مشاكل data-integrity في ExtProdPg كانت بـ تـ allow تسليمات/استلامات غير صحيحة:\n\n1. **Silent truncation في deliver:** لو الـ user كتب 50 والمتاح 30، الـ code كان بـ يـ `Math.min(delQty, maxAllowed)` ويـ save 30 بدون warning. ده يـ confuse الـ user (\"أنا كتبت 50 ليه اتحفظ 30؟\") + يخفي data integrity issue.\n\n2. **مفيش price validation في الـ batch deliver:** الـ `doBatchDeliver` كان بـ يـ save items بـ price=0 للورش الخارجية بدون أي check — يـ break حساب الـ wsAccounts ويـ produce فواتير بصفر. الـ single-deliver path كان عنده الـ check، الـ batch path لا.\n\n3. **Stale snapshots في الـ batch flows:** الـ batch items بـ تتـ build لما الـ user يـ select الورشة. لو admin تاني سلّم/استلم من نفس الأوردر بعدها، الـ snapshot يـ بقى stale والـ batch save يـ over-commit." },
+      { type: "fix", text: "✅ الحل (Save paths فقط — single + batch، Deliver + Receive):\n\n**deliverToWs:** استبدلت `Math.min(delQty, maxAllowed)` بـ explicit reject:\n• لو `requestedQty > maxAllowed` → `tell()` popup \"طلبت X، المتاح Y بس\" + abort\n• لو `maxAllowed <= 0` → \"لا توجد كمية متاحة على الأرض\" + abort\n• لو `requestedQty <= 0` → \"كمية غير صالحة\" + abort\n• الـ user لازم يـ correct يدوياً قبل ما يحفظ. لا data بـ تنحفظ جزئياً.\n\n**doBatchDeliver:** pre-save validation pass:\n• كل item بـ external workshop لازم `price > 0` — لو فيه gaps، popup بـ list البنود المفقودة + abort\n• كل item بـ qty=0 → popup + abort\n• كل item بـ يتـ re-check ضد الـ current floor availability (وليس الـ snapshot القديم) — لو في concurrent delivery من admin تاني، الـ batch يـ reject + يطلب الـ user يـ retry\n\n**receiveFromWs:** upgrade من toast → `tell()` popup (الـ rejection logic كانت بالفعل صحيحة، الـ UX بقى أوضح)\n\n**doBatchReceive:** pre-save balance re-check ضد الـ current data (مش الـ snapshot القديم). لو concurrent receive سحب البلانس، الـ batch يـ reject + يطلب retry." },
+      { type: "improvement", text: "🎨 Visual hint في batch deliver: لو item checked + ورشة خارجية + price=0، الـ price input بـ يظهر بـ red border + light-red background + placeholder \"السعر مطلوب\". الـ user يـ catch المشكلة بصرياً قبل ما يضغط الـ save button." },
+      { type: "architectural", text: "📋 الـ rules المتبعة (متفق عليها مع Ahmed قبل التنفيذ):\n• Price validation للورش **الخارجية فقط** — الورش الداخلية بـ تـ paid via salary، مفيش per-piece price. الـ existing convention preserved.\n• Scope: **save paths فقط** (single + batch deliver/receive، 4 functions). الـ edit-movement + transfer-between-workshops paths لسه ما اتلمسوش — هـ يـ covered في version لاحقة لو احتاج.\n• الـ behavior: **reject كلياً** (مش cap-with-warning) — الـ user يـ acknowledge وي correct يدوياً.\n• مفيش breaking changes للـ data shape — كله validation additive." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (5 modified):\n• MODIFIED: `src/pages/ExtProdPg.jsx`\n  - `deliverToWs` (line ~217): strict qty rejection\n  - `receiveFromWs` (line ~256): toast → tell + made async\n  - `doBatchDeliver` (line ~975): full pre-save validation (price + qty + concurrency)\n  - `doBatchReceive` (line ~1147): pre-save balance re-check (concurrency-safe)\n  - batch deliver UI (line ~1027): red-border hint للـ price=0 على external\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)." },
+    ],
+  },
+  {
     version: "V21.9.184",
     date: "2026-05-25",
     types: ["improvement", "architectural"],
