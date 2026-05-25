@@ -33,9 +33,6 @@ import {
 import { syncRoleScopesToFirestore, computeRoleScopes } from "../utils/syncRoleScopes.js";
 /* V19.44: Inspector — admin tool to see what a user can actually do */
 import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
-/* V21.9.173 (Slice 5/14): Push Notifications settings card. Self-contained
-   — handles permission flow, device list, preferences, and admin broadcast. */
-import { NotificationSettingsCard } from "../components/NotificationSettingsCard.jsx";
 /* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
 import { CustomRolesManager } from "../components/CustomRolesManager.jsx";
 /* V19.46: Write self-test diagnostic — round-trip write/read/delete test
@@ -4340,8 +4337,6 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="comms" && <>
     {/* WhatsApp Report Contacts Settings — with draft pattern + save button */}
     <WaContactsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,waContacts:d}))}/>
-    {/* V21.9.173 (Slice 5/14): Push Notifications settings card */}
-    <NotificationSettingsCard T={T} FS={FS} isMob={isMob} showToast={showToast} tell={tell} ask={ask} Btn={Btn} Card={Card} Sel={Sel} Inp={Inp} userRole={userRole}/>
     </>}
 
     {/* V21.9.103: Universal Tags management. canEdit = Manager+Admin only

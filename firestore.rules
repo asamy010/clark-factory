@@ -530,50 +530,6 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
-       V21.9.171 — Push Notification Subscriptions (Slice 3/14)
-       Each authenticated user can manage their OWN push subscriptions
-       (one doc per device, doc id = sub_<sha256(fcmToken).slice(0,32)>).
-       Admins/managers can read all (Slice 5 admin view) + revoke any
-       (e.g. a stolen device).
-
-       Read:   own subscription OR isManagerPlus
-       Create: any authed user, must set userId == request.auth.uid
-               (server enforces this too, defense-in-depth)
-       Update: own OR isManagerPlus
-       Delete: own OR isManagerPlus
-       ────────────────────────────────────────────────────────── */
-    match /notificationSubscriptions/{subId} {
-      allow read: if isAuthed() && (
-        resource.data.userId == request.auth.uid || isManagerPlus()
-      );
-      allow create: if isAuthed()
-                    && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthed() && (
-        resource.data.userId == request.auth.uid || isManagerPlus()
-      );
-      allow delete: if isAuthed() && (
-        resource.data.userId == request.auth.uid || isManagerPlus()
-      );
-    }
-
-    /* Audit log for SW subscription renewals — write via the public
-       /api/notifications/renew-subscription endpoint (admin SDK,
-       bypasses these rules). Reads gated to admin/manager for debug. */
-    match /notificationSubscriptionRenewals/{logId} {
-      allow read: if isManagerPlus();
-      allow write: if false;  // only via Admin SDK endpoint
-    }
-
-    /* V21.9.172 — Notification send history (Slice 4/14).
-       Every push send (manual via /send or system via /send-internal)
-       writes one entry here for audit + the future Notification Center
-       (Slice 8). Writes only via Admin SDK; reads gated to manager+. */
-    match /notificationHistory/{historyId} {
-      allow read: if isManagerPlus();
-      allow write: if false;  // only via Admin SDK endpoint
-    }
-
-    /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
     match /{document=**} {
