@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/shopify-cleanup-reservations",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/notifications/cron-daily-summary",
+      "schedule": "0 7 * * *"
     }
   ]
 }

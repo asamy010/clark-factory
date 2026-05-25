@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.178",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 10/14: Daily summary cron",
+    changes: [
+      { type: "feature", text: "Vercel cron job جديد: `GET /api/notifications/cron-daily-summary` بـ schedule '0 7 * * *' (7 UTC = 9 صباحاً Cairo). كل صباح بـ يـ build summary push للأدمن+manager:\n• 📅 تاريخ امبارح بالعربي\n• 💰 N حركة خزنة: وارد X، منصرف Y، صافي Z\n• 🔔 N إشعار اتبعت\n\nالـ summary بـ يـ skip لو الـ activity = 0 (ما فيش tx ولا notif امبارح) — مفيش noise في الأيام الهادية." },
+      { type: "feature", text: "Auth: عبر `Authorization: Bearer <CRON_SECRET>` header. الـ Vercel cron requests بـ يـ set الـ header تلقائياً لو الـ `CRON_SECRET` env var مفعّلة. لو الـ env var غير مفعّلة → الـ endpoint بـ يـ return 503 (closed-by-default).\n\nالـ admin يقدر يـ trigger manually للـ testing:\n```bash\ncurl -H \"Authorization: Bearer $CRON_SECRET\" \\\n  https://clark-factory.vercel.app/api/notifications/cron-daily-summary\n```" },
+      { type: "feature", text: "Quiet hours respected: لأن urgency=low في الـ daily summary، لو الـ user عنده quiet hours active (مثلاً 22:00-07:00) والـ cron fires في 09:00 — الفترة already خرجت من quiet hours → الـ summary بـ يوصل عادي. لكن لو الـ user حدد quiet hours غريبة (مثلاً 08:00-10:00) → الـ summary بـ يتـ skip لـ ذاك الـ user.\n\nTag-based grouping: الـ tag='daily-summary-{date}' → كل day بـ يـ get summary واحد فقط بـ يـ replace السابق لو الـ cron fired مرتين بـ خطأ." },
+      { type: "doc", text: "⚠️ Required env var جديد: `CRON_SECRET` في Vercel — generate بـ `openssl rand -hex 32`. لازم يتم setup-ه قبل ما الـ cron يشتغل (الـ vercel.json تم تحديثه بالـ schedule entry). الـ schedule '0 7 * * *' = 7 صباحاً UTC = 9 صباحاً القاهرة (UTC+2، مفيش DST في مصر منذ 2015)." },
+    ],
+  },
+  {
     version: "V21.9.177",
     date: "2026-05-24",
     types: ["feature"],
