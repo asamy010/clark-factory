@@ -78,9 +78,15 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
   const unitPrice = Number(delivery.price) || Number(order.sellPrice) || 0;
   const qty       = Number(delivery.qty) || 0;
   const lineTotal = r2(unitPrice * qty);/* V19.66: round to 2 decimals to avoid float drift */
-  /* Apply customer-level discount if present */
-  const customerDiscountPct = Number(customer?.discount) || 0;
-  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  /* V21.9.190 — Phase 2: discount precedence is
+       1. delivery.discPct  (per-customer-per-session override, frozen at sale time)
+       2. customer.discount (customer-level default)
+       3. 10                (system default — V21.9.189)
+     The delivery override exists on entries created on/after V21.9.190.
+     Legacy entries without discPct fall through to the customer default,
+     preserving historical financial behavior unchanged. */
+  const effectiveDiscountPct = resolveDiscountPct(delivery, customer);
+  const discount = r2(lineTotal * (effectiveDiscountPct / 100));
   const total    = r2(lineTotal - discount);
 
   return {
@@ -112,7 +118,7 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
       lineTotal,
     }],
     subtotal: lineTotal,
-    discountPct: customerDiscountPct,
+    discountPct: effectiveDiscountPct,
     discount,
     total,
     status: "draft",
@@ -120,6 +126,20 @@ export function buildSalesInvoiceFromDelivery(d, delivery, order, customer, user
     createdAt: new Date().toISOString(),
     createdBy: userName || "",
   };
+}
+
+/* V21.9.190 — Phase 2 discount-precedence helper.
+   Centralized so the build/upsert paths stay in sync. */
+function resolveDiscountPct(delivery, customer){
+  if (delivery && delivery.discPct !== undefined && delivery.discPct !== null) {
+    const n = Number(delivery.discPct);
+    if (!isNaN(n)) return n;
+  }
+  if (customer && customer.discount !== undefined && customer.discount !== null) {
+    const n = Number(customer.discount);
+    if (!isNaN(n)) return n;
+  }
+  return 10;
 }
 
 /* V18.65: Smart upsert — consolidates same-day same-customer DRAFT invoices.
@@ -143,7 +163,12 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
   const qty = Number(delivery.qty) || 0;
   if(qty <= 0) return { invoice: null, isNew: false };
 
-  const customerDiscountPct = Number(customer?.discount) || 0;
+  /* V21.9.190 — Phase 2: discount precedence
+       delivery.discPct → customer.discount → 10
+     The delivery's discPct (when present) is the per-customer-per-session
+     override the user picked in the Plan tab. customer.discount is the
+     fallback default. */
+  const effectiveDiscountPct = resolveDiscountPct(delivery, customer);
   const ref = {
     sessionId: delivery.sessionId || null,
     orderId: order.id,
@@ -182,10 +207,17 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
       existing.deliveryRefs = existing.deliveryRef ? [existing.deliveryRef] : [];
     }
     existing.deliveryRefs.push(ref);
-    /* Recompute totals — V19.66: route through r2 to prevent accumulated drift */
+    /* Recompute totals — V19.66: route through r2 to prevent accumulated drift.
+       V21.9.190: discount % comes from the NEW delivery's discPct override (if
+       set). This means: same customer, same day, two deliveries with different
+       session-level discounts → the SECOND delivery's discount wins for the
+       merged draft. Document this in changelog: if the admin needs different
+       discounts on same-day deliveries to the same customer, they should
+       either (a) bump dates, or (b) edit the invoice's free-discount field
+       after merge. Posted invoices are NEVER mutated. */
     existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
-    existing.discountPct = customerDiscountPct;
-    existing.discount = r2(existing.subtotal * (customerDiscountPct / 100));
+    existing.discountPct = effectiveDiscountPct;
+    existing.discount = r2(existing.subtotal * (effectiveDiscountPct / 100));
     existing.total = r2(existing.subtotal - existing.discount);
     return { invoice: existing, isNew: false };
   }
@@ -193,7 +225,7 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
   /* Create new draft invoice */
   const invoiceNo = reserveInvoiceNo(d, "sales");
   const lineTotal = r2(unitPrice * qty);/* V19.66 */
-  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  const discount = r2(lineTotal * (effectiveDiscountPct / 100));
   const total = r2(lineTotal - discount);
   const inv = {
     id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
@@ -213,7 +245,7 @@ export function upsertSalesInvoiceFromDelivery(d, delivery, order, customer, use
       lineTotal,
     }],
     subtotal: lineTotal,
-    discountPct: customerDiscountPct,
+    discountPct: effectiveDiscountPct,
     discount,
     total,
     status: "draft",
@@ -660,8 +692,13 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
      ±0.05 EGP per return, accumulating to ±60 EGP/year of unexplained
      balance drift in the customer ledger. */
   const lineTotal = r2(unitPrice * qty);
-  const customerDiscountPct = Number(customer?.discount) || 0;
-  const discount = r2(lineTotal * (customerDiscountPct / 100));
+  /* V21.9.190 — Phase 2: apply same precedence as sales
+       returnEntry.discPct → customer.discount → 10
+     returnEntry.discPct is undefined for legacy returns (falls through to
+     customer.discount). Future Phase 2.5 can stamp discPct on returns at
+     return-time by reading the matching sale entry. */
+  const effectiveDiscountPct = resolveDiscountPct(returnEntry, customer);
+  const discount = r2(lineTotal * (effectiveDiscountPct / 100));
   const total    = r2(lineTotal - discount);
 
   /* Try to find the original invoice this return relates to.
@@ -707,7 +744,7 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
       lineTotal,
     }],
     subtotal: lineTotal,
-    discountPct: customerDiscountPct,
+    discountPct: effectiveDiscountPct,
     discount,
     total,
     status: "draft",
@@ -731,7 +768,8 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
   /* V18.65: use actual invoice price */
   const resolvedPrice = resolveReturnUnitPrice(d, customerId, order.id, date);
   const unitPrice = resolvedPrice > 0 ? resolvedPrice : (Number(order.sellPrice) || 0);
-  const customerDiscountPct = Number(customer?.discount) || 0;
+  /* V21.9.190 — Phase 2: same precedence as sales side */
+  const effectiveDiscountPct = resolveDiscountPct(returnEntry, customer);
   const ref = {
     orderId: order.id,
     custId: returnEntry.custId,
@@ -770,8 +808,8 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
     existing.returnRefs.push(ref);
     /* Recompute totals — V21.9.52: route through r2 to prevent accumulated drift */
     existing.subtotal = r2(existing.items.reduce((s, it) => s + (Number(it.lineTotal) || 0), 0));
-    existing.discountPct = customerDiscountPct;
-    existing.discount = r2(existing.subtotal * (customerDiscountPct / 100));
+    existing.discountPct = effectiveDiscountPct;
+    existing.discount = r2(existing.subtotal * (effectiveDiscountPct / 100));
     existing.total = r2(existing.subtotal - existing.discount);
     return { creditNote: existing, isNew: false };
   }
@@ -779,7 +817,7 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
   /* Create new draft credit note */
   const creditNoteNo = reserveCreditNoteNo(d);
   const lineTotal = r2(unitPrice * qty);/* V21.9.52 */
-  const discount = r2(lineTotal * (customerDiscountPct / 100));/* V21.9.52 */
+  const discount = r2(lineTotal * (effectiveDiscountPct / 100));/* V21.9.52 */
   const total = r2(lineTotal - discount);/* V21.9.52 */
   /* Try to find the original invoice this return relates to */
   const linkedInv = (d.salesInvoices||[]).find(i =>
@@ -806,7 +844,7 @@ export function upsertCreditNoteFromReturn(d, returnEntry, order, customer, user
       lineTotal,
     }],
     subtotal: lineTotal,
-    discountPct: customerDiscountPct,
+    discountPct: effectiveDiscountPct,
     discount,
     total,
     status: "draft",

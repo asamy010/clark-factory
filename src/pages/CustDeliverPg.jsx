@@ -110,6 +110,61 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      `localGridDirty` flips true on first edit; it gates the save button + warns on close. */
   const[localGrid,setLocalGrid]=useState({});
   const[localGridDirty,setLocalGridDirty]=useState(false);
+  /* ── V21.9.190 — Phase 2 ──────────────────────────────────────────────
+     Per-customer-per-session discount override. Stored in
+     `sess.custDisc` (object map: { custId: pct }). Mirrored to local
+     state for snappy input editing without round-tripping each keystroke
+     through Firestore. The committed-sale path reads the EFFECTIVE
+     discount via getEffectiveDiscount() and stamps it on the delivery
+     entry as `discPct` so the invoice generator can pick it up.
+
+     Precedence:
+       1. sess.custDisc[custId]    (per-session override — Phase 2)
+       2. customer.discount         (customer-level default)
+       3. 10                        (system default — Phase 1)
+  */
+  const [localCustDisc, setLocalCustDisc] = useState({});
+  const [localCustDiscDirty, setLocalCustDiscDirty] = useState(false);
+  /* V21.9.190 — single source of truth for "what discount applies to this
+     customer in this session". Used by render (display in input + receipt
+     totals), by save flows (stamp entry.discPct), and by the sales report
+     (per-session iteration). Pass `sess` explicitly so report code can ask
+     about a non-active session. If sess matches the active session, the
+     LIVE local overrides are preferred over the persisted sess.custDisc
+     (so unsaved edits show through immediately). */
+  const getEffectiveDiscount = (customer, sess) => {
+    if (!customer) return 10;
+    const map = (sess && sess.id === activeSession)
+      ? localCustDisc
+      : ((sess && sess.custDisc) || {});
+    const override = map[customer.id];
+    if (override !== undefined && override !== null && override !== "") {
+      const n = Number(override);
+      if (!isNaN(n)) return n;
+    }
+    if (customer.discount !== undefined && customer.discount !== null) {
+      const n = Number(customer.discount);
+      if (!isNaN(n)) return n;
+    }
+    return 10;
+  };
+  /* Setter for the per-cell input — keeps validation tight (0..100, allow
+     empty string so user can clear back to the fallback). */
+  const setCustDiscount = (custId, rawVal) => {
+    setLocalCustDisc(prev => {
+      const next = { ...prev };
+      if (rawVal === "" || rawVal === null || rawVal === undefined) {
+        delete next[custId];
+      } else {
+        const n = Number(rawVal);
+        if (isNaN(n)) return prev;
+        next[custId] = Math.max(0, Math.min(100, n));
+      }
+      return next;
+    });
+    setLocalCustDiscDirty(true);
+    setLocalGridDirty(true); /* surfaces in the same "save all" button */
+  };
   /* Same idea for the sales-audit grid (جدول الجرد للعملاء). Separate state because
      the audit grid is rendered in a different popup and has different lifecycle. */
   const[localAudGrid,setLocalAudGrid]=useState({});
@@ -167,11 +222,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     if (!activeSession) {
       setLocalGrid({});
       setLocalGridDirty(false);
+      setLocalCustDisc({});
+      setLocalCustDiscDirty(false);
       return;
     }
     const sess = (data.custDeliverySessions || []).find(s => s.id === activeSession);
     setLocalGrid({ ...(sess?.grid || {}) });
     setLocalGridDirty(false);
+    /* V21.9.190: also hydrate per-customer discount map for this session */
+    setLocalCustDisc({ ...(sess?.custDisc || {}) });
+    setLocalCustDiscDirty(false);
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [activeSession]);
 
@@ -601,7 +661,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   /* Commit the entire localGrid to Firestore in one upSales call. Replaces the
      session's grid wholesale — values that were in the old grid but cleared in
-     localGrid get removed (we don't merge). Triggered by the footer save button. */
+     localGrid get removed (we don't merge). Triggered by the footer save button.
+     V21.9.190: also commits localCustDisc to session.custDisc so per-customer
+     discount overrides persist across reloads / users. */
   const saveAllLocalGrid = (sessId) => {
     upSales(d => {
       const si = (d.custDeliverySessions || []).findIndex(s => s.id === sessId);
@@ -614,8 +676,21 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         if (num > 0) cleaned[k] = num;
       });
       sess.grid = cleaned;
+      /* V21.9.190: persist per-customer discount overrides.
+         Only store entries that are explicitly set (numeric, including 0).
+         Empty / undefined entries are removed so the precedence chain falls
+         back to customer.discount → 10. */
+      const cleanedDisc = {};
+      Object.entries(localCustDisc).forEach(([k, v]) => {
+        if (v === "" || v == null) return;
+        const num = Number(v);
+        if (isNaN(num)) return;
+        cleanedDisc[k] = Math.max(0, Math.min(100, num));
+      });
+      sess.custDisc = cleanedDisc;
     });
     setLocalGridDirty(false);
+    setLocalCustDiscDirty(false);
     showToast("✓ تم حفظ كل التغييرات");
   };
 
@@ -1510,6 +1585,39 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                       return<span title={"أبلغ عن مشكلة: "+(cf.note||"—")+" • "+new Date(cf.at).toLocaleString("ar-EG")} style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,background:"#EF444415",color:"#EF4444",fontSize:FS-3,fontWeight:700,verticalAlign:"middle"}}>{locked?"🔒":""}⚠️</span>;
                     })()}<div style={{fontSize:FS-3,color:T.textMut}}>{c.phone}</div></span>
                   </div>
+                  {/* V21.9.190 — Phase 2: per-customer-per-session discount editor.
+                      Shows the EFFECTIVE % (live local override > customer default > 10).
+                      Editable inline; saved when user clicks the footer "حفظ كل التغييرات".
+                      Empty input → revert to fallback. Yellow border if override differs from
+                      customer.discount, so the user sees at a glance that an override is set. */}
+                  {sessCanEdit && (() => {
+                    const eff = getEffectiveDiscount(c, activeSess);
+                    const hasOverride = (localCustDisc[c.id] !== undefined && localCustDisc[c.id] !== "" && localCustDisc[c.id] !== null);
+                    const overrideDiffersFromCust = hasOverride && Number(localCustDisc[c.id]) !== (Number(c.discount) || 10);
+                    return (
+                      <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}
+                        title="نسبة الخصم لهذا العميل في التوزيعة دي. تـ override الـ default. اتركه فاضي لـ revert.">
+                        <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>خصم</span>
+                        <input
+                          type="number" min="0" max="100" step="0.5"
+                          value={hasOverride ? localCustDisc[c.id] : (Number(c.discount) || 0) === 0 && eff === 10 ? "" : eff}
+                          placeholder={String(Number(c.discount) || 10)}
+                          onFocus={e => e.target.select()}
+                          onChange={e => setCustDiscount(c.id, e.target.value)}
+                          style={{
+                            width: 48, padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid " + (overrideDiffersFromCust ? "#F59E0B" : T.brd),
+                            background: overrideDiffersFromCust ? "#F59E0B08" : T.bg,
+                            color: T.text, fontSize: FS - 2, fontWeight: 700,
+                            textAlign: "center", fontFamily: "inherit",
+                            outline: "none", boxSizing: "border-box",
+                            MozAppearance: "textfield",
+                          }}/>
+                        <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>%</span>
+                      </div>
+                    );
+                  })()}
                 </td>
                 {/* V19.70.22: each cell is now an always-on input bound to localGrid.
                     No click-to-edit. No per-cell auto-save → no flicker. The save-all
@@ -1605,8 +1713,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                       h+="<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7'>"+q+"</td><td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td></tr>";
                     }});
                     h+="<tr style='background:#F1F5F9'><td colspan='2' style='font-weight:800'>الاجمالي</td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+rowTotal+" قطعة</td><td></td><td style='font-weight:800;color:#0284C7;font-size:14px'>"+fmt(custMoney)+" ج.م</td></tr></tbody></table>";
-                    /* V15.55: Discount breakdown from customer card */
-                    const discPct=Number(c.discount)||0;
+                    /* V15.55: Discount breakdown from customer card.
+                       V21.9.190: precedence sess.custDisc[c.id] > c.discount > 10. */
+                    const discPct=getEffectiveDiscount(c, activeSess);
                     const discAmt=Math.round(custMoney*discPct/100);
                     const netAmt=custMoney-discAmt;
                     h+="<div style='margin-top:12px;padding:12px;border:2px solid #000;border-radius:8px'>"
@@ -1659,8 +1768,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     const lines=linesArr.join("\n");
                     let msg="*CLARK — اذن تسليم عميل*\n\n• العميل: *"+c.name+"*\n• التاريخ: *"+activeSess.date+"*\n\n─────────────────\n"+lines+"\n─────────────────\n• الاجمالي: *"+rowTotal+"* قطعة";
                     if(custMoney>0){
-                      /* V15.55: Include discount breakdown matching the delivery receipt */
-                      const discPct=Number(c.discount)||0;
+                      /* V15.55: Include discount breakdown matching the delivery receipt
+                         V21.9.190: precedence sess.custDisc[c.id] > c.discount > 10. */
+                      const discPct=getEffectiveDiscount(c, activeSess);
                       const discAmt=Math.round(custMoney*discPct/100);
                       const netAmt=custMoney-discAmt;
                       msg+="\n• الاجمالي: *"+fmt(custMoney)+"* ج.م";
@@ -1848,7 +1958,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             itemsHTML += "<tr><td><b>"+m.modelNo+"</b></td><td>"+(m.modelDesc||"")+"</td><td style='font-weight:800;color:#0284C7;text-align:center'>"+q+"</td>"+(noP?"":"<td style='text-align:center'>"+(price?fmt(price):"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(lineTotal)+"</td>")+"</tr>";
           }
         });
-        const discPct = Number(c.discount) || 0;
+        /* V21.9.190: prefer session-level override (sess.custDisc[c.id]) so
+           the receipt matches what the user typed in the Plan tab. Falls back
+           to c.discount → 10. */
+        const discPct = getEffectiveDiscount(c, sess);
         const discAmt = Math.round(custMoney * discPct / 100);
         const netAmt = custMoney - discAmt;
         const factoryName = config.factoryName || "CLARK Factory Management";
@@ -2062,7 +2175,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   money += q * price;
                 }
               });
-              const discPct = Number(c.discount) || 0;
+              /* V21.9.190: same session-aware discount resolution as the HTML path */
+              const discPct = getEffectiveDiscount(c, sess);
               const discAmt = Math.round(money * discPct / 100);
               totals = { qty, money, discPct, discAmt, netMoney: money - discAmt };
             }
@@ -2200,8 +2314,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           }});
           /* V18.58: Conditional totals row */
           h+="<tr style='background:#F0F9FF;font-weight:800'><td colspan='2'>اجمالي "+c.name+"</td><td style='text-align:center;color:#0EA5E9'>"+custTotal+"</td>"+(noP?"":"<td></td><td style='text-align:center;color:#0EA5E9'>"+fmt(custMoney)+"</td>")+"</tr></tbody></table>";
-          /* V15.55: Discount breakdown from customer card — V18.58: hidden when noPrices */
-          const discPct=Number(c.discount)||0;
+          /* V15.55: Discount breakdown from customer card — V18.58: hidden when noPrices.
+             V21.9.190: precedence sess.custDisc[c.id] > c.discount > 10. */
+          const discPct=getEffectiveDiscount(c, sess);
           const discAmt=Math.round(custMoney*discPct/100);
           const netAmt=custMoney-discAmt;
           if(!noP){
@@ -4038,6 +4153,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,price:snapshotPrice,date:cairoDateStr(),sessionId:sessId,createdBy:userName,createdAt:nowISO()};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
             if(cp>0){entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
+            /* V21.9.190 — Phase 2: snapshot the per-customer-per-session
+               discount on the delivery entry. The invoice generator
+               (`buildSalesInvoiceFromDelivery`) reads `entry.discPct` first,
+               so this stamp lets a single customer take different discounts
+               on different sessions without rewriting customer.discount.
+               Frozen at sale time (same rationale as `price` above) so an
+               admin editing the session's custDisc later doesn't mutate
+               historical financial records. */
+            entry.discPct=getEffectiveDiscount(cust, activeSess);
             /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
                don't collide on the journal idempotency key. Pre-V19.66 a 2nd sale with
                identical key was silently de-duped by autoPost — the qty appeared in
