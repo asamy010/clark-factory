@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.196",
+    date: "2026-05-25",
+    types: ["fix"],
+    title: "🐞 كشف الحساب + البورتال — احسب الخصم من الفواتير (source of truth)",
+    changes: [
+      { type: "fix", text: "🎯 الـ bug report من Ahmed (screenshot شواهد بصرية):\n• الـ invoice INV-2026-0241 خصمها 40% (=39,474 ج.م على 98,685 subtotal)\n• كشف حساب نفس العميل بـ يـ show 'إجمالي الخصم: 36,418 ج.م' (= 10% × 364,200)\n• يعني الـ statement لسه بـ يـ apply customer.discount=10% على كل التوزيعات، متجاهلاً الـ 40% override اللي اتـ stored في الـ invoice\n\nنفس bug في البورتال." },
+      { type: "fix", text: "🔍 الـ root cause:\nالـ V21.9.193 ضافت per-delivery aggregation بـ `pickDiscPct(d)` اللي بـ يقرأ `d.discPct → customer.discount → 10`. لكن:\n\n• الـ deliveries القديمة (committed قبل V21.9.190) ما عندهاش discPct stamped\n• الـ user عدّل sess.custDisc لـ 40% في الـ Plan tab بعد كده\n• الـ upsert merge logic حدّث الـ **invoice's discountPct** لـ 40% (آخر discount يـ wins)\n• لكن الـ raw `customerDeliveries[]` entries لسه بدون discPct\n\nالنتيجة: الـ statement يـ fall through للـ customer.discount=10% على كل deliveries، حتى لو الـ invoice فعلاً اتـ billed بـ 40%." },
+      { type: "fix", text: "✅ الإصلاح الصحيح: aggregate من الـ INVOICES (مش raw deliveries) — الـ invoice هي source of truth لـ ما اتـ billed فعلاً.\n\n**Pass 1 (authoritative):**\n• `customerInvoices = salesInvoices.filter(non-void, this customer)`\n• `totalValGross += inv.subtotal`\n• `totalSalesAfterDisc += inv.total`\n• نفس الـ pattern لـ `customerCreditNotes`\n\n**Pass 2 (orphans — fallback):**\n• الـ deliveries اللي مش covered بـ invoice (legacy direct-post mode، pending invoices) → fallback chain (per-entry discPct → customer.discount → 10)\n• Match بـ `_key` first، fallback لـ composite (orderId + custId + sessionId)\n\n**النتيجة:** الـ statement totals دلوقتي تـ match الـ invoices exactly. الـ 40% override بـ يطلع في الـ aggregate لأن الـ invoice itself stored بـ 40%." },
+      { type: "improvement", text: "🌐 Portal API نفس الـ change:\n• Reads `salesInvoices` + `salesCreditNotes` (via `readSplitCollection` لما الـ V19.50/V2195 splits done، fallback لـ inline arrays للـ legacy deployments)\n• Pass 1: aggregate من invoices/CNs\n• Pass 2: orphan-delivery/return fallback (uses new `_sourceKey` + `_sourceOrderId` metadata on each entry for orphan detection)\n• الـ internal `_source*` fields stripped من الـ outbound payload (cleanup)\n\nالـ portal دلوقتي بـ يـ match الـ statement page exactly." },
+      { type: "architectural", text: "🛡 Back-compat preserved:\n• Customer مع `autoPostFromInvoice=false` (legacy direct-post mode) → مفيش invoices، كل deliveries orphan → Pass 2 fallback (نفس behavior الـ V21.9.193)\n• Customer مع invoices uniform 10% → math identical (Pass 1 totals = old per-delivery calc with customer.discount=10)\n• Customer مع invoices mixed (40% on one, 10% على باقي) → **fixed** — totals تـ match invoices instead of customer.discount\n• Voided invoices/CNs excluded من Pass 1 + their deliveries treated as orphan (Pass 2)" },
+      { type: "architectural", text: "📁 الـ files المتأثرة (2 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — statement aggregation refactored لـ 2-pass (invoices + orphans)\n• MODIFIED: `api/customer-portal.js` — same 2-pass aggregation + new `_sourceKey`/`_sourceOrderId` metadata + outbound strip\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
+    ],
+  },
+  {
     version: "V21.9.195",
     date: "2026-05-25",
     types: ["fix", "improvement"],

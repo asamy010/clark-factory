@@ -3031,6 +3031,24 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          single % badge anymore since percentages vary across invoices.
          A small "متوسط X%" hint shows the weighted-average effective
          rate for context, not as a multiplier. */
+      /* ── V21.9.196 — Invoice-based aggregation (source of truth) ─────────
+         V21.9.193 walked deliveries and read `delivery.discPct`. But for
+         LEGACY deliveries (committed before V21.9.190 + revised later in
+         the Plan tab), the entry's discPct is undefined — even though the
+         invoice's discountPct was correctly updated to e.g. 40% via the
+         upsert merge logic. So the statement would fall back to
+         customer.discount (10%) and produce a wrong total while the
+         invoice clearly showed 40%.
+
+         The correct source of truth is the INVOICE. Walk:
+           - All non-void salesInvoices for this customer  → sales gross + discount
+           - All non-void salesCreditNotes for this customer → returns gross + discount
+         Then catch any delivery / return NOT covered by an invoice / CN
+         (legacy direct-post mode, or pending invoices) via fallback
+         (per-entry discPct → customer.discount → 10).
+
+         The rows[] table (per-model display) still walks deliveries, since
+         it shows quantities and gross — not affected by the discount bug. */
       const pickDiscPct = (entry) => {
         if (entry && entry.discPct !== undefined && entry.discPct !== null) {
           const n = Number(entry.discPct);
@@ -3042,66 +3060,101 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         }
         return 10;
       };
-      const rows=[];let totalDel=0,totalRet=0;
-      /* Per-DELIVERY aggregates (the fix). Distinct from rows[] (per-model
-         display) — totals must be computed from individual entries because
-         each entry can carry its own discPct. */
-      let totalValGross=0, totalSalesAfterDisc=0;
-      let retVal=0, retValAfterDisc=0;
-      orders.forEach(o=>{
+
+      /* Build sets of delivery / return references that ARE covered by an
+         invoice or credit note, so we know which raw entries to skip in the
+         fallback pass. Match by _key (preferred — unique per entry) OR by
+         (orderId, custId, sessionId) composite. */
+      const customerInvoices = (config.salesInvoices || []).filter(inv =>
+        inv && inv.status !== "void" && String(inv.customerId) === String(custStatement)
+      );
+      const customerCreditNotes = (config.salesCreditNotes || []).filter(cn =>
+        cn && cn.status !== "void" && String(cn.customerId) === String(custStatement)
+      );
+      const buildRefKey = (ref) => {
+        if (!ref) return "";
+        if (ref._key) return "k:" + ref._key;
+        return "c:" + (ref.orderId || "") + "|" + (ref.custId || "") + "|" + (ref.sessionId || "");
+      };
+      const invoicedDeliveryKeys = new Set();
+      customerInvoices.forEach(inv => {
+        (inv.deliveryRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) invoicedDeliveryKeys.add(k); });
+        if (inv.deliveryRef) { const k = buildRefKey(inv.deliveryRef); if (k) invoicedDeliveryKeys.add(k); }
+      });
+      const cnReturnKeys = new Set();
+      customerCreditNotes.forEach(cn => {
+        (cn.returnRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) cnReturnKeys.add(k); });
+        if (cn.returnRef) { const k = buildRefKey(cn.returnRef); if (k) cnReturnKeys.add(k); }
+      });
+
+      const rows = []; let totalDel = 0, totalRet = 0;
+      let totalValGross = 0, totalSalesAfterDisc = 0;
+      let retVal = 0, retValAfterDisc = 0;
+
+      /* Pass 1 — INVOICES (the source of truth for what was billed) */
+      customerInvoices.forEach(inv => {
+        totalValGross += Number(inv.subtotal) || 0;
+        totalSalesAfterDisc += Number(inv.total) || 0;
+      });
+      customerCreditNotes.forEach(cn => {
+        retVal += Number(cn.subtotal) || 0;
+        retValAfterDisc += Number(cn.total) || 0;
+      });
+
+      /* Pass 2 — DELIVERIES / RETURNS not covered by Pass 1 (legacy
+         direct-post mode, deliveries pending invoice creation, or
+         orphaned entries). Apply fallback discount chain. */
+      orders.forEach(o => {
         const sp = Number(o.sellPrice) || 0;
         const dels = (o.customerDeliveries || []).filter(d => d.custId === custStatement);
         const rets = (o.customerReturns || []).filter(r => r.custId === custStatement);
-        const del = dels.reduce((s,d) => s + (Number(d.qty)||0), 0);
-        const ret = rets.reduce((s,r) => s + (Number(r.qty)||0), 0);
+        const del = dels.reduce((s, d) => s + (Number(d.qty) || 0), 0);
+        const ret = rets.reduce((s, r) => s + (Number(r.qty) || 0), 0);
         if (del > 0 || ret > 0) {
           totalDel += del;
           totalRet += ret;
-          rows.push({modelNo:o.modelNo, modelDesc:o.modelDesc, delivered:del, returned:ret, net:del-ret, sellPrice:sp});
-          dels.forEach(d => {
-            const gross = (Number(d.qty)||0) * sp;
-            const dPct = pickDiscPct(d);
-            totalValGross += gross;
-            totalSalesAfterDisc += Math.round(gross * (1 - dPct/100));
-          });
-          rets.forEach(r => {
-            const gross = (Number(r.qty)||0) * sp;
-            const dPct = pickDiscPct(r);
-            retVal += gross;
-            retValAfterDisc += Math.round(gross * (1 - dPct/100));
-          });
+          rows.push({ modelNo: o.modelNo, modelDesc: o.modelDesc, delivered: del, returned: ret, net: del - ret, sellPrice: sp });
         }
+        dels.forEach(d => {
+          const refKey = buildRefKey({ _key: d._key, orderId: o.id, custId: d.custId, sessionId: d.sessionId });
+          const altKey = "c:" + o.id + "|" + d.custId + "|" + (d.sessionId || "");
+          if (invoicedDeliveryKeys.has(refKey) || invoicedDeliveryKeys.has(altKey)) return; /* covered by invoice */
+          const gross = (Number(d.qty) || 0) * sp;
+          const dPct = pickDiscPct(d);
+          totalValGross += gross;
+          totalSalesAfterDisc += Math.round(gross * (1 - dPct / 100));
+        });
+        rets.forEach(r => {
+          const refKey = buildRefKey({ _key: r._key, orderId: o.id, custId: r.custId });
+          if (cnReturnKeys.has(refKey)) return; /* covered by credit note */
+          const gross = (Number(r.qty) || 0) * sp;
+          const dPct = pickDiscPct(r);
+          retVal += gross;
+          retValAfterDisc += Math.round(gross * (1 - dPct / 100));
+        });
       });
-      const totalNet=totalDel-totalRet;
-      /* Card display + balance math (NEW formulas):
-           totalValGross         = gross sales (sum of all delivery values)
-           totalGrossAfterDisc   = gross sales after per-delivery discount
-           retVal                = gross returns
-           retValAfterDisc       = returns after per-return discount
-           discAmt               = derived = totalValGross − totalGrossAfterDisc
-                                   (no longer a single % × gross)
+
+      const totalNet = totalDel - totalRet;
+      /* Card display + balance math:
+           totalValGross         = invoice subtotals + orphan-delivery gross
+           totalGrossAfterDisc   = invoice totals     + orphan-delivery net
+           retVal                = CN subtotals       + orphan-return gross
+           retValAfterDisc       = CN totals          + orphan-return net
+           discAmt               = derived (gross − net)
            totalAfterDisc        = salesAfterDisc − returnsAfterDisc
-                                   (used for balance — formula matches the
-                                   invoice's discounted total minus discounted
-                                   credit-notes) */
+                                   (matches invoice − credit-note math) */
       const totalGrossAfterDisc = totalSalesAfterDisc;
       const discAmt = totalValGross - totalGrossAfterDisc;
       const totalAfterDisc = totalGrossAfterDisc - retValAfterDisc;
-      const totalVal = totalValGross - retVal; /* legacy alias (gross net of returns) — kept for any downstream that still references it */
-      /* Weighted-average effective discount % — used ONLY for display
-         context (a small hint label). Math no longer depends on a single
-         percentage. */
+      const totalVal = totalValGross - retVal; /* legacy alias */
       const discPct = totalValGross > 0
         ? Math.round((1 - (totalGrossAfterDisc / totalValGross)) * 100)
         : (Number(cust.discount) || 0);
-      const hasMixedDiscounts = (()=>{
-        /* Detect if any delivery has a discPct different from customer.discount
-           — used to decide whether to show "متوسط" hint vs the plain rate. */
-        const baseline = Number(cust.discount) || 0;
-        for (const o of orders) {
-          const dels = (o.customerDeliveries || []).filter(d => d.custId === custStatement);
-          for (const d of dels) {
-            if (d.discPct !== undefined && d.discPct !== null && Number(d.discPct) !== baseline) return true;
+      const hasMixedDiscounts = (() => {
+        if (customerInvoices.length > 1) {
+          const firstPct = Number(customerInvoices[0].discountPct) || 0;
+          for (let i = 1; i < customerInvoices.length; i++) {
+            if ((Number(customerInvoices[i].discountPct) || 0) !== firstPct) return true;
           }
         }
         return false;
