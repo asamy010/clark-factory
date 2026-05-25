@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.180",
+    date: "2026-05-24",
+    types: ["feature", "doc"],
+    title: "🔔 Push Notifications — Slices 13+14/14: Analytics + Docs (FEATURE COMPLETE)",
+    changes: [
+      { type: "feature", text: "Slice 13 — Analytics endpoint: `GET /api/notifications/analytics?days=7` (admin/manager). يـ aggregate stats عن نظام الـ push:\n• **Subscriptions**: total + active + breakdown by role/os/browser/type\n• **Deliveries** (window N أيام، max 90): total/success/failed/invalidTokens + successRate %\n• **By category**: { treasury, broadcast, ... } × { count, targeted, success, failed }\n• **By day**: time series للـ daily volumes — useful لـ spotting bridge/FCM issues" },
+      { type: "doc", text: "Slice 14 — Documentation: `docs/PUSH_NOTIFICATIONS.md` — guide كامل بـ 8 sections:\n1. Architecture diagram\n2. One-time setup steps (Firebase Console + Vercel env vars)\n3. User journey (enable + iOS + admin broadcast)\n4. Programmatic API (client + server)\n5. Privacy & safety table\n6. Slice map (V21.9.169 → V21.9.180)\n7. Troubleshooting\n8. Future extensions" },
+      { type: "feature", text: "🎉 **FEATURE COMPLETE** — All 14 slices shipped over 12 versions (V21.9.169 → V21.9.180).\n\nFiles created:\n• `public/sw.js` (extended with 3 handlers)\n• `src/utils/notifications.js` (250 lines)\n• `src/utils/notifyWarnings.js` (100 lines)\n• `src/components/NotificationSettingsCard.jsx` (450 lines)\n• `src/components/NotificationBell.jsx` (260 lines)\n• `api/notifications/subscribe.js`\n• `api/notifications/unsubscribe.js`\n• `api/notifications/renew-subscription.js`\n• `api/notifications/send.js`\n• `api/notifications/send-internal.js`\n• `api/notifications/whatsapp-fallback.js`\n• `api/notifications/cron-daily-summary.js`\n• `api/notifications/analytics.js`\n• `docs/PUSH_NOTIFICATIONS.md`\n• `api/_firebase.js` (extended with verifyAuthedToken)\n• `firestore.rules` (3 new collection rules)\n• `vercel.json` (cron entry)\n• `src/pages/SettingsPg.jsx` (2-line wire)\n• `src/pages/TreasuryPg.jsx` (12-line wire for auto-trigger)\n\nاللي محتاج إجراء من المستخدم قبل ما يشتغل:\n1. Firebase Console → Cloud Messaging → Generate VAPID keypair\n2. Vercel env vars: VITE_FIREBASE_VAPID_KEY + CLARK_INTERNAL_SECRET + CRON_SECRET\n3. git push origin main (الـ commits المعلقة)\n\nاللي optional لاحقاً:\n• Wire `<NotificationBell/>` في الـ TopBar (manual 2-line edit في App.jsx)\n• توصيلات إضافية لـ tasks module لو موجود\n• AI-generated daily summary (depends on AI Agent feature)" },
+    ],
+  },
+  {
     version: "V21.9.179",
     date: "2026-05-24",
     types: ["feature"],
