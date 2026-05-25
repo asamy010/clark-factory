@@ -148,6 +148,42 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     }
     return 10;
   };
+  /* V21.9.192 — find the discPct from the matching sale entry for this
+     return. Used by the 3 return-creation flows (doReturn popup, free
+     return, QR return) so credit notes match the original invoice's
+     discount instead of relying on the customer's CURRENT discount,
+     which may have changed since the sale.
+
+     Match priority (most specific first):
+       1. Same custId + sessionId  (returning from the exact session)
+       2. Same custId, any session (orphan return / multi-session)
+     Newest delivery wins (reverse iteration). Returns the entry's
+     `discPct` if found; otherwise undefined → caller falls through
+     the resolveDiscountPct chain (customer.discount → 10). */
+  const findMatchingSaleDiscPct = (order, custId, sessionId) => {
+    const dels = (order && order.customerDeliveries) || [];
+    /* Pass 1: same-session match */
+    if (sessionId) {
+      for (let i = dels.length - 1; i >= 0; i--) {
+        const d = dels[i];
+        if (d && d.custId === custId && d.sessionId === sessionId
+            && d.discPct !== undefined && d.discPct !== null) {
+          const n = Number(d.discPct);
+          if (!isNaN(n)) return n;
+        }
+      }
+    }
+    /* Pass 2: any-session match (newest first) */
+    for (let i = dels.length - 1; i >= 0; i--) {
+      const d = dels[i];
+      if (d && d.custId === custId
+          && d.discPct !== undefined && d.discPct !== null) {
+        const n = Number(d.discPct);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return undefined;
+  };
   /* Setter for the per-cell input — keeps validation tight (0..100, allow
      empty string so user can clear back to the fallback). */
   const setCustDiscount = (custId, rawVal) => {
@@ -879,7 +915,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     }
     updOrder(orderId,o=>{
       if(!o.customerReturns)o.customerReturns=[];
-      o.customerReturns.push({custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""});
+      /* V21.9.192: stamp discPct from the matching sale entry so the credit
+         note reflects the original invoice's discount, not the customer's
+         current discount (which may have changed since the sale). */
+      const retEntry={custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""};
+      const matchedDisc=findMatchingSaleDiscPct(o,custId,sessId);
+      if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
+      o.customerReturns.push(retEntry);
     });
     setReturnPopup(null);setRetQty(0);setRetNote("");
     showToast("✓ تم تسجيل مرتجع "+retQty+" قطعة");
@@ -3987,7 +4029,14 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
       const saveFreeReturn=()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
         Object.entries(freeRetItems).forEach(([orderId,qty])=>{const q=Number(qty)||0;if(q<=0)return;
-          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];o.customerReturns.push({custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""})})});
+          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];
+            /* V21.9.192: stamp discPct from the most-recent sale for this
+               customer on this order (no session — free return). */
+            const retEntry={custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""};
+            const matchedDisc=findMatchingSaleDiscPct(o,freeReturn,null);
+            if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
+            o.customerReturns.push(retEntry);
+          })});
         showToast("✓ تم تسجيل مرتجع "+totalRet+" قطعة من "+cust.name);setFreeReturn(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -4318,6 +4367,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const dels=(o.customerDeliveries||[]).filter(d=>d.custId===qrSale.custId&&(qrSale.linkedSession?d.sessionId===qrSale.linkedSession:true));
             const lastDiscountedDel=dels.reverse().find(d=>d&&Number(d.price)>0&&d.isDiscounted);
             if(lastDiscountedDel)retEntry.price=Number(lastDiscountedDel.price)||0;
+            /* V21.9.192: also propagate the session's discPct. After the
+               reverse() above, `dels` is newest-first within the scope
+               (same customer + linked session if any). Pick the most
+               recent delivery that has a discPct stamped on it (i.e.,
+               sales after V21.9.190). For legacy deliveries without
+               discPct, falls through to customer.discount in the
+               credit-note generator via resolveDiscountPct. */
+            const lastSaleWithDisc=dels.find(d=>d&&d.discPct!==undefined&&d.discPct!==null);
+            if(lastSaleWithDisc){const n=Number(lastSaleWithDisc.discPct);if(!isNaN(n))retEntry.discPct=n;}
             retEntry._key=oid+":saleReturn:"+(qrSale.linkedSession||gid())+":"+qrSale.custId+":"+retEntry.date;
             o.customerReturns.push(retEntry);
             /* V18.51: invoice mode → create credit note draft instead of direct posting */

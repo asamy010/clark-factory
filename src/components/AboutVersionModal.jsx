@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.192",
+    date: "2026-05-25",
+    types: ["improvement"],
+    title: "↩️ المرتجعات — تحفظ نفس خصم البيع الأصلي (Phase 2.6)",
+    changes: [
+      { type: "improvement", text: "🎯 الـ improvement: لما الـ admin يـ سجل مرتجع، الـ entry دلوقتي بـ يـ stamp `discPct` من الـ matching sale entry — مش بـ يستخدم customer.discount الحالي.\n\n**ليه ده مهم:** لو الـ admin غيّر customer.discount بعد البيع (مثلاً عميل كان عنده خصم 15% في session، الـ admin غيّر default للـ 10% بعدها)، الـ return كان بـ يـ refund بـ 10% بدلاً من 15% — وكان بـ يـ create drift في الـ AR balance. دلوقتي الـ return بـ يـ refund بنفس الخصم اللي اتـ applied على البيع الأصلي." },
+      { type: "improvement", text: "✅ Helper جديد `findMatchingSaleDiscPct(order, custId, sessionId)`:\n• Pass 1: يـ search عن sale entry بـ نفس custId + sessionId (newest-first) → الأكثر تحديداً\n• Pass 2: لو ما لقاش match، يـ search بـ custId فقط → orphan returns + cross-session\n• Returns undefined لو مفيش match → caller يـ fall through للـ resolveDiscountPct chain (customer.discount → 10)\n\n**Match priority logic:** الـ same-session match priority because قطعة اتسلمت في session A بـ خصم 20% غالباً المرتجع منها بـ في نفس الـ session. لو الـ return لـ orphan flow (مفيش sessionId)، يـ takes أحدث sale to that customer." },
+      { type: "improvement", text: "📌 3 return-creation flows اتلمست:\n• **`doReturn` popup** (line ~880) — الـ admin بـ يضغط ↩️ على cell. `sessId` known من الـ popup context. uses both match passes.\n• **Free return** (`مرتجع حر`, line ~4032) — orphan flow بدون session. uses Pass 2 only.\n• **QR return** (line ~4361) — `qrSale.linkedSession` may be set. Reuses الـ already-filtered+reversed `dels` array (efficient) — picks first delivery with `discPct` stamped." },
+      { type: "improvement", text: "🔗 الـ downstream chain (مش تغيّر — كل اللي عمل عمل في V21.9.190/191):\n• Credit note generation (`buildCreditNoteFromReturn` + `upsert*`) بـ يقرأ `returnEntry.discPct` عبر `resolveDiscountPct` → الـ credit note دلوقتي بـ يـ match الـ original invoice discount\n• Sales report (V21.9.191) بـ يقرأ `r.discPct` للـ returns في الـ aggregation → الـ نتيجة accurate" },
+      { type: "architectural", text: "🛡 Back-compat:\n• Legacy returns (pre-V21.9.192) بدون `discPct` → يـ fall through للـ customer.discount عبر `resolveDiscountPct` (نفس behavior الـ قديم)\n• Legacy sales (pre-V21.9.190) بدون `discPct` → الـ helper بـ يـ return undefined لـ matching → return يـ fall back لـ customer.discount (back-compat preserved)\n• New deliveries بـ discPct + new returns بـ يقرأوا منهم → الـ end-to-end consistent\n\n**Zero data migration.** الـ changes additive 100%." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — `findMatchingSaleDiscPct` helper جديد + 3 return-creation sites updated\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
+    ],
+  },
+  {
     version: "V21.9.191",
     date: "2026-05-25",
     types: ["fix", "architectural"],
