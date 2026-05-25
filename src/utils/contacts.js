@@ -196,7 +196,10 @@ export function createContact(form, data, user){
       phone: phoneCanon,
       address: "",
       type: custType,
-      discount: 0,
+      /* V21.9.189: new customers default to 10% discount (was 0). Existing
+         customers are not touched. Admin can override per-customer in the
+         customer edit form. Phase 2 will add per-delivery-row override. */
+      discount: 10,
       archived: false,
       tags: tagsClean.slice(),
       contactId,
@@ -371,7 +374,8 @@ export function linkExistingContact(seed, data, user){
       if(t === "customer"){
         newEntity = {
           id: "cust_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
-          name, phone, address: "", type: "مكتب", discount: 0, archived: false,
+          /* V21.9.189: default discount 10% (was 0) */
+          name, phone, address: "", type: "مكتب", discount: 10, archived: false,
           tags: tags.slice(), contactId,
           createdAt: new Date(now).toISOString(), createdBy: uid,
         };
@@ -662,7 +666,8 @@ export function addTypesToContact(contactId, additionalLinks, data, user){
       if(t === "customer"){
         entity = {
           id: "cust_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
-          name, phone, address: "", type: "مكتب", discount: 0, archived: false,
+          /* V21.9.189: default discount 10% (was 0) */
+          name, phone, address: "", type: "مكتب", discount: 10, archived: false,
           tags: tags.slice(), contactId,
           createdAt: new Date(now).toISOString(), createdBy: uid,
         };

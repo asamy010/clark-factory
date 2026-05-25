@@ -77,7 +77,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V14.59: Receipt report — after confirmation, show the summary */
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
-  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(0);const[custFilter,setCustFilter]=useState("");
+  /* V21.9.189: default new-customer discount is 10% (was 0% before). Existing
+     customers keep whatever they have stored — only freshly-created customers
+     pick up the new default. The edit form below still preserves c.discount
+     for existing records. Phase 2 will add per-row override in the Plan tab. */
+  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(10);const[custFilter,setCustFilter]=useState("");
   /* V18.16: Archive flag for customer form */
   const[cArchived,setCArchived]=useState(false);
   /* V21.9.105: Customer tags state (Slice 4b of Universal Tagging).
@@ -397,7 +401,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     /* V21.9.105: snapshot tags to a safe array — never undefined, dedup just in case. */
     const tagsClean=Array.from(new Set(Array.isArray(cTags)?cTags.filter(Boolean):[]));
     upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived;d.customers[idx].tags=tagsClean}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived,tags:tagsClean})}});
-    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   /* V21.9.57 CRITICAL FIX (Reported Bug — '"تسوية جرد" مش بعرف احذف'):
      `safeDelete` was referenced at line ~3116 inside the customer list
@@ -3215,7 +3219,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
           <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(0);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
             <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
           </div>
         </div>
@@ -5835,7 +5839,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الخصم (%) <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— يطبق على إذن التسليم وبيان السعر</span></label>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <input type="number" min={0} max={100} step="0.5" value={cDiscount} onChange={e=>setCDiscount(e.target.value)} placeholder="0" style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
+              <input type="number" min={0} max={100} step="0.5" value={cDiscount} onChange={e=>setCDiscount(e.target.value)} placeholder="10" style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
               <span style={{fontSize:FS,color:T.textMut,fontWeight:700}}>%</span>
             </div>
           </div>

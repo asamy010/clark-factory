@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.189",
+    date: "2026-05-25",
+    types: ["improvement"],
+    title: "💰 المبيعات — خصم العميل الافتراضي 10% للعملاء الجدد (Phase 1)",
+    changes: [
+      { type: "improvement", text: "🎯 الـ requirement: عاوزين الـ default discount للعميل الجديد يبقى 10% بدلاً من 0% — علشان الـ admin ما يـ كرر إدخاله مع كل عميل. الـ existing customers ما اتلمسوش." },
+      { type: "improvement", text: "✅ الـ change (minimal-scope Phase 1):\n• Default `customer.discount` للعملاء الـ NEW = 10 (كان 0). الـ existing customers في الـ DB بـ يحتفظوا بـ الـ discount الحالي.\n• الـ placeholder في الـ input ('0' → '10')\n• الـ delivery receipt + invoice **بالفعل** بـ تـ display الـ discount (logic موجود من V15.55 و V18.27)\n• مفيش data migration — additive 100%" },
+      { type: "improvement", text: "🔍 ما اتلمسش:\n• Existing customer.discount values\n• Sales invoice generation logic (`buildSalesInvoiceFromDelivery` لسه بـ يقرأ customer.discount)\n• Posted invoices / draft invoices\n• COGS / journal entries\n\nالـ flow الموجود مع customer.discount كان شغّال صح — التغيير بس في الـ default للقيمة الجديدة." },
+      { type: "architectural", text: "📋 الـ files المتأثرة (2 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — useState default + 2 reset call sites + placeholder\n• MODIFIED: `src/utils/contacts.js` — 3 customer-create paths (appendEntity + 2 link-create)\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
+      { type: "architectural", text: "🛡 Pushback context: الـ user طلب feature أكبر (per-row discount UI في Plan tab + override الـ customer default). اتفقنا على Phase 1 (default 10% فقط) كـ minimal safe step — Phase 2 (per-row UI) و Phase 3 (invoice prefers row > customer) هـ يـ ship-ها لاحقاً بعد ما الـ user يـ verify Phase 1 في production. ده يـ align مع CLARK §0.1 — ما نـ batch-ش accounting changes ضخمة في session واحد." },
+      { type: "feature", text: "🚀 الـ Phase 2 (مؤجل): UI per-delivery-row في Plan tab تخلي الـ user يـ override الـ discount لكل عميل في كل delivery distribution. الـ data model بـ يضيف `gridDisc[orderId+'_'+custId] = pct` و `entry.discPct` يـ flow للـ invoice. الـ precedence: row > customer.discount > 10%." },
+    ],
+  },
+  {
     version: "V21.9.188",
     date: "2026-05-25",
     types: ["feature", "architectural"],
