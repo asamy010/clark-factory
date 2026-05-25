@@ -12,8 +12,11 @@
    شركة X") — sensitive details only revealed on deep-link click.
 
    Auth: this is a cron endpoint. Vercel cron requests include a
-   `Authorization: Bearer <CRON_SECRET>` header (configured in
-   vercel.json). We verify against process.env.CRON_SECRET.
+   `Authorization: Bearer <AUTOMATION_TICK_SECRET>` header (configured
+   in vercel.json). V21.9.181: REUSES the existing AUTOMATION_TICK_SECRET
+   env var (the same one used by /api/automation-tick + /api/event-trigger)
+   to avoid env var sprawl. The secret is already configured per the
+   existing cron infrastructure.
 
    To wire (vercel.json):
      "crons": [
@@ -22,7 +25,7 @@
      ]
 
    Manual trigger from admin (for testing):
-     curl -H "Authorization: Bearer <CRON_SECRET>" \
+     curl -H "Authorization: Bearer <AUTOMATION_TICK_SECRET>" \
        https://clark-factory.vercel.app/api/notifications/cron-daily-summary
    ═══════════════════════════════════════════════════════════════ */
 
@@ -35,15 +38,16 @@ export default async function handler(req, res) {
   setCors(res, req);
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  /* Cron auth: Vercel sets Authorization header from CRON_SECRET env var.
-     If CRON_SECRET isn't configured, we refuse all requests (closed-by-default).
-     For manual testing, the admin can call with the same Bearer header. */
-  const cronSecret = process.env.CRON_SECRET;
+  /* V21.9.181: Reuses AUTOMATION_TICK_SECRET (existing cron secret used
+     by /api/automation-tick + /api/event-trigger). Same Bearer header
+     pattern. If not configured, refuses all requests (closed-by-default). */
+  const cronSecret = (process.env.AUTOMATION_TICK_SECRET || "").trim();
   if (!cronSecret) {
-    return res.status(503).json({ ok: false, error: "CRON_SECRET غير معرّفة" });
+    return res.status(503).json({ ok: false, error: "AUTOMATION_TICK_SECRET غير معرّفة" });
   }
-  const authHeader = req.headers.authorization || "";
-  if (authHeader !== "Bearer " + cronSecret) {
+  const authHeader = (req.headers.authorization || "").trim();
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match || match[1].trim() !== cronSecret) {
     return res.status(401).json({ ok: false, error: "Unauthorized" });
   }
 

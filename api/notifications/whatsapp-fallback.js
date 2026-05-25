@@ -8,7 +8,9 @@
    factory/config.usersList, this endpoint sends the notification
    via the WhatsApp Bridge instead.
 
-   Auth: X-CLARK-INTERNAL header (same as send-internal).
+   V21.9.181: Auth via `Authorization: Bearer <AUTOMATION_TICK_SECRET>`
+   header (same as send-internal — reuses the existing server-to-server
+   secret to avoid env var sprawl).
 
    Body:
      {
@@ -65,13 +67,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  /* Internal-secret auth, same pattern as send-internal */
-  const provided = req.headers["x-clark-internal"];
-  const expected = process.env.CLARK_INTERNAL_SECRET;
+  /* V21.9.181: Bearer-token auth using shared AUTOMATION_TICK_SECRET. */
+  const expected = (process.env.AUTOMATION_TICK_SECRET || "").trim();
   if (!expected) {
-    return res.status(503).json({ ok: false, error: "CLARK_INTERNAL_SECRET غير معرّفة" });
+    return res.status(503).json({ ok: false, error: "AUTOMATION_TICK_SECRET غير معرّفة" });
   }
-  if (!provided || typeof provided !== "string" || !timingSafeStringEq(provided, expected)) {
+  const authHeader = (req.headers.authorization || "").trim();
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match || !timingSafeStringEq(match[1].trim(), expected)) {
     return res.status(401).json({ ok: false, error: "Unauthorized" });
   }
 

@@ -81,10 +81,15 @@ Add the following in Vercel → Project Settings → Environment Variables
 |---|---|---|
 | `VITE_FIREBASE_VAPID_KEY` | The public key from step 2.1 | Client subscribe |
 | `FIREBASE_ADMIN_CREDENTIALS` | (already exists for `/api/ai.js`) | Server send |
-| `CLARK_INTERNAL_SECRET` | `openssl rand -hex 32` output | `/send-internal`, `/whatsapp-fallback` |
-| `CRON_SECRET` | `openssl rand -hex 32` output | `/cron-daily-summary` |
+| `AUTOMATION_TICK_SECRET` | (already exists for `/api/automation-tick`) | `/send-internal`, `/whatsapp-fallback`, `/cron-daily-summary` |
 | `WHATSAPP_BRIDGE_URL` | (optional, default `https://clark-rmg.duckdns.org`) | WhatsApp fallback |
 | `BOOTSTRAP_ADMIN_UID` | (already exists) | Admin recovery |
+
+V21.9.181 consolidation: instead of adding `CLARK_INTERNAL_SECRET`
+and `CRON_SECRET` as new env vars, all 3 push-notification server-to-
+server endpoints reuse the existing `AUTOMATION_TICK_SECRET` (already
+configured for the automation-tick cron infrastructure). Less env var
+sprawl, same security posture.
 
 ### 2.3 Deploy
 
@@ -204,7 +209,7 @@ await fetch("https://clark-factory.vercel.app/api/notifications/send-internal", 
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-CLARK-INTERNAL": process.env.CLARK_INTERNAL_SECRET,
+    "Authorization": "Bearer " + process.env.AUTOMATION_TICK_SECRET,
   },
   body: JSON.stringify({
     category: "warnings",
@@ -271,11 +276,12 @@ on iOS Safari without PWA install. See section 3.2.
 4. Check browser DevTools → Application → Service Workers → verify
    the SW is activated (status: "activated and running")
 
-### "X-CLARK-INTERNAL header مطلوب"
-→ Calling `/send-internal` without the secret header. See section 4.3.
+### "Authorization: Bearer header مطلوب"
+→ Calling `/send-internal` or `/whatsapp-fallback` without the Bearer
+header. See section 4.3.
 
 ### Daily summary not arriving at 9 AM
-1. Confirm `CRON_SECRET` env var is set in Vercel
+1. Confirm `AUTOMATION_TICK_SECRET` env var is set in Vercel
 2. Check Vercel cron logs (Project → Settings → Crons)
 3. Verify your subscription has `preferences.daily_summary !== false`
 4. Verify your `quietHours` doesn't include 9 AM Cairo

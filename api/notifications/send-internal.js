@@ -7,15 +7,17 @@
    admin token — for use from cron jobs (Slice 10), autoPost hooks
    (Slice 6 treasury integration), and other system events.
 
-   Auth: X-CLARK-INTERNAL header must match CLARK_INTERNAL_SECRET
-         env var.
+   V21.9.181: Auth via `Authorization: Bearer <AUTOMATION_TICK_SECRET>`
+   header. REUSES the existing env var (same one used by /api/automation-
+   tick + /api/event-trigger). This avoids env var sprawl — one secret
+   protects all server-to-server endpoints.
 
    Body: same shape as /send.
 
    To rotate the secret:
      1. Generate a new random string (`openssl rand -hex 32`)
-     2. Update CLARK_INTERNAL_SECRET in Vercel env vars
-     3. Update any callers (cron, server-side integrations)
+     2. Update AUTOMATION_TICK_SECRET in Vercel env vars
+     3. Update any external callers (the VPS cron, etc.)
    ═══════════════════════════════════════════════════════════════ */
 
 import { setCors, getDb, getAdminApp } from "../_firebase.js";
@@ -41,28 +43,28 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  /* ─── Internal-secret auth ───
-     Constant-time comparison via Buffer to avoid timing attacks.
-     If the env var isn't configured, the endpoint refuses ALL requests
-     (closed-by-default) rather than silently allowing through. */
-  const provided = req.headers["x-clark-internal"];
-  const expected = process.env.CLARK_INTERNAL_SECRET;
+  /* V21.9.181: Bearer-token auth using the shared AUTOMATION_TICK_SECRET
+     (same pattern as /api/automation-tick + /api/event-trigger). Constant-
+     time comparison via Buffer to prevent timing leaks. Closed-by-default
+     if env var unset. */
+  const expected = (process.env.AUTOMATION_TICK_SECRET || "").trim();
   if (!expected) {
     return res.status(503).json({
       ok: false,
-      error: "CLARK_INTERNAL_SECRET غير معرّفة في إعدادات السيرفر — تواصل مع الأدمن",
+      error: "AUTOMATION_TICK_SECRET غير معرّفة في إعدادات السيرفر — تواصل مع الأدمن",
     });
   }
-  if (!provided || typeof provided !== "string") {
-    return res.status(401).json({ ok: false, error: "X-CLARK-INTERNAL header مطلوب" });
+  const authHeader = (req.headers.authorization || "").trim();
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ ok: false, error: "Authorization: Bearer header مطلوب" });
   }
-  /* Compare lengths first to prevent length-based timing leak */
-  const a = Buffer.from(String(provided));
-  const b = Buffer.from(String(expected));
+  const provided = match[1].trim();
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
   if (a.length !== b.length) {
     return res.status(401).json({ ok: false, error: "secret غير صالح" });
   }
-  /* timingSafeEqual is in crypto but we can use a manual loop to avoid the import */
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
   if (diff !== 0) {

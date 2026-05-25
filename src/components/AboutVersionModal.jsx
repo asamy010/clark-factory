@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.181",
+    date: "2026-05-25",
+    types: ["improvement"],
+    title: "🔐 Push Notifications — Consolidate secrets (reuse AUTOMATION_TICK_SECRET)",
+    changes: [
+      { type: "improvement", text: "بدل ما نضيف 2 env vars جديدة (CLARK_INTERNAL_SECRET + CRON_SECRET)، الـ 3 server-to-server endpoints دلوقتي بـ يـ reuse الـ AUTOMATION_TICK_SECRET الموجود بالفعل (نفس الـ secret اللي بـ يستخدمه `/api/automation-tick` و `/api/event-trigger`). Less env var sprawl، نفس الـ security posture.\n\nملفات معدّلة:\n• `cron-daily-summary.js` — يـ check `process.env.AUTOMATION_TICK_SECRET` بدل CRON_SECRET\n• `send-internal.js` — converted من custom `X-CLARK-INTERNAL` header لـ `Authorization: Bearer <AUTOMATION_TICK_SECRET>` (pattern موحّد مع automation-tick.js). Constant-time comparison محفوظ.\n• `whatsapp-fallback.js` — نفس conversion\n• `docs/PUSH_NOTIFICATIONS.md` — env vars table محدّث + troubleshooting section" },
+      { type: "improvement", text: "بـ يخلي الـ setup أبسط: الـ user محتاج env var واحد جديد فقط (`VITE_FIREBASE_VAPID_KEY` — موجود بالفعل) بدل من 3. الـ AUTOMATION_TICK_SECRET موجود من قبل في Vercel فالـ feature يشتغل end-to-end بمجرد ما الـ commits اتـ push." },
+    ],
+  },
+  {
     version: "V21.9.180",
     date: "2026-05-24",
     types: ["feature", "doc"],
