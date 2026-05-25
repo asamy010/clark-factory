@@ -564,6 +564,15 @@ service cloud.firestore {
       allow write: if false;  // only via Admin SDK endpoint
     }
 
+    /* V21.9.172 — Notification send history (Slice 4/14).
+       Every push send (manual via /send or system via /send-internal)
+       writes one entry here for audit + the future Notification Center
+       (Slice 8). Writes only via Admin SDK; reads gated to manager+. */
+    match /notificationHistory/{historyId} {
+      allow read: if isManagerPlus();
+      allow write: if false;  // only via Admin SDK endpoint
+    }
+
     /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */

@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.172",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 4/14: Send endpoint (core flow complete)",
+    changes: [
+      { type: "feature", text: "Slice 4 = الـ MISSING PIECE اللي بـ يخلي الـ push يـ deliver فعلاً. الـ stack دلوقتي كامل: SW handlers (V21.9.169) + Client subscribe (V21.9.170) + Backend storage (V21.9.171) + **Send endpoint** (V21.9.172) = push notifications شغّالة end-to-end." },
+      { type: "feature", text: "endpoint جديد: `POST /api/notifications/send` (admin/manager only). يـ accept:\n• `category` — treasury/tasks/instructions/warnings/broadcast/approvals/daily_summary\n• `title` + `body` (capped 200/500 chars للـ privacy/UI)\n• `data` — routing payload للـ SW click handler\n• `audience` — {mode: 'all' | 'role' | 'user' | 'userIds', ...}\n• `urgency` — low/normal/high (high → requireInteraction)\n• `icon`, `image`, `tag` — optional overrides\n\nالـ logic: يـ query الـ active subscriptions matching audience + يـ filter by user preferences + يـ fan-out عبر FCM Admin SDK (`sendEachForMulticast`)، chunks of 500 (FCM limit). Returns stats: `{sentTo, successCount, failureCount, invalidTokens, historyId}`." },
+      { type: "feature", text: "endpoint إضافي: `POST /api/notifications/send-internal` — same logic لكن auth عبر `X-CLARK-INTERNAL` shared secret (مش Firebase token). للـ cron jobs + autoPost hooks + system triggers (Slice 6 treasury integration هـ يستخدمه). Constant-time secret comparison لمنع timing attacks. Closed-by-default — لو الـ CLARK_INTERNAL_SECRET env var غير معرّفة → 503." },
+      { type: "feature", text: "Auto-cleanup: لو FCM رجع invalid-registration-token أو registration-token-not-registered (terminal errors meaning device unsubscribed)، الـ subscription بـ تتـ deactivate تلقائياً (`active: false`, `deactivatedReason: 'fcm_invalid_token'`). بيـ keep الـ active set نظيف ويـ avoid wasted FCM calls." },
+      { type: "feature", text: "Audit trail: كل send بـ يـ write entry في `notificationHistory/{historyId}` Firestore collection — { at, category, title, body, audience, sentBy, stats }. الـ Notification Center (Slice 8) هـ يقراها لـ display history للـ user. firestore.rules: read=manager+، write=Admin SDK only." },
+      { type: "doc", text: "⚠️ Required env vars (يجب على الأدمن إضافتهم في Vercel قبل ما الـ endpoint يشتغل):\n• `VITE_FIREBASE_VAPID_KEY` — public VAPID key (لـ client subscribe)\n• `FIREBASE_ADMIN_CREDENTIALS` — service account JSON (موجود بالفعل لـ /api/ai.js)\n• `CLARK_INTERNAL_SECRET` — random hex string لـ /send-internal auth\n\n⚠️ Required Firebase Console step:\n• Project Settings → Cloud Messaging → Generate Web Push certificate (VAPID keypair)\n\nبعد كده، الـ admin يقدر يـ POST لـ /api/notifications/send من curl/postman لـ test. الـ UI integration (admin broadcast button) هـ تـ land في Slice 5." },
+    ],
+  },
+  {
     version: "V21.9.171",
     date: "2026-05-24",
     types: ["feature"],
