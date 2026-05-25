@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.170",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 2/14: Client setup + FCM init",
+    changes: [
+      { type: "feature", text: "إنشاء src/utils/notifications.js — utility module بـ lazy-init pattern: ما بـ يـ load `firebase/messaging` غير لما الـ user يـ click 'تفعيل الإشعارات'. الـ public API:\n• `isPushSupported()` — basic capability check (Notification + serviceWorker + PushManager)\n• `getEnvironmentInfo()` — يـ detect iOS + standalone PWA mode (مهم لـ iOS Safari الـ يـ require Add to Home Screen)\n• `initNotifications(user)` — idempotent init للـ FCM messaging\n• `requestPermissionAndSubscribe(user)` — يـ trigger الـ browser prompt + getToken + POST لـ /api/notifications/subscribe\n• `onForegroundMessage(handler)` — React components بـ يقدروا يـ register handlers للـ foreground messages\n• `detectDevice()` — type/os/browser detection للـ multi-device management في Slice 5" },
+      { type: "feature", text: "iOS Safari handling: `getEnvironmentInfo` بـ يـ detect `ios && !standalone` ويـ return `requiresInstall: true` مع instructions Arabic. الـ UI (هـ يـ land في Slice 5 settings) هـ يـ show modal بـ steps الـ Add to Home Screen قبل ما يطلب الـ permission." },
+      { type: "feature", text: "Error handling defensive: لو الـ VITE_FIREBASE_VAPID_KEY env var مش موجود في Vercel → يـ return error واضح 'إعدادات الإشعارات ناقصة — اتصل بالأدمن'. لو الـ /api/notifications/subscribe لسه ما اتـ deploy-ت (Slice 3) → الـ token بـ يتولد بنجاح + warning للـ backend save failed (لا يـ block المستخدم)." },
+      { type: "doc", text: "⚠️ Slice 2 لوحدها لسه ما بـ تـ produce actual notifications — تحتاج Slice 3 (subscription backend) + Slice 4 (send endpoint). Slice 2 + Slice 1 معاً = SW جاهز يستقبل + client جاهز يـ subscribe، لكن مفيش backend persistence ولا send path. الـ user يقدر يـ trigger الـ permission flow من DevTools console: `window.__clarkNotifications.requestPermissionAndSubscribe(user)` (لو نـ expose-ها — هـ يـ land في Slice 5 UI)." },
+    ],
+  },
+  {
     version: "V21.9.169",
     date: "2026-05-24",
     types: ["feature"],
