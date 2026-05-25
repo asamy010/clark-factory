@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.191",
+    date: "2026-05-25",
+    types: ["fix", "architectural"],
+    title: "📊 تقرير المبيعات Phase 2.5 — يحترم الـ per-delivery discount",
+    changes: [
+      { type: "fix", text: "🎯 الـ root issue: في V21.9.190 الـ delivery entries بدأت تـ stamp `discPct` (per-customer-per-session override)، والـ invoices بدأت تحترمه. **لكن الـ sales report (CustDeliverPg line ~1289) لسه يستخدم `customer.discount` فقط** — فالـ نسبة الـ aggregated في الـ report ما كانتش تطابق الـ نسبة الـ effective في الـ invoices لو في session فيها override.\n\nمثال على الـ bug: عميل عنده customer.discount = 10، لكن في session معينة الـ admin ضع override بـ 20%. الـ invoice طلعت بـ 20% (صحيح)، لكن الـ report لسه يطبق 10% على الـ aggregated gross sales لهذا العميل. الـ tactic للـ customers without overrides ما اتأثرش (الـ result identical)." },
+      { type: "fix", text: "✅ الإصلاح: الـ aggregation logic اتعدّل من 'aggregate gross then apply discount once' إلى 'apply discount per-delivery then aggregate net':\n\n```js\n// Old (V18.27, broken for V21.9.190 overrides):\nperCust[id].sales += gross;\n// later:\nsalesAfter = sales * (1 - customer.discount/100)\n\n// New (V21.9.191):\nperCust[id].sales += gross;  // keep gross for tooltip\nperCust[id].salesNet += Math.round(gross * (1 - effDiscPct(delivery, customer) / 100));\n// later:\nsalesAfter = salesNet  // already-netted\n```\n\nالـ helper `effDiscPct(entry, cust)` بـ يـ use نفس الـ precedence اللي في invoices.js: `entry.discPct → customer.discount → 10`. الـ legacy entries بدون discPct تـ fall through لـ customer.discount → behavior identical لـ سابقاً." },
+      { type: "improvement", text: "🎨 Per-row '% الخصم' display: الـ column 'الخصم %' في الـ printed report دلوقتي بـ يـ show الـ **weighted-average effective discount** (`1 − net/gross`) بدلاً من customer.discount static. لو العميل عنده discount uniform عبر كل sessions، الـ display matches الـ nominal rate. لو mixed، الـ display بـ يـ reveal الـ actual effective rate (useful insight)." },
+      { type: "architectural", text: "🛡 Edge cases handled:\n• Customer مع payments فقط (مفيش sales) → effDisc يـ fall back لـ customer.discount (avoid div-by-zero)\n• Customer مع legacy returns (no discPct stamped) → استخدم customer.discount (back-compat)\n• Customer مفيش entries في perCust → الـ fallback row (salesAfter:0) لسه يشتغل عبر الـ existing `||` fallback في الـ print template" },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — perCust aggregation refactored (lines ~1333-1380):\n  - Added `initPerCust()` factory للـ DRY init\n  - Added `effDiscPct(entry, cust)` helper (mirrors invoices.js precedence)\n  - Walk customerDeliveries + customerReturns and net the per-entry total\n  - Aggregation block uses `salesNet/returnsNet` directly\n  - Per-row discPct = weighted-avg effective rate\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)\n\n**Zero data migration.** الـ existing customers بدون overrides بـ يـ see same numbers بالظبط. الـ change بس بـ يـ affect الـ customers اللي عندهم session overrides — وعندهم الـ report دلوقتي بـ يـ match invoices." },
+    ],
+  },
+  {
     version: "V21.9.190",
     date: "2026-05-25",
     types: ["feature", "architectural"],

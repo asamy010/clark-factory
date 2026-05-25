@@ -1331,12 +1331,58 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          Step 3: For each customer, apply their discount % → compute net values.
          Step 4: Sum across customers for the totals shown in cards. */
       const perCust={};
+      /* ── V21.9.191 — Phase 2.5: report respects per-delivery discount ──
+         Pre-V21.9.191 the report computed a single discPct from
+         customer.discount and applied it to the AGGREGATED gross sum.
+         That worked while every delivery used customer.discount, but
+         after V21.9.190 (per-customer-per-session override) a single
+         customer can have different discounts across sessions — and the
+         aggregated-then-discounted math diverged from the actual invoice
+         totals.
+
+         Fix: walk each delivery (and return), apply the EFFECTIVE
+         discount per-entry (same precedence as the invoice generator),
+         and accumulate netted values into `salesNet`/`returnsNet`. The
+         totals block then sums those directly. The displayed per-row %
+         is a WEIGHTED-AVERAGE effective discount: 1 − (net/gross).
+         If a customer has uniform discount, this matches their nominal
+         %. If mixed, it shows the actual effective rate they got. */
+      const initPerCust = () => ({ sales:0, salesNet:0, returns:0, returnsNet:0, cash:0, check:0 });
+      const effDiscPct = (entry, cust) => {
+        if (entry && entry.discPct !== undefined && entry.discPct !== null) {
+          const n = Number(entry.discPct);
+          if (!isNaN(n)) return n;
+        }
+        if (cust && cust.discount !== undefined && cust.discount !== null) {
+          const n = Number(cust.discount);
+          if (!isNaN(n)) return n;
+        }
+        return 10;
+      };
       orders.forEach(o=>{const sp=Number(o.sellPrice)||0;
         /* V15.45: Use per-delivery price when set (isDiscounted sales) — falls back to model sellPrice */
-        (o.customerDeliveries||[]).forEach(d=>{const effPrice=Number(d.price)||sp;const v=(Number(d.qty)||0)*effPrice;
-          if(!perCust[d.custId])perCust[d.custId]={sales:0,returns:0,cash:0,check:0};perCust[d.custId].sales+=v});
-        (o.customerReturns||[]).forEach(r=>{const v=(Number(r.qty)||0)*sp;
-          if(!perCust[r.custId])perCust[r.custId]={sales:0,returns:0,cash:0,check:0};perCust[r.custId].returns+=v})});
+        (o.customerDeliveries||[]).forEach(d=>{
+          const effPrice=Number(d.price)||sp;
+          const gross=(Number(d.qty)||0)*effPrice;
+          if(!perCust[d.custId])perCust[d.custId]=initPerCust();
+          perCust[d.custId].sales+=gross;
+          /* V21.9.191: apply per-delivery discount precedence
+             (delivery.discPct → customer.discount → 10) */
+          const cust=customers.find(c=>c.id===d.custId);
+          const dPct=effDiscPct(d, cust);
+          perCust[d.custId].salesNet+=Math.round(gross*(1-dPct/100));
+        });
+        (o.customerReturns||[]).forEach(r=>{
+          const gross=(Number(r.qty)||0)*sp;
+          if(!perCust[r.custId])perCust[r.custId]=initPerCust();
+          perCust[r.custId].returns+=gross;
+          /* Same chain for returns. returnEntry.discPct currently unstamped
+             (Phase 2.5 future), so this falls through to customer.discount. */
+          const cust=customers.find(c=>c.id===r.custId);
+          const dPct=effDiscPct(r, cust);
+          perCust[r.custId].returnsNet+=Math.round(gross*(1-dPct/100));
+        });
+      });
       /* V21.9.167: Two buckets only — check vs non-check. Per customer
          feedback: cash, transfer (تحويل/instapay), and any other non-check
          method all consolidate into "دفعات كاش". The "أخرى" column was
@@ -1344,7 +1390,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          not-check). Keeping only `cash` + `check` in perCust[]. */
       (config.custPayments||[]).forEach(p=>{const amt=Number(p.amount)||0;const m=(p.method||"").toLowerCase();
         const isCheck=m.includes("شيك")||m.includes("check");
-        if(!perCust[p.custId])perCust[p.custId]={sales:0,returns:0,cash:0,check:0};
+        if(!perCust[p.custId])perCust[p.custId]=initPerCust();
         if(isCheck)perCust[p.custId].check+=amt;else perCust[p.custId].cash+=amt});
       /* V18.23+V18.24: Include receivable checks ONLY when category = 'دفعة عميل' (real customer payment).
          Excludes: رصيد افتتاحي (carried from old season), تسوية مبالغ, تحويل بين الحسابات, أخرى — none of these are sales-related.
@@ -1352,19 +1398,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       (config.checks||[]).filter(c=>c.type==="receivable"&&c.status!=="مرتد"&&c.status!=="ملغي"&&((c.category||"دفعة عميل")==="دفعة عميل")).forEach(c=>{
         const amt=Number(c.amount)||0;
         if(c.partyId){
-          if(!perCust[c.partyId])perCust[c.partyId]={sales:0,returns:0,cash:0,check:0};
+          if(!perCust[c.partyId])perCust[c.partyId]=initPerCust();
           perCust[c.partyId].check+=amt;
         }
       });
-      /* V18.27: Apply discount per customer + build totals */
+      /* V21.9.191: aggregate the PRE-NETTED values from per-delivery walk above.
+         The displayed discPct per row is the weighted-average effective rate
+         (1 − net/gross), which equals the nominal rate when uniform and gives
+         a useful indicator when mixed. */
       let totalSales=0,totalReturns=0,totalCashPay=0,totalCheckPay=0;
       let totalSalesGross=0,totalReturnsGross=0;/* For tooltip detail */
       Object.keys(perCust).forEach(cid=>{
         const cust=customers.find(c=>c.id===cid);
-        const discPct=cust?(Number(cust.discount)||0):0;
         const p=perCust[cid];
-        const salesAfter=Math.round(p.sales*(1-discPct/100));
-        const returnsAfter=Math.round(p.returns*(1-discPct/100));
+        const salesAfter=p.salesNet;
+        const returnsAfter=p.returnsNet;
+        /* Weighted-avg effective discount %. Fall back to customer.discount
+           when there are no sales (avoid div-by-zero); 0 is a valid value. */
+        const effDisc = p.sales > 0
+          ? Math.round((1 - (p.salesNet / p.sales)) * 100)
+          : (cust && cust.discount !== undefined && cust.discount !== null ? Number(cust.discount) : 0);
         totalSalesGross+=p.sales;
         totalReturnsGross+=p.returns;
         totalSales+=salesAfter;
@@ -1372,7 +1425,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         totalCashPay+=p.cash;
         totalCheckPay+=p.check;
         /* Annotate perCust for use in print report */
-        p.discPct=discPct;
+        p.discPct=effDisc;
         p.salesGross=p.sales;
         p.returnsGross=p.returns;
         p.salesAfter=salesAfter;
