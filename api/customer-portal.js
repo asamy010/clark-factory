@@ -167,23 +167,6 @@ export default async function handler(req, res) {
     const returns = [];
     const activeModels = new Map();
 
-    /* V21.9.193 — precedence chain for per-delivery discount (mirrors
-       src/utils/invoices.js resolveDiscountPct + src/pages/CustDeliverPg.jsx
-       pickDiscPct in the customer statement). entry.discPct → customer.discount
-       → 10. Legacy entries without discPct fall through to customer.discount
-       (back-compat unchanged). */
-    const pickDiscPct = (entry) => {
-      if (entry && entry.discPct !== undefined && entry.discPct !== null) {
-        const n = Number(entry.discPct);
-        if (!isNaN(n)) return n;
-      }
-      if (customer && customer.discount !== undefined && customer.discount !== null) {
-        const n = Number(customer.discount);
-        if (!isNaN(n)) return n;
-      }
-      return 10;
-    };
-
     allOrders.forEach(o => {
       const sp = Number(o.sellPrice) || 0;
       const modelName = o.modelNo || "—";
@@ -191,12 +174,6 @@ export default async function handler(req, res) {
       const modelImage = o.image || null;
 
       (o.customerDeliveries || []).filter(d => d.custId === custId).forEach(d => {
-        const gross = (Number(d.qty) || 0) * sp;
-        const dPct = pickDiscPct(d);
-        /* V21.9.193: per-delivery effective discount + net value for the
-           client UI. V21.9.196: also include _sourceKey + _sourceOrderId
-           so the server-side orphan-detection (invoice-based aggregation)
-           can match this entry against invoice deliveryRefs. */
         deliveries.push({
           date: d.date || "",
           modelNo: modelName,
@@ -204,18 +181,12 @@ export default async function handler(req, res) {
           image: modelImage,
           qty: Number(d.qty) || 0,
           sellPrice: sp,
-          value: gross,
-          discPct: dPct,
-          valueAfterDisc: Math.round(gross * (1 - dPct/100)),
+          value: (Number(d.qty) || 0) * sp,
           sessionId: d.sessionId || null,
-          _sourceKey: d._key || null,
-          _sourceOrderId: o.id || null,
         });
       });
 
       (o.customerReturns || []).filter(r => r.custId === custId).forEach(r => {
-        const gross = (Number(r.qty) || 0) * sp;
-        const dPct = pickDiscPct(r);
         returns.push({
           date: r.date || "",
           modelNo: modelName,
@@ -223,14 +194,10 @@ export default async function handler(req, res) {
           image: modelImage,
           qty: Number(r.qty) || 0,
           sellPrice: sp,
-          value: gross,
-          discPct: dPct,
-          valueAfterDisc: Math.round(gross * (1 - dPct/100)),
+          value: (Number(r.qty) || 0) * sp,
           /* V18.26: include sessionId for invoice grouping (note: returns store as sessId, not sessionId) */
           sessionId: r.sessId || r.sessionId || null,
           note: r.note || "",
-          _sourceKey: r._key || null,
-          _sourceOrderId: o.id || null,
         });
       });
 
@@ -288,117 +255,17 @@ export default async function handler(req, res) {
     receivableChecks.forEach(rc => payments.push(rc));
     payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    /* ── V21.9.196 — Invoice-based aggregation (source of truth) ─────────
-       V21.9.193 walked deliveries and read each entry's `discPct` — but
-       legacy deliveries committed before V21.9.190 don't have discPct
-       stamped even though their invoice's discountPct was correctly
-       updated (e.g. to 40%) via the upsert merge logic. The portal would
-       fall back to customer.discount=10% and report wrong totals.
-
-       Fix: walk INVOICES + CREDIT NOTES (the records that were actually
-       billed) for accurate totals. Fall back to delivery/return entries
-       only for those NOT covered by an invoice/CN (legacy direct-post
-       mode, or pending invoices). Mirror of the CustDeliverPg statement
-       refactor in V21.9.196. */
-    const allSalesInvoices = (config._splitDaysV1950Done
-      ? await readSplitCollection("salesInvoicesDays")
-      : (config.salesInvoices || []));
-    const allSalesCreditNotes = (config._splitDaysV2195Done
-      ? await readSplitCollection("salesCreditNotesDays")
-      : (config.salesCreditNotes || []));
-    const customerInvoices = allSalesInvoices.filter(inv =>
-      inv && inv.status !== "void" && String(inv.customerId) === String(custId)
-    );
-    const customerCreditNotes = allSalesCreditNotes.filter(cn =>
-      cn && cn.status !== "void" && String(cn.customerId) === String(custId)
-    );
-    const buildRefKey = (ref) => {
-      if (!ref) return "";
-      if (ref._key) return "k:" + ref._key;
-      return "c:" + (ref.orderId || "") + "|" + (ref.custId || "") + "|" + (ref.sessionId || "");
-    };
-    const invoicedDeliveryKeys = new Set();
-    customerInvoices.forEach(inv => {
-      (inv.deliveryRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) invoicedDeliveryKeys.add(k); });
-      if (inv.deliveryRef) { const k = buildRefKey(inv.deliveryRef); if (k) invoicedDeliveryKeys.add(k); }
-    });
-    const cnReturnKeys = new Set();
-    customerCreditNotes.forEach(cn => {
-      (cn.returnRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) cnReturnKeys.add(k); });
-      if (cn.returnRef) { const k = buildRefKey(cn.returnRef); if (k) cnReturnKeys.add(k); }
-    });
-
-    /* Pass 1: invoices/credit notes (authoritative) */
-    let totalDelValue = 0;
-    let totalDelValueNet = 0;
-    let totalRetValue = 0;
-    let returnsAfterDiscount = 0;
-    /* V21.9.197: diagnostic accumulators — exposed in summary._debug
-       so we can pinpoint why a customer's portal totals diverge from
-       what the in-app statement shows. */
-    let p1InvSubtotal = 0, p1InvTotal = 0, p1CnSubtotal = 0, p1CnTotal = 0;
-    let p2OrphanDelGross = 0, p2OrphanDelNet = 0, p2OrphanRetGross = 0, p2OrphanRetNet = 0;
-    let p2OrphanDelCount = 0, p2OrphanRetCount = 0;
-    customerInvoices.forEach(inv => {
-      const s = Number(inv.subtotal) || 0;
-      const t = Number(inv.total) || 0;
-      totalDelValue += s;
-      totalDelValueNet += t;
-      p1InvSubtotal += s;
-      p1InvTotal += t;
-    });
-    customerCreditNotes.forEach(cn => {
-      const s = Number(cn.subtotal) || 0;
-      const t = Number(cn.total) || 0;
-      totalRetValue += s;
-      returnsAfterDiscount += t;
-      p1CnSubtotal += s;
-      p1CnTotal += t;
-    });
-
-    /* Pass 2: orphan deliveries/returns (no matching invoice/CN — fall
-       back to per-entry discPct → customer.discount → 10) */
-    deliveries.forEach(d => {
-      const key = "k:" + (d._sourceKey || "");
-      const altKey = "c:" + (d._sourceOrderId || "") + "|" + (d.custId || custId) + "|" + (d.sessionId || "");
-      if ((d._sourceKey && invoicedDeliveryKeys.has(key)) || invoicedDeliveryKeys.has(altKey)) return;
-      const gross = d.value || 0;
-      const net = (d.valueAfterDisc !== undefined ? d.valueAfterDisc : d.value) || 0;
-      totalDelValue += gross;
-      totalDelValueNet += net;
-      p2OrphanDelGross += gross;
-      p2OrphanDelNet += net;
-      p2OrphanDelCount += 1;
-    });
-    returns.forEach(r => {
-      const key = "k:" + (r._sourceKey || "");
-      if (r._sourceKey && cnReturnKeys.has(key)) return;
-      const gross = r.value || 0;
-      const net = (r.valueAfterDisc !== undefined ? r.valueAfterDisc : r.value) || 0;
-      totalRetValue += gross;
-      returnsAfterDiscount += net;
-      p2OrphanRetGross += gross;
-      p2OrphanRetNet += net;
-      p2OrphanRetCount += 1;
-    });
-
-    const discountAmount = totalDelValue - totalDelValueNet;
-    const salesAfterDiscount = totalDelValueNet - returnsAfterDiscount;
-    const netSales = totalDelValue - totalRetValue; /* legacy gross-net (no discount) — kept for back-compat */
-    /* Weighted-average effective discount % — display only, NOT a multiplier. */
-    const discPct = totalDelValue > 0
-      ? Math.round((1 - (totalDelValueNet / totalDelValue)) * 100)
-      : Math.max(0, Math.min(100, Number(customer.discount) || 0));
-    /* Mixed-discounts flag: derived from the invoices themselves (more
-       accurate than checking each delivery's stamped discPct). */
-    const hasMixedDiscounts = (() => {
-      if (customerInvoices.length <= 1) return false;
-      const firstPct = Number(customerInvoices[0].discountPct) || 0;
-      for (let i = 1; i < customerInvoices.length; i++) {
-        if ((Number(customerInvoices[i].discountPct) || 0) !== firstPct) return true;
-      }
-      return false;
-    })();
+    /* Calculate balance */
+    /* V21.9.56 (Sales Audit I8): clamp discount to 0..100 to prevent
+       data-entry errors (e.g., 150) from producing negative-discount math
+       that surfaces as inflated portal balance. */
+    const discPct = Math.max(0, Math.min(100, Number(customer.discount) || 0));
+    const totalDelValue = deliveries.reduce((s, d) => s + d.value, 0);
+    const totalRetValue = returns.reduce((s, r) => s + r.value, 0);
+    const netSales = totalDelValue - totalRetValue;
+    const discountAmount = Math.round(netSales * discPct / 100);
+    const salesAfterDiscount = netSales - discountAmount;
+    const returnsAfterDiscount = Math.round(totalRetValue * (1 - discPct / 100));
     const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
     /* V18.3+V18.23: Split paid into cash (everything except شيك) and checks (incl. pending receivable checks) */
     const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
@@ -443,17 +310,10 @@ export default async function handler(req, res) {
       summary: {
         netSales: Math.round(netSales),
         totalDelValue: Math.round(totalDelValue),
-        /* V21.9.193: totalDelValueAfterDisc = sum of per-delivery net values
-           (gross × (1 − discPct/100)). Replaces the old single-discount
-           computation. Display: '<gross> قبل الخصم → <net> بعد الخصم'. */
-        totalDelValueAfterDisc: Math.round(totalDelValueNet),
-        discountAmount: Math.round(discountAmount),
-        /* V21.9.193: hasMixedDiscounts tells the client to render the
-           "متوسط X%" hint instead of treating the % as a single multiplier. */
-        hasMixedDiscounts,
+        discountAmount,
         salesAfterDiscount: Math.round(salesAfterDiscount),
         returnsValue: Math.round(totalRetValue),
-        returnsAfterDiscount: Math.round(returnsAfterDiscount),
+        returnsAfterDiscount,
         totalPaid: Math.round(totalPaid),
         cashPaid: Math.round(cashPaid),
         checksPaid: Math.round(checksPaid),
@@ -464,64 +324,10 @@ export default async function handler(req, res) {
         deliveryCount: deliveries.length,
         orderCount: activeModels.size,
         rating,
-        /* V21.9.197 — diagnostic snapshot. Inspect via DevTools (Network
-           tab → portal request → response → summary._debug). Helps verify
-           whether Pass 1 (invoices) actually loaded data or whether the
-           portal fell through entirely to Pass 2 (orphan deliveries). */
-        _debug: {
-          splitFlags: {
-            v1949: !!config._splitDaysV1949Done,
-            v1950: !!config._splitDaysV1950Done,
-            v2195: !!config._splitDaysV2195Done,
-          },
-          loaded: {
-            allSalesInvoicesCount: allSalesInvoices.length,
-            allSalesCreditNotesCount: allSalesCreditNotes.length,
-            customerInvoicesCount: customerInvoices.length,
-            customerCreditNotesCount: customerCreditNotes.length,
-            invoicedDeliveryKeysCount: invoicedDeliveryKeys.size,
-            cnReturnKeysCount: cnReturnKeys.size,
-          },
-          pass1: {
-            invSubtotal: Math.round(p1InvSubtotal),
-            invTotal: Math.round(p1InvTotal),
-            cnSubtotal: Math.round(p1CnSubtotal),
-            cnTotal: Math.round(p1CnTotal),
-            invDiscountAmt: Math.round(p1InvSubtotal - p1InvTotal),
-          },
-          pass2: {
-            orphanDelCount: p2OrphanDelCount,
-            orphanRetCount: p2OrphanRetCount,
-            orphanDelGross: Math.round(p2OrphanDelGross),
-            orphanDelNet: Math.round(p2OrphanDelNet),
-            orphanRetGross: Math.round(p2OrphanRetGross),
-            orphanRetNet: Math.round(p2OrphanRetNet),
-          },
-          /* Sample first invoice's deliveryRefs so we can verify the
-             match keys against the deliveries' _sourceKey/_sourceOrderId. */
-          sampleInvoiceRefs: customerInvoices[0] ? {
-            invoiceNo: customerInvoices[0].invoiceNo,
-            discountPct: customerInvoices[0].discountPct,
-            subtotal: customerInvoices[0].subtotal,
-            total: customerInvoices[0].total,
-            deliveryRefs: (customerInvoices[0].deliveryRefs || []).slice(0, 3),
-            deliveryRef: customerInvoices[0].deliveryRef || null,
-          } : null,
-          sampleDelivery: deliveries[0] ? {
-            sessionId: deliveries[0].sessionId,
-            _sourceKey: deliveries[0]._sourceKey,
-            _sourceOrderId: deliveries[0]._sourceOrderId,
-            value: deliveries[0].value,
-            valueAfterDisc: deliveries[0].valueAfterDisc,
-            discPct: deliveries[0].discPct,
-          } : null,
-        },
       },
       activeModels: Array.from(activeModels.values()),
-      /* V21.9.196: strip internal _source* fields from outbound payload
-         (used only for server-side orphan detection above) */
-      deliveries: deliveries.slice(0, 100).map(d => { const { _sourceKey, _sourceOrderId, ...rest } = d; return rest; }),
-      returns: returns.slice(0, 50).map(r => { const { _sourceKey, _sourceOrderId, ...rest } = r; return rest; }),
+      deliveries: deliveries.slice(0, 100), /* limit to last 100 */
+      returns: returns.slice(0, 50),
       payments: payments.slice(0, 50),
       generatedAt: new Date().toISOString(),
     });

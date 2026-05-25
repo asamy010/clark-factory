@@ -25,68 +25,6 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
-    version: "V21.9.197",
-    date: "2026-05-25",
-    types: ["doc"],
-    title: "🔬 Portal — diagnostic فقط (لا تغيير في الحساب)",
-    changes: [
-      { type: "doc", text: "🎯 الـ context: Ahmed بـ يـ report إن البورتال لسه بـ يـ show خصم/رصيد غلط حتى بعد V21.9.196 (في حين إن كشف الحساب اتصلح). الـ logic في الـ portal API mirrors الـ statement page بالظبط، فاحتمالين:\n• Pass 1 (invoices) مش بـ يـ load data → الـ split collection مش متقري صح\n• Pass 1 loaded لكن Pass 2 (orphans) برضو بـ يضيف للحساب → double counting" },
-      { type: "doc", text: "✅ V21.9.197 بـ يـ add `summary._debug` في الـ portal API response:\n• `splitFlags`: قيم `_splitDaysV1950Done` / `_splitDaysV2195Done` (تأكد إن الـ migration done)\n• `loaded`: عدد invoices/CNs اللي اتـ loaded + اللي ينتمي للعميل\n• `pass1`: الـ subtotal/total من الـ invoices/CNs\n• `pass2`: عدد orphan deliveries/returns + الـ values\n• `sampleInvoiceRefs` + `sampleDelivery`: عينة عشان نـ verify الـ match keys\n\n**كيف تـ inspect:** افتح البورتال للعميل في browser → DevTools (F12) → Network → click customer-portal request → Preview/Response → expand summary._debug → ابعت لي screenshot أو نص الـ debug." },
-      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `api/customer-portal.js` — diagnostic accumulators + _debug field\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx\n\n**صفر تغيير في الـ math.** ده diagnostic only — هـ يطلع من الـ next version بعد ما نـ identify الـ root cause." },
-    ],
-  },
-  {
-    version: "V21.9.196",
-    date: "2026-05-25",
-    types: ["fix"],
-    title: "🐞 كشف الحساب + البورتال — احسب الخصم من الفواتير (source of truth)",
-    changes: [
-      { type: "fix", text: "🎯 الـ bug report من Ahmed (screenshot شواهد بصرية):\n• الـ invoice INV-2026-0241 خصمها 40% (=39,474 ج.م على 98,685 subtotal)\n• كشف حساب نفس العميل بـ يـ show 'إجمالي الخصم: 36,418 ج.م' (= 10% × 364,200)\n• يعني الـ statement لسه بـ يـ apply customer.discount=10% على كل التوزيعات، متجاهلاً الـ 40% override اللي اتـ stored في الـ invoice\n\nنفس bug في البورتال." },
-      { type: "fix", text: "🔍 الـ root cause:\nالـ V21.9.193 ضافت per-delivery aggregation بـ `pickDiscPct(d)` اللي بـ يقرأ `d.discPct → customer.discount → 10`. لكن:\n\n• الـ deliveries القديمة (committed قبل V21.9.190) ما عندهاش discPct stamped\n• الـ user عدّل sess.custDisc لـ 40% في الـ Plan tab بعد كده\n• الـ upsert merge logic حدّث الـ **invoice's discountPct** لـ 40% (آخر discount يـ wins)\n• لكن الـ raw `customerDeliveries[]` entries لسه بدون discPct\n\nالنتيجة: الـ statement يـ fall through للـ customer.discount=10% على كل deliveries، حتى لو الـ invoice فعلاً اتـ billed بـ 40%." },
-      { type: "fix", text: "✅ الإصلاح الصحيح: aggregate من الـ INVOICES (مش raw deliveries) — الـ invoice هي source of truth لـ ما اتـ billed فعلاً.\n\n**Pass 1 (authoritative):**\n• `customerInvoices = salesInvoices.filter(non-void, this customer)`\n• `totalValGross += inv.subtotal`\n• `totalSalesAfterDisc += inv.total`\n• نفس الـ pattern لـ `customerCreditNotes`\n\n**Pass 2 (orphans — fallback):**\n• الـ deliveries اللي مش covered بـ invoice (legacy direct-post mode، pending invoices) → fallback chain (per-entry discPct → customer.discount → 10)\n• Match بـ `_key` first، fallback لـ composite (orderId + custId + sessionId)\n\n**النتيجة:** الـ statement totals دلوقتي تـ match الـ invoices exactly. الـ 40% override بـ يطلع في الـ aggregate لأن الـ invoice itself stored بـ 40%." },
-      { type: "improvement", text: "🌐 Portal API نفس الـ change:\n• Reads `salesInvoices` + `salesCreditNotes` (via `readSplitCollection` لما الـ V19.50/V2195 splits done، fallback لـ inline arrays للـ legacy deployments)\n• Pass 1: aggregate من invoices/CNs\n• Pass 2: orphan-delivery/return fallback (uses new `_sourceKey` + `_sourceOrderId` metadata on each entry for orphan detection)\n• الـ internal `_source*` fields stripped من الـ outbound payload (cleanup)\n\nالـ portal دلوقتي بـ يـ match الـ statement page exactly." },
-      { type: "architectural", text: "🛡 Back-compat preserved:\n• Customer مع `autoPostFromInvoice=false` (legacy direct-post mode) → مفيش invoices، كل deliveries orphan → Pass 2 fallback (نفس behavior الـ V21.9.193)\n• Customer مع invoices uniform 10% → math identical (Pass 1 totals = old per-delivery calc with customer.discount=10)\n• Customer مع invoices mixed (40% on one, 10% على باقي) → **fixed** — totals تـ match invoices instead of customer.discount\n• Voided invoices/CNs excluded من Pass 1 + their deliveries treated as orphan (Pass 2)" },
-      { type: "architectural", text: "📁 الـ files المتأثرة (2 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — statement aggregation refactored لـ 2-pass (invoices + orphans)\n• MODIFIED: `api/customer-portal.js` — same 2-pass aggregation + new `_sourceKey`/`_sourceOrderId` metadata + outbound strip\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
-    ],
-  },
-  {
-    version: "V21.9.195",
-    date: "2026-05-25",
-    types: ["fix", "improvement"],
-    title: "📝 توزيعة جديدة — لا تتسجل إلا بعد ضغط حفظ (no orphan empty sessions)",
-    changes: [
-      { type: "fix", text: "🎯 الـ bug report من Ahmed: لما الـ admin يـ create توزيعة جديدة وينقر إلغاء/✕ من غير ما يحفظ، التوزيعة كانت بـ تـ saved كـ سجل فاضي في القائمة برة، والـ admin بـ يضطر يمسحها يدوياً. الـ expected behavior: لو ضغط إلغاء قبل حفظ → التوزيعة ما تـ existsش أصلاً." },
-      { type: "fix", text: "✅ Fix architectural — Pending session pattern:\n\n• `createSession()` دلوقتي بـ يحفظ الـ session في local state (`pendingSession`)، **بدون** upSales — يعني مفيش Firestore write.\n• الـ matrix view بـ يـ render من `pendingSession` (الـ activeSess derivation بـ يـ check pending أولاً).\n• Badge جديد في الـ matrix header: '📝 مسودة — لم تـ حفظ' عشان الـ user يفهم بصرياً.\n• Save button label: '💾 حفظ التوزيعة' (بدل 'حفظ التغييرات') لما pending.\n• الـ explicit save (`saveAllLocalGrid`) دلوقتي بـ يـ insert الـ session في Firestore ضمن نفس الـ upSales call اللي بـ يحفظ الـ grid — atomic.\n• الـ close (✕/إلغاء):\n  - Pending + مفيش changes → discard silently\n  - Pending + فيه changes → popup 'احفظ التوزيعة الجديدة أم تتجاهلها؟' (حفظ / تجاهل)\n  - Already-persisted session → existing V19.70.22 behavior (auto-save على close)\n• Navigation away (user picks different session) → silent discard للـ pending (لو الـ user wanted it، كان حفظه)" },
-      { type: "improvement", text: "🎨 UX touches:\n• Toast بعد `createSession`: '⏳ توزيعة جديدة — اضغط حفظ للتأكيد' (بدل '✓ تم انشاء التسليم' المضلِّل)\n• Footer dirty indicator يـ show 'توزيعة جديدة لم تـ حفظ' بدل 'تغييرات غير محفوظة' لما pending\n• Save button enabled لما pending حتى لو الـ grid فاضي (الـ user يقدر يحفظ structure للـ session لـ filling later)\n• Success toast بعد الـ save: '✓ تم انشاء التوزيعة وحفظ التغييرات' لما pending، 'تم حفظ كل التغييرات' لما existing" },
-      { type: "architectural", text: "🛡 Edge cases handled:\n• User reloads browser while pending → state lost، nothing persisted (matches expectation)\n• User opens existing session, makes changes, closes → existing V19.70.22 auto-save (unchanged)\n• User creates pending, switches to different session → pending discarded silently (intended — no save click)\n• User creates pending, immediately clicks ✕ without entering → silent discard (no popup needed since no changes)\n• User creates pending, enters qty, clicks ✕ → popup confirms حفظ vs تجاهل\n• Other mutation paths (QR scan, returns) shouldn't happen on pending session (data flow requires saved deliveries first)" },
-      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx`:\n  - New `pendingSession` state\n  - `createSession` defers insert\n  - `useEffect` hydrates from pending OR sessions\n  - `useEffect` discards pending on navigation away\n  - `saveAllLocalGrid` inserts pending atomically with grid write\n  - `closeMatrix` has 3-case logic (pending+dirty / pending+clean / non-pending)\n  - `activeSess` derivation includes pending\n  - Matrix header badge + footer dirty label + save button label\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
-    ],
-  },
-  {
-    version: "V21.9.194",
-    date: "2026-05-25",
-    types: ["improvement"],
-    title: "🧹 بطاقة الخصم — شيل النسبة، خلي بس المبلغ",
-    changes: [
-      { type: "improvement", text: "🎯 Per Ahmed: نسبة الخصم في البطاقة (سواء 'متوسط X%' أو 'نسبة X%') كانت misleading لأن كل فاتورة ممكن يكون عندها rate مختلف. الـ amount لوحده هو اللي بـ يـ summarize الـ discount بدقة." },
-      { type: "improvement", text: "✅ Card subtitle بقى ثابت: 'قيمة الخصم المطبق' — مفيش نسبة. الـ amount نفسه (`discAmt`) محسوب من per-delivery aggregation فبـ يـ stay دقيق حتى لو في mixed-rate sessions.\n\nنفس التبسيط في 3 مواضع:\n• `CustDeliverPg` — Customer Statement modal card\n• `CustDeliverPg` — print template (label 'قيمة الخصم' بدون % parenthetical)\n• `CustomerPortalPage` — portal card\n\nالـ amount + balance + باقي الـ totals لـ تتغير — العملية حسابية same. التغيير cosmetic بس." },
-      { type: "architectural", text: "📁 الـ files المتأثرة (3 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — card subtitle + print template label\n• MODIFIED: `src/components/CustomerPortalPage.jsx` — portal card subtitle\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
-    ],
-  },
-  {
-    version: "V21.9.193",
-    date: "2026-05-25",
-    types: ["fix"],
-    title: "🐞 كشف حساب العميل + البورتال — يحترموا الـ per-session discount (إصلاح ضروري)",
-    changes: [
-      { type: "fix", text: "🎯 الـ bug report من Ahmed:\n\nالعميل عنده فاتورة 40% خصم + باقي الفواتير 10% — لكن كشف الحساب + البورتال كانا بـ يـ apply 10% على كل حاجة. كمان بطاقة 'إجمالي الخصم' كانت بـ تـ hardcode '10%' badge مع إن الفعلي مش 10% للكل.\n\nالـ V21.9.190 ضافت per-session override + V21.9.191 صلحت الـ sales report، لكن كشف حساب العميل (CustDeliverPg modal) والـ customer portal (API + UI) كانا متروكين بنفس الـ bug القديم." },
-      { type: "fix", text: "✅ الإصلاح في 3 مواضع متزامنة:\n\n**A. CustDeliverPg — Customer Statement modal:**\n• `pickDiscPct(entry)` helper جديد بنفس precedence: `entry.discPct → customer.discount → 10`\n• الـ aggregation اتـ refactor من 'per-model rows × single discount' إلى 'walk each delivery, sum gross + sum net'\n• `discAmt = totalValGross − totalGrossAfterDisc` (derived، مش `total × pct`)\n• `totalAfterDisc = salesAfterDisc − returnsAfterDisc` (الـ formula الجديدة الصحيحة)\n• الـ balance = `totalAfterDisc − totalPaid` (يـ match invoices)\n• `discPct` للـ display = weighted-avg effective (`1 − net/gross`)\n• `hasMixedDiscounts` flag بـ يـ detect أي delivery بـ discPct مختلف عن customer.discount\n\n**B. CustDeliverPg — بطاقة 'إجمالي الخصم':**\n• شيلت الـ '10%' badge المحفور (`discPct%` chip)\n• الـ card condition من `discPct>0` لـ `discAmt>0` (يـ trigger مع per-delivery overrides حتى لو customer.discount=0)\n• Subtitle جديد: 'متوسط الخصم: X% (خصومات مختلفة لكل فاتورة)' لما mixed، أو 'نسبة الخصم: X%' لما uniform\n• الـ print template كمان بـ يـ show 'متوسط' label\n\n**C. Customer Portal (API + UI):**\n• `api/customer-portal.js` — `pickDiscPct` helper + كل delivery/return بـ يـ enrich بـ `discPct` و `valueAfterDisc`\n• Summary بـ `totalDelValueAfterDisc` (per-entry sum) + `hasMixedDiscounts` flag\n• `CustomerPortalPage.jsx` — الـ cards دلوقتي بـ تـ trigger على `hasDiscount` (any discount > 0) بدلاً من `customer.discount > 0`\n• الـ discount card بدون hardcoded badge، بـ subtitle مرن (متوسط vs نسبة)" },
-      { type: "fix", text: "🔢 مثال الـ before/after للـ bug report:\n\n**العميل في الـ screenshot:**\n• إجمالي فواتير: 364,200 ج.م (gross)\n• فاتورة واحدة بـ 40% override، الباقي 10% default\n\n**Before V21.9.193:**\n• إجمالي الخصم: 36,420 ج.م (= 364,200 × 10%) ❌ غلط\n• Badge: '10%' ❌\n• إجمالي بعد الخصم: 327,780 ج.م ❌\n• الرصيد: 277,780 ج.م ❌\n\n**After V21.9.193:**\n• إجمالي الخصم: sum of per-delivery (40% على الـ invoice المعنية + 10% على الباقي) ✅\n• Subtitle: 'متوسط الخصم: ~12% (خصومات مختلفة لكل فاتورة)' ✅\n• إجمالي بعد الخصم + الرصيد كله يـ match الـ invoices الفعلية ✅" },
-      { type: "architectural", text: "🛡 Back-compat:\n• Legacy entries (pre-V21.9.190) بدون `discPct` → يـ fall through لـ customer.discount عبر `pickDiscPct`\n• Legacy customers بـ customer.discount=0 + سلع pre-V21.9.190 → النتائج identical لما كانت قبل\n• Old portal API responses (لو cache stale) → الـ client بـ يـ fall back للـ legacy gross × single-disc formula\n• Customers بدون per-delivery overrides → الـ numbers identical (لـ uniform discount، weighted-avg = nominal)\n\nالـ change actually-different output **فقط** للـ customers اللي عندهم mixed-discount sessions. وهؤلاء كانوا بـ يـ see numbers غلط قبل الإصلاح." },
-      { type: "architectural", text: "📁 الـ files المتأثرة (3 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — statement aggregation refactored + card UI updated + print template updated\n• MODIFIED: `api/customer-portal.js` — pickDiscPct helper + per-entry enrichment + summary fields enriched\n• MODIFIED: `src/components/CustomerPortalPage.jsx` — cards driven by hasDiscount + mixed-discount hint\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
-    ],
-  },
-  {
     version: "V21.9.192",
     date: "2026-05-25",
     types: ["improvement"],
