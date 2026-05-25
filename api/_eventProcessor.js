@@ -443,20 +443,31 @@ export async function processEvent(db, params){
     }
   }
 
-  /* V21.9.151: Quiet Hours filter — applied to owner-targeted messages.
-     Cairo local time (no DST since 2020). If start < end, quiet window is
-     [start, end). If start > end (crosses midnight), quiet window is
-     now >= start OR now < end. */
+  /* V21.9.151 / V21.9.184: Quiet Hours filter — applied to owner-targeted
+     messages. Local time per cfg.automation.timezone (default "Africa/Cairo"
+     for back-compat). If start < end, quiet window is [start, end).
+     If start > end (crosses midnight), quiet window is now >= start OR now < end.
+     V21.9.184 — invalid timezone in config silently falls back to Cairo
+     instead of throwing, so a typo in the timezone field doesn't break event
+     delivery for the whole factory. */
   const qh = cfg.automation?.quietHours;
   if (qh?.enabled && filteredRecipients.owner) {
     const parseHHMM = (s) => {
       const m = String(s || "").match(/^(\d{1,2}):(\d{2})/);
       return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : -1;
     };
-    const cairoFmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", hour12: false,
-    });
-    const parts = cairoFmt.formatToParts(new Date()).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+    const configuredTz = (cfg.automation?.timezone && String(cfg.automation.timezone).trim()) || "Africa/Cairo";
+    let tzFmt;
+    try {
+      tzFmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: configuredTz, hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+    } catch (_) {
+      tzFmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+    }
+    const parts = tzFmt.formatToParts(new Date()).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
     const nowM = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
     const startM = parseHHMM(qh.start || "21:00");
     const endM = parseHHMM(qh.end || "08:00");

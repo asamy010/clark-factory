@@ -27,6 +27,29 @@ import {
 
 const DEFAULT_BRIDGE_URL = "http://localhost:3001";
 
+/* V21.9.184: timezone preset list for the quiet-hours/daily-report
+   scheduling. Common IANA names for the regions CLARK is most likely to
+   deploy in. Any IANA timezone is accepted via the "مخصص" free-text input
+   that appears when the user picks "__custom" from the select. */
+const AUTOMATION_TZ_PRESETS = [
+  { value: "Africa/Cairo",     label: "🇪🇬 مصر (Africa/Cairo) — UTC+2" },
+  { value: "Asia/Riyadh",      label: "🇸🇦 الرياض (Asia/Riyadh) — UTC+3" },
+  { value: "Asia/Dubai",       label: "🇦🇪 دبي (Asia/Dubai) — UTC+4" },
+  { value: "Asia/Kuwait",      label: "🇰🇼 الكويت (Asia/Kuwait) — UTC+3" },
+  { value: "Asia/Qatar",       label: "🇶🇦 قطر (Asia/Qatar) — UTC+3" },
+  { value: "Asia/Bahrain",     label: "🇧🇭 البحرين (Asia/Bahrain) — UTC+3" },
+  { value: "Asia/Muscat",      label: "🇴🇲 مسقط (Asia/Muscat) — UTC+4" },
+  { value: "Asia/Amman",       label: "🇯🇴 عمان (Asia/Amman) — UTC+3 (DST)" },
+  { value: "Asia/Beirut",      label: "🇱🇧 بيروت (Asia/Beirut) — UTC+2 (DST)" },
+  { value: "Asia/Damascus",    label: "🇸🇾 دمشق (Asia/Damascus) — UTC+3 (DST)" },
+  { value: "Africa/Casablanca", label: "🇲🇦 الدار البيضاء (Africa/Casablanca) — UTC+1 (DST)" },
+  { value: "Africa/Algiers",   label: "🇩🇿 الجزائر (Africa/Algiers) — UTC+1" },
+  { value: "Africa/Tunis",     label: "🇹🇳 تونس (Africa/Tunis) — UTC+1" },
+  { value: "Africa/Khartoum",  label: "🇸🇩 الخرطوم (Africa/Khartoum) — UTC+2" },
+  { value: "Europe/Istanbul",  label: "🇹🇷 إسطنبول (Europe/Istanbul) — UTC+3" },
+  { value: "UTC",              label: "🌐 UTC" },
+];
+
 /* Helper: send a single message via the WhatsApp bridge directly from the client.
    Used by the manual "Send Test Now" button. The scheduled flow (V19.69) goes
    through the VPS cron → /api/automation-tick which calls the bridge directly,
@@ -146,6 +169,12 @@ export function AutomationPg({ data, upConfig, isMob, user }){
     if (!a.quietHours) a.quietHours = { enabled: false, start: "21:00", end: "08:00" };
     a.quietHours[field] = value;
   });
+  /* V21.9.184: top-level automation timezone — applies to BOTH quiet hours
+     window AND daily-report scheduled-send time. Default "Africa/Cairo"
+     keeps existing behavior. Setter is at automation level (not inside
+     quietHours) because the same tz drives multiple schedules. */
+  const automationTz = automation.timezone || "Africa/Cairo";
+  const setAutomationTz = (tz) => updateAutomation(a => { a.timezone = tz || "Africa/Cairo"; });
 
   /* ── V19.70: Event Triggers state + helpers ── */
   const eventTriggers = automation.eventTriggers || DEFAULT_AUTOMATION_CONFIG.eventTriggers;
@@ -778,6 +807,41 @@ export function AutomationPg({ data, upConfig, isMob, user }){
                 opacity:quietHours.enabled?1:0.5,
                 fontSize:FS, fontFamily:"inherit", width:"100%",
                 boxSizing:"border-box", color:T.text}}/>
+          </div>
+        </div>
+        {/* V21.9.184: timezone selector — applies to quiet hours AND daily report scheduled-send time */}
+        <div style={{marginTop:10}}>
+          <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:3}}>
+            المنطقة الزمنية (لحساب الساعات + ميعاد التقرير اليومي)
+          </label>
+          <select value={AUTOMATION_TZ_PRESETS.some(p=>p.value===automationTz)?automationTz:"__custom"}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__custom") {
+                /* allow free-form IANA name via the text input below */
+                setAutomationTz(automationTz || "Africa/Cairo");
+              } else {
+                setAutomationTz(v);
+              }
+            }}
+            style={{padding:"10px 14px", borderRadius:10, border:"1px solid "+T.brd,
+              background:T.cardSolid, fontSize:FS, fontFamily:"inherit", width:"100%",
+              boxSizing:"border-box", color:T.text}}>
+            {AUTOMATION_TZ_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            <option value="__custom">— مخصص (IANA name) —</option>
+          </select>
+          {!AUTOMATION_TZ_PRESETS.some(p=>p.value===automationTz) && (
+            <input type="text" value={automationTz}
+              onChange={e => setAutomationTz(e.target.value)}
+              placeholder="Africa/Cairo"
+              style={{marginTop:6, padding:"8px 12px", borderRadius:8, border:"1px solid "+T.brd,
+                background:T.cardSolid, fontSize:FS-1, fontFamily:"monospace", width:"100%",
+                boxSizing:"border-box", color:T.text, direction:"ltr"}}/>
+          )}
+          <div style={{fontSize:FS-3, color:T.textMut, marginTop:4, lineHeight:1.6}}>
+            افتراضي <code>Africa/Cairo</code>. لو غيرت لـ Asia/Riyadh أو Asia/Dubai أو غيرهم،
+            الـ Quiet Hours + ميعاد التقرير اليومي بـ يتـ احتسبوا بالـ local time للـ region ده.
+            <br/>الـ IANA codes الكاملة: <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank" rel="noopener" style={{color:T.accent}}>قائمة كاملة</a>
           </div>
         </div>
       </div>
@@ -1762,17 +1826,27 @@ function CronStatusPanel({ automation, dailyReport }){
     : null;
   const cronAlive = minutesSinceTick !== null && minutesSinceTick < 15;
 
-  /* Compute next run in Cairo time */
+  /* V21.9.184: Compute next run in the configured timezone (was hardcoded
+     Africa/Cairo). Same fallback strategy as the server side. */
+  const cronTz = (automation?.timezone && String(automation.timezone).trim()) || "Africa/Cairo";
   const nextRunInfo = (() => {
     if (!dailyReport?.enabled) return { label: "متوقف", soon: false };
     const time = dailyReport.time || "08:00";
     const m = String(time).match(/^(\d{1,2}):(\d{2})/);
     if (!m) return { label: "وقت غير صالح", soon: false };
-    /* Get current Cairo HH:MM */
-    const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    });
+    /* Get current local HH:MM in the configured tz; fall back to Cairo on bad IANA string */
+    let fmt;
+    try {
+      fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: cronTz, year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+    } catch (_) {
+      fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      });
+    }
     const parts = fmt.formatToParts(new Date()).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
     const cairoMin = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
     const schedMin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
@@ -1820,7 +1894,7 @@ function CronStatusPanel({ automation, dailyReport }){
         </span>
       </div>
       <div style={{fontSize:FS-3, color:T.textMut}}>
-        المنطقة الزمنية: Africa/Cairo (UTC+2)
+        المنطقة الزمنية: <code>{cronTz}</code>
       </div>
     </div>
     {!cronAlive && <CronSetupHelper />}

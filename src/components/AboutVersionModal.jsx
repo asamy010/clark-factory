@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.184",
+    date: "2026-05-25",
+    types: ["improvement", "architectural"],
+    title: "🌍 Configurable Timezone — Quiet Hours + Daily Report scheduling تـ adopt cfg",
+    changes: [
+      { type: "improvement", text: "🎯 الـ root issue: من V21.9.151 (Quiet Hours) و V19.69 (Daily Report cron) الـ timezone كان hardcoded على `Africa/Cairo` في api/_eventProcessor.js + api/automation-tick.js + AutomationPg's CronStatusPanel. ده يعني لو CLARK يـ deploy لـ factory في الرياض أو دبي أو إسطنبول، الـ schedules تشتغل بـ Cairo time — daily report at 08:00 Cairo = 09:00 Riyadh, quiet hours 21:00-08:00 Cairo = 22:00-09:00 Riyadh. الـ user مش لاحظ ده لأن الـ deployment الحالي بـ يحصل بس في مصر، لكن أي expansion كان هـ يـ surface bug." },
+      { type: "feature", text: "✅ الحل: top-level cfg `automation.timezone` (default \"Africa/Cairo\" — back-compat كامل). الـ field واحد لكل الـ schedules في automation:\n• `quietHours` window — الـ start/end دلوقتي بـ تتـ evaluate في الـ configured tz.\n• `dailyReport.time` — ميعاد الإرسال للـ cron tick بـ يتـ احتسب بنفس الـ tz.\n• `lastSentAt` vs today comparison — كمان بـ يـ respect الـ tz علشان \"today\" يـ match الـ user's expectation." },
+      { type: "architectural", text: "🔧 Server changes:\n• `api/automation-tick.js`: استبدال `cairoNowParts()` بـ `nowPartsInTz(tz)` مع fallback آمن لو الـ tz string invalid (typo في cfg → fallback لـ Cairo، الـ tick ما بـ يكسر). الـ alias `cairoNowParts()` لسه موجود للـ legacy. تم نقل الـ call لـ بعد cfg load علشان يقرأ الـ configured tz.\n• `alreadySentToday(lastSentAtIso, todayInTz, tz)`: استقبل tz كـ third arg، default Africa/Cairo.\n• `api/_eventProcessor.js`: الـ Quiet Hours filter دلوقتي بـ يقرأ `cfg.automation?.timezone` ويـ try/catch لـ fallback آمن." },
+      { type: "feature", text: "🎛️ UI changes في AutomationPg → quietHours card:\n• Dropdown جديد بـ 16 preset (مصر، السعودية، الإمارات، الكويت، قطر، البحرين، عُمان، الأردن، لبنان، سوريا، المغرب، الجزائر، تونس، السودان، تركيا، UTC).\n• خيار '— مخصص (IANA name) —' بـ يـ unlock text input لـ custom IANA name (Asia/Tokyo, America/New_York, إلخ).\n• الـ helper text بـ يـ link لـ Wikipedia's IANA tz list.\n• CronStatusPanel: الـ 'المنطقة الزمنية' في الـ footer دلوقتي بـ يـ display الـ configured tz بدل 'Africa/Cairo (UTC+2)' المحفور." },
+      { type: "architectural", text: "🛡 Defense-in-depth: invalid IANA names (typos) تـ silently fall back لـ Africa/Cairo بدلاً من throw. السبب: لو الـ user كتب 'Asia/Riyad' بدل 'Asia/Riyadh' في الـ free-text input، الـ cron tick ما يـ crash — هـ يـ run بـ Cairo time + يرجع `tzFallback: { requested, usedDefault }` في الـ response. الـ admin يقدر يـ inspect عن طريق /api/automation-tick output ويـ correct الـ typo." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (4 modified):\n• MODIFIED: `api/automation-tick.js` — `nowPartsInTz(tz)` + `alreadySentToday(..., tz)` + caller reads `automation.timezone`\n• MODIFIED: `api/_eventProcessor.js` — Quiet Hours filter بـ يقرأ الـ configured tz مع try/catch fallback\n• MODIFIED: `src/pages/AutomationPg.jsx` — `AUTOMATION_TZ_PRESETS` constant + timezone selector + custom IANA input + CronStatusPanel display\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)." },
+      { type: "architectural", text: "🛡️ Pushback context: ده الـ third والأخير من الـ 3 changes الآمنين المتفق عليها في الـ session ده (Custom role validation + Bridge token proxy + Configurable timezone). كل واحدة شـ تـ ship لوحدها على version مستقلة علشان الـ verification gate بينهم يكون ممكن في Vercel. التوصيات الـ medium/high risk (App.jsx refactor + staging slot + Cypress + COGS void+repost + automation atomicity) لسه pending — كل واحدة منهم تحتاج design discussion قبل الـ implementation."},
+    ],
+  },
+  {
     version: "V21.9.183",
     date: "2026-05-25",
     types: ["architectural", "improvement"],

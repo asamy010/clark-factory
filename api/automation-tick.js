@@ -70,23 +70,61 @@ async function checkAuth(req) {
   return { ok: false, status: 401, error: "Unauthorized" };
 }
 
-/* ─── Cairo time helpers ───
-   Africa/Cairo is UTC+2 year-round (no DST since 2020).
-   We use Intl.DateTimeFormat to convert reliably regardless of VPS timezone. */
-function cairoNowParts() {
+/* ─── Local-time helpers ───
+   V21.9.184: timezone is configurable via cfg.automation.timezone (default
+   "Africa/Cairo"). Africa/Cairo has no DST since 2020 so UTC+2 year-round,
+   but other regions (Asia/Riyadh, Asia/Dubai, Europe/Istanbul, ...) need
+   different offsets. We use Intl.DateTimeFormat to convert reliably
+   regardless of VPS timezone OR the configured target timezone.
+
+   Why parametrize and not just store a UTC offset: DST. Even though Egypt
+   doesn't observe DST anymore, customers in other timezones (Europe,
+   Australia) do — UTC offsets drift twice a year. IANA timezone names
+   (Africa/Cairo, Asia/Riyadh, ...) handle this automatically via the
+   tzdata bundled with Node.js. */
+const DEFAULT_TIMEZONE = "Africa/Cairo";
+
+function nowPartsInTz(tz) {
+  const zone = tz || DEFAULT_TIMEZONE;
   const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hour12: false,
-  });
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    });
+  } catch (e) {
+    /* Invalid IANA name (typo in cfg) → fall back to Cairo so the tick
+       doesn't crash. Caller can detect via the `tzFallback` flag. */
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: DEFAULT_TIMEZONE,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(now).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
+    return {
+      date: `${parts.year}-${parts.month}-${parts.day}`,
+      time: `${parts.hour}:${parts.minute}`,
+      minutesOfDay: parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10),
+      iso: now.toISOString(),
+      tzFallback: true,
+      requestedTz: zone,
+    };
+  }
   const parts = fmt.formatToParts(now).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
-  const date = `${parts.year}-${parts.month}-${parts.day}`;
-  const time = `${parts.hour}:${parts.minute}`;
-  const minutesOfDay = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
-  return { date, time, minutesOfDay, iso: now.toISOString() };
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+    minutesOfDay: parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10),
+    iso: now.toISOString(),
+  };
 }
+
+/* Backward-compat alias — old callers that don't yet know about tz. */
+function cairoNowParts() { return nowPartsInTz(DEFAULT_TIMEZONE); }
 
 /* Time string "HH:MM" → minutes-of-day */
 function timeToMinutes(t) {
@@ -95,19 +133,19 @@ function timeToMinutes(t) {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
 }
 
-/* Has a previous send already covered today (Cairo)? */
-function alreadySentToday(lastSentAtIso, cairoToday) {
+/* Has a previous send already covered today in the given timezone? */
+function alreadySentToday(lastSentAtIso, todayInTz, tz) {
   if (!lastSentAtIso) return false;
-  /* Convert lastSentAt to Cairo date */
+  const zone = tz || DEFAULT_TIMEZONE;
   try {
     const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Cairo",
+      timeZone: zone,
       year: "numeric", month: "2-digit", day: "2-digit",
     });
     const parts = fmt.formatToParts(new Date(lastSentAtIso))
       .reduce((a, p) => { a[p.type] = p.value; return a; }, {});
     const lastDate = `${parts.year}-${parts.month}-${parts.day}`;
-    return lastDate === cairoToday;
+    return lastDate === todayInTz;
   } catch (_) { return false; }
 }
 
@@ -1431,17 +1469,29 @@ export default async function handler(req, res) {
 
   try {
     const db = getDb();
-    const cairo = cairoNowParts();
-    result.cairoTime = `${cairo.date} ${cairo.time}`;
 
     /* Read minimum needed to decide if anything is due */
     const cfgSnap = await db.collection("factory").doc("config").get();
     if (!cfgSnap.exists) {
       await updateTickHeartbeat(db);
-      return res.status(200).json({ ...result, note: "factory/config not found" });
+      const cairoDefault = nowPartsInTz(DEFAULT_TIMEZONE);
+      return res.status(200).json({ ...result, cairoTime: `${cairoDefault.date} ${cairoDefault.time}`, note: "factory/config not found" });
     }
     const cfg = cfgSnap.data();
     const automation = cfg.automation || {};
+
+    /* V21.9.184: read configured timezone (default "Africa/Cairo"). All
+       schedule comparisons (daily report time, lastSentAt-vs-today) use
+       this tz so a factory in Riyadh/Dubai gets schedules in their local
+       time, not Egyptian time. Kept variable name `cairo` for blame stability
+       — but the contents now reflect the configured tz. */
+    const configuredTz = (automation.timezone && String(automation.timezone).trim()) || DEFAULT_TIMEZONE;
+    const cairo = nowPartsInTz(configuredTz);
+    result.cairoTime = `${cairo.date} ${cairo.time}`;
+    result.timezone = configuredTz;
+    if (cairo.tzFallback) {
+      result.tzFallback = { requested: cairo.requestedTz, usedDefault: DEFAULT_TIMEZONE };
+    }
     const dailyReport = automation.dailyReport || {};
     const recipients = (automation.recipients || []).filter(r =>
       r && r.phone &&
@@ -1463,7 +1513,7 @@ export default async function handler(req, res) {
       const scheduledMin = timeToMinutes(dailyReport.time || "08:00");
       if (scheduledMin < 0) {
         dailyReason = "invalid-time";
-      } else if (alreadySentToday(dailyReport.lastSentAt, cairo.date)) {
+      } else if (alreadySentToday(dailyReport.lastSentAt, cairo.date, configuredTz)) {
         dailyReason = "already-sent-today";
       } else if (!isManualTrigger && cairo.minutesOfDay < scheduledMin) {
         /* Time check only applies to cron triggers. Manual-admin bypass it. */
