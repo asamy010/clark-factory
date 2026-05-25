@@ -136,6 +136,21 @@ export default async function handler(req, res) {
     return prefs[category] !== false;
   });
 
+  /* V21.9.177 (Slice 11) — Quiet hours, same logic as /send. */
+  if (urgency !== "high") {
+    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const hhmm = String(nowCairo.getUTCHours()).padStart(2, "0") + ":" +
+                 String(nowCairo.getUTCMinutes()).padStart(2, "0");
+    candidates = candidates.filter(s => {
+      const qh = s.quietHours;
+      if (!qh || !qh.enabled) return true;
+      const from = String(qh.from || "22:00");
+      const to = String(qh.to || "07:00");
+      if (from < to) return hhmm < from || hhmm >= to;
+      return hhmm < from && hhmm >= to;
+    });
+  }
+
   if (candidates.length === 0) {
     return res.status(200).json({
       ok: true, sentTo: 0, successCount: 0, failureCount: 0,

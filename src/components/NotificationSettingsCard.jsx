@@ -343,6 +343,66 @@ export function NotificationSettingsCard({
         </div>
       )}
 
+      {/* Quiet Hours — V21.9.177 (Slice 11) */}
+      {hasAnySubscription && cur && (
+        <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: T.bg, border: "1px solid " + T.brd }}>
+          <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 6, fontWeight: 700 }}>🌙 ساعات الهدوء</div>
+          <div style={{ fontSize: FS - 3, color: T.textSec, marginBottom: 8 }}>
+            خلال الفترة دي، الإشعارات العادية ما تظهرش — التحذيرات العاجلة فقط بـ توصل
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FS - 1, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={!!cur.quietHours?.enabled}
+              onChange={async (e) => {
+                try {
+                  const { doc, updateDoc } = await import("firebase/firestore");
+                  const ref = doc(db, "notificationSubscriptions", cur.id);
+                  await updateDoc(ref, {
+                    "quietHours.enabled": e.target.checked,
+                    ...(cur.quietHours?.from ? {} : { "quietHours.from": "22:00" }),
+                    ...(cur.quietHours?.to   ? {} : { "quietHours.to":   "07:00" }),
+                  });
+                  showToast(e.target.checked ? "✓ تم تفعيل ساعات الهدوء" : "✓ تم إيقاف ساعات الهدوء");
+                } catch (err) { tell("تعذر التحديث", String(err?.message || err), { danger: true }); }
+              }}
+              style={{ accentColor: T.accent, transform: "scale(1.2)" }}
+            />
+            تفعيل ساعات الهدوء
+          </label>
+          {cur.quietHours?.enabled && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>من</label>
+                <Inp
+                  type="time"
+                  value={cur.quietHours?.from || "22:00"}
+                  onChange={async (v) => {
+                    try {
+                      const { doc, updateDoc } = await import("firebase/firestore");
+                      await updateDoc(doc(db, "notificationSubscriptions", cur.id), { "quietHours.from": v });
+                    } catch (_) { /* ignore */ }
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>إلى</label>
+                <Inp
+                  type="time"
+                  value={cur.quietHours?.to || "07:00"}
+                  onChange={async (v) => {
+                    try {
+                      const { doc, updateDoc } = await import("firebase/firestore");
+                      await updateDoc(doc(db, "notificationSubscriptions", cur.id), { "quietHours.to": v });
+                    } catch (_) { /* ignore */ }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Device list */}
       {devices.length > 0 && (
         <div style={{ marginBottom: 12 }}>

@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.177",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slices 9+11/14: Rich actions + Quiet hours",
+    changes: [
+      { type: "feature", text: "Slice 11 — Quiet Hours: المستخدم يقدر دلوقتي يحدد فترة هدوء يومية (مثلاً 22:00 → 07:00). الإشعارات العادية بـ تتـ filter في الفترة دي، **لكن** الـ urgency='high' (warnings) بـ يتجاوزها — الـ critical events لازم توصل حتى في الليل.\n\nServer-side enforcement في `/api/notifications/send` و `/send-internal`:\n• الـ Cairo time محسوب من UTC+2 (مصر مفيش DST منذ 2015)\n• يـ support windows عابرة لمنتصف الليل (22:00 → 07:00) + windows داخل نفس اليوم (13:00 → 14:00 lunch)\n\nUI في NotificationSettingsCard: section '🌙 ساعات الهدوء' بـ toggle + time pickers لـ from/to. الـ Firestore updates مباشرة عبر dot-path (`quietHours.enabled`, `quietHours.from`, `quietHours.to`)." },
+      { type: "feature", text: "Slice 9 — Rich actions: الـ `/send` endpoint دلوقتي يـ accept `actions` array (max 2 per Web Push spec):\n```json\n\"actions\": [\n  {\"action\": \"approve\", \"title\": \"موافقة\", \"url\": \"/?tab=approvals&id=...\"},\n  {\"action\": \"reject\", \"title\": \"رفض\", \"url\": \"/?tab=approvals&id=...&reject=1\"}\n]\n```\n\nالـ payload بـ يـ store الـ action URLs في `data.actions[<actionKey>]` فالـ SW notificationclick handler (Slice 1) يقدر يـ route الـ click. Action buttons بـ تظهر على Android بشكل native — على iOS الـ behavior بـ يـ vary (lock-screen actions limited).\n\nTag-based grouping: لو الـ caller بـ يـ pass `tag`، notifications بـ نفس الـ tag بـ يـ replace بعض في الـ notification center بدل ما يـ stack. مفيد لـ summary updates (مثلاً tag='treasury-daily' → بس آخر summary يظهر)." },
+      { type: "doc", text: "بعد V21.9.177 الـ feature بـ يـ behave بمستوى احترافي:\n• User control: per-category + quiet hours + multi-device + revoke\n• Privacy: lock-screen-safe payloads\n• UX: rich actions + tag grouping + deep linking\n• System: dedup + throttle + invalid token cleanup + audit history\n\nباقي 3 slices: Slice 10 (cron daily summary)، Slice 12 (WhatsApp fallback)، Slice 13 (analytics)، Slice 14 (docs)." },
+    ],
+  },
+  {
     version: "V21.9.176",
     date: "2026-05-24",
     types: ["feature"],

@@ -159,6 +159,32 @@ export default async function handler(req, res) {
     return prefs[category] !== false;
   });
 
+  /* V21.9.177 (Slice 11) — Quiet hours enforcement.
+     If the user has quietHours.enabled in their subscription, skip sending
+     when the current Cairo time falls within their from-to window.
+     EXCEPTION: high urgency notifications (warnings) bypass quiet hours —
+     critical events must reach the user even at night. */
+  if (urgency !== "high") {
+    /* Cairo time HH:MM — Egypt has no DST since 2015 so UTC+02:00 is safe. */
+    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const hhmm = String(nowCairo.getUTCHours()).padStart(2, "0") + ":" +
+                 String(nowCairo.getUTCMinutes()).padStart(2, "0");
+    candidates = candidates.filter(s => {
+      const qh = s.quietHours;
+      if (!qh || !qh.enabled) return true;
+      const from = String(qh.from || "22:00");
+      const to = String(qh.to || "07:00");
+      /* Window may cross midnight (22:00 → 07:00). Two cases:
+         - from < to: simple range (e.g. 13:00 → 14:00 lunch break)
+         - from > to: crosses midnight (e.g. 22:00 → 07:00 sleep) */
+      if (from < to) {
+        return hhmm < from || hhmm >= to;  /* OUTSIDE window = OK to send */
+      } else {
+        return hhmm < from && hhmm >= to;  /* OUTSIDE window = OK to send */
+      }
+    });
+  }
+
   if (candidates.length === 0) {
     return res.status(200).json({
       ok: true,
@@ -179,14 +205,43 @@ export default async function handler(req, res) {
      for the SW's `push` event (which then calls showNotification with
      RTL Arabic + actions). The SW's handler ignores notification block
      when payload.title is present — it builds its own from the data. */
+  /* V21.9.177 (Slice 9) — Rich notifications: actions + tag-based grouping.
+     `actions` is an array of {action, title} (max 2 per FCM/Web Push spec).
+     Each action's click target URL must be in data.actions[<action>] so the
+     SW notificationclick handler can route. */
+  const actions = Array.isArray(body.actions)
+    ? body.actions.slice(0, 2).filter(a => a && a.action && a.title).map(a => ({
+        action: String(a.action).slice(0, 50),
+        title: String(a.title).slice(0, 50),
+        ...(a.icon ? { icon: String(a.icon) } : {}),
+      }))
+    : [];
+
+  /* Action URL routing — collect in data.actions so SW can look them up */
+  const actionUrls = (body.actions && typeof body.actions === "object")
+    ? body.actions.reduce((acc, a) => {
+        if (a && a.action && a.url) acc[a.action] = String(a.url);
+        return acc;
+      }, {})
+    : {};
+
   const payloadJson = JSON.stringify({
     title,
     body: bodyText,
     icon: body.icon || "/icon-192.png",
     badge: "/icon-192.png",
     image: body.image || undefined,
+    /* V21.9.177: explicit tag for grouping. If caller passes tag, similar
+       notifications replace each other. e.g. tag='treasury-summary' means
+       only the latest summary stays visible — no notification stacking. */
     tag: body.tag || (category + "_" + Date.now()),
-    data: { ...dataPayload, category, _sentAt: new Date().toISOString() },
+    data: {
+      ...dataPayload,
+      category,
+      actions: actionUrls,  /* SW reads to route action clicks */
+      _sentAt: new Date().toISOString(),
+    },
+    actions,
     urgency,
   });
 
@@ -206,7 +261,8 @@ export default async function handler(req, res) {
         tokens: chunk,
         /* notification block — fallback when SW isn't active */
         notification: { title, body: bodyText },
-        /* data block — SW reads this to build the rich notification */
+        /* data block — SW reads this to build the rich notification.
+           V21.9.177: payload now includes actions + actionUrls for routing. */
         data: { payload: payloadJson },
         /* webpush-specific options */
         webpush: {
