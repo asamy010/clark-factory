@@ -20,9 +20,16 @@ import { PartyLedgerTab } from "../components/accounting/PartyLedgerTab.jsx";
 import { PaymentsTab } from "../components/accounting/PaymentsTab.jsx";
 import { AgingReportTab } from "../components/accounting/AgingReportTab.jsx";
 import { AccountingSettingsTab } from "../components/accounting/AccountingSettingsTab.jsx";
+/* V21.9.187: Odoo-style accounting dashboard (read-only overview with charts). */
+import { DashboardTab } from "../components/accounting/DashboardTab.jsx";
 import { readDayRange } from "../utils/accounting/dayDoc.js";
 
 const TAB_DEFS = [
+  /* V21.9.187: dashboard tab as the default landing — Odoo-style cards
+     with stats + weekly bar charts. Reads existing in-memory `data`
+     (sales/purchase invoices, checks, treasury, fixed assets) — no
+     async loading, no writes. Pure overview. */
+  {key:"dashboard",label:"لوحة البيانات", icon:"📊"},
   {key:"coa",      label:"شجرة الحسابات", icon:"🌳"},
   {key:"journal",  label:"دفتر اليومية",  icon:"📔"},
   {key:"tb",       label:"ميزان المراجعة", icon:"⚖️"},
@@ -52,7 +59,10 @@ function useToast(){
 }
 
 export function AccountingPg({data, config, upConfig, isMob, user}){
-  const [active, setActive] = useState("coa");
+  /* V21.9.187: default tab is now the dashboard (was "coa"). The dashboard
+     is read-only and lightweight — gives the user a financial overview on
+     entry rather than dropping them into the Chart of Accounts editor. */
+  const [active, setActive] = useState("dashboard");
   const [showToast, ToastNode] = useToast();
   const winW = useWin();
   const isPhone = winW < 720;
@@ -145,6 +155,12 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
     )}
 
     {/* Tab body */}
+    {/* V21.9.187: dashboard — Odoo-style overview cards with charts */}
+    {active === "dashboard" && <DashboardTab
+      data={data} config={config}
+      T={T} FS={FS} isMob={isMob}
+      setActive={setActive}
+    />}
     {active === "coa" && <ChartOfAccountsTab
       coa={coa} allEntries={allEntries} upConfig={upConfig}
       T={T} FS={FS} isMob={isMob} showToast={showToast} userName={userName}

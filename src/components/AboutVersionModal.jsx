@@ -25,6 +25,21 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.187",
+    date: "2026-05-25",
+    types: ["feature"],
+    title: "📊 المحاسبة — لوحة بيانات Odoo-style (7 cards + bar charts)",
+    changes: [
+      { type: "feature", text: "🎯 الـ feature: tab جديد 'لوحة البيانات' فوق tabs المحاسبة (الـ default tab الجديدة بدل 'شجرة الحسابات'). 7 cards بـ stats + weekly bar charts بـ تصميم Odoo-style — left-accent stripe + colored numbers + mini chart بـ آخر 7 أسابيع." },
+      { type: "feature", text: "✅ الـ 7 cards:\n• 📤 المبيعات — draft/posted/voided counts + إجمالي مرحّل + bar chart بـ weekly totals (emerald #10B981)\n• 📥 المشتريات — نفس الـ shape (purple #8B5CF6)\n• 🟡 شيكات قبض — في الخزنة / تم تحصيله / مرتجع + رصيد pending (amber #F59E0B)\n• 🔴 شيكات دفع — في الخزنة / تم الصرف + رصيد pending (red #EF4444)\n• 💵 الخزينة — الرصيد الحالي + حركات الشهر (وارد/منصرف) + إجمالي العمليات (blue #0EA5E9)\n• 🏭 الأصول الثابتة — count + cost + accumulated depreciation + NBV (teal #14B8A6)\n• 📔 متنوع · القيود اليدوية — عدد حسابات COA + navigation shortcuts (slate #64748B)" },
+      { type: "improvement", text: "🚀 Performance: zero async loading. الـ data كلها بـ تـ read من الـ in-memory `data` prop (sales/purchase invoices, checks, treasury, fixed assets — كلهم بـ يـ auto-merged من الـ split collections via syncAllSplitChanges في App.jsx). الـ dashboard بـ يـ open instantly، مفيش spinner، مفيش Firestore calls." },
+      { type: "improvement", text: "🎨 Card design:\n• Left-accent stripe بـ لون الـ metric type — 4px width على inline-start edge\n• Colored title بنفس لون الـ stripe\n• Stat lines بـ colored numbers + monospace font للأرقام\n• 'المعاملات' / 'إدارة الشيكات' / 'إدارة الأصول' button فوق-يمين بـ hover state\n• Mini bar chart بـ recharts (BarChart + ResponsiveContainer + custom Tooltip) — آخر 7 أسابيع، Sat-Fri buckets، Arabic month labels (e.g., '8 - 14 يونيو')\n• Chart بـ يخفى تلقائياً لو مفيش activity (all zeros)" },
+      { type: "improvement", text: "🔗 Navigation: كل card عنده زرار 'المعاملات' بـ يـ dispatch `goto-tab` event لـ App.jsx (الـ standard CLARK pattern):\n• المبيعات → salesInvoices tab\n• المشتريات → purchaseInvoices tab\n• الخزينة + الشيكات → treasury tab\n• الأصول الثابتة → fixedAssets tab\n• القيود اليدوية → setActive('journal') داخل AccountingPg\n• إضافي في card متنوع: ميزان المراجعة + القوائم المالية + تقادم الديون buttons" },
+      { type: "architectural", text: "📋 الـ scope (Phase 1 + Phase 2 من الـ 3 phases المتفق عليهم):\n• Phase 1 ✅: cards + colored stats + navigation\n• Phase 2 ✅: bar charts بـ weekly bucketing\n• Phase 3 ❌ (مؤجل): 'جديد' buttons بـ تـ open create forms في الـ target pages — يحتاج تغييرات في الـ navigation system لـ pass action context" },
+      { type: "architectural", text: "📁 الـ files المتأثرة (2 جديد + 1 modified + 3 version):\n• NEW: `src/components/accounting/DashboardTab.jsx` (~380 سطر) — DashCard primitive + 7 metric cards + bucketWeekly helper + ChartTooltip\n• MODIFIED: `src/pages/AccountingPg.jsx` — أضاف 'dashboard' في TAB_DEFS كـ first item + default active = 'dashboard'\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)\n\nمفيش changes في data shape، مفيش writes جديدة، مفيش async loading — pure read-only overview tab." },
+    ],
+  },
+  {
     version: "V21.9.186",
     date: "2026-05-25",
     types: ["feature", "improvement"],
