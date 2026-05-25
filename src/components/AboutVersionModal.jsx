@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.186",
+    date: "2026-05-25",
+    types: ["feature", "improvement"],
+    title: "🗂 المستندات — Tree Sidebar زي Odoo (هرمي + قابل للـ expand)",
+    changes: [
+      { type: "feature", text: "🎯 الـ requirement: Ahmed طلب نـ change الـ Documents page من card-based drill-down إلى Odoo-style tree sidebar على اليمين (RTL) — يشوف كل الـ hierarchy في مرة واحدة بدلاً من التنقل folder بـ folder." },
+      { type: "feature", text: "✅ Sidebar جديد على اليمين (260px ثابت في desktop، collapsible drawer في mobile):\n\n**3 أقسام خاصة فوق:**\n• 🏠 الكل — الجذر (top-level folders + files)\n• ⏱ حديث — الملفات اللي اتـ رفعت في آخر 30 يوم (across the whole tree)\n• 🗑️ سلة المهملات — view المهملات (موجود قبل، اتنقل من زرار في الـ header)\n\nكل واحد بـ badge بـ الـ count.\n\n**Tree منـ folders:** recursive بـ indent يـ grow مع depth، chevron ▶ بـ يـ rotate عند فتح folder، الـ active folder highlighted بـ لون الـ folder، file count لكل folder كـ badge صغير." },
+      { type: "improvement", text: "🔄 Auto-expand path: لما الـ user يـ select folder عميق (مثلاً من الـ breadcrumb في الـ main area أو من folder card)، الـ tree بـ يـ auto-expand كل الـ ancestors علشان الـ path يبان كامل. مفيش collapse تلقائي — لو الـ user فتح branch، يفضل مفتوح." },
+      { type: "feature", text: "📱 Mobile: الـ sidebar يـ become drawer قابل للـ toggle بـ زرار '🗂 عرض شجرة المجلدات' فوق. لما الـ user يـ select folder من الـ drawer، الـ drawer بـ يـ auto-close — clean UX." },
+      { type: "improvement", text: "🎨 Header dynamic: الـ Card title بـ يـ adapt مع الـ view:\n• الجذر → '📁 المستندات'\n• folder محدد → الـ folder icon + name\n• recent → '⏱ الملفات الحديثة (آخر 30 يوم)'\n• trash → '🗑️ سلة المهملات'\n\nالـ '➕ مجلد جديد' في الـ sidebar بـ يـ تـ smart-label بـ '(فرعي)' أو '(جذر)' حسب الـ current folder." },
+      { type: "architectural", text: "🔧 Implementation:\n• Helper component جديد `TreeNode` (recursive) — renders folder row + descendants بـ depth-based indent\n• 3 states جديدة: `recentView` boolean، `expandedFolders` Set<folderId>، `sidebarOpen` boolean (mobile drawer)\n• useEffect بـ يـ watch currentFolderId — auto-expand ancestors لما الـ user يـ navigate لـ folder عميق\n• `selectFolderFromTree` callback بـ يـ handle الـ selection (sets currentFolderId, clears trash/recent, closes mobile drawer)\n• `currentFiles` useMemo extended لـ handle recent view (last 30 days, not deleted)\n• `folderFileCounts` useMemo — per-folder direct file count للـ badges\n• الـ existing card grid في الـ main area لسه موجود زي ما هو — الـ user يقدر يفضل يستخدم الـ folder cards للـ drill-down (الـ tree والـ cards بـ يـ stay in sync)" },
+      { type: "architectural", text: "📁 الـ files المتأثرة (4 modified):\n• MODIFIED: `src/pages/DocumentsPg.jsx` — 746 → 1045 سطر (+ TreeNode component, + tree sidebar state/effects, + flex layout wrap, + dynamic title, + recent view logic)\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
+      { type: "architectural", text: "🛡 الـ scope الـ minimal: UI redesign فقط، مفيش data shape change. الـ `cfg.documentsTree.folders[]/files[]` نفسهم. كل الـ CRUD operations (createFolder/renameFolder/deleteFolder/uploadFiles/moveFile/softDelete/restore/hardDelete) ما اتلمسوش — بـ يـ continue work زي قبل. الـ tree بس بـ يـ visualize الـ data بـ شكل تاني." },
+    ],
+  },
+  {
     version: "V21.9.185",
     date: "2026-05-25",
     types: ["fix", "architectural"],

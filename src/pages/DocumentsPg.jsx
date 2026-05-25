@@ -18,7 +18,7 @@
      documents/.thumbnails/{fileId}.jpg             — Slice 5
    ═══════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { FS } from "../constants/index.js";
 import { T } from "../theme.js";
 import { gid } from "../utils/format.js";
@@ -111,6 +111,88 @@ function buildBreadcrumbs(folders, folderId) {
   return crumbs;
 }
 
+/* V21.9.186 — TreeNode (recursive).
+   Renders one folder + its descendants. Indent grows with depth. Click on the
+   row sets it as the current folder; click on the chevron toggles expand. */
+function TreeNode({ folder, allFolders, depth, fileCounts, currentFolderId, expanded, onToggle, onSelect }) {
+  const children = allFolders
+    .filter(f => (f.parentId || null) === folder.id)
+    .sort((a, b) =>
+      (a.orderIndex || 0) - (b.orderIndex || 0) ||
+      (a.name || "").localeCompare(b.name || "", "ar")
+    );
+  const hasChildren = children.length > 0;
+  const isOpen = expanded.has(folder.id);
+  const isActive = folder.id === currentFolderId;
+  const count = fileCounts[folder.id] || 0;
+  return (
+    <div>
+      <div
+        onClick={() => onSelect(folder.id)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 8px",
+          paddingInlineStart: 8 + depth * 14,
+          borderRadius: 6,
+          cursor: "pointer",
+          background: isActive ? (folder.color || "#8B5CF6") + "18" : "transparent",
+          color: isActive ? (folder.color || "#8B5CF6") : T.text,
+          fontWeight: isActive ? 700 : 500,
+          fontSize: FS - 1,
+          transition: "background 0.1s",
+        }}
+        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = T.bg; }}
+        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
+      >
+        {hasChildren ? (
+          <span
+            onClick={(e) => { e.stopPropagation(); onToggle(folder.id); }}
+            style={{
+              fontSize: 10, color: T.textMut, cursor: "pointer",
+              width: 14, display: "inline-flex", alignItems: "center", justifyContent: "center",
+              transform: isOpen ? "rotate(90deg)" : "none",
+              transition: "transform 0.15s",
+            }}
+            title={isOpen ? "طي" : "فتح"}
+          >▶</span>
+        ) : (
+          <span style={{ width: 14, display: "inline-block" }} />
+        )}
+        <span style={{ fontSize: 14 }}>{folder.icon || "📁"}</span>
+        <span style={{
+          flex: 1, minWidth: 0,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>{folder.name}</span>
+        {count > 0 && (
+          <span style={{
+            fontSize: FS - 4, fontWeight: 600,
+            color: isActive ? (folder.color || "#8B5CF6") : T.textMut,
+            background: isActive ? (folder.color || "#8B5CF6") + "20" : T.bg,
+            padding: "1px 6px", borderRadius: 8, minWidth: 18, textAlign: "center",
+          }}>{count}</span>
+        )}
+      </div>
+      {hasChildren && isOpen && (
+        <div>
+          {children.map(c => (
+            <TreeNode
+              key={c.id}
+              folder={c}
+              allFolders={allFolders}
+              depth={depth + 1}
+              fileCounts={fileCounts}
+              currentFolderId={currentFolderId}
+              expanded={expanded}
+              onToggle={onToggle}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   const tree = data.documentsTree || { folders: [], files: [] };
   const folders = Array.isArray(tree.folders) ? tree.folders : [];
@@ -128,6 +210,45 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
 
+  /* ── V21.9.186 — Tree sidebar state ──
+     `recentView` is a virtual folder: shows files from the last 30 days
+     across the entire tree. Mutually exclusive with currentFolderId/showTrash.
+     `expandedFolders` is a Set<folderId> of folders that are open in the tree.
+     `sidebarOpen` controls mobile drawer visibility (always-on desktop). */
+  const [recentView, setRecentView] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState(() => new Set());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const toggleFolderExpand = useCallback((folderId) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+  /* When user navigates to a deep folder, auto-expand all ancestors so the
+     tree highlights the path. Doesn't collapse anything already open. */
+  useEffect(() => {
+    if (!currentFolderId) return;
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      let cur = folders.find(f => f.id === currentFolderId);
+      while (cur && cur.parentId) {
+        next.add(cur.parentId);
+        cur = folders.find(f => f.id === cur.parentId);
+      }
+      return next;
+    });
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [currentFolderId]);
+  /* Mobile: close drawer after a selection */
+  const selectFolderFromTree = useCallback((folderId) => {
+    setCurrentFolderId(folderId);
+    setShowTrash(false);
+    setRecentView(false);
+    if (isMob) setSidebarOpen(false);
+  }, [isMob]);
+
   /* Computed: child folders of the current folder. */
   const currentFolders = useMemo(() =>
     folders.filter(f => (f.parentId || null) === currentFolderId)
@@ -135,11 +256,16 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                             (a.name || "").localeCompare(b.name || "", "ar")),
     [folders, currentFolderId]);
 
-  /* Computed: files in the current folder (or trash view). */
+  /* Computed: files in the current folder (or trash / recent view).
+     V21.9.186: added recentView — files from the last 30 days across the
+     entire tree, sorted newest-first. Mutually exclusive with showTrash. */
   const currentFiles = useMemo(() => {
     let result = files;
     if (showTrash) {
       result = result.filter(f => !!f.deletedAt);
+    } else if (recentView) {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      result = result.filter(f => !f.deletedAt && (f.uploadedAt || "") >= thirtyDaysAgo);
     } else {
       result = result.filter(f => !f.deletedAt && (f.folderId || null) === currentFolderId);
     }
@@ -153,7 +279,35 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
     return result.sort((a, b) =>
       (b.uploadedAt || "").localeCompare(a.uploadedAt || "")
     );
-  }, [files, currentFolderId, search, showTrash]);
+  }, [files, currentFolderId, search, showTrash, recentView]);
+
+  /* V21.9.186 — per-folder active file count for the tree badges.
+     Computed once over the file list. Includes files DIRECTLY in the folder
+     (not recursive — Odoo's tree shows direct count, descendants are seen
+     by expanding). */
+  const folderFileCounts = useMemo(() => {
+    const counts = {};
+    for (const f of files) {
+      if (f.deletedAt) continue;
+      const k = f.folderId || "__root__";
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return counts;
+  }, [files]);
+
+  /* Top-level folders (parentId null) for the tree's root level */
+  const rootFolders = useMemo(() =>
+    folders.filter(f => !f.parentId)
+           .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0) ||
+                            (a.name || "").localeCompare(b.name || "", "ar")),
+    [folders]);
+
+  /* Counts for the 3 special sidebar entries */
+  const recentCount = useMemo(() => {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    return files.filter(f => !f.deletedAt && (f.uploadedAt || "") >= cutoff).length;
+  }, [files]);
+  const rootFileCount = folderFileCounts.__root__ || 0;
 
   const breadcrumbs = useMemo(() =>
     currentFolderId ? buildBreadcrumbs(folders, currentFolderId) : [],
@@ -502,19 +656,160 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
 
   /* ─────────── RENDER ─────────── */
 
+  /* V21.9.186 — dynamic card title based on view (root/folder/recent/trash) */
+  const activeFolder = currentFolderId ? folders.find(f => f.id === currentFolderId) : null;
+  const cardTitle = showTrash
+    ? "🗑️ سلة المهملات"
+    : recentView
+      ? "⏱ الملفات الحديثة (آخر 30 يوم)"
+      : activeFolder
+        ? (activeFolder.icon || "📁") + " " + activeFolder.name
+        : "📁 المستندات";
+
+  /* V21.9.186 — Tree sidebar component (inline). Right-side panel in RTL. */
+  const TreeSidebar = () => (
+    <aside style={{
+      width: isMob ? "100%" : 260,
+      flexShrink: 0,
+      background: T.cardSolid,
+      border: "1px solid " + T.brd,
+      borderRadius: 12,
+      padding: 10,
+      maxHeight: isMob ? "60vh" : "calc(100vh - 90px)",
+      overflowY: "auto",
+      position: isMob ? "static" : "sticky",
+      top: 8,
+    }}>
+      <div style={{
+        fontSize: FS - 2, fontWeight: 700, color: T.textMut,
+        padding: "4px 8px", marginBottom: 6, letterSpacing: "0.5px",
+      }}>📂 شجرة المستندات</div>
+
+      {/* Special: Root (All) */}
+      <div
+        onClick={() => { setCurrentFolderId(null); setShowTrash(false); setRecentView(false); if (isMob) setSidebarOpen(false); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 10px", borderRadius: 6, cursor: "pointer",
+          background: (!currentFolderId && !showTrash && !recentView) ? "#8B5CF618" : "transparent",
+          color: (!currentFolderId && !showTrash && !recentView) ? "#8B5CF6" : T.text,
+          fontWeight: (!currentFolderId && !showTrash && !recentView) ? 800 : 600,
+          fontSize: FS - 1,
+        }}
+        onMouseEnter={(e) => { if (currentFolderId || showTrash || recentView) e.currentTarget.style.background = T.bg; }}
+        onMouseLeave={(e) => { if (currentFolderId || showTrash || recentView) e.currentTarget.style.background = "transparent"; }}
+      >
+        <span style={{ fontSize: 14 }}>🏠</span>
+        <span style={{ flex: 1 }}>الكل</span>
+        {rootFileCount > 0 && (
+          <span style={{ fontSize: FS - 4, fontWeight: 600, color: T.textMut, background: T.bg, padding: "1px 6px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{rootFileCount}</span>
+        )}
+      </div>
+
+      {/* Special: Recent */}
+      <div
+        onClick={() => { setRecentView(true); setShowTrash(false); setCurrentFolderId(null); if (isMob) setSidebarOpen(false); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 10px", borderRadius: 6, cursor: "pointer",
+          background: recentView ? "#10B98118" : "transparent",
+          color: recentView ? "#10B981" : T.text,
+          fontWeight: recentView ? 800 : 600,
+          fontSize: FS - 1,
+        }}
+        onMouseEnter={(e) => { if (!recentView) e.currentTarget.style.background = T.bg; }}
+        onMouseLeave={(e) => { if (!recentView) e.currentTarget.style.background = "transparent"; }}
+      >
+        <span style={{ fontSize: 14 }}>⏱</span>
+        <span style={{ flex: 1 }}>حديث</span>
+        {recentCount > 0 && (
+          <span style={{ fontSize: FS - 4, fontWeight: 600, color: recentView ? "#10B981" : T.textMut, background: recentView ? "#10B98120" : T.bg, padding: "1px 6px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{recentCount}</span>
+        )}
+      </div>
+
+      {/* Special: Trash */}
+      <div
+        onClick={() => { setShowTrash(true); setRecentView(false); setCurrentFolderId(null); if (isMob) setSidebarOpen(false); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 10px", borderRadius: 6, cursor: "pointer",
+          background: showTrash ? T.err + "18" : "transparent",
+          color: showTrash ? T.err : T.text,
+          fontWeight: showTrash ? 800 : 600,
+          fontSize: FS - 1,
+        }}
+        onMouseEnter={(e) => { if (!showTrash) e.currentTarget.style.background = T.bg; }}
+        onMouseLeave={(e) => { if (!showTrash) e.currentTarget.style.background = "transparent"; }}
+      >
+        <span style={{ fontSize: 14 }}>🗑️</span>
+        <span style={{ flex: 1 }}>سلة المهملات</span>
+        {stats.trashCount > 0 && (
+          <span style={{ fontSize: FS - 4, fontWeight: 600, color: showTrash ? T.err : T.textMut, background: showTrash ? T.err + "20" : T.bg, padding: "1px 6px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{stats.trashCount}</span>
+        )}
+      </div>
+
+      {/* Tree divider */}
+      {rootFolders.length > 0 && (
+        <div style={{ borderTop: "1px solid " + T.brd, margin: "10px 0 8px" }} />
+      )}
+
+      {/* Folder tree */}
+      {rootFolders.length === 0 ? (
+        <div style={{ padding: 16, textAlign: "center", color: T.textMut, fontSize: FS - 2, fontStyle: "italic" }}>
+          لا توجد مجلدات بعد
+        </div>
+      ) : (
+        rootFolders.map(f => (
+          <TreeNode
+            key={f.id}
+            folder={f}
+            allFolders={folders}
+            depth={0}
+            fileCounts={folderFileCounts}
+            currentFolderId={(showTrash || recentView) ? null : currentFolderId}
+            expanded={expandedFolders}
+            onToggle={toggleFolderExpand}
+            onSelect={selectFolderFromTree}
+          />
+        ))
+      )}
+
+      {canEdit && !showTrash && !recentView && (
+        <div style={{ borderTop: "1px solid " + T.brd, marginTop: 10, paddingTop: 10 }}>
+          <Btn small onClick={createFolder} style={{ width: "100%", background: "#8B5CF612", color: "#8B5CF6", border: "1px dashed #8B5CF640", fontWeight: 700 }}>
+            ➕ مجلد جديد {currentFolderId ? "(فرعي)" : "(جذر)"}
+          </Btn>
+        </div>
+      )}
+    </aside>
+  );
+
   return (
     <div>
       <PreviewModal />
 
+      {/* V21.9.186: flex layout — sidebar (right in RTL) + main area */}
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexDirection: isMob ? "column" : "row" }}>
+
+        {/* Mobile: toggle button on top */}
+        {isMob && (
+          <Btn small onClick={() => setSidebarOpen(!sidebarOpen)} style={{ alignSelf: "stretch", background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF640", fontWeight: 700 }}>
+            {sidebarOpen ? "✕ إخفاء الشجرة" : "🗂 عرض شجرة المجلدات"}
+          </Btn>
+        )}
+
+        {/* Sidebar — always visible on desktop, drawer on mobile */}
+        {(!isMob || sidebarOpen) && <TreeSidebar />}
+
+        {/* Main area */}
+        <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
+
       {/* Header */}
-      <Card title={showTrash ? "🗑️ سلة المهملات" : "📁 المستندات"} accent={"linear-gradient(135deg,#8B5CF6,#8B5CF6CC)"}
+      <Card title={cardTitle} accent={"linear-gradient(135deg,#8B5CF6,#8B5CF6CC)"}
         extra={
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {!showTrash && canEdit && <Btn small onClick={() => fileInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }}>📤 رفع ملف</Btn>}
-            {!showTrash && canEdit && <Btn small onClick={createFolder} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>➕ مجلد جديد</Btn>}
-            <Btn small onClick={() => setShowTrash(!showTrash)} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>
-              {showTrash ? "📁 المستندات" : `🗑️ المهملات (${stats.trashCount})`}
-            </Btn>
+            {!showTrash && !recentView && canEdit && <Btn small onClick={() => fileInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }}>📤 رفع ملف</Btn>}
+            {!showTrash && !recentView && canEdit && <Btn small onClick={createFolder} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>➕ مجلد جديد</Btn>}
           </div>
         }
         style={{ marginBottom: 16 }}>
@@ -538,8 +833,8 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
         {/* Search */}
         <Inp value={search} onChange={setSearch} placeholder="🔍 ابحث في اسم الملف أو الوصف..." style={{ marginBottom: 12 }} />
 
-        {/* Breadcrumbs */}
-        {!showTrash && (
+        {/* Breadcrumbs — V21.9.186: also skip in recentView */}
+        {!showTrash && !recentView && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 12, fontSize: FS - 1 }}>
             <span onClick={() => setCurrentFolderId(null)} style={{ cursor: "pointer", color: currentFolderId ? T.accent : T.text, fontWeight: 700 }}>🏠 الجذر</span>
             {breadcrumbs.map((c, i) => (
@@ -555,8 +850,8 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           </div>
         )}
 
-        {/* Folders grid (only in non-trash view) */}
-        {!showTrash && currentFolders.length > 0 && (
+        {/* Folders grid (only in non-trash, non-recent view) */}
+        {!showTrash && !recentView && currentFolders.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 16 }}>
             {currentFolders.map(f => {
               const childFileCount = files.filter(x => x.folderId === f.id && !x.deletedAt).length;
@@ -582,8 +877,8 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           </div>
         )}
 
-        {/* Drop zone (only in non-trash view) */}
-        {!showTrash && canEdit && (
+        {/* Drop zone (only in non-trash, non-recent view) */}
+        {!showTrash && !recentView && canEdit && (
           <div
             onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
@@ -616,12 +911,13 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           }}
         />
 
-        {/* Files grid */}
+        {/* Files grid — V21.9.186: distinct empty-state message for recent view */}
         {currentFiles.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: T.textSec }}>
             {search.trim() ? "لا توجد نتائج" :
               showTrash ? "🗑️ سلة المهملات فاضية" :
-                "📁 المجلد فاضي — ارفع ملف أو أنشئ مجلد فرعي"}
+                recentView ? "⏱ مفيش ملفات اتـ رفعت في آخر 30 يوم" :
+                  "📁 المجلد فاضي — ارفع ملف أو أنشئ مجلد فرعي"}
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
@@ -702,6 +998,9 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           </div>
         </Card>
       )}
+
+        </div>{/* /main area (V21.9.186) */}
+      </div>{/* /flex container (V21.9.186) */}
 
       {/* ─────────── MOVE FILE POPUP ─────────── */}
       {movePopup && (
