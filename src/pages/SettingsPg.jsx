@@ -2120,10 +2120,17 @@ function StorageNoticesPanel(){
    WARN-mode validator wired into upConfig/upSales/upTasks. WARN-only — these
    are issues that PASSED through (not blocked), so they're either genuine
    bugs in write paths OR overly-strict schemas. Either way, surfacing them
-   here lets us catch drift early without blocking users. */
-function ValidationErrorsCard(){
+   here lets us catch drift early without blocking users.
+
+   V21.9.182: extended to include permissions/users/customRoles validation.
+   Added a manual "🔐 افحص الصلاحيات الآن" button that triggers a full scan
+   of the current config (no diff suppression) and pushes any issues into
+   the same ring buffer so they show up in the table below. */
+function ValidationErrorsCard({config}){
   const[errors,setErrors]=useState([]);
   const[refreshKey,setRefreshKey]=useState(0);
+  const[scanning,setScanning]=useState(false);
+  const[lastScanResult,setLastScanResult]=useState(null);
 
   React.useEffect(()=>{
     let cancelled=false;
@@ -2139,20 +2146,61 @@ function ValidationErrorsCard(){
   const onClear=()=>{
     import("../utils/validateData.js").then(mod=>{
       mod.clearValidationErrors();
+      setLastScanResult(null);
       setRefreshKey(k=>k+1);
     });
   };
 
-  return<Card title="⚠️ آخر تحذيرات التحقق (V19.58 WARN-only)" style={{marginBottom:14}}>
+  /* V21.9.182: full manual scan of permissions config. Uses force:true so
+     pre-existing issues are reported (unlike upConfig's diff-mode validator
+     which only reports issues introduced by the current write). */
+  const onScanPerms=async()=>{
+    if(!config)return;
+    setScanning(true);
+    try{
+      const[permsMod,validateMod]=await Promise.all([
+        import("../utils/validatePermissions.js"),
+        import("../utils/validateData.js"),
+      ]);
+      const issues=permsMod.scanPermissionsConfig(config);
+      /* Push each into the ring buffer so the table picks them up. */
+      const store=(typeof window!=="undefined")?window.__clarkValidationErrors:null;
+      if(store&&Array.isArray(store.errors)){
+        for(const rec of issues){
+          store.errors.unshift({...rec,docKey:"config",at:new Date().toISOString(),source:"manual-scan"});
+        }
+        if(store.errors.length>100)store.errors.length=100;
+      }
+      setLastScanResult({count:issues.length,at:new Date().toISOString()});
+      setErrors(validateMod.getRecentValidationErrors());
+    }catch(e){
+      console.warn("[V21.9.182 manual perms scan threw]",e);
+      setLastScanResult({error:String(e&&e.message||e)});
+    }finally{
+      setScanning(false);
+    }
+  };
+
+  return<Card title="⚠️ آخر تحذيرات التحقق (V19.58 + V21.9.182 WARN-only)" style={{marginBottom:14}}>
     <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.6}}>
       الكتابات اللي اتعملت لكن ما طابقتش الـschema المسجّل. المفروض تكون فاضية في الإنتاج العادي.
       لو ظهرت أخطاء كتير، ابعتها للدعم — ممكن يكون في bug في صفحة معيّنة بتكتب shape غلط.
+      <br/><b>V21.9.182:</b> دلوقتي بنفحص الـpermissions/users/customRoles كمان — لو فيه typo في tab key أو level غلط هـ يظهر هنا.
     </div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
       <div style={{fontSize:FS-1,fontWeight:700,color:T.text}}>
         {errors.length===0?<span style={{color:"#10B981"}}>✅ مفيش تحذيرات</span>:<span>{errors.length} تحذير</span>}
+        {lastScanResult&&!lastScanResult.error&&<span style={{marginInlineStart:10,fontSize:FS-3,color:T.textMut,fontWeight:400}}>
+          (آخر فحص يدوي: {lastScanResult.count} مشكلة في الصلاحيات)
+        </span>}
+        {lastScanResult&&lastScanResult.error&&<span style={{marginInlineStart:10,fontSize:FS-3,color:T.err,fontWeight:400}}>
+          {lastScanResult.error}
+        </span>}
       </div>
-      <div style={{display:"flex",gap:8}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn ghost small onClick={onScanPerms} disabled={scanning||!config} style={{fontSize:FS-2}}>
+          {scanning?"⏳ بيفحص…":"🔐 افحص الصلاحيات الآن"}
+        </Btn>
         <Btn ghost small onClick={()=>setRefreshKey(k=>k+1)} style={{fontSize:FS-2}}>🔄 تحديث</Btn>
         {errors.length>0&&<Btn ghost small onClick={onClear} style={{fontSize:FS-2,color:T.err}}>🗑️ مسح</Btn>}
       </div>
@@ -4101,7 +4149,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {/* V16.74: Split days monitor — يعرض حجم كل document يومي للخزنة وسجل HR والأحداث */}
     <SplitDaysMonitor/>
     {/* V19.58: Schema validation warnings (WARN-mode safety net) */}
-    <ValidationErrorsCard/>
+    {/* V21.9.182: pass config so the manual perms scan can run against current state */}
+    <ValidationErrorsCard config={config}/>
     {/* V16.0: Size Budget Dashboard — tracks feature sizes against limits */}
     <SizeBudgetDashboard configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>
     {/* V15.92: Device info card — shows deviceId, IP, location, and lets user name their device */}

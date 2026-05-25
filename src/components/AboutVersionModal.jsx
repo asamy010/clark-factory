@@ -25,6 +25,22 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.182",
+    date: "2026-05-25",
+    types: ["architectural", "improvement"],
+    title: "🔐 Permissions Validator — WARN-only schema check للـ users + permissions + customRoles",
+    changes: [
+      { type: "architectural", text: "🎯 الـ root issue: قبل V21.9.182، الـ schema validator في `src/utils/validateData.js` كان بـ يفحص الـ array fields بس (customers, suppliers, invoices, payments, …) وبـ يـ skip الـ object fields زي `factory/config.permissions` و `factory/config.users` كلياً. النتيجة: أي typo في tab key (مثلاً `salesInvoces` بدل `salesInvoices`) أو level غلط (`EDIT` بدل `edit`) كان بـ يـ silently fall back لـ \"hide\" — الـ admin يـ ضبط permission ويشوف الـ role لسه ما عندوش access، بدون ما يفهم ليه. ده security blind spot موجود من V18.61."},
+      { type: "feature", text: "✅ الحل: validator جديد imperative + Zod في `src/schemas/permissionsSchema.js` + `src/utils/validatePermissions.js` بـ يفحص:\n• `config.users[uid]` — لازم يكون string role key OR `{role, customPerms?}` والـ role لازم يكون موجود (built-in أو custom).\n• `config.permissions[role][tabKey]` — الـ role لازم يكون موجود، الـ tabKey لازم يكون من `PERMISSION_TAB_KEYS`، والـ value لازم تكون `edit`/`view`/`hide` أو (لـ hr) object بـ sub-keys صحيحة (weeks/verify/employees/security).\n• `config.customRoles[i]` — الـ key لازم يبدأ بـ `custom_`، الـ label مطلوب، والـ defaults map (لو موجود) لازم يـ follow نفس الـ rules."},
+      { type: "architectural", text: "⚠️ WARN-only mode (نفس فلسفة V19.58): الـ writes ما بـ تتـ block. كل issue بـ يـ log لـ console + يـ accumulate في `window.__clarkValidationErrors` + يظهر في Settings → Diagnostics tab → 'آخر تحذيرات التحقق'. الـ goal: نـ observe الإنتاج لـ أسبوع/أسبوعين، وبعدها V21.9.184+ يـ promote للـ STRICT mode (reject على upConfig)."},
+      { type: "improvement", text: "🔍 Manual scan button: في Settings → Diagnostics → 'آخر تحذيرات التحقق'، فيه دلوقتي زرار '🔐 افحص الصلاحيات الآن' بـ يـ scan الـ config الحالي كله (force mode — بدون diff suppression) ويعرض كل المشاكل الموجودة. مفيد للـ admin لو شك إن فيه permissions misconfigured ومحتاج audit شامل بدون انتظار upConfig writes."},
+      { type: "architectural", text: "📋 Cross-reference checks (beyond Zod): الـ validator imperative بـ يفحص العلاقات اللي Zod ما تقدرش تـ catch:\n• Orphan role refs — `user.role = \"sales_acntnt\"` بـ تـ flag كـ 'role غير موجود' (typo).\n• Custom roles shadowing — `customRole.key = \"admin\"` بـ يـ reject (conflict مع built-in).\n• Unknown tab keys + invalid levels — `permissions.manager.salesInvoces` يطلع كـ 'tab key غير معروف' بدلاً من silent fallback."},
+      { type: "architectural", text: "🔒 Diff suppression: في الـ upConfig path، الـ validator بـ يـ suppress المشاكل اللي كانت موجودة في الـ prev config. لو الـ user بـ يعدل permissions cell واحدة وفيه typos قديمة في cells تانية، التحذيرات ما هـ تـ spam الـ console. الـ manual scan بـ يـ override الـ suppression ويعرض كل حاجة. الـ implementation: signature-based dedup (field + entryId + path + code)."},
+      { type: "architectural", text: "📁 الـ files المتأثرة (ملفين جديدين + 3 تعديلات):\n• NEW: `src/schemas/permissionsSchema.js` — Zod schemas (PERMISSION_LEVEL, hrSubPermSchema, tabLevelSchema, rolePermsSchema, customRoleSchema, userEntrySchema)\n• NEW: `src/utils/validatePermissions.js` — imperative validator + scanPermissionsConfig() public helper\n• MODIFIED: `src/utils/validateData.js` — استدعى validatePermissions في docKey==='config' branch بعد ما الـ FIELD_SCHEMAS loop يخلص\n• MODIFIED: `src/pages/SettingsPg.jsx` — ValidationErrorsCard دلوقتي بـ يـ accept config prop + يـ render زرار 'افحص الصلاحيات الآن' + نتيجة آخر فحص يدوي\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)."},
+      { type: "architectural", text: "🛡️ Pushback context: ده الأول من 3 changes آمنين متفقين عليه (Custom role validation warn-only + Bridge token proxy + Configurable timezone) في session واحد. تـ ship-ت لوحدها على V21.9.182 علشان نـ verify في الإنتاج لـ يوم/يومين قبل V21.9.183. الـ rule per CLAUDE.md §0.1: ماحدش يـ deploy 3 changes كـ batch واحد على system بدون staging env."},
+    ],
+  },
+  {
     version: "V21.9.168",
     date: "2026-05-24",
     types: ["feature"],

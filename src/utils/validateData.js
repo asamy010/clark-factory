@@ -20,6 +20,7 @@
    ════════════════════════════════════════════════════════════════════════ */
 
 import { FIELD_SCHEMAS, VALIDATED_FIELDS } from "../schemas/index.js";
+import { validatePermissions } from "./validatePermissions.js";
 
 /* In-memory ring buffer of recent errors. Read by Settings UI. */
 const RECENT_ERRORS_LIMIT = 100;
@@ -142,5 +143,38 @@ export function validateDoc(prev, next, docKey = "config") {
       );
     }
   }
+
+  /* ─── V21.9.182: permissions/users/customRoles validation ─────────────
+     The Zod loop above only walks ARRAY fields (customers, invoices, …).
+     The permissions system lives on OBJECT fields (config.permissions,
+     config.users) which the loop skipped entirely — so typos in tab keys
+     or invalid levels never surfaced. Run a dedicated imperative pass and
+     funnel issues through the same pushError() store so they show up in
+     Settings → "آخر أخطاء التحقق". */
+  if (docKey === "config") {
+    try {
+      const permsChanged =
+        !prev ||
+        prev.permissions !== next.permissions ||
+        prev.users !== next.users ||
+        prev.customRoles !== next.customRoles;
+      if (permsChanged) {
+        const issues = validatePermissions(prev, next);
+        for (const rec of issues) {
+          errorCount++;
+          const enriched = { ...rec, docKey: "config" };
+          pushError(enriched);
+          console.warn(
+            "[V21.9.182 perms validation] config." + rec.field + "[" + rec.entryId + "]",
+            "(" + rec.entryLabel + ")",
+            (rec.issues || []).map(i => i.path + ": " + i.message).join("; ")
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[V21.9.182 perms validator threw]", e);
+    }
+  }
+
   return { ok: errorCount === 0, errorCount, fieldsChecked };
 }
