@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.171",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 3/14: Subscription backend",
+    changes: [
+      { type: "feature", text: "3 endpoints جداد تحت /api/notifications/:\n• `subscribe.js` — أي authed user يقدر يـ register FCM token. يـ verify الـ idToken + يـ upsert في top-level collection `notificationSubscriptions/{sub_<hash>}`. الـ docId = `sub_` + sha256(token).slice(0,32) — stable, ما بـ يـ duplicate لو نفس الـ token اتـ subscribe مرتين. Default preferences = all-on (matches user's chosen default).\n• `unsubscribe.js` — 3 modes: fcmToken / subscriptionId / all:true. Marks doc inactive (مش delete) للـ audit trail. Idempotent. Privilege: own subscriptions only، أو admin/manager للـ revoke any (e.g. stolen device).\n• `renew-subscription.js` — best-effort logging endpoint للـ SW's `pushsubscriptionchange` handler. No auth (SW ما عنده idToken). الـ actual renewal بـ يحصل على opening الـ app التالي عبر requestPermissionAndSubscribe." },
+      { type: "feature", text: "Helper جديد في `api/_firebase.js`: `verifyAuthedToken(token)` — زي verifyAdminToken بالظبط لكن بدون admin/manager role gate. للـ endpoints اللي أي authed user مسموح بيها (زي subscribe). بـ يـ return نفس الـ shape: `{ok, uid, email, role}` — الـ endpoint يقدر يـ apply per-action authorization downstream." },
+      { type: "feature", text: "firestore.rules: تم إضافة rule clause لـ `notificationSubscriptions/{subId}`:\n• Read: own subscription OR isManagerPlus\n• Create: authed + userId == request.auth.uid (defense-in-depth، السيرفر بـ يـ enforce ده برضه)\n• Update/Delete: own OR isManagerPlus\nو rule للـ `notificationSubscriptionRenewals/{logId}` — write مسموح بس عبر Admin SDK (الـ endpoint)، read للـ manager+ للـ debug." },
+      { type: "doc", text: "⚠️ الـ subscribe endpoint بـ يـ require الـ user يكون عنده FCM token validate-ـته client-side أولاً (Slice 2 done). لو الـ `VITE_FIREBASE_VAPID_KEY` غير معرّفة في Vercel env vars → الـ client بـ يـ fail قبل ما يـ reach الـ subscribe endpoint (clear error message للـ user). Slice 4 (send endpoint) هو اللي بـ يقدر فعلياً يبعت push للـ token الـ subscribed." },
+    ],
+  },
+  {
     version: "V21.9.170",
     date: "2026-05-24",
     types: ["feature"],
