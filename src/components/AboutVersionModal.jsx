@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.176",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 8/14: Notification Center (Bell + dropdown)",
+    changes: [
+      { type: "feature", text: "إنشاء `src/components/NotificationBell.jsx` — standalone notification center component. يـ subscribe live للـ `notificationHistory` Firestore collection (read=manager+ per rules) و يـ display:\n• 🔔 icon بـ unread badge count (max '99+')\n• Dropdown بـ آخر 30 إشعار، sorted desc by time\n• Per-item: category emoji + title + body (2-line clamp) + relative time + sender + delivery stats (X/Y وصلوا)\n• Click على item → deep-link لـ relevant tab + mark all read\n• 'تحديد الكل كمقروء' button\n• Empty state friendly: 'ما فيش إشعارات لسه'" },
+      { type: "feature", text: "Unread tracking: localStorage key `clark-notif-last-read` بـ ISO timestamp. الـ items اللي `item.at > lastRead` بـ تتعد unread. الـ blue dot indicator على الـ unread items + badge count. Cross-tab sync مش implemented (الـ user يـ refresh لو فتح في tabs متعددة)." },
+      { type: "feature", text: "Click-outside-to-close handling + keyboard-friendly. Mobile responsive: max-width = calc(100vw - 20px). The dropdown is sticky-positioned for header + footer (always visible during scroll).\n\nالـ deep linking يـ follow نفس الـ SW click handler patterns (Slice 1):\n• treasury → /?tab=treasury&entryId=...\n• task → /?tab=tasks&taskId=...\n• instruction → /?tab=home&inst=...\n• warning → /?tab=<target>\n• broadcast → /?tab=home" },
+      { type: "doc", text: "⚠️ Wiring NOT yet done in App.jsx — لأن TopBar inline في App.jsx الكبيرة (7000+ سطر) والـ edit بـ risk. الـ component جاهز للاستعمال. لما تكون عاوز تـ wire-ـه: \n\n```jsx\nimport { NotificationBell } from './components/NotificationBell.jsx';\n// في الـ TopBar مع باقي الأزرار:\n<NotificationBell T={T} FS={FS}/>\n```\n\nالـ component self-contained — مفيش props مطلوبة غير T (theme) و FS (font size) للـ visual consistency. لو ما اتـ pass-وش، الـ component بـ يستخدم fallback colors." },
+    ],
+  },
+  {
     version: "V21.9.175",
     date: "2026-05-24",
     types: ["feature"],
