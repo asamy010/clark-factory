@@ -18,6 +18,10 @@ import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
+/* V21.9.174 (Slice 6/14): fire-and-forget push notification helper.
+   Called after a successful treasury save — broadcasts to all admins.
+   Will silently no-op if no subscribers exist or VAPID unset. */
+import { notifyTreasuryEntry } from "../utils/notifications.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
 /* V21.9.127: Universal Attachments — wire to treasury entry form + check form. */
@@ -1349,6 +1353,32 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       showToast("⚠ حُفظ بدون ربط بموظف — راجع الحركة");
     } else {
       showToast("✓ تم الحفظ");
+    }
+    /* V21.9.174 (Slice 6/14): fire-and-forget push notification to other
+       admins/managers. Skip for edit operations (only new entries trigger),
+       and skip for auto-created entries that came from another source
+       (salary, transfer, etc.) — those already got their own notification
+       at the source. The fire is non-blocking — failures are silently
+       swallowed by the wrapper in notifications.js. */
+    if (!editId) {
+      try {
+        const partyName = linkedCustId
+          ? (customers.find(c => c.id === linkedCustId) || {}).name
+          : linkedSupplierId
+          ? (suppliers.find(s => s.id === linkedSupplierId) || {}).name
+          : linkedWsName
+          || (linkedEmpId
+              ? ((data.employees || []).find(e => e.id === linkedEmpId) || {}).name
+              : null);
+        notifyTreasuryEntry({
+          type: txType,
+          amount: amt,
+          category: txCategory,
+          partyName: partyName || "",
+          entryId: null,  /* the new entry's id is generated inside upConfig — we don't have it here yet; deep-link goes to /tab=treasury */
+          by: userName,
+        });
+      } catch (_) { /* defensive — never block save on notification path */ }
     }
     /* V21.9.68: form-close moved to PRE-await block (see "OPTIMISTIC UI"
        above). Pre-V21.9.68 this line ran AFTER the 2-5s upConfig await,

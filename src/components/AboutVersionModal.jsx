@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.174",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 6/14: Treasury auto-trigger",
+    changes: [
+      { type: "feature", text: "إضافة 3 helper functions في `src/utils/notifications.js`:\n• `notifyTreasuryEntry({type, amount, category, partyName, by})` — fire-and-forget push لكل الـ admins/managers بعد كل حركة خزنة جديدة\n• `notifyBroadcast({...})` — generic broadcast wrapper\n• `notifyWarning({...})` — high urgency للـ system errors\n\nالـ pattern: never throws, never blocks, returns Promise بـ .catch wrapper. الـ caller بـ يستخدمها بدون await (`notifyTreasuryEntry({...})` فقط)." },
+      { type: "feature", text: "TreasuryPg.jsx: import + 12-line block بعد success toast في saveTx. الـ block بـ يـ guard على `!editId` (الـ notifications تتفعل بس للـ entries الجديدة، مش edits) ويـ resolve اسم الـ party من الـ linked variables (customer/supplier/workshop/employee) قبل ما يـ fire. الـ entry id ما بـ يتم passing لأنه generated داخل upConfig بعد ما الـ fire يخرج — الـ deep link بـ يـ navigate لـ tab=treasury عام." },
+      { type: "feature", text: "الـ flow الكامل بعد V21.9.174: المحاسب يحفظ حركة خزنة في TreasuryPg → الـ entry بـ يـ commit في Firestore → الـ saveTx بـ يـ fire notifyTreasuryEntry() → POST /api/notifications/send (admin auth) → send-endpoint بـ يـ query active subscriptions + filter by preferences.treasury → FCM multicast لكل الـ tokens → الـ admins تستلم 'وارد 5,000 ج.م — دفعة من شركة X' كـ native OS notification على كل أجهزتهم. كل ده بدون ما الـ saveTx UI تنتظر — fire-and-forget." },
+      { type: "doc", text: "Defensive design: لو الـ Push infra مش ready (مفيش VAPID key، مفيش subscribers، الـ endpoint لسه ما اتـ deploy)، الـ saveTx بـ يـ commit normally والـ fire يـ fail silently. لا يـ block المستخدم ولا يـ throw. الـ pattern ده يطبق على كل integration points الجاية (tasks في Slice 7، إلخ)." },
+    ],
+  },
+  {
     version: "V21.9.173",
     date: "2026-05-24",
     types: ["feature"],

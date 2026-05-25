@@ -319,3 +319,106 @@ export async function unsubscribeNotifications(user) {
   } catch (_) { /* best effort */ }
   return { ok: true };
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   V21.9.174 (Slice 6/14) — Fire-and-forget notification helpers
+   ───────────────────────────────────────────────────────────────
+   Called from integration points (treasury saveTx, task creation,
+   etc.) to send a push notification AFTER a successful local write.
+
+   Key properties:
+   - NEVER throws — wrapped in try/catch + .catch
+   - NEVER blocks — Promise rejection ignored, no await needed from
+     the caller's perspective (fire-and-forget pattern)
+   - Always returns a Promise<{ok}> so callers can await if they want
+     to log delivery stats, but the standard pattern is:
+
+       notifyTreasuryEntry({...});  // no await — fire and forget
+
+   - The endpoint /api/notifications/send requires admin/manager auth.
+     Lower-role users won't trigger this code path (treasury is admin/
+     manager-only) but if they do, the call 401s silently which is
+     fine (no notification sent, no error surfaced).
+   ═══════════════════════════════════════════════════════════════ */
+
+async function fireNotification({ category, title, body, urgency = "normal", data = {}, audience }) {
+  try {
+    /* Lazy import auth to keep this module's primary use case
+       (subscription) free of an auth dependency. */
+    const { auth } = await import("../firebase.js");
+    const user = auth.currentUser;
+    if (!user) return { ok: false, reason: "no_auth" };
+    const idToken = await user.getIdToken();
+    const res = await fetch("/api/notifications/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + idToken,
+      },
+      body: JSON.stringify({
+        category,
+        title: String(title || "").slice(0, 200),
+        body: String(body || "").slice(0, 500),
+        urgency,
+        data,
+        audience: audience || { mode: "all" },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, reason: "send_failed", status: res.status, error: err.error };
+    }
+    return await res.json();
+  } catch (e) {
+    return { ok: false, reason: "exception", error: e?.message || String(e) };
+  }
+}
+
+/* Treasury entry → push to all admins/managers.
+   Privacy: the title is generic ("حركة خزنة جديدة"); the amount and
+   party name go in body. The full entry details are deep-linked via
+   data.entryId so the user can drill in after clicking. Server caps
+   body at 500 chars per the privacy policy.
+
+   Call this AFTER a successful upConfig — fire-and-forget. */
+export function notifyTreasuryEntry({ type, amount, category, partyName, entryId, by }) {
+  /* Format amount with thousands separator for readability */
+  const fmtAmount = (typeof amount === "number")
+    ? amount.toLocaleString("ar-EG", { maximumFractionDigits: 2 })
+    : String(amount || "");
+
+  const sign = type === "in" ? "وارد" : "منصرف";
+  const partyPart = partyName ? " — " + partyName : "";
+
+  return fireNotification({
+    category: "treasury",
+    title: "💰 " + sign + " " + fmtAmount + " ج.م",
+    body: (category || "حركة خزنة") + partyPart + (by ? " · بواسطة " + by : ""),
+    urgency: "normal",
+    data: { type: "treasury", entryId: entryId || null },
+    audience: { mode: "all" },
+  }).catch(() => ({ ok: false }));  // belt-and-suspenders fire-and-forget
+}
+
+/* Generic broadcast helper — admin manual messages.
+   Already wired via NotificationSettingsCard but exposed here for
+   programmatic use. */
+export function notifyBroadcast({ title, body, urgency, data, audience }) {
+  return fireNotification({
+    category: "broadcast",
+    title, body, urgency, data,
+    audience: audience || { mode: "all" },
+  }).catch(() => ({ ok: false }));
+}
+
+/* Warning notification — system errors, sync failures, anomalies.
+   Defaults to high urgency so it gets requireInteraction on the SW side. */
+export function notifyWarning({ title, body, data, audience }) {
+  return fireNotification({
+    category: "warnings",
+    title, body,
+    urgency: "high",
+    data,
+    audience: audience || { mode: "all" },
+  }).catch(() => ({ ok: false }));
+}
