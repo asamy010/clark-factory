@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.179",
+    date: "2026-05-24",
+    types: ["feature"],
+    title: "🔔 Push Notifications — Slice 12/14: WhatsApp fallback (critical-only)",
+    changes: [
+      { type: "feature", text: "Endpoint جديد: `POST /api/notifications/whatsapp-fallback` — opt-in fallback لما الـ push مش هـ يوصل (الـ user offline 24h+، أو مفيش subscriptions نشطة). يـ identify الـ recipient بـ userId/userEmail/phone، resolve الـ phone من factory/config.usersList، normalize للـ Egyptian format، و POST لـ WhatsApp Bridge بـ message format احترافي:\n```\n*CLARK — <title>*\n\n<body>\n```" },
+      { type: "feature", text: "Auth: X-CLARK-INTERNAL header (نفس send-internal)، constant-time compare. AbortController timeout = 8s — لو الـ Bridge slow أو down، الـ endpoint بـ يـ return 504 بدل ما يـ hang الـ serverless function (V21.9.41 lesson).\n\nالـ logging في notificationHistory بـ `sentVia: 'whatsapp'` للـ audit + analytics." },
+      { type: "feature", text: "⚠️ NOT auto-integrated في /send — هذا opt-in by design:\n• WhatsApp Bridge ban risk لو spam\n• Most notifications belong على push (low-friction, free)\n• الـ fallback reserved للـ critical events فقط (security alerts، sustained delivery failures)\n\nالـ caller (server-side automation، ops manual trigger، أو future analytics cron) يقدر يـ invoke-ه بـ explicit decision. مفيش circular trigger من /send." },
+      { type: "doc", text: "Required env var: `WHATSAPP_BRIDGE_URL` (افتراضي https://clark-rmg.duckdns.org، الـ Contabo VPS الحالي). + `CLARK_INTERNAL_SECRET` (نفس secret الـ /send-internal). الـ Bridge لازم يكون up + accepting POST /send بـ phone + message format." },
+    ],
+  },
+  {
     version: "V21.9.178",
     date: "2026-05-24",
     types: ["feature"],
