@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.201",
+    date: "2026-06-01",
+    types: ["improvement"],
+    title: "⚡ تحسين الأداء (المرحلة الآمنة) — bundle أصغر وفتح أسرع",
+    changes: [
+      { type: "improvement", text: "🎯 المرحلة الأولى (الآمنة) من تحسين الأداء — بعد تحليل الكود: الـ code-splitting للصفحات شغّال بالفعل (lazy)، لكن لقينا وزن زايد في الـ bundle الرئيسي وإعدادات build قابلة للتحسين." },
+      { type: "improvement", text: "📦 **AboutVersionModal بقى lazy** — كان متحمّل eager رغم إنه ~4300 سطر (الـ changelog كله) وبيتفتح نادراً. دلوقتي بيتحمّل عند الطلب فقط (أول ما تفتحه)، فاتشال من الـ bundle الرئيسي اللي بيتحمّل كل فتحة للتطبيق → **فتح أسرع للتطبيق**." },
+      { type: "improvement", text: "🛠 **vite build target = es2020** — قبل كده كان على الـ defaults (transpilation أكتر من اللازم). es2020 مدعوم في كل المتصفحات الحديثة من ~2020، فالـ output بقى أصغر و parse أسرع. آمن لكل الأجهزة المستخدمة." },
+      { type: "architectural", text: "🛡 مخاطر منخفضة:\n• AboutVersionModal: نفس نمط الـ lazy المستخدم لكل الصفحات (lazyNamed + Suspense) — بيتعرض داخل ChunkErrorBoundary ضمنياً، و fallback أثناء التحميل.\n• vite target: إعداد build فقط — لو فيه مشكلة، الـ build بيفشل و production يفضل سليم.\n• مفيش تعديل على أي بيانات أو منطق." },
+      { type: "improvement", text: "⏭️ الجاي (مراحل لاحقة بعد التحقق): React.memo على المكوّنات الثقيلة + تثبيت الـ callbacks (updOrder/goD/statusCards) + تخطّي الـ re-renders الفاضية → تحسين سلاسة التفاعل (الاستجابة). والمؤجَّل الكبير: تقسيم الصفحات الضخمة (HRPg/Shopify/CustDeliver)." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (2 modified + 3 version):\n• MODIFIED: `src/App.jsx` — AboutVersionModal → lazyNamed + Suspense-gated render\n• MODIFIED: `vite.config.js` — build.target: 'es2020'\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
+    ],
+  },
+  {
     version: "V21.9.200",
     date: "2026-06-01",
     types: ["feature", "improvement"],

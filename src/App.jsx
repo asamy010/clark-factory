@@ -134,7 +134,9 @@ validatePermsRegistry(TABS);
 console.info("%c[CLARK "+APP_VERSION+"] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
-import { AboutVersionModal } from "./components/AboutVersionModal.jsx";
+/* V21.9.201 (perf): lazy — the 4297-line changelog modal is opened rarely,
+   so keep it out of the main bundle. Loads on demand when the user opens it. */
+const AboutVersionModal = lazyNamed(() => import("./components/AboutVersionModal.jsx"), "AboutVersionModal");
 /* V21.9.4: full-screen progress overlay for sync operations */
 import { SyncProgressOverlay } from "./components/SyncProgressOverlay.jsx";
 /* V19.48: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
@@ -7866,8 +7868,9 @@ export default function App(){
         </div>
       </div>
     </div>}
-    {/* V16.79: About Version modal — opens when clicking version label in TopBar */}
-    <AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion={APP_VERSION}/>
+    {/* V16.79: About Version modal — opens when clicking version label in TopBar.
+        V21.9.201: lazy-mounted only when open so its big changelog chunk loads on demand. */}
+    {showAboutVersion&&<Suspense fallback={null}><AboutVersionModal open={showAboutVersion} onClose={()=>setShowAboutVersion(false)} currentVersion={APP_VERSION}/></Suspense>}
     {/* V21.9.4: Global sync-progress overlay — full-screen, locks UI, shows
         live progress (% + message) for any Shopify/Bosta sync. Triggered by
         runWithProgress() from utils/syncProgress.js. */}
