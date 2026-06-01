@@ -3196,45 +3196,95 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* V18.35: reverse the journal entry if it exists */
         if(_payToReverse) autoPost.reverse(data,"customerPay",_payToReverse.id,_payToReverse.date,"حذف الدفعة",userName).catch(()=>{});
         showToast("✓ تم حذف الدفعة من العميل والخزنة")};
-      const printStatement=()=>{let h="<h2 style='text-align:center'>📄 كشف حساب عميل</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><th style='text-align:right;padding:4px 12px'>النوع</th><td style='padding:4px 12px'>"+(cust.type||"—")+"</td></tr><tr><th style='text-align:right;padding:4px 12px'>التليفون</th><td style='padding:4px 12px'>"+cust.phone+"</td><th style='text-align:right;padding:4px 12px'>العنوان</th><td style='padding:4px 12px'>"+(cust.address||"—")+"</td></tr></table>";
-        h+="<table><thead><tr><th>الموديل</th><th>الوصف</th><th>تسليم</th><th>مرتجع</th><th>صافي</th><th>سعر</th><th>القيمة</th></tr></thead><tbody>";
-        rows.forEach((r,i)=>{h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='text-align:center'>"+r.delivered+"</td><td style='text-align:center;color:#EF4444'>"+(r.returned||"—")+"</td><td style='text-align:center;font-weight:800'>"+r.net+"</td><td style='text-align:center'>"+(r.sellPrice||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(r.net*r.sellPrice)+"</td></tr>"});
-        h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='2'>الاجمالي</td><td style='text-align:center;color:#0EA5E9'>"+totalDel+"</td><td style='text-align:center;color:#EF4444'>"+totalRet+"</td><td style='text-align:center;font-size:14px'>"+totalNet+"</td><td></td><td style='text-align:center;color:#0EA5E9;font-size:14px'>"+fmt(totalVal)+" ج.م</td></tr></tbody></table>";
-        h+="<h3>💳 ملخص الحساب</h3><table>";
-        /* V21.9.194: print template — clean "قيمة الخصم" label, no percentage
-           in parentheses. The amount IS the discount; showing a single % is
-           misleading when per-invoice rates differ. */
-        const discLabel = "قيمة الخصم";
-        h+="<tr><td>"+(discAmt>0?"إجمالي فواتير المبيعات (قبل الخصم)":"إجمالي فواتير المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalValGross)+" ج.م</td></tr>";
+      /* ── V21.9.200 — group this customer's deliveries / returns by session
+         into invoice rows (mirrors the customer-portal `buildInvoices`). Used
+         by the "سجل حركات" tab AND the detailed print so both match the portal.
+         Returns store the session id as `sessId` (not `sessionId`). */
+      const buildSessionInvoices=(kind)=>{
+        const groups={};
+        orders.forEach(o=>{
+          const sp=Number(o.sellPrice)||0;
+          const list=(kind==="sale"?(o.customerDeliveries||[]):(o.customerReturns||[])).filter(e=>e.custId===custStatement);
+          list.forEach(e=>{
+            const qty=Number(e.qty)||0;if(qty<=0)return;
+            const sid=e.sessionId||e.sessId||("بدون جلسة — "+(e.date||"؟"));
+            if(!groups[sid])groups[sid]={sessionId:sid,date:e.date||"",qty:0,value:0,valueAfterDisc:0};
+            const price=Number(e.price)||sp;const gross=qty*price;const dPct=pickDiscPct(e);
+            groups[sid].qty+=qty;groups[sid].value+=gross;groups[sid].valueAfterDisc+=Math.round(gross*(1-dPct/100));
+            if(e.date&&(!groups[sid].date||e.date<groups[sid].date))groups[sid].date=e.date;
+          });
+        });
+        const arr=Object.values(groups).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+        arr.forEach((inv,i)=>{inv.invoiceNo=i+1;});
+        return arr.reverse();/* newest first for display */
+      };
+      const salesSessionInvoices=buildSessionInvoices("sale");
+      const returnSessionInvoices=buildSessionInvoices("return");
+      /* V21.9.200 — unified payments list (custPayments + receivable checks +
+         orphan-treasury), newest first. Used by the "دفعات" tab + detailed
+         print so the payment log matches the "إجمالي المدفوع" card exactly. */
+      const allPaymentsList=[
+        ...custPayments.map(p=>({date:p.date||"",amount:Number(p.amount)||0,method:p.method||"كاش",note:p.note||p.notes||"",by:p.by||""})),
+        ...custReceivableChecks.map(c=>({date:c.date||c.dueDate||"",amount:Number(c.amount)||0,method:"شيك",note:("شيك"+(c.checkNo?" #"+c.checkNo:"")+(c.bank?" — "+c.bank:"")+(c.status&&c.status!=="محصل"?" ("+c.status+")":"")),by:""})),
+        ...orphanTreasuryPayments.map(t=>({date:t.date||"",amount:Number(t.amount)||0,method:"كاش (خزنة)",note:t.desc||t.note||"",by:t.by||""})),
+      ].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      /* ── V21.9.200 — professional print: shared header + financial summary,
+         then two modes — ملخص (summary only) and تفصيلي (+ invoices + payments). */
+      const _stmtHeader="<h2 style='text-align:center'>📄 كشف حساب عميل</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+cust.name+"</td><th style='text-align:right;padding:4px 12px'>النوع</th><td style='padding:4px 12px'>"+(cust.type||"—")+"</td></tr><tr><th style='text-align:right;padding:4px 12px'>التليفون</th><td style='padding:4px 12px'>"+cust.phone+"</td><th style='text-align:right;padding:4px 12px'>العنوان</th><td style='padding:4px 12px'>"+(cust.address||"—")+"</td></tr></table>";
+      const _stmtFinancialSummary=(()=>{
+        let s="<h3>💳 ملخص الحساب</h3><table>";
+        s+="<tr><td>"+(discAmt>0?"إجمالي فواتير المبيعات (قبل الخصم)":"إجمالي فواتير المبيعات")+"</td><td style='font-weight:800'>"+fmt(totalValGross)+" ج.م</td></tr>";
         if(discAmt>0){
-          h+="<tr><td>"+discLabel+"</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
-          h+="<tr><td>إجمالي فواتير المبيعات (بعد الخصم)</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalGrossAfterDisc)+" ج.م</td></tr>";
-          if(retVal>0)h+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
+          s+="<tr><td>قيمة الخصم</td><td style='color:#F59E0B;font-weight:700'>-"+fmt(discAmt)+" ج.م</td></tr>";
+          s+="<tr><td>إجمالي فواتير المبيعات (بعد الخصم)</td><td style='font-weight:800;color:#0284C7'>"+fmt(totalGrossAfterDisc)+" ج.م</td></tr>";
+          if(retVal>0)s+="<tr><td>قيمة المرتجعات (بعد الخصم)<div style='font-size:9px;color:#64748B'>قبل الخصم: "+fmt(retVal)+" ج.م</div></td><td style='color:#EF4444'>-"+fmt(retValAfterDisc)+" ج.م</td></tr>";
         }else if(retVal>0){
-          h+="<tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
+          s+="<tr><td>قيمة المرتجعات</td><td style='color:#EF4444'>-"+fmt(retVal)+" ج.م</td></tr>";
         }
-        h+="<tr><td>اجمالي المدفوع</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr><tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#10B981":custBalance<0?"#EF4444":"#64748B")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
-        if(custPayments.length>0){h+="<h3>💰 سجل الدفعات</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th><th>بواسطة</th></tr></thead><tbody>";custPayments.forEach(p=>{h+="<tr><td>"+p.date+"</td><td style='font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td>"+(p.method||"")+"</td><td>"+(p.note||"")+"</td><td>"+(p.by||"")+"</td></tr>"});h+="</tbody></table>"}
-        h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
-        printPage("كشف حساب — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo});
-        /* V21.9.88 (CustDeliver audit Bug #7): log statement print so we
-           have audit trail of when each kashf was shared. Pre-V21.9.88 the
-           print was untracked; in disputes ('we never received a kashf')
-           there was no record. */
+        s+="<tr><td>اجمالي المدفوع (نقدي "+fmt(totalPaidCash)+" + شيكات "+fmt(totalPaidChecks)+")</td><td style='color:#10B981'>-"+fmt(totalPaid)+" ج.م</td></tr>";
+        s+="<tr style='font-size:16px;font-weight:800'><td>الرصيد المتبقي</td><td style='color:"+(custBalance>0?"#10B981":custBalance<0?"#EF4444":"#64748B")+"'>"+fmt(custBalance)+" ج.م</td></tr></table>";
+        return s;
+      })();
+      const _logStatementPrint=(mode)=>{
+        /* V21.9.88: audit trail of when each kashf was shared (mode = summary|detailed). */
         upConfig(d=>{
           const c=(d.customers||[]).find(x=>x.id===custStatement);
           if(!c)return;
           if(!Array.isArray(c.statementsPrintedLog))c.statementsPrintedLog=[];
-          c.statementsPrintedLog.push({
-            at:new Date().toISOString(),
-            by:userName||"",
-            balance:custBalance,
-          });
-          /* Keep only last 50 to avoid bloat */
-          if(c.statementsPrintedLog.length>50){
-            c.statementsPrintedLog=c.statementsPrintedLog.slice(-50);
-          }
+          c.statementsPrintedLog.push({at:new Date().toISOString(),by:userName||"",balance:custBalance,mode:mode||"summary"});
+          if(c.statementsPrintedLog.length>50)c.statementsPrintedLog=c.statementsPrintedLog.slice(-50);
         });
+      };
+      const printStatementSummary=()=>{
+        let h=_stmtHeader+_stmtFinancialSummary;
+        h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
+        printPage("كشف حساب (ملخص) — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo});
+        _logStatementPrint("summary");
+      };
+      const printStatementDetailed=()=>{
+        let h=_stmtHeader+_stmtFinancialSummary;
+        /* Sales invoices (grouped by session) */
+        h+="<h3>🛒 فواتير المبيعات ("+salesSessionInvoices.length+")</h3><table><thead><tr><th>#</th><th>التاريخ</th><th>الكمية</th><th>قبل الخصم</th><th>بعد الخصم</th></tr></thead><tbody>";
+        if(salesSessionInvoices.length===0)h+="<tr><td colspan='5' style='text-align:center;color:#94A3B8'>لا توجد مبيعات</td></tr>";
+        salesSessionInvoices.forEach(inv=>{h+="<tr><td style='text-align:center;font-weight:800;color:#059669'>#"+inv.invoiceNo+"</td><td style='text-align:center'>"+(inv.date||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(inv.qty)+"</td><td style='text-align:center'>"+fmt(inv.value)+"</td><td style='text-align:center;font-weight:800;color:#059669'>"+fmt(inv.valueAfterDisc)+"</td></tr>";});
+        if(salesSessionInvoices.length>0)h+="<tr style='background:#ECFDF5;font-weight:800'><td colspan='2'>الإجمالي</td><td style='text-align:center;color:#059669'>"+fmt(salesSessionInvoices.reduce((a,x)=>a+x.qty,0))+"</td><td style='text-align:center'>"+fmt(salesSessionInvoices.reduce((a,x)=>a+x.value,0))+"</td><td style='text-align:center;color:#059669'>"+fmt(salesSessionInvoices.reduce((a,x)=>a+x.valueAfterDisc,0))+"</td></tr>";
+        h+="</tbody></table>";
+        /* Returns (grouped by session) — only if any */
+        if(returnSessionInvoices.length>0){
+          h+="<h3>↩️ المرتجعات ("+returnSessionInvoices.length+")</h3><table><thead><tr><th>#</th><th>التاريخ</th><th>الكمية</th><th>قبل الخصم</th><th>بعد الخصم</th></tr></thead><tbody>";
+          returnSessionInvoices.forEach(inv=>{h+="<tr><td style='text-align:center;font-weight:800;color:#EF4444'>#"+inv.invoiceNo+"</td><td style='text-align:center'>"+(inv.date||"—")+"</td><td style='text-align:center;font-weight:700'>"+fmt(inv.qty)+"</td><td style='text-align:center'>"+fmt(inv.value)+"</td><td style='text-align:center;font-weight:800;color:#EF4444'>"+fmt(inv.valueAfterDisc)+"</td></tr>";});
+          h+="<tr style='background:#FEF2F2;font-weight:800'><td colspan='2'>الإجمالي</td><td style='text-align:center;color:#EF4444'>"+fmt(returnSessionInvoices.reduce((a,x)=>a+x.qty,0))+"</td><td style='text-align:center'>"+fmt(returnSessionInvoices.reduce((a,x)=>a+x.value,0))+"</td><td style='text-align:center;color:#EF4444'>"+fmt(returnSessionInvoices.reduce((a,x)=>a+x.valueAfterDisc,0))+"</td></tr>";
+          h+="</tbody></table>";
+        }
+        /* Payments log (all sources) */
+        h+="<h3>💰 سجل الدفعات ("+allPaymentsList.length+")</h3><table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظات</th></tr></thead><tbody>";
+        if(allPaymentsList.length===0)h+="<tr><td colspan='4' style='text-align:center;color:#94A3B8'>لا توجد دفعات</td></tr>";
+        allPaymentsList.forEach(p=>{h+="<tr><td style='text-align:center'>"+(p.date||"—")+"</td><td style='text-align:center;font-weight:700;color:#10B981'>"+fmt(p.amount)+"</td><td style='text-align:center'>"+p.method+"</td><td>"+(p.note||"")+"</td></tr>";});
+        if(allPaymentsList.length>0)h+="<tr style='background:#ECFDF5;font-weight:800'><td>الإجمالي</td><td style='text-align:center;color:#10B981'>"+fmt(totalPaid)+"</td><td colspan='2'></td></tr>";
+        h+="</tbody></table>";
+        h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل: "+cust.name+"</div></div>";
+        printPage("كشف حساب (تفصيلي) — "+cust.name,h,{factoryName:config.factoryName,logo:config.logo});
+        _logStatementPrint("detailed");
       };
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={()=>setCustStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?"100%":750,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -3253,7 +3303,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>setShowCustStats(!showCustStats)} style={{background:showCustStats?T.accent:T.accent+"15",color:showCustStats?"#fff":T.accent,border:"1px solid "+T.accent+"40"}} title="إحصاءات تفصيلية">📊 إحصاءات</Btn>
               {/* V16.3: Generate portal URL */}
               {canEdit&&<Btn small onClick={()=>generatePortalUrl(cust.id,cust.name)} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640"}} title="رابط الحساب للعميل">📱 رابط العميل</Btn>}
-              <Btn small onClick={printStatement} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة">🖨</Btn>
+              {/* V21.9.200 — two professional print modes: ملخص (financial
+                  summary only) and تفصيلي (+ session invoices + payments log). */}
+              <Btn small onClick={printStatementSummary} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd}} title="طباعة كشف ملخص (الملخص المالي + الرصيد)">🖨 ملخص</Btn>
+              <Btn small onClick={printStatementDetailed} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"40"}} title="طباعة كشف تفصيلي (+ الفواتير + سجل الدفعات)">🖨 تفصيلي</Btn>
               <Btn ghost small onClick={()=>setCustStatement("pick")}>← رجوع</Btn>
               <Btn ghost small onClick={()=>setCustStatement(null)} title="إغلاق">✕</Btn>
             </div>
@@ -3376,7 +3429,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{display:"flex",gap:0,marginTop:8,marginBottom:14,borderBottom:"2px solid "+T.brd}}>
             {[
               {key:"summary",label:"📊 ملخص",hint:"الموديلات والكميات بفلتر"},
-              {key:"log",label:"📋 سجل حركات",hint:"المبيعات والمرتجعات بالتاريخ"},
+              {key:"log",label:"📋 سجل حركات",hint:"الفواتير (مبيعات ومرتجعات) مجمّعة بالجلسة — زي البورتال"},
+              {key:"payments",label:"💳 دفعات",hint:"كل الدفعات: كاش + شيكات + الخزنة"},
             ].map(t=>{
               const isActive=statementTab===t.key;
               return<div key={t.key} onClick={()=>setStatementTab(t.key)} title={t.hint} style={{
@@ -3438,110 +3492,78 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             </>;
           })()}
 
-          {/* V18.63: MOVEMENT LOG TAB — sales table + returns table by date.
-              Each row shows: date, model, qty, value before discount, value after discount.
-              Both tables are filtered by the same model filter at the top. */}
+          {/* V21.9.200: MOVEMENT LOG TAB — invoice-grouped (by session) like the
+              customer portal. salesSessionInvoices / returnSessionInvoices are
+              computed at the modal level (mirror of portal buildInvoices). */}
           {statementTab==="log"&&(()=>{
-            const filter=(statementModelFilter||"").trim().toLowerCase();
-            const matchModel=(modelNo,modelDesc)=>{
-              if(!filter)return true;
-              return(modelNo||"").toLowerCase().includes(filter)||(modelDesc||"").toLowerCase().includes(filter);
-            };
-            /* Build sales movements (date, modelNo, modelDesc, qty, valBefore, valAfter, by) */
-            const sales=[];const returns=[];
-            orders.forEach(o=>{
-              if(!matchModel(o.modelNo,o.modelDesc))return;
-              (o.customerDeliveries||[]).filter(d=>d.custId===custStatement).forEach(d=>{
-                const qty=Number(d.qty)||0;
-                if(qty<=0)return;
-                /* V18.63: per-line price priority — explicit delivery price > order's sell price */
-                const price=Number(d.price)||Number(o.sellPrice)||0;
-                const valBefore=qty*price;
-                const valAfter=Math.round(valBefore*(1-discPct/100));
-                sales.push({date:d.date||"",modelNo:o.modelNo,modelDesc:o.modelDesc,qty,price,valBefore,valAfter,by:d.createdBy||""});
-              });
-              (o.customerReturns||[]).filter(r=>r.custId===custStatement).forEach(r=>{
-                const qty=Number(r.qty)||0;
-                if(qty<=0)return;
-                const price=Number(o.sellPrice)||0;
-                const valBefore=qty*price;
-                const valAfter=Math.round(valBefore*(1-discPct/100));
-                returns.push({date:r.date||"",modelNo:o.modelNo,modelDesc:o.modelDesc,qty,price,valBefore,valAfter,note:r.note||"",by:r.createdBy||""});
-              });
-            });
-            /* Sort: newest first */
-            sales.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-            returns.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-            const salesTotalQty=sales.reduce((s,m)=>s+m.qty,0);
-            const salesTotalBefore=sales.reduce((s,m)=>s+m.valBefore,0);
-            const salesTotalAfter=sales.reduce((s,m)=>s+m.valAfter,0);
-            const retTotalQty=returns.reduce((s,m)=>s+m.qty,0);
-            const retTotalBefore=returns.reduce((s,m)=>s+m.valBefore,0);
-            const retTotalAfter=returns.reduce((s,m)=>s+m.valAfter,0);
+            const invTable=(list,color,bg,emptyMsg)=>(
+              list.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr>{["#","التاريخ","الكمية","قبل الخصم","بعد الخصم"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {list.map((inv,i)=><tr key={inv.sessionId} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color}}>#{inv.invoiceNo}</td>
+                    <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{inv.date||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color}}>{inv.qty}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(inv.value)}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color}}>{fmt(inv.valueAfterDisc)}</td>
+                  </tr>)}
+                  <tr style={{background:bg}}>
+                    <td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color}}>{list.reduce((a,x)=>a+x.qty,0)}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1}}>{fmt(list.reduce((a,x)=>a+x.value,0))}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color}}>{fmt(list.reduce((a,x)=>a+x.valueAfterDisc,0))}</td>
+                  </tr>
+                </tbody>
+              </table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:8}}>{emptyMsg}</div>
+            );
             return<>
-              {/* Model filter (shared with summary tab) */}
-              {(orders.some(o=>(o.customerDeliveries||[]).some(d=>d.custId===custStatement))||orders.some(o=>(o.customerReturns||[]).some(r=>r.custId===custStatement)))&&<div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                <div style={{flex:1,minWidth:200}}>
-                  <Inp value={statementModelFilter} onChange={setStatementModelFilter} placeholder="🔍 فلترة بالموديل أو الوصف..."/>
-                </div>
-                {filter&&<Btn ghost small onClick={()=>setStatementModelFilter("")} title="مسح الفلتر">✕</Btn>}
-              </div>}
-              {/* Sales table */}
+              {/* Sales invoices (one row per session) */}
               <div style={{marginBottom:18}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:T.accent+"08",borderRadius:8,border:"1px solid "+T.accent+"20"}}>
-                  <span style={{fontSize:FS,fontWeight:800,color:T.accent}}>📤 سجل المبيعات</span>
-                  <span style={{fontSize:FS-2,color:T.textMut}}>({sales.length} حركة)</span>
+                  <span style={{fontSize:FS,fontWeight:800,color:T.accent}}>🛒 فواتير المبيعات</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>({salesSessionInvoices.length} فاتورة)</span>
                 </div>
-                {sales.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr>{["التاريخ","الموديل","الكمية","السعر","قبل الخصم","بعد الخصم"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {sales.map((m,i)=><tr key={"s"+i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-                      <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{m.date||"—"}</td>
-                      <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}<div style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{m.modelDesc||""}</div></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{m.qty}</td>
-                      <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{m.price?fmt(m.price):"—"}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(m.valBefore)}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.accent}}>{discPct>0?fmt(m.valAfter):<span style={{color:T.textMut}}>—</span>}</td>
-                    </tr>)}
-                    <tr style={{background:T.accent+"10"}}>
-                      <td style={{...TD,fontWeight:800}}>الاجمالي</td>
-                      <td style={TD}></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.accent}}>{salesTotalQty}</td>
-                      <td style={TD}></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1}}>{fmt(salesTotalBefore)}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.accent}}>{discPct>0?fmt(salesTotalAfter):"—"}</td>
-                    </tr>
-                  </tbody>
-                </table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:8}}>لا توجد مبيعات{filter?" مطابقة للفلتر":""}</div>}
+                {invTable(salesSessionInvoices,T.accent,T.accent+"10","لا توجد مبيعات")}
               </div>
-              {/* Returns table */}
+              {/* Returns invoices (one row per session) */}
               <div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:T.err+"08",borderRadius:8,border:"1px solid "+T.err+"20"}}>
-                  <span style={{fontSize:FS,fontWeight:800,color:T.err}}>↩️ سجل المرتجعات</span>
-                  <span style={{fontSize:FS-2,color:T.textMut}}>({returns.length} حركة)</span>
+                  <span style={{fontSize:FS,fontWeight:800,color:T.err}}>↩️ المرتجعات</span>
+                  <span style={{fontSize:FS-2,color:T.textMut}}>({returnSessionInvoices.length})</span>
                 </div>
-                {returns.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead><tr>{["التاريخ","الموديل","الكمية","السعر","قبل الخصم","بعد الخصم"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {returns.map((m,i)=><tr key={"r"+i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-                      <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{m.date||"—"}</td>
-                      <td style={{...TD,fontWeight:700,color:T.err}}>{m.modelNo}<div style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{m.modelDesc||""}{m.note?" | "+m.note:""}</div></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{m.qty}</td>
-                      <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{m.price?fmt(m.price):"—"}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(m.valBefore)}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,color:T.err}}>{discPct>0?fmt(m.valAfter):<span style={{color:T.textMut}}>—</span>}</td>
-                    </tr>)}
-                    <tr style={{background:T.err+"10"}}>
-                      <td style={{...TD,fontWeight:800}}>الاجمالي</td>
-                      <td style={TD}></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.err}}>{retTotalQty}</td>
-                      <td style={TD}></td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1}}>{fmt(retTotalBefore)}</td>
-                      <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.err}}>{discPct>0?fmt(retTotalAfter):"—"}</td>
-                    </tr>
-                  </tbody>
-                </table></div>:<div style={{textAlign:"center",padding:16,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:8}}>لا توجد مرتجعات{filter?" مطابقة للفلتر":""}</div>}
+                {invTable(returnSessionInvoices,T.err,T.err+"10","لا توجد مرتجعات")}
               </div>
+            </>;
+          })()}
+
+          {/* V21.9.200: PAYMENTS TAB — 3 summary cards + full payments log
+              (cash + checks + orphan-treasury). Mirrors the customer portal. */}
+          {statementTab==="payments"&&(()=>{
+            return<>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+                {[{icon:"💵",label:"نقدي",val:totalPaidCash,color:T.ok},{icon:"📝",label:"شيكات",val:totalPaidChecks,color:"#0EA5E9"},{icon:"💰",label:"إجمالي",val:totalPaid,color:T.accent}].map(c=>(
+                  <div key={c.label} style={{padding:10,borderRadius:10,background:c.color+"08",border:"1px solid "+c.color+"25",textAlign:"center"}}>
+                    <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700,marginBottom:4}}>{c.icon} {c.label}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:c.color}}>{fmt(c.val)} <span style={{fontSize:FS-3,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+                  </div>
+                ))}
+              </div>
+              {allPaymentsList.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr>{["التاريخ","المبلغ","الطريقة","ملاحظات"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {allPaymentsList.map((p,i)=><tr key={i} style={{background:i%2===0?"transparent":T.bg+"80"}}>
+                    <td style={{...TD,fontSize:FS-2,whiteSpace:"nowrap"}}>{p.date||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{fmt(p.amount)}</td>
+                    <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{(p.method==="شيك"?"📝 ":p.method.indexOf("خزنة")>=0?"🏦 ":"💵 ")+p.method}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textSec}}>{p.note||"—"}</td>
+                  </tr>)}
+                  <tr style={{background:T.ok+"10"}}>
+                    <td style={{...TD,fontWeight:800}}>الاجمالي</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,fontSize:FS+1,color:T.ok}}>{fmt(totalPaid)}</td>
+                    <td colSpan={2} style={TD}></td>
+                  </tr>
+                </tbody>
+              </table></div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد دفعات مسجّلة لهذا العميل</div>}
             </>;
           })()}
         </div>
