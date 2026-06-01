@@ -25,6 +25,19 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.198",
+    date: "2026-06-01",
+    types: ["fix"],
+    title: "🛒 بوابة العميل — إصلاح حساب الخصم المزدوج (Portal Double-Count Fix)",
+    changes: [
+      { type: "fix", text: "🎯 الـ bug المُبلّغ عنه (مكتب زكي ابو الوفا): البورتال كان بـ يـ show خصم/رصيد غلط للعملاء اللي عندهم فواتير بخصومات مختلفة (مثلاً فاتورة بـ 40% + باقي بـ 10%)، بينما كشف الحساب داخل البرنامج صح.\n\n**الـ root cause (تحليل static — مش محتاج debugging):** في `api/customer-portal.js` الـ orphan-matching في Pass 2 بـ يبني composite key شكله `\"c:<orderId>|<custId>|<sessionId>\"` ويقارنه بـ `deliveryRefs` بتاعة الفاتورة — اللي بـ تخزّن `orderId = order.id` (الـ **business id** بتاع الأوردر، انظر src/utils/invoices.js). **لكن** الـ portal كان بـ يـ override الـ `o.id` بالـ Firestore `doc.id` عند تحميل الأوردرات (`{...o, id: doc.id}`). الـ business id ≠ الـ doc id → الـ match بـ يفشل دايماً سيرفر-سايد → كل delivery مفوترة بتتعامل كـ orphan وتتحسب **مرتين**: مرة في Pass 1 (الفاتورة بخصمها الحقيقي) ومرة في Pass 2 (بـ customer.discount). النتيجة: مبيعات مضخّمة + نسبة خصم مغلوطة + رصيد غلط." },
+      { type: "fix", text: "✅ الإصلاح (سطر واحد + ROOT CAUSE comment): الـ portal دلوقتي بـ يحتفظ بالـ business `order.id` (`{ ...o, id: o.id || doc.id, _docId: doc.id }`) — فالـ `_sourceOrderId` بقى = الـ business id ويطابق `deliveryRefs` بتاعة الفاتورة، زي ما الـ in-app statement بـ يعمل بالظبط (بـ يلف على data.orders اللي فيها o.id = business id). نتيجة: الـ deliveries المفوترة بتتـ skip صح في Pass 2 → مفيش double-count." },
+      { type: "fix", text: "🖥 الـ portal UI (CustomerPortalPage) اتـ updated عشان يستهلك حقول الـ aggregation الجديدة من الـ API: `totalDelValueAfterDisc` (net per-delivery), `hasMixedDiscounts`, `discountAmount`, و per-entry `valueAfterDisc` — فالكروت والفواتير بـ تعرض الخصم الصح حتى لو مختلف لكل فاتورة. كارت الخصم بقى بـ يعرض القيمة فقط (من غير badge نسبة مضلّلة)." },
+      { type: "architectural", text: "🛡 Back-compat + scope:\n• Read-only fix على جانب العرض — **zero data migration**.\n• الأوردرات القديمة بدون business id بـ تـ fall back للـ doc.id (والـ client أصلاً بـ يفلترها).\n• الـ `summary._debug` (V21.9.197) متساب مؤقتاً للتأكد إن `pass2.orphanDelCount` بقى 0 بعد الإصلاح — هـ يتشال في نسخة لاحقة.\n• **مستبعد عمداً:** V21.9.195 (session save-on-confirm) — مالوش علاقة بالـ bug، هـ يتعمله re-apply منفصل.\n• كشف الحساب داخل البرنامج (CustDeliverPg V21.9.196 logic) هـ يتعمله re-apply في نسخة منفصلة بعد التأكد من البورتال." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (2 modified + 3 version):\n• MODIFIED: `api/customer-portal.js` — منطق V21.9.196 (2-pass invoice-based) + إصلاح الـ business-id + `_debug`\n• MODIFIED: `src/components/CustomerPortalPage.jsx` — UI يستهلك حقول الخصم الجديدة\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)" },
+    ],
+  },
+  {
     version: "V21.9.192",
     date: "2026-05-25",
     types: ["improvement"],

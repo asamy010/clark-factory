@@ -147,20 +147,39 @@ export function CustomerPortalPage({ params }) {
     ...rets.map(r => ({ ...r, kind: "return" })),
   ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const filteredTransactions = transactions.filter(t => matchesModel(t.modelNo));
-  /* V18.4: Compute gross sales after discount (for card display) */
-  const grossAfterDisc = customer.discount > 0 ? Math.round(summary.totalDelValue * (1 - customer.discount / 100)) : summary.totalDelValue;
+  /* V21.9.193: prefer the per-delivery aggregated `totalDelValueAfterDisc`
+     from the server (mirrors the per-entry math). Falls back to the legacy
+     gross × single-discount computation for old API responses that don't
+     return the new field. */
+  const grossAfterDisc = (summary.totalDelValueAfterDisc !== undefined && summary.totalDelValueAfterDisc !== null)
+    ? summary.totalDelValueAfterDisc
+    : (customer.discount > 0 ? Math.round(summary.totalDelValue * (1 - customer.discount / 100)) : summary.totalDelValue);
+  /* V21.9.193: hasMixedDiscounts comes from the server when present.
+     Drives the "متوسط X%" hint vs single "نسبة X%" label. */
+  const hasMixedDiscounts = summary.hasMixedDiscounts === true;
+  /* V21.9.193: there's no longer a single "customer discount %" that
+     applies uniformly — show whatever the server computed (weighted-avg
+     when mixed, nominal when uniform). Keep `customer.discount` only for
+     legacy field references. */
+  const effectiveDiscPct = Number(customer.discount) || 0;
+  const hasDiscount = (summary.discountAmount || 0) > 0;
 
   /* V18.26: Group deliveries and returns by session into "invoices" — one row per session.
-     Records without sessionId fall back to a "NO_SESS_<date>" key so they're still grouped reasonably.
-     Numbering is sequential per-customer based on earliest-date ascending. */
-  const discPct = Number(customer.discount) || 0;
+     V21.9.193: per-entry valueAfterDisc is now provided by the server (each
+     entry carries its own discPct + valueAfterDisc). The legacy "single %"
+     fallback below stays for back-compat with old API responses. */
   const buildInvoices = (rows) => {
     const groups = {};
     rows.forEach(r => {
       const key = r.sessionId || ("NO_SESS_" + (r.date || "unknown"));
-      if (!groups[key]) groups[key] = { sessionId: key, date: r.date || "", qty: 0, value: 0, count: 0 };
+      if (!groups[key]) groups[key] = { sessionId: key, date: r.date || "", qty: 0, value: 0, valueAfterDisc: 0, count: 0 };
       groups[key].qty += Number(r.qty) || 0;
       groups[key].value += Number(r.value) || 0;
+      /* V21.9.193: prefer per-entry net value; fall back to gross if absent */
+      const perEntryNet = (r.valueAfterDisc !== undefined && r.valueAfterDisc !== null)
+        ? Number(r.valueAfterDisc)
+        : (effectiveDiscPct > 0 ? Math.round((Number(r.value) || 0) * (1 - effectiveDiscPct / 100)) : (Number(r.value) || 0));
+      groups[key].valueAfterDisc += perEntryNet;
       groups[key].count += 1;
       /* Use earliest date if multiple deliveries on different dates within a session */
       if (r.date && (!groups[key].date || r.date < groups[key].date)) groups[key].date = r.date;
@@ -169,7 +188,6 @@ export function CustomerPortalPage({ params }) {
     const list = Object.values(groups).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     list.forEach((inv, i) => {
       inv.invoiceNo = i + 1;
-      inv.valueAfterDisc = discPct > 0 ? Math.round(inv.value * (1 - discPct / 100)) : inv.value;
     });
     return list.reverse();/* newest first for display */
   };
@@ -231,16 +249,28 @@ export function CustomerPortalPage({ params }) {
       <div id="print-body"></div>
     </div>
 
-    {/* V18.3: 6 compact cards mirroring in-app statement */}
+    {/* V18.3: 6 compact cards mirroring in-app statement
+        V21.9.193: cards driven by `hasDiscount` (any discount > 0) instead
+        of `customer.discount > 0`, since per-delivery overrides can give
+        a customer real discounts even when their nominal customer.discount=0.
+        Discount card no longer shows a single "%" badge — per-invoice
+        rates vary. Subtitle says "متوسط X%" when mixed. */}
     <div className="no-print" style={{ padding: "10px 12px 6px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
       {/* Card 1: Total Sales (GROSS — V18.4: was netSales which is wrong, now totalDelValue) */}
-      <MiniCard icon="📤" label="إجمالي فواتير المبيعات" mainValue={fmt(summary.totalDelValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "إجمالي التسليم"} unit="ج.م" color="#6366F1"
-        secondary={customer.discount > 0 ? { value: fmt(grossAfterDisc), label: "بعد الخصم" } : null}/>
+      <MiniCard icon="📤" label="إجمالي فواتير المبيعات" mainValue={fmt(summary.totalDelValue)} mainSub={hasDiscount ? "قبل الخصم" : "إجمالي التسليم"} unit="ج.م" color="#6366F1"
+        secondary={hasDiscount ? { value: fmt(grossAfterDisc), label: "بعد الخصم" } : null}/>
       {/* Card 2: Total Returns */}
-      <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={customer.discount > 0 ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
-        secondary={customer.discount > 0 && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
-      {/* Card 3: Discount — V18.8: restored per user request */}
-      {customer.discount > 0 && <MiniCard icon="🏷️" label="إجمالي الخصم" mainValue={fmt(summary.discountAmount)} mainSub={"نسبة " + customer.discount + "%"} unit="ج.م" color="#F59E0B" badge={customer.discount + "%"}/>}
+      <MiniCard icon="↩️" label="إجمالي المرتجعات" mainValue={fmt(summary.returnsValue)} mainSub={hasDiscount ? "قبل الخصم" : "قيمة المرتجعات"} unit="ج.م" color="#EF4444"
+        secondary={hasDiscount && summary.returnsValue > 0 ? { value: fmt(summary.returnsAfterDiscount), label: "بعد الخصم" } : null}/>
+      {/* Card 3: Discount — V21.9.194: clean amount-only display.
+          Per Ahmed: no percentage subtitle (mixed per-invoice rates make
+          any single % misleading). The amount comes from per-delivery
+          aggregation server-side, so it's always accurate regardless of
+          how many different rates the customer has across invoices. */}
+      {hasDiscount && <MiniCard icon="🏷️" label="إجمالي الخصم"
+        mainValue={fmt(summary.discountAmount)}
+        mainSub="قيمة الخصم المطبق"
+        unit="ج.م" color="#F59E0B"/>}
       {/* Card 4: Paid (cash + checks) */}
       <div style={{ background: "#fff", borderRadius: 10, padding: 10, boxShadow: "0 2px 6px rgba(0,0,0,0.04)", border: "1px solid #05966920" }}>
         <div style={{ fontSize: 10, color: "#64748B", fontWeight: 700, marginBottom: 6 }}>💰 إجمالي المدفوع</div>
@@ -298,10 +328,12 @@ export function CustomerPortalPage({ params }) {
         <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10, color: "#1E293B" }}>📋 ملخص الحساب</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+            {/* V21.9.193: use hasDiscount flag instead of customer.discount > 0
+                so per-delivery-overrides still trigger the "بعد الخصم" detail */}
             <Row icon="📤" label="إجمالي فواتير المبيعات" value={fmt(summary.totalDelValue)} unit="ج.م" color="#6366F1"
-              detail={customer.discount > 0 ? { label: "بعد الخصم", value: fmt(grossAfterDisc) } : null}/>
+              detail={hasDiscount ? { label: "بعد الخصم", value: fmt(grossAfterDisc) } : null}/>
             <Row icon="↩️" label="إجمالي المرتجعات" value={fmt(summary.returnsValue)} unit="ج.م" color="#EF4444"
-              detail={customer.discount > 0 && summary.returnsValue > 0 ? { label: "بعد الخصم", value: fmt(summary.returnsAfterDiscount) } : null}/>
+              detail={hasDiscount && summary.returnsValue > 0 ? { label: "بعد الخصم", value: fmt(summary.returnsAfterDiscount) } : null}/>
             <Row icon="💵" label="مدفوع نقدي" value={fmt(summary.cashPaid)} unit="ج.م" color="#059669"/>
             <Row icon="📝" label="مدفوع شيكات" value={fmt(summary.checksPaid)} unit="ج.م" color="#059669"/>
             <Row icon="💰" label="إجمالي المدفوع" value={fmt(summary.totalPaid)} unit="ج.م" color="#059669" bold/>
