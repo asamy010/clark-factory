@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.199",
+    date: "2026-06-01",
+    types: ["fix"],
+    title: "📄 كشف الحساب داخل البرنامج — يطابق البورتال (نفس منطق V21.9.196)",
+    changes: [
+      { type: "fix", text: "🎯 بعد ما V21.9.198 صلّح البورتال (الخصم المختلط بقى صح: 40% على فاتورة + 10% على الباقي)، فضل كشف الحساب داخل البرنامج (CustDeliverPg) على منطق V21.9.192 القديم — اللي بـ يطبّق customer.discount موحّد على كل المبيعات. ده كان هيخلّي كشف الحساب يعرض خصم مختلف عن البورتال لنفس العميل (مثلاً ~36,420 بدل 66,026 لـ مكتب زكي ابو الوفا)." },
+      { type: "fix", text: "✅ الإصلاح: إعادة تطبيق منطق الـ aggregation بتاع V21.9.193/196 على modal كشف الحساب — 2-pass:\n• **Pass 1 (المصدر الموثوق):** المجاميع من الفواتير (`salesInvoices`) + إشعارات الدائن (`salesCreditNotes`) — كل فاتورة بخصمها الفعلي (`subtotal` → `total`).\n• **Pass 2 (fallback):** أي delivery/return مش مغطّى بفاتورة (legacy direct-post أو فواتير معلّقة) بـ ياخد `entry.discPct → customer.discount → 10`.\n• الخصم المعروض = القيمة الفعلية المشتقّة (gross − net)، مش نسبة واحدة موحّدة.\n\nنفس منطق البورتال بالظبط (V21.9.196) — فالاتنين بقوا يعرضوا نفس الأرقام الصح." },
+      { type: "architectural", text: "🛡 Scope + back-compat:\n• تغيير display-side فقط على كشف الحساب — **zero data migration**.\n• العملاء بخصم موحّد: نفس الأرقام بالظبط (الـ weighted-avg = الـ nominal).\n• العملاء بخصومات مختلطة: بقت صح (تطابق الفواتير + البورتال).\n• **مستبعد عمداً:** V21.9.195 (session save-on-confirm) — behavior change مالوش علاقة، اتشال بـ reverse-patch نضيف (الـ session region منفصل تماماً عن الـ statement region، اتأكدنا أن مفيش أي تداخل)." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (1 modified + 3 version):\n• MODIFIED: `src/pages/CustDeliverPg.jsx` — statement modal aggregation = منطق V21.9.196 (بدون V21.9.195)\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx (version bump)\n\nملاحظة: الـ `summary._debug` في البورتال (V21.9.197) لسه موجود مؤقتاً — هـ يتشال بعد التأكد النهائي." },
+    ],
+  },
+  {
     version: "V21.9.198",
     date: "2026-06-01",
     types: ["fix"],
