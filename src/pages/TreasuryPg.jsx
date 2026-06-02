@@ -687,6 +687,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccBalanceCap,setNewAccBalanceCap]=useState("200000");
   const[newAccMonthlyCap,setNewAccMonthlyCap]=useState("200000");
   const[walletImgBusy,setWalletImgBusy]=useState(false);
+  /* V21.9.204 (e-wallets Phase 2): per-wallet commission tiers (شرائح).
+     Each tier = {from, to, fee} — a FIXED fee for amounts in [from..to]
+     (Vodafone-Cash style). Leave `to` empty for the open-ended top tier. */
+  const[newAccTiers,setNewAccTiers]=useState([]);
   /* V18.0: Banks management — list of bank names used in checks */
   const[newBankName,setNewBankName]=useState("");
   const[editBankIdx,setEditBankIdx]=useState(null);
@@ -1023,6 +1027,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     }
     /* V18.35: capture freshly-built treasury entry for post-commit auto-posting */
     let _newBaseEntry=null;
+    let _newFeeEntry=null;/* V21.9.204: wallet commission entry, auto-posted after upConfig */
     /* V19.3 FIX: For EDITS of plain (non-sourceType) treasury entries, capture the
        OLD entry BEFORE mutation so we can reverse the original journal entry, then
        re-post a fresh one based on the new values. Without this, editing the amount/
@@ -1189,6 +1194,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         d.treasury.unshift(baseEntry);
         /* V18.35: stash for post-commit auto-posting */
         _newBaseEntry=baseEntry;
+        /* V21.9.204 (e-wallets Phase 2): tiered commission auto-deducted on a
+           WITHDRAWAL (out) from a wallet. GUARDED to wallet+out — cash/bank
+           flows never enter this branch, so they are completely unaffected.
+           The fee is a separate "out" entry on the SAME wallet (category
+           "عمولة محفظة"), linked to the parent via walletFeeFor, and auto-posted
+           to accounting below like any plain treasury out. NEW entries only
+           (editing an existing wallet-out does not recompute the commission). */
+        if(txType==="out"){
+          const _w=(d.treasuryAccounts||[]).find(a=>a&&typeof a==="object"&&a.name===txAccount&&a.type==="wallet");
+          const _fee=_w?computeWalletFee(_w,amt):0;
+          if(_fee>0){
+            _newFeeEntry={id:gid(),type:"out",amount:_fee,desc:"عمولة محفظة — "+txAccount,notes:"عمولة على سحب "+fmt0(amt)+" ج.م",category:"عمولة محفظة",account:txAccount,season:txSeason,date:txDate,day:dayName(txDate),by:userName,createdAt:nowISO(),walletFeeFor:txId};
+            d.treasury.unshift(_newFeeEntry);
+          }
+        }
       }});
     /* V21.9.70 REVERT: pre-V21.9.67 fire-and-forget autoPost — no error gate.
        Errors land in accountingPostFailures (V21.9.67 health pill surfaces them). */
@@ -1208,6 +1228,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _r=autoPost.treasury(data, _newBaseEntry, userName);
         if(_r && typeof _r.then==="function") _r.catch(()=>{});
       }catch(e){console.warn("[V19.8] autoPost.treasury sync threw:",e?.message||e);}
+    }
+    /* V21.9.204: auto-post the wallet commission entry too (plain treasury out). */
+    if(_newFeeEntry){
+      try{
+        const _rf=autoPost.treasury(data, _newFeeEntry, userName);
+        if(_rf && typeof _rf.then==="function") _rf.catch(()=>{});
+      }catch(e){console.warn("[V21.9.204] wallet-fee autoPost threw:",e?.message||e);}
     }
     /* V19.70.3: INSTANT paymentReceived event trigger (client-side hook).
        Fires the WhatsApp notification the moment the payment is saved, instead
@@ -1756,7 +1783,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setTxMethod(linkedPay?.method || "نقدي كاش");
     setShowForm(true)};
   /* V21.9.203 (e-wallets): reset the account form back to defaults. */
-  const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000")};
+  const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000");setNewAccTiers([])};
   /* V21.9.203: `typeArg` is an EXPLICIT type string ("wallet" | "cash" | "bank").
      The wallet form passes "wallet"; the legacy accounts form calls addAccount
      directly (so typeArg is the click event — ignored, not a string). When
@@ -1771,7 +1798,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     image:newAccImage||"",
     balanceCap:Math.max(0,Number(newAccBalanceCap)||0),
     monthlyWithdrawCap:Math.max(0,Number(newAccMonthlyCap)||0),
+    /* V21.9.204: normalise + keep meaningful commission tiers only. */
+    tiers:(newAccTiers||[]).map(t=>({
+      from:Math.max(0,Number(t.from)||0),
+      to:(t.to===""||t.to==null)?null:Math.max(0,Number(t.to)||0),
+      fee:Math.max(0,Number(t.fee)||0),
+    })).filter(t=>t.fee>0||t.to!=null||t.from>0),
   });
+  /* V21.9.204 (e-wallets Phase 2): fixed commission for `amount` from a wallet's
+     tiers — the first bracket where from ≤ amount ≤ to (to=null = open-ended).
+     Returns 0 when no tier matches or the wallet has none. Pure function. */
+  const computeWalletFee=(w,amount)=>{
+    if(!w||!Array.isArray(w.tiers)||!w.tiers.length)return 0;
+    const a=Number(amount)||0;if(a<=0)return 0;
+    for(const t of w.tiers){
+      if(!t)continue;
+      const from=Number(t.from)||0;
+      const to=(t.to===""||t.to==null)?Infinity:(Number(t.to)||0);
+      if(a>=from&&a<=to)return Math.max(0,Number(t.fee)||0);
+    }
+    return 0;
+  };
   const addAccount=(typeArg)=>{if(!newAccName.trim())return;
     const explicit=(typeof typeArg==="string"&&typeArg)?typeArg:null;
     upConfig(d=>{if(!d.treasuryAccounts)d.treasuryAccounts=[];
@@ -1788,7 +1835,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"");
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
     setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
-    setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000))};
+    setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000));
+    setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),fee:t.fee==null?"":String(t.fee)})):[])};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
@@ -2698,6 +2746,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div onClick={()=>setTxType("out")} style={{flex:1,padding:"12px 0",borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:txType==="out"?T.err+"15":"transparent",border:"2px solid "+(txType==="out"?T.err:T.brd),color:txType==="out"?T.err:T.textSec}}>↑ منصرف</div>
           </div></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ</label><Inp type="number" value={txAmount} onChange={setTxAmount} placeholder="0.00"/></div>
+          {/* V21.9.204: wallet commission preview — only on a withdrawal (out) from a
+              wallet whose tiers yield a fee. Transparent heads-up before saving; the
+              actual deduction happens in saveTx as a separate "عمولة محفظة" entry. */}
+          {(()=>{const _w=accountsData.find(a=>a&&a.type==="wallet"&&a.name===txAccount);if(!_w||txType!=="out")return null;const _fee=computeWalletFee(_w,parseFloat(txAmount));if(!(_fee>0))return null;return<div style={{gridColumn:"1 / -1",fontSize:FS-2,color:T.warn,fontWeight:700,padding:"7px 10px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30"}}>🏷️ عمولة المحفظة: <b>{fmt0(_fee)} ج.م</b> — هتتخصم تلقائياً كحركة منفصلة عند الحفظ</div>;})()}
           <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span>نوع الحركة</span>
             {/* V18.52: Sticky mode toggle — repeats this category for N entries */}
@@ -4585,6 +4637,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   {newAccImage&&<span onClick={()=>setNewAccImage("")} style={{cursor:"pointer",color:T.err,fontSize:FS-2}} title="إزالة الصورة">✕</span>}
                 </div>
               </div>
+            </div>
+            {/* V21.9.204: commission tiers editor (شرائح) — fixed fee per amount bracket. */}
+            <div style={{marginTop:12,padding:10,borderRadius:10,background:T.cardSolid,border:"1px dashed "+T.brd}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>🏷️ شرائح العمولة (اختياري)</label>
+                <span onClick={()=>setNewAccTiers([...(newAccTiers||[]),{from:"",to:"",fee:""}])} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700,padding:"2px 10px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"30"}}>+ شريحة</span>
+              </div>
+              {(newAccTiers||[]).length===0&&<div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>مفيش عمولة. مثال: من 0 لـ 500 → 5 ج.م · من 500 لـ 1000 → 10 ج.م · من 1000 لـ (فاضي=مفتوح) → 15 ج.م. العمولة بتتخصم تلقائياً عند السحب من المحفظة.</div>}
+              {(newAccTiers||[]).map((t,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.from} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,from:v}:x))} placeholder="من"/></div>
+                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.to} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,to:v}:x))} placeholder="إلى"/></div>
+                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.fee} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,fee:v}:x))} placeholder="عمولة"/></div>
+                <span onClick={()=>setNewAccTiers((newAccTiers||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontSize:FS,padding:"0 4px",flexShrink:0}} title="حذف الشريحة">🗑️</span>
+              </div>)}
             </div>
             <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
               <Btn primary onClick={()=>addAccount("wallet")} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"➕ إضافة محفظة"}</Btn>
