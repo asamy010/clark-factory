@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.211",
+    date: "2026-06-02",
+    types: ["fix"],
+    title: "🐛 المحافظ — إصلاح عمولة المحفظة اليتيمة عند حذف السحب",
+    changes: [
+      { type: "fix", text: "🩹 **الجذر:** لما تحذف حركة سحب من محفظة عليها عمولة، كان entry 'عمولة محفظة' المربوط بيها (`walletFeeFor`) **بيفضل يتيم** في سجل الخزينة والمحاسبة — فبيضخّم المنصرف ومصروف العمولة ويبوّظ 'سحب الشهر' على بطاقة المحفظة. دلوقتي حذف السحب بيشيل العمولة معاه **ويعكس قيدها المحاسبي** (في الحذف الفردي والجماعي)." },
+      { type: "architectural", text: "🛡 الإصلاح مقصور على المحافظ: الفلتر بيأثّر بس على entries عندها `walletFeeFor` بتشاور على المحذوف — أي حركة كاش/بنك/عادية متغيّرتش حرف. `autoPost.reverse` بيعمل no-op لو مفيش قيد مطابق (آمن + idempotent)، والـ undo بيرجّع السحب وعمولته مع بعض. التحويلات مالهاش عمولة فمسارها فضل زي ما هو." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (delTx + bulkDeleteTxs — cascade + JE reverse للعمولة) + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.210",
     date: "2026-06-02",
     types: ["improvement"],
