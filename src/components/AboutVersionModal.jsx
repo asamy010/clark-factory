@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.219",
+    date: "2026-06-02",
+    types: ["feature"],
+    title: "🗑️ المحافظ — حذف محفظة فاضية (مع منع حذف محفظة عليها حركات)",
+    changes: [
+      { type: "feature", text: "🎯 بطلب أحمد: زر حذف 🗑️ على بطاقة المحفظة (جنب 📒 و✏️) — يحذف المحفظة لو **مفيش عليها أي حركات** (بعد تأكيد). لو المحفظة **عليها حركات** (استلام/صرف/عمولة/تحويل) → الحذف **مرفوض** برسالة واضحة «لا يمكن حذف المحفظة — يوجد حركات مسجّلة عليها»." },
+      { type: "improvement", text: "🛡 نفس الفاليديشان اللي في زر حذف الحساب بتاب «الحسابات» + الحارس الموجود أصلاً في delAccount (دفاع من طبقتين). الفحص بيشمل أي حركة على المحفظة بالاسم أو الـ id. ولو كنت جوّه تاب المحفظة وحذفتها، بيرجّعك لـ «الرئيسية» تلقائياً." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/TreasuryPg.jsx (زر الحذف في walletCard) + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.218",
     date: "2026-06-02",
     types: ["improvement"],

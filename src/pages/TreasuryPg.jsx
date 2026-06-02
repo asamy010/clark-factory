@@ -2005,6 +2005,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
           <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="كل السجل">📒</span>
           <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل المحفظة">✏️</span>
+          {/* V21.9.219: delete wallet — allowed ONLY when it has no transactions
+              (same guard as delAccount + the accounts view). Blocks with a clear
+              message otherwise. If we're inside this wallet's sub-tab, jump back to
+              «الرئيسية» first so the view doesn't dangle on a removed account. */}
+          <span onClick={()=>{if(txns.some(t=>t.account===w.name||t.account===w.id)){playBeep("error");showToast("⛔ لا يمكن حذف المحفظة — يوجد حركات مسجّلة عليها");return}openConfirm({title:"حذف المحفظة",message:"هتتحذف محفظة «"+w.name+"» نهائياً — مفيش عليها أي حركات. متأكد؟",variant:"danger",onConfirm:()=>{if(view==="acc_"+w.id)setView("wallets");delAccount(w.id)}})}} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}} title="حذف المحفظة (متاح فقط لو مفيش حركات عليها)">🗑️</span>
         </div>}
       </div>
       <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
