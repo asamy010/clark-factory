@@ -2718,21 +2718,39 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const baseTabs=[];
         /* Sort accounts: SUB CASH first, then MAIN CASH, then others */
         const sortedAccounts=[...accountsData].sort((a,b)=>{const aS=a.name.toUpperCase().includes("SUB")?0:a.name.toUpperCase().includes("MAIN")?1:2;const bS=b.name.toUpperCase().includes("SUB")?0:b.name.toUpperCase().includes("MAIN")?1:2;return aS-bS});
-        sortedAccounts.forEach(a=>{
+        /* V21.9.218: wallets NO LONGER get a top-level acc_ tab — they live as
+           sub-tabs under the single «محافظ إلكترونية» tab (pushed right after the
+           cash/bank account tabs, أي بعد بنك مصر). بيحافظ على الشريط الرئيسي نضيف
+           مع زيادة عدد المحافظ. */
+        sortedAccounts.filter(a=>a.type!=="wallet").forEach(a=>{
           const icon=a.name.toUpperCase().includes("MAIN")?"🏦":a.name.toUpperCase().includes("SUB")?"💰":"📘";
           baseTabs.push({k:"acc_"+a.id,l:icon+" "+a.name,accName:a.name})
         });
+        baseTabs.push({k:"wallets",l:"📱 محافظ إلكترونية"});/* V21.9.203 → V21.9.218: نُقل هنا (بعد البنوك)؛ المحافظ بقت sub-tabs جوّاه */
         baseTabs.push({k:"journal",l:"📒 الكل"});
         baseTabs.push({k:"transfers",l:"🔄 التحويلات"+transferBadge});
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
         baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
-        baseTabs.push({k:"wallets",l:"📱 محافظ إلكترونية"});/* V21.9.203 */
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
-        return baseTabs.map(v=>
-        <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)
+        /* V21.9.218: «محافظ إلكترونية» يفضل مميّز وأنا جوّه أي محفظة (acc_ view لحساب نوعه wallet). */
+        const _isWalletAccView=view.startsWith("acc_")&&(accountsData.find(a=>a.id===view.slice(4))?.type==="wallet");
+        return baseTabs.map(v=>{
+        const _active=view===v.k||(v.k==="wallets"&&_isWalletAccView);
+        return <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:_active?T.accent:T.cardSolid,color:_active?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>;})
       })()}
     </div>
+
+    {/* V21.9.218: wallet sub-tabs — تظهر بس وأنا في قسم المحافظ. أول تاب = الرئيسية
+        (قايمة المحافظ + فورم الإضافة، view="wallets")، وبعده تاب لكل محفظة
+        (view="acc_<id>"، بيعيد استخدام rendering الحساب الموجود — صفر تكرار). */}
+    {(view==="wallets"||(view.startsWith("acc_")&&accountsData.find(a=>a.id===view.slice(4))?.type==="wallet"))&&(()=>{
+      const _wls=accountsData.filter(a=>a.type==="wallet");
+      const _subTabs=[{k:"wallets",l:"🏠 الرئيسية"},..._wls.map(w=>({k:"acc_"+w.id,l:(w.icon||"📱")+" "+w.name,accName:w.name}))];
+      return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
+        {_subTabs.map(s=><div key={s.k} onClick={()=>{setView(s.k);if(s.accName){setFilterAcc(s.accName);setTxAccount(s.accName)}}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===s.k?T.accent:"transparent",color:view===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
+      </div>;
+    })()}
 
     {/* Today mini summary — per-account when viewing specific account.
         V16.19: Hidden on transfers/checks/analysis/accounts — these tabs have
