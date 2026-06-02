@@ -2586,63 +2586,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const accId=view.slice(4);const acc=accountsData.find(a=>a.id===accId);if(!acc)return null;
         const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
         const currentAccName=acc.name;
-        /* V21.9.208: wallet-aware header — merge the wallet card into THIS row
-           (icon/number on the left, caps bars below) so a wallet tab shows one
-           professional header instead of a separate card + a duplicate row. */
         const _w=acc.type==="wallet"?acc:null;
-        const cap=_w?(Number(_w.balanceCap)||0):0;const mcap=_w?(Number(_w.monthlyWithdrawCap)||0):0;
-        const mOut=_w?(walletMonthOut[acc.name]||0):0;
-        const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
-        const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
-        const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
-        const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
+        /* V21.9.210: shared stats + reports toolbar, reused by both the wallet
+           2-column layout and the plain cash/bank header. */
+        const statsRow=<div style={{display:"flex",gap:18,alignItems:"flex-end",flexWrap:"wrap"}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>وارد</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.in)}</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>منصرف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.out)}</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(bal)}</div></div>
+        </div>;
+        const toolbar=<div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{padding:"4px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم">
+            <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅</span>
+            <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
+            {printDate!==today&&<span onClick={()=>setPrintDate(today)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700}} title="العودة لليوم">↩</span>}
+          </div>
+          <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:T.accent+"15",border:"1px solid "+T.accent+"30",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:T.accent}} title={"طباعة "+printDate+" — "+currentAccName}>🖨️ طباعة</div>
+          <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:"#EF444415",border:"1px solid #EF444430",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#EF4444"}} title={"حفظ PDF "+printDate+" — "+currentAccName}>📄 PDF</div>
+          <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"6px 10px",borderRadius:8,background:"#25D36615",border:"1px solid #25D36630",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#25D366"}} title={"إرسال واتساب "+printDate+" — "+currentAccName}>📤 واتساب</div>
+        </div>;
+        /* V21.9.210: WALLET tab → the wallet card takes the first quarter (with
+           its cap bars stacked vertically, same as the محافظ tab) and the
+           stats + reports sit beside it. Cash/bank keep the single-row header. */
+        if(_w){
+          return<div style={{display:"flex",gap:14,alignItems:"stretch",flexWrap:"wrap",marginBottom:14}}>
+            <div style={{flex:isMob?"1 1 100%":"0 0 26%",minWidth:isMob?"auto":230,maxWidth:isMob?"none":340}}>{walletCard(_w)}</div>
+            <div style={{flex:1,minWidth:260,borderRadius:14,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"03)",border:"1px solid "+T.accent+"20",padding:16,display:"flex",flexDirection:"column",justifyContent:"center",gap:18}}>
+              {statsRow}
+              {toolbar}
+            </div>
+          </div>;
+        }
         return<Card style={{marginBottom:14,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"03)",border:"1px solid "+T.accent+"20"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-            {/* Left: account name (+ wallet icon/number) */}
-            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-              {_w&&<div style={{width:46,height:46,borderRadius:10,overflow:"hidden",background:T.cardSolid,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,border:"1px solid "+T.brd}}>
-                {_w.image?<img src={_w.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:(_w.icon||"📱")}
-              </div>}
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{_w?"":(acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 ")}{acc.name}</div>
-                {_w&&_w.walletNumber?<div style={{fontSize:FS-2,color:T.textMut,marginTop:2,direction:"ltr",textAlign:"right"}}>📞 {_w.walletNumber}</div>:(acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>)}
-              </div>
-              {_w&&canEdit&&<span onClick={()=>editAccount(_w)} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:11,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,flexShrink:0}} title="تعديل المحفظة">✏️</span>}
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 "}{acc.name}</div>
+              {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>}
             </div>
-            {/* Middle: balance totals */}
-            {/* V21.9.209: consistent stat sizing — all three values same size +
-                tabular-nums so the digits line up; balance distinguished by
-                weight/colour only (not a larger font). */}
-            <div style={{display:"flex",gap:18,alignItems:"flex-end"}}>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>وارد</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.in)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>منصرف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.out)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(bal)}</div></div>
-            </div>
-            {/* V19.70.5: action toolbar — date picker + print/PDF/WA, merged into
-                this card so we don't take a second row. */}
-            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{padding:"4px 10px",borderRadius:8,background:T.cardSolid,border:"1px solid "+T.brd,display:"flex",alignItems:"center",gap:6}} title="اختر اليوم">
-                <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>📅</span>
-                <input type="date" value={printDate} onChange={e=>setPrintDate(e.target.value||today)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/>
-                {printDate!==today&&<span onClick={()=>setPrintDate(today)} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700}} title="العودة لليوم">↩</span>}
-              </div>
-              <div onClick={()=>printDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:T.accent+"15",border:"1px solid "+T.accent+"30",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:T.accent}} title={"طباعة "+printDate+" — "+currentAccName}>🖨️ طباعة</div>
-              <div onClick={()=>savePdfDaily(printDate,currentAccName)} style={{padding:"6px 10px",borderRadius:8,background:"#EF444415",border:"1px solid #EF444430",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#EF4444"}} title={"حفظ PDF "+printDate+" — "+currentAccName}>📄 PDF</div>
-              <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"6px 10px",borderRadius:8,background:"#25D36615",border:"1px solid #25D36630",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#25D366"}} title={"إرسال واتساب "+printDate+" — "+currentAccName}>📤 واتساب</div>
-            </div>
+            {statsRow}
+            {toolbar}
           </div>
-          {/* V21.9.208: wallet cap bars — same row/card, below the main line. */}
-          {_w&&(cap>0||mcap>0)&&<div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
-            {cap>0&&<div style={{flex:1,minWidth:200}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
-              <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
-            </div>}
-            {mcap>0&&<div style={{flex:1,minWidth:200}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
-              <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
-              {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
-            </div>}
-          </div>}
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn primary onClick={()=>{
