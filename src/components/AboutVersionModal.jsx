@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.209",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "🔤 تناسق أحجام أرقام الخزينة (وارد/منصرف/الرصيد)",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: كان فيه عدم تناسق — رقم 'الرصيد' أكبر من 'وارد/منصرف' فمش مستويين. دلوقتي الثلاثة **بنفس الحجم** ومتحاذيين، و'الرصيد' متميّز باللون والـ bold بس (مش بحجم أكبر). أضفت `tabular-nums` عشان أرقام الخانات تتحاذى تحت بعض، و`line-height` موحّد." },
+      { type: "improvement", text: "📐 اتطبّق على هيدر تاب الحساب (لكل الحسابات والمحافظ) + كروت تاب 'الحسابات' — فالشكل بقى متناسق في كل التابات." },
+      { type: "architectural", text: "🛡 CSS فقط — صفر تغيير في المنطق أو الأرقام. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.208",
     date: "2026-06-02",
     types: ["improvement"],

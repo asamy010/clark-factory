@@ -2610,10 +2610,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               {_w&&canEdit&&<span onClick={()=>editAccount(_w)} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:11,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,flexShrink:0}} title="تعديل المحفظة">✏️</span>}
             </div>
             {/* Middle: balance totals */}
-            <div style={{display:"flex",gap:16}}>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>{fmt0(b.in)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:800,color:T.err}}>{fmt0(b.out)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err}}>{fmt0(bal)}</div></div>
+            {/* V21.9.209: consistent stat sizing — all three values same size +
+                tabular-nums so the digits line up; balance distinguished by
+                weight/colour only (not a larger font). */}
+            <div style={{display:"flex",gap:18,alignItems:"flex-end"}}>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>وارد</div><div style={{fontSize:FS+2,fontWeight:800,color:T.ok,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.in)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>منصرف</div><div style={{fontSize:FS+2,fontWeight:800,color:T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.out)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(bal)}</div></div>
             </div>
             {/* V19.70.5: action toolbar — date picker + print/PDF/WA, merged into
                 this card so we don't take a second row. */}
@@ -4755,10 +4758,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   <span onClick={()=>{if(txns.some(t=>t.account===acc.name)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}openConfirm({title:"حذف الحساب",message:"سيتم حذف الحساب: "+acc.name,variant:"danger",onConfirm:()=>delAccount(acc.id)})}} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑️</span>
                 </div>}
               </div>
-              <div style={{display:"flex",gap:16,marginTop:4}}>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>وارد</div><div style={{fontSize:FS,fontWeight:700,color:T.ok}}>{fmt0(b.in)}</div></div>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>منصرف</div><div style={{fontSize:FS,fontWeight:700,color:T.err}}>{fmt0(b.out)}</div></div>
-                <div><div style={{fontSize:FS-2,color:T.textMut}}>الرصيد</div><div style={{fontSize:FS+2,fontWeight:800,color:bal>=0?"#0D9488":T.err}}>{fmt0(bal)}</div></div>
+              {/* V21.9.209: consistent stat sizing (all FS+1 + tabular-nums). */}
+              <div style={{display:"flex",gap:16,marginTop:4,alignItems:"flex-end"}}>
+                <div><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>وارد</div><div style={{fontSize:FS+1,fontWeight:700,color:T.ok,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.in)}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>منصرف</div><div style={{fontSize:FS+1,fontWeight:700,color:T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(b.out)}</div></div>
+                <div><div style={{fontSize:FS-2,color:T.textMut,marginBottom:2}}>الرصيد</div><div style={{fontSize:FS+1,fontWeight:800,color:bal>=0?"#0D9488":T.err,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{fmt0(bal)}</div></div>
               </div>
             </div>})}
         </div>
