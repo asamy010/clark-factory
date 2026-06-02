@@ -1505,7 +1505,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
       if(d.wsPayments)d.wsPayments=d.wsPayments.filter(p=>!transferLegIds.includes(p.treasuryTxId));
     }else{
-      d.treasury=(d.treasury||[]).filter(t=>t.id!==id);
+      /* V21.9.211 (e-wallets): cascade-delete the wallet-commission child
+         ("عمولة محفظة", linked via walletFeeFor===id). Pre-V21.9.211 deleting a
+         wallet withdrawal ORPHANED its commission entry in the ledger + accounting
+         → overstated the wallet's outflow and the commission expense. The parent
+         withdrawal is a plain wallet "out" (no transferId) so it lands here in the
+         non-transfer branch; its fee child is removed alongside it. */
+      d.treasury=(d.treasury||[]).filter(t=>t.id!==id&&t.walletFeeFor!==id);
       if(tx){
         /* V19.20: Bilateral cascade — catch records linked via EITHER direction.
            Forward: wsPayment.treasuryTxId === tx.id (existing).
@@ -1625,6 +1631,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* Transfer legs — autoPost path for transfers writes via treasury sourceType
          (each leg is a treasury entry posted by buildTreasuryEntry); the reversal
          above already covers it. */
+      /* V21.9.211: reverse the wallet-commission child's JE too — it was a plain
+         treasury "out" auto-posted via buildTreasuryEntry. Found in pre-mutation
+         `data` by walletFeeFor===this entry's id. reverse() no-ops if no JE. */
+      (data.treasury||[]).forEach(fc=>{
+        if(fc&&fc.walletFeeFor===txCheck.id&&fc.date){
+          autoPost.reverse(data,"treasury",fc.sourceId||fc.id,fc.date,"حذف عمولة محفظة (تابعة لحركة)",userName).catch(()=>{});
+        }
+      });
     }
     showToast(txCheck&&txCheck.transferId?"✓ تم حذف التحويل بالكامل":"✓ تم الحذف")};
   /* Bulk delete multiple transactions — respects day lock + audit log */
@@ -1675,7 +1689,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(tx.transferId){
           transferIdsToDelete.add(tx.transferId);
         }else{
-          d.treasury=(d.treasury||[]).filter(t=>t.id!==tx.id);
+          /* V21.9.211: also drop the wallet-commission child (walletFeeFor===tx.id)
+             so a bulk-deleted wallet withdrawal doesn't orphan its "عمولة محفظة". */
+          d.treasury=(d.treasury||[]).filter(t=>t.id!==tx.id&&t.walletFeeFor!==tx.id);
         }
         if(d.custPayments)d.custPayments=d.custPayments.filter(p=>p.treasuryTxId!==tx.id);
         if(d.supplierPayments)d.supplierPayments=d.supplierPayments.filter(p=>p.treasuryTxId!==tx.id);
@@ -1767,6 +1783,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(_wp||tx.wsPaymentId){
         autoPost.reverse(data,"workshopPay",tx.wsPaymentId||_wp?.id,tx.date,"حذف مجمع (دفعة ورشة)",userName).catch(()=>{});
       }
+      /* V21.9.211: reverse the wallet-commission children of this deleted entry
+         (idempotent — if the child is also in the selection it just no-ops). */
+      (data.treasury||[]).forEach(fc=>{
+        if(fc&&fc.walletFeeFor===tx.id&&fc.date){
+          autoPost.reverse(data,"treasury",fc.sourceId||fc.id,fc.date,"حذف مجمع (عمولة محفظة)",userName).catch(()=>{});
+        }
+      });
     });
     setSelectedTxIds(new Set());
   };
