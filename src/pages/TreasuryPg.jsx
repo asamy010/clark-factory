@@ -1782,6 +1782,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         : null);
     setTxMethod(linkedPay?.method || "نقدي كاش");
     setShowForm(true)};
+  /* V21.9.205 (e-wallets Phase 3): enforce wallet caps BEFORE saving — warn +
+     manager override. Runs as a PRE-FLIGHT wrapper around saveTx (the save
+     button calls this instead of saveTx directly), so the critical saveTx
+     function itself stays completely untouched. Two caps, both guarded to
+     wallet accounts + NEW entries only (editing an existing entry skips it):
+       • balance cap → blocks a RECEIVE that would push the balance above the cap
+       • monthly cap → blocks a WITHDRAW once this month's withdrawals + the new
+                       amount exceed the monthly cap (resets on the 1st)
+     A manager/admin gets a confirm to override; anyone else is blocked. */
+  const saveTxWithLimits=async()=>{
+    if(savingTx)return;
+    if(!editId){
+      const _w=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===txAccount);
+      if(_w){
+        const _amt=parseFloat(txAmount)||0;
+        const _isMgr=isAdmin||userRole==="manager";
+        let _block=null;
+        if(_amt>0&&txType==="in"){
+          const _cap=Number(_w.balanceCap)||0;
+          if(_cap>0){
+            const _b=accBalances[_w.name]||{in:0,out:0};const _cur=_b.in-_b.out;
+            if(_cur+_amt>_cap)_block="رصيد المحفظة بعد الاستلام ("+fmt0(_cur+_amt)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
+          }
+        }else if(_amt>0&&txType==="out"){
+          const _mcap=Number(_w.monthlyWithdrawCap)||0;
+          if(_mcap>0){
+            const _mo=walletMonthOut[_w.name]||0;
+            if(_mo+_amt>_mcap)_block="سحب الشهر بعد العملية ("+fmt0(_mo+_amt)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+          }
+        }
+        if(_block){
+          if(!_isMgr){playBeep("error");showToast("⛔ "+_block+" — محتاج موافقة مدير");return;}
+          const _ok=await ask("⚠️ تجاوز حد المحفظة",_block+"\n\nمتابعة بصلاحية المدير؟",{danger:true});
+          if(!_ok)return;
+        }
+      }
+    }
+    saveTx();
+  };
   /* V21.9.203 (e-wallets): reset the account form back to defaults. */
   const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000");setNewAccTiers([])};
   /* V21.9.203: `typeArg` is an EXPLICIT type string ("wallet" | "cash" | "bank").
@@ -2850,7 +2889,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             />
           </div>
         )}
-        <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{if(savingTx)return;setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary disabled={savingTx} onClick={saveTx} style={savingTx?{opacity:0.55,cursor:"wait",pointerEvents:"none"}:undefined}>{savingTx?"⏳ جاري الحفظ...":(editId?"💾 حفظ التعديل":"💾 حفظ")}</Btn></div>
+        <div style={{marginTop:16,display:"flex",gap:8,justifyContent:"flex-end"}}><Btn ghost onClick={()=>{if(savingTx)return;setShowForm(false);setEditId(null)}}>إلغاء</Btn><Btn primary disabled={savingTx} onClick={saveTxWithLimits} style={savingTx?{opacity:0.55,cursor:"wait",pointerEvents:"none"}:undefined}>{savingTx?"⏳ جاري الحفظ...":(editId?"💾 حفظ التعديل":"💾 حفظ")}</Btn></div>
         </div>
       </div>}
 
