@@ -2727,7 +2727,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
         baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
-        baseTabs.push({k:"wallets",l:"📱 محافظ"});/* V21.9.203 */
+        baseTabs.push({k:"wallets",l:"📱 محافظ إلكترونية"});/* V21.9.203 */
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
         return baseTabs.map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)

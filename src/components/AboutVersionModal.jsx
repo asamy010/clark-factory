@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.216",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "🏷️ تسمية: تاب وزر المحافظ بقوا «محافظ إلكترونية»",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: تاب الخزينة وزر الهوم بقوا «محافظ إلكترونية» بدل «محافظ» — متّسقين مع عنوان التاب نفسه («المحافظ الإلكترونية»). تغيير نص واجهة فقط، صفر تغيير في المنطق." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (لابل التاب) + `src/App.jsx` (زر الهوم) + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.215",
     date: "2026-06-02",
     types: ["feature"],
