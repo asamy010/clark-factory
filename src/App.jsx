@@ -134,6 +134,8 @@ validatePermsRegistry(TABS);
 console.info("%c[CLARK "+APP_VERSION+"] App module loaded — "+new Date().toISOString(),"color:#0EA5E9;font-weight:bold");
 import { ActivityFeed } from "./components/ActivityFeed.jsx";
 import { UndoToast } from "./components/UndoToast.jsx";
+/* V21.9.202: reliable WhatsApp-bridge health pill (home greeting bar + Automation) */
+import { BridgeStatusIndicator } from "./components/BridgeStatusIndicator.jsx";
 /* V21.9.201 (perf): lazy — the 4297-line changelog modal is opened rarely,
    so keep it out of the main bundle. Loads on demand when the user opens it. */
 const AboutVersionModal = lazyNamed(() => import("./components/AboutVersionModal.jsx"), "AboutVersionModal");
@@ -6400,6 +6402,10 @@ export default function App(){
             })()}
             {/* V19.48: Season badge moved to top bar (next to bell). Removed from here to keep
                 greeting-bar single-row even when notifications are present. */}
+            {/* V21.9.202: WhatsApp-bridge health pill on the right of the greeting bar.
+                Uses the reliable check (waReady + resilient) — shown only when a bridge
+                URL is configured, so it never clutters setups that don't use WhatsApp. */}
+            {(config.campaignBridge||{}).url&&<BridgeStatusIndicator url={(config.campaignBridge||{}).url} token={(config.campaignBridge||{}).token}/>}
           </div>
 
           {/* ═══ MAIN CONTENT — V21.9.142 ═══

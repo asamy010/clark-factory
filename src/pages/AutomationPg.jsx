@@ -15,6 +15,9 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { Btn, Card, Sel, Inp, DelBtn } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
+/* V21.9.202: shared reliable bridge-health pill (replaces the local one that
+   wrongly required `status.ok` and flipped offline on a single blip). */
+import { BridgeStatusIndicator } from "../components/BridgeStatusIndicator.jsx";
 import { gid } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG, DEFAULT_DAILY_TEMPLATE, DAILY_REPORT_VARIABLES } from "../utils/automation/buildDailyReport.js";
@@ -511,7 +514,7 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       const payload = samplePayload(eventType);
       const message = substituteTemplate(template, payload);
       const status = await bridgeStatus(bridgeUrl, bridgeToken);
-      if (!status?.ok || !status.waReady) {
+      if (!status?.waReady) {/* V21.9.202: gate on waReady only (bridge /status has no `ok`); a fetch failure leaves waReady undefined so unreachable still blocks. */
         showToast("⛔ الـbridge مش جاهز (" + (status?.waState || status?.error || "unknown") + ")");
         return { ok:false };
       }
@@ -541,7 +544,7 @@ export function AutomationPg({ data, upConfig, isMob, user }){
        waReady is the canonical "ready to send" boolean. */
     setBusy(true);
     const status = await bridgeStatus(bridgeUrl, bridgeToken);
-    if (!status?.ok || !status.waReady) {
+    if (!status?.waReady) {/* V21.9.202: gate on waReady only (bridge /status has no `ok`); a fetch failure leaves waReady undefined so unreachable still blocks. */
       setBusy(false);
       showToast("⛔ الـbridge مش جاهز (" + (status?.waState || status?.error || "unknown") + ")");
       return;
@@ -1977,43 +1980,12 @@ function CronSetupHelper(){
 }
 
 /* ── Subcomponent: bridge status pill ──
-   V19.68 FIX: useEffect (not useMemo) for the async call. useMemo runs the fn
-   for memo-value computation; React doesn't guarantee its setState commits.
-   Also fixed the field — bridge /status returns `waState` + `waReady`, not `state`.
-   Refresh every 30s so the pill stays fresh while the user is on the page. */
+   V21.9.202: now delegates to the shared <BridgeStatusIndicator/>. The old
+   body was the ROOT CAUSE of "Automation says غير متصل while Campaigns says
+   متصل": it required `status.ok` (a field the bridge /status doesn't return)
+   before checking waReady, and it flipped to offline on a single transient
+   fetch failure. The shared indicator checks waReady (like Campaigns) and is
+   resilient to a single blip. */
 function BridgeStatusPill({ bridgeUrl, bridgeToken }){
-  const [status, setStatus] = useState({ label: "...", ready: false });
-
-  useEffect(() => {
-    let dead = false;
-    const refresh = async () => {
-      if (!bridgeUrl) {
-        if (!dead) setStatus({ label: "غير مضبوط", ready: false });
-        return;
-      }
-      const s = await bridgeStatus(bridgeUrl, bridgeToken);
-      if (dead) return;
-      if (s && s.ok) {
-        const ready = !!s.waReady;
-        const wstate = s.waState || (ready ? "READY" : "INIT");
-        setStatus({ label: ready ? "READY" : wstate, ready });
-      } else {
-        setStatus({ label: s?.error || "غير متصل", ready: false });
-      }
-    };
-    refresh();
-    const interval = setInterval(refresh, 30000);
-    return () => { dead = true; clearInterval(interval); };
-  }, [bridgeUrl, bridgeToken]);
-
-  return <div style={{
-    padding:"8px 14px", borderRadius:10,
-    background: status.ready ? T.ok+"12" : T.warn+"12",
-    border:"1px solid " + (status.ready ? T.ok+"40" : T.warn+"40"),
-    color: status.ready ? T.ok : T.warn,
-    fontSize:FS-2, fontWeight:800, display:"flex", alignItems:"center", gap:6,
-  }}>
-    <span>{status.ready ? "🟢" : "🟡"}</span>
-    <span>WA Bridge: {status.label}</span>
-  </div>;
+  return <BridgeStatusIndicator url={bridgeUrl} token={bridgeToken}/>;
 }

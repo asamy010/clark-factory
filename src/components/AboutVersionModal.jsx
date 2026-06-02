@@ -25,6 +25,20 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.202",
+    date: "2026-06-02",
+    types: ["fix", "feature"],
+    title: "🟢 مؤشر حالة بريدج واتساب في الهوم + إصلاح تناقض الأوتوميشن",
+    changes: [
+      { type: "fix", text: "🎯 بلاغ أحمد: الأوتوميشن أحياناً بيقول واتساب بريدج \"مش شغّال\"، ولما تفتح الحملات/الرسايل تلاقيه شغّال — لنفس البريدج وفي نفس الوقت.\n\n**السبب الجذري (اتأكد بالكود — مش تخمين):** البريدج `/status` بيرجّع `{waReady, waState}`. صفحة الحملات بتفحص `s.waReady` (صح). لكن pill الأوتوميشن كان:\n1. **بيطلب حقل `s.ok`** (`if (s && s.ok)`) قبل ما يبص لـ waReady — والبريدج مابيرجّعش `ok` غالباً → يقول \"غير متصل\" حتى لو waReady=true.\n2. **مفيش resilience** — أي فشل لحظي (timeout 5ث، كل 30ث) يقلبه أحمر فوراً." },
+      { type: "feature", text: "🟢 **مؤشر احترافي جديد في الجريتنج بار (الهوم)** لحالة البريدج: 🟢 واتساب متصل / 🟠 محتاج QR / 🔴 غير متصل / 🟡 بيفحص. بيعرض كمان رسائل اليوم (sent/cap) لما يكون متصل. بيظهر فقط لو البريدج مضبوط (مايزحمش الإعدادات اللي مش بتستخدم واتساب)." },
+      { type: "fix", text: "🔧 **إصلاح من الجذر:** component مشترك `BridgeStatusIndicator` + hook `useBridgeHealth` بيفحص `waReady` (زي الحملات اللي شغّالة) و**resilient** — مايقلبش \"غير متصل\" من أول blip، بيفتكر آخر حالة كويسة ويعلن offline بعد فشلين متتاليين بس. دلوقتي **الهوم + الأوتوميشن + الحملات كلهم متفقين**." },
+      { type: "fix", text: "🛠 الـ pill بتاع الأوتوميشن بقى يستخدم نفس الـ component المشترك، وفحوصات الإرسال (`sendTest` + الإرسال) اتصلّحت من `!status?.ok || !status.waReady` لـ `!status?.waReady` — أي فشل في الوصول للبريدج بيخلّي waReady undefined فبيبلوك الإرسال صح، بس مايبلوكش لما البريدج متصل فعلاً." },
+      { type: "architectural", text: "🛡 Scope + مخاطر:\n• ملف جديد `src/components/BridgeStatusIndicator.jsx` (ألوان ثابتة للحالة، مش بيعتمد على الـ theme).\n• تغيير display + تخفيف شرط الإرسال (أقل تشدّداً، مطابق للحملات اللي بتشتغل) — صفر تعديل على بيانات.\n• المؤشر بيـ poll كل 45ث (مكوّن صغير معزول، مايعملش re-render للصفحة).\n• مفيش build env محلي — Vercel هو الـ verifier." },
+      { type: "architectural", text: "📁 الـ files المتأثرة (3 modified + 1 new + 3 version):\n• NEW: `src/components/BridgeStatusIndicator.jsx`\n• MODIFIED: `src/App.jsx` — المؤشر في الجريتنج بار\n• MODIFIED: `src/pages/AutomationPg.jsx` — الـ pill يـ delegate + إصلاح فحوصات الإرسال\n• MODIFIED: package.json + src/constants/index.js + AboutVersionModal.jsx" },
+    ],
+  },
+  {
     version: "V21.9.201",
     date: "2026-06-01",
     types: ["improvement"],
