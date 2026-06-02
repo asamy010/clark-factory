@@ -1035,6 +1035,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
        accounting bug because reports would show the old numbers. */
     let _oldEntryForReverse=null;
     let _editedEntryForRepost=null;
+    /* V21.9.213 (e-wallets): on EDIT, re-sync the wallet-commission child
+       (remove-then-recreate). Capture the OLD fee child's {sourceId,date} here so
+       its journal entry is reversed after upConfig (mirrors the parent's
+       reverse+repost). The NEW fee entry reuses _newFeeEntry's existing autoPost. */
+    let _walletFeeOldForReverse=null;
     if(editId){
       const _origTx=(data.treasury||[]).find(t=>t.id===editId);
       if(_origTx&&!_origTx.sourceType){
@@ -1096,6 +1101,29 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           /* V19.3: capture the freshly-mutated tx for journal re-post (only if it was eligible) */
           if(_oldEntryForReverse&&!tx.sourceType){
             _editedEntryForRepost={...tx};
+          }
+          /* V21.9.213 (e-wallets): keep the wallet-commission child (walletFeeFor
+             ===editId) in sync with the edited entry. Remove-then-recreate handles
+             every transition: amount change (new fee), wallet→cash / out→in (fee
+             dropped), cash→wallet-out (fee added), tier/percent change. The
+             `!tx.walletFeeFor` guard prevents generating a commission ON a
+             commission row (if the user edits the fee entry itself). Runs for ANY
+             wallet withdrawal regardless of the parent's sourceType — commission is
+             created the same way in the new-entry branch. */
+          if(!tx.walletFeeFor){
+            const _oldFeeChild=(d.treasury||[]).find(t=>t.walletFeeFor===editId)||null;
+            if(_oldFeeChild){
+              _walletFeeOldForReverse={sourceId:_oldFeeChild.id,date:_oldFeeChild.date};
+              d.treasury=d.treasury.filter(t=>t.walletFeeFor!==editId);
+            }
+            const _wEdit=(d.treasuryAccounts||[]).find(a=>a&&typeof a==="object"&&a.name===txAccount&&a.type==="wallet");
+            if(txType==="out"&&_wEdit){
+              const _feeEdit=computeWalletFee(_wEdit,amt);
+              if(_feeEdit>0){
+                _newFeeEntry={id:gid(),type:"out",amount:_feeEdit,desc:"عمولة محفظة — "+txAccount,notes:"عمولة على سحب "+fmt0(amt)+" ج.م",category:"عمولة محفظة",account:txAccount,season:txSeason,date:txDate,day:dayName(txDate),by:userName,createdAt:nowISO(),walletFeeFor:editId};
+                d.treasury.unshift(_newFeeEntry);
+              }
+            }
           }
           /* V21.9.83 (Treasury audit Bug #3 + #6): sync linked wsPayment.
              - Bug #6: if the wsPayment was deleted between save and edit,
@@ -1366,6 +1394,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           await autoPost.treasury(data,_editedEntryForRepost,userName);
         }catch(e){console.warn("[V19.3] failed to re-post journal entry:",e?.message||e);}
       })();
+    }
+    /* V21.9.213 (e-wallets): reverse the OLD wallet-commission JE on edit. The new
+       fee entry (if any) is posted by the _newFeeEntry autoPost above; they target
+       different source ids so ordering is irrelevant. Fire-and-forget; reverse()
+       no-ops if there's no matching JE — same pattern as the delete reversals. */
+    if(_walletFeeOldForReverse){
+      autoPost.reverse(data,"treasury",_walletFeeOldForReverse.sourceId,_walletFeeOldForReverse.date,"تعديل عمولة محفظة",userName).catch(()=>{});
     }
     /* V18.52: Sticky mode — keep form open for next entry with same category */
     if(stickyMode && stickyMode.count > 1 && !editId){
@@ -2915,7 +2950,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {/* V21.9.204: wallet commission preview — only on a withdrawal (out) from a
               wallet whose tiers yield a fee. Transparent heads-up before saving; the
               actual deduction happens in saveTx as a separate "عمولة محفظة" entry. */}
-          {(()=>{const _w=accountsData.find(a=>a&&a.type==="wallet"&&a.name===txAccount);if(!_w||txType!=="out")return null;const _fee=computeWalletFee(_w,parseFloat(txAmount));if(!(_fee>0))return null;return<div style={{gridColumn:"1 / -1",fontSize:FS-2,color:T.warn,fontWeight:700,padding:"7px 10px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30"}}>🏷️ عمولة المحفظة: <b>{fmt0(_fee)} ج.م</b> — هتتخصم تلقائياً كحركة منفصلة عند الحفظ</div>;})()}
+          {(()=>{const _w=accountsData.find(a=>a&&a.type==="wallet"&&a.name===txAccount);if(!_w||txType!=="out")return null;/* V21.9.213: editing the commission row itself never regenerates a commission (saveTx guard) — hide the preview there */if(editId){const _o=(txns||[]).find(t=>t.id===editId);if(_o&&_o.walletFeeFor)return null;}const _fee=computeWalletFee(_w,parseFloat(txAmount));if(!(_fee>0))return null;return<div style={{gridColumn:"1 / -1",fontSize:FS-2,color:T.warn,fontWeight:700,padding:"7px 10px",borderRadius:8,background:T.warn+"10",border:"1px solid "+T.warn+"30"}}>🏷️ عمولة المحفظة: <b>{fmt0(_fee)} ج.م</b> — {editId?"هتتحدّث تلقائياً عند حفظ التعديل":"هتتخصم تلقائياً كحركة منفصلة عند الحفظ"}</div>;})()}
           <div style={{gridColumn:"1 / -1"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span>نوع الحركة</span>
             {/* V18.52: Sticky mode toggle — repeats this category for N entries */}
