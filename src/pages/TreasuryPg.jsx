@@ -8,6 +8,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FS } from "../constants/index.js";
 import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA, formatTxTime } from "../utils/format.js";
+import { compressImage } from "../utils/image.js";/* V21.9.203: wallet thumbnail */
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast, ask, tell } from "../utils/popups.js";
@@ -675,6 +676,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccName,setNewAccName]=useState("");
   const[newAccOwner,setNewAccOwner]=useState("");
   const[editAccId,setEditAccId]=useState(null);
+  /* V21.9.203 (e-wallets Phase 1): wallet-account form fields. A wallet is just
+     a treasuryAccount with type:"wallet" + metadata (number, icon/image, caps).
+     Caps default to 200,000 EGP (balance cap + monthly-withdrawal cap). The caps
+     are STORED + DISPLAYED here; enforcement (warn + override) lands in Phase 3. */
+  const[newAccType,setNewAccType]=useState("cash");/* cash | bank | wallet */
+  const[newAccNumber,setNewAccNumber]=useState("");
+  const[newAccIcon,setNewAccIcon]=useState("📱");
+  const[newAccImage,setNewAccImage]=useState("");
+  const[newAccBalanceCap,setNewAccBalanceCap]=useState("200000");
+  const[newAccMonthlyCap,setNewAccMonthlyCap]=useState("200000");
+  const[walletImgBusy,setWalletImgBusy]=useState(false);
   /* V18.0: Banks management — list of bank names used in checks */
   const[newBankName,setNewBankName]=useState("");
   const[editBankIdx,setEditBankIdx]=useState(null);
@@ -831,6 +843,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     txns.forEach(t=>{const acc=t.account||"MAIN CASH";if(!bal[acc])bal[acc]={in:0,out:0};
       if(t.type==="in")bal[acc].in+=(Number(t.amount)||0);else bal[acc].out+=(Number(t.amount)||0)});
     return bal},[txns,accounts]);
+  /* V21.9.203 (e-wallets): total WITHDRAWALS (out entries) in the current
+     calendar month, per account name. Resets automatically on the 1st (the key
+     is YYYY-MM). Used to monitor each wallet's monthly-withdrawal cap. */
+  const walletMonthOut=useMemo(()=>{
+    const mo=(today||"").slice(0,7);const m={};
+    txns.forEach(t=>{if(t.type==="out"&&(t.date||"").slice(0,7)===mo){const acc=t.account||"";m[acc]=(m[acc]||0)+(Number(t.amount)||0)}});
+    return m},[txns,today]);
   /* V21.9.114: round final summations so any accumulated float drift (e.g. from
      `0.1 + 0.2 = 0.30000000000000004` after 1000+ txns) doesn't leak into
      comparisons or expose visible decimals on themes that bypass fmt(). */
@@ -1736,16 +1755,40 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         : null);
     setTxMethod(linkedPay?.method || "نقدي كاش");
     setShowForm(true)};
-  const addAccount=()=>{if(!newAccName.trim())return;
+  /* V21.9.203 (e-wallets): reset the account form back to defaults. */
+  const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000")};
+  /* V21.9.203: `typeArg` is an EXPLICIT type string ("wallet" | "cash" | "bank").
+     The wallet form passes "wallet"; the legacy accounts form calls addAccount
+     directly (so typeArg is the click event — ignored, not a string). When
+     editing with no explicit type, the existing account's type is PRESERVED
+     (so editing a bank/cash account via the legacy form never retypes it).
+     Reading the type from a param (not newAccType state) avoids the setState
+     async race when a button does setNewAccType(...) right before calling this. */
+  const buildWalletFields=()=>({
+    type:"wallet",
+    walletNumber:newAccNumber.trim(),
+    icon:newAccIcon||"📱",
+    image:newAccImage||"",
+    balanceCap:Math.max(0,Number(newAccBalanceCap)||0),
+    monthlyWithdrawCap:Math.max(0,Number(newAccMonthlyCap)||0),
+  });
+  const addAccount=(typeArg)=>{if(!newAccName.trim())return;
+    const explicit=(typeof typeArg==="string"&&typeArg)?typeArg:null;
     upConfig(d=>{if(!d.treasuryAccounts)d.treasuryAccounts=[];
       /* Migrate old strings */
       d.treasuryAccounts=d.treasuryAccounts.map(a=>typeof a==="string"?{id:a,name:a,ownerEmail:"",type:"cash"}:a);
       if(editAccId){const i=d.treasuryAccounts.findIndex(a=>a.id===editAccId);
-        if(i>=0){d.treasuryAccounts[i].name=newAccName.trim();d.treasuryAccounts[i].ownerEmail=newAccOwner.trim()}}
-      else{if(!d.treasuryAccounts.find(a=>a.name===newAccName.trim()))
-        d.treasuryAccounts.push({id:newAccName.trim(),name:newAccName.trim(),ownerEmail:newAccOwner.trim(),type:"cash"})}});
-    setNewAccName("");setNewAccOwner("");setEditAccId(null);showToast("✓ تمت الإضافة")};
-  const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"")};
+        if(i>=0){const prev=d.treasuryAccounts[i];const t=explicit||prev.type||"cash";
+          const tf=t==="wallet"?buildWalletFields():{type:t};
+          d.treasuryAccounts[i]={...prev,name:newAccName.trim(),ownerEmail:newAccOwner.trim(),...tf}}}
+      else{if(!d.treasuryAccounts.find(a=>a.name===newAccName.trim())){const t=explicit||"cash";
+        const tf=t==="wallet"?buildWalletFields():{type:t};
+        d.treasuryAccounts.push({id:newAccName.trim(),name:newAccName.trim(),ownerEmail:newAccOwner.trim(),...tf})}}});
+    resetAccForm();showToast("✓ تمت الإضافة")};
+  const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"");
+    /* V21.9.203: hydrate wallet fields when editing a wallet account. */
+    setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
+    setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000))};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
@@ -2372,6 +2415,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
         baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
+        baseTabs.push({k:"wallets",l:"📱 محافظ"});/* V21.9.203 */
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
         return baseTabs.map(v=>
         <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===v.k?T.accent:T.cardSolid,color:view===v.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>)
@@ -4467,6 +4511,90 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* ══ ACCOUNTS VIEW ══ */}
+    {/* ── V21.9.203 — E-WALLETS view (Phase 1: wallets as separate cashboxes,
+         monitoring, add/edit). Receive/spend/transfer reuse the normal treasury
+         flow (a wallet IS an account, so it appears in every account dropdown).
+         Commission (Phase 2) + cap enforcement (Phase 3) come next. ── */}
+    {view==="wallets"&&<div>
+      {(()=>{
+        const wallets=accountsData.filter(a=>a.type==="wallet");
+        const onPickImg=async(file)=>{
+          if(!file)return;setWalletImgBusy(true);
+          try{const d=await compressImage(file,180,0.6);setNewAccImage(d)}catch(_){showToast("⛔ تعذّر تجهيز الصورة")}
+          setWalletImgBusy(false);
+        };
+        return<>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>📱 المحافظ الإلكترونية</div>
+            <div style={{fontSize:FS-2,color:T.textMut}}>{wallets.length} محفظة · خزائن منفصلة</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(290px,1fr))",gap:12,marginBottom:16}}>
+            {wallets.map(w=>{
+              const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
+              const cap=Number(w.balanceCap)||0;const mcap=Number(w.monthlyWithdrawCap)||0;
+              const mOut=walletMonthOut[w.name]||0;
+              const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
+              const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
+              const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
+              const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
+              return<div key={w.id} style={{padding:14,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <div style={{width:44,height:44,borderRadius:10,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,border:"1px solid "+T.brd}}>
+                    {w.image?<img src={w.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:(w.icon||"📱")}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:FS,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{w.name}</div>
+                    {w.walletNumber&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>📞 {w.walletNumber}</div>}
+                  </div>
+                  {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
+                    <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="السجل والحركات">📒</span>
+                    <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل">✏️</span>
+                  </div>}
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
+                <div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1}}>{fmt0(bal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+                {cap>0&&<div style={{marginTop:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
+                  <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+                </div>}
+                {mcap>0&&<div style={{marginTop:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
+                  <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+                  {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
+                </div>}
+              </div>;
+            })}
+            {wallets.length===0&&<div style={{gridColumn:"1 / -1",textAlign:"center",padding:24,color:T.textMut,fontSize:FS-1}}>لا توجد محافظ بعد — أضف محفظة من النموذج تحت 👇</div>}
+          </div>
+          {canEdit&&<div style={{padding:14,borderRadius:14,background:T.bg+"60",border:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-1,fontWeight:700,color:T.textSec,marginBottom:10}}>{editAccId?"✏️ تعديل محفظة":"➕ إضافة محفظة جديدة"}</div>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10}}>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم المحفظة</label><Inp value={newAccName} onChange={setNewAccName} placeholder="مثال: فودافون كاش - أحمد"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرقم</label><Inp value={newAccNumber} onChange={setNewAccNumber} placeholder="01xxxxxxxxx"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد الرصيد (ج.م)</label><Inp value={newAccBalanceCap} onChange={setNewAccBalanceCap} placeholder="200000"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد السحب الشهري (ج.م)</label><Inp value={newAccMonthlyCap} onChange={setNewAccMonthlyCap} placeholder="200000"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رمز (إيموجي)</label><Inp value={newAccIcon} onChange={setNewAccIcon} placeholder="📱"/></div>
+              <div>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة (اختياري)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <label style={{cursor:"pointer",padding:"7px 12px",borderRadius:8,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:700,whiteSpace:"nowrap"}}>
+                    {walletImgBusy?"⏳ ...":"📷 اختر"}
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>onPickImg(e.target.files&&e.target.files[0])}/>
+                  </label>
+                  {newAccImage&&<img src={newAccImage} alt="" style={{width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid "+T.brd}}/>}
+                  {newAccImage&&<span onClick={()=>setNewAccImage("")} style={{cursor:"pointer",color:T.err,fontSize:FS-2}} title="إزالة الصورة">✕</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+              <Btn primary onClick={()=>addAccount("wallet")} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"➕ إضافة محفظة"}</Btn>
+              {editAccId&&<Btn ghost onClick={resetAccForm}>إلغاء</Btn>}
+            </div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:8,lineHeight:1.6}}>💡 المحفظة بتشتغل كخزنة منفصلة — تقدر تستلم/تصرف/تحوّل منها من التبويبات العادية. خصم العمولة والتطبيق الفعلي للحدود جايين في تحديثات قادمة.</div>
+          </div>}
+        </>;
+      })()}
+    </div>}
     {view==="accounts"&&<div>
       <Card title="🏦 إدارة الحسابات">
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12,marginBottom:16}}>
