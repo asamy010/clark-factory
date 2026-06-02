@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.214",
+    date: "2026-06-02",
+    types: ["feature"],
+    title: "🔄 المحافظ — تطبيق الحدود على التحويلات بين الخزن",
+    changes: [
+      { type: "feature", text: "🎯 قبل كده حدود المحفظة كانت بتتطبّق على حركات الفورم بس — التحويلات بين الخزن كانت بتعدّي بلا فحص. دلوقتي التحويل بيتفحص بحدّين: **حد السحب الشهري على المحفظة المصدر** (الـ leg المنصرف) + **حد الرصيد على المحفظة المستقبِلة** (الـ leg الوارد). تحذير + تجاوز بصلاحية المدير. لو المحفظتين الاتنين wallet → الحدّين بيتفحصوا مع بعض." },
+      { type: "improvement", text: "⏱ الفحص بيحصل **وقت تسجيل الحركات فعلياً**: تحويل المدير الفوري → عند الإرسال؛ تحويل الموظف (pending) → عند موافقة المدير (بيتفحص على الأرصدة الحالية وقتها مش وقت الطلب). التحويلات **بدون عمولة** (قرار أحمد)." },
+      { type: "architectural", text: "🛡 النمط = pre-flight wrappers (`submitTransferWithLimits` / `approveTransferWithLimits`) زي ما `saveTxWithLimits` بيلفّ `saveTx` — فدوال `submitTransfer` و`approveTransfer` المُتحقَّقين **اتسابوا زي ما هم حرف بحرف** (صفر regression على إنشاء الـ legs + الـ in-flight guard + الـ idempotency). مسار الموظف (pending) بدون أي async إضافي." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (transferCapBlock helper + wrappers + إعادة توصيل الزر/الـ confirm) + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.213",
     date: "2026-06-02",
     types: ["feature"],

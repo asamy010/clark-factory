@@ -2122,6 +2122,53 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     setShowTransfer(false);setTfFrom("");setTfTo("");setTfAmount("");setTfNote("");setTfDate("");
     showToast(isPending?"⏳ تم إرسال الطلب — بانتظار موافقة المدير":"✓ تم التحويل — منصرف من "+tfFrom+" ووارد في "+tfTo)};
 
+  /* V21.9.214 (e-wallets): shared wallet-cap evaluator for an internal transfer.
+     Returns an Arabic warning string if the transfer would breach a wallet cap,
+     else null. Two INDEPENDENT checks (either/both accounts may be wallets):
+       • SOURCE wallet → monthly-withdrawal cap (the out leg is a withdrawal).
+       • DEST wallet   → balance cap (the in leg raises its balance).
+     walletMonthOut already counts existing transfer-out legs, so adding `amt`
+     is consistent with how the wallet card displays it. Pure read — no mutation.
+     Per Ahmed's decision transfers carry NO commission, so only caps here. */
+  const transferCapBlock=(fromName,toName,amt)=>{
+    const _a=Number(amt)||0;if(_a<=0)return null;
+    const msgs=[];
+    const src=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===fromName);
+    if(src){
+      const mcap=Number(src.monthlyWithdrawCap)||0;
+      if(mcap>0){
+        const mo=walletMonthOut[src.name]||0;
+        if(mo+_a>mcap)msgs.push("• سحب الشهر من «"+fromName+"» بعد التحويل ("+fmt0(mo+_a)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(mcap)+" ج.م)");
+      }
+    }
+    const dst=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===toName);
+    if(dst){
+      const cap=Number(dst.balanceCap)||0;
+      if(cap>0){
+        const b=accBalances[dst.name]||{in:0,out:0};const cur=b.in-b.out;
+        if(cur+_a>cap)msgs.push("• رصيد «"+toName+"» بعد التحويل ("+fmt0(cur+_a)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(cap)+" ج.م)");
+      }
+    }
+    return msgs.length?msgs.join("\n"):null;
+  };
+  /* V21.9.214: pre-flight wrapper around submitTransfer (the button calls THIS).
+     submitTransfer stays UNTOUCHED. Only the admin-immediate path creates legs on
+     submit, so we gate just that: if a cap would be breached, the admin overrides
+     via confirm. Non-admin submits create a PENDING request (no legs) → no gate
+     here; the cap is enforced when the admin approves (approveTransfer wrapper).
+     Invalid input is delegated to submitTransfer's own validation. */
+  const submitTransferWithLimits=async()=>{
+    const _amt=parseFloat(tfAmount)||0;
+    if(isAdmin&&tfFrom&&tfTo&&tfFrom!==tfTo&&_amt>0){
+      const _block=transferCapBlock(tfFrom,tfTo,_amt);
+      if(_block){
+        const _ok=await ask("⚠️ تجاوز حد المحفظة",_block+"\n\nمتابعة بصلاحية المدير؟",{danger:true});
+        if(!_ok)return;
+      }
+    }
+    submitTransfer();
+  };
+
   /* V16.13: Admin approves a pending transfer → creates the double-entry.
      V21.9.14: in-flight guard prevents the same approve from firing twice.
      The previous version's idempotency gate (`if(tf.status!=="pending")return`)
@@ -2207,6 +2254,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     /* Release the guard after a generous delay so the listener round-trip
        has time to commit before another click is allowed. */
     setTimeout(()=>{inflightTransferRef.current.delete(tfId)},2000);
+  };
+  /* V21.9.214: pre-flight wrapper around approveTransfer (the ✓ تأكيد confirm
+     calls THIS). approveTransfer stays UNTOUCHED. At approve time the legs post
+     NOW, so caps are evaluated against CURRENT balances. If a cap is breached the
+     admin gets a confirm to override; otherwise it delegates straight through.
+     The in-flight guard inside approveTransfer still protects leg creation. */
+  const approveTransferWithLimits=async(tfId)=>{
+    const tf=transfers.find(t=>t.id===tfId);
+    if(tf){
+      const _block=transferCapBlock(tf.fromAccount,tf.toAccount,Number(tf.amount)||0);
+      if(_block){
+        const _ok=await ask("⚠️ تجاوز حد المحفظة",_block+"\n\nمتابعة بصلاحية المدير؟",{danger:true});
+        if(!_ok)return;
+      }
+    }
+    approveTransfer(tfId);
   };
 
   /* V16.13: Admin rejects a pending transfer → deletes the request.
@@ -3295,7 +3358,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </div>
               {/* Pending actions only (approve/reject) — confirmed transfers are read-only here */}
               {isPending&&isAdmin&&<div style={{display:"flex",gap:4}}>
-                <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransfer(tf.id)})} style={{cursor:"pointer",fontSize:FS-3,color:"#fff",padding:"3px 8px",borderRadius:5,background:T.ok,fontWeight:700,whiteSpace:"nowrap"}}>✓ تأكيد</span>
+                <span onClick={()=>openConfirm({title:"تأكيد التحويل",message:"سيتم تسجيل منصرف من "+tf.fromAccount+" ووارد على "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"success",onConfirm:()=>approveTransferWithLimits(tf.id)})} style={{cursor:"pointer",fontSize:FS-3,color:"#fff",padding:"3px 8px",borderRadius:5,background:T.ok,fontWeight:700,whiteSpace:"nowrap"}}>✓ تأكيد</span>
                 <span onClick={()=>openConfirm({title:"رفض الطلب",message:"سيتم حذف طلب التحويل نهائياً.\nمن "+tf.fromAccount+" إلى "+tf.toAccount+"\nالمبلغ: "+fmt(tf.amount)+" ج.م",variant:"danger",onConfirm:()=>rejectTransfer(tf.id)})} style={{cursor:"pointer",fontSize:FS-3,color:"#fff",padding:"3px 8px",borderRadius:5,background:T.err,fontWeight:700,whiteSpace:"nowrap"}}>✗ رفض</span>
               </div>}
             </div>})}
@@ -5009,7 +5072,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
         <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowTransfer(false)}>إلغاء</Btn>
-          <Btn onClick={submitTransfer} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔄 إرسال التحويل</Btn>
+          <Btn onClick={submitTransferWithLimits} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🔄 إرسال التحويل</Btn>
         </div>
       </div>
     </div>}
