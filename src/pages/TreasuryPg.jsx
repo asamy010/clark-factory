@@ -1864,6 +1864,45 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     }
     return 0;
   };
+  /* V21.9.207 (e-wallets): one shared wallet-card renderer (image/icon, name,
+     number, balance, balance-cap bar, monthly-withdrawal bar). Used by the
+     "محافظ" tab AND each wallet's own account tab — so balance + limits are
+     visible right there without switching back to the wallets tab. */
+  const walletCard=(w)=>{
+    const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
+    const cap=Number(w.balanceCap)||0;const mcap=Number(w.monthlyWithdrawCap)||0;
+    const mOut=walletMonthOut[w.name]||0;
+    const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
+    const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
+    const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
+    const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
+    return<div key={w.id} style={{padding:14,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+        <div style={{width:44,height:44,borderRadius:10,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,border:"1px solid "+T.brd}}>
+          {w.image?<img src={w.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:(w.icon||"📱")}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:FS,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{w.name}</div>
+          {w.walletNumber&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>📞 {w.walletNumber}</div>}
+        </div>
+        {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
+          <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="كل السجل">📒</span>
+          <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل المحفظة">✏️</span>
+        </div>}
+      </div>
+      <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
+      <div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1}}>{fmt0(bal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
+      {cap>0&&<div style={{marginTop:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
+        <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+      </div>}
+      {mcap>0&&<div style={{marginTop:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
+        <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+        {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
+      </div>}
+    </div>;
+  };
   const addAccount=(typeArg)=>{if(!newAccName.trim())return;
     const explicit=(typeof typeArg==="string"&&typeArg)?typeArg:null;
     upConfig(d=>{if(!d.treasuryAccounts)d.treasuryAccounts=[];
@@ -2543,6 +2582,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
     {/* ══ JOURNAL VIEW ══ */}
     {(view==="journal"||view.startsWith("acc_"))&&<div>
+      {/* V21.9.207: on a single wallet's own tab, show its full card on top
+          (balance + caps) so it can be monitored without leaving the tab. */}
+      {view.startsWith("acc_")&&(()=>{const _w=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.id===view.slice(4));return _w?<div style={{marginBottom:14,maxWidth:isMob?"100%":360}}>{walletCard(_w)}</div>:null;})()}
       {view.startsWith("acc_")&&(()=>{
         const accId=view.slice(4);const acc=accountsData.find(a=>a.id===accId);if(!acc)return null;
         const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
@@ -4626,41 +4668,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div style={{fontSize:FS-2,color:T.textMut}}>{wallets.length} محفظة · خزائن منفصلة</div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(290px,1fr))",gap:12,marginBottom:16}}>
-            {wallets.map(w=>{
-              const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
-              const cap=Number(w.balanceCap)||0;const mcap=Number(w.monthlyWithdrawCap)||0;
-              const mOut=walletMonthOut[w.name]||0;
-              const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
-              const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
-              const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
-              const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
-              return<div key={w.id} style={{padding:14,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                  <div style={{width:44,height:44,borderRadius:10,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,border:"1px solid "+T.brd}}>
-                    {w.image?<img src={w.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:(w.icon||"📱")}
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:FS,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{w.name}</div>
-                    {w.walletNumber&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>📞 {w.walletNumber}</div>}
-                  </div>
-                  {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
-                    <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="السجل والحركات">📒</span>
-                    <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل">✏️</span>
-                  </div>}
-                </div>
-                <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
-                <div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1}}>{fmt0(bal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
-                {cap>0&&<div style={{marginTop:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
-                  <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
-                </div>}
-                {mcap>0&&<div style={{marginTop:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
-                  <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
-                  {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
-                </div>}
-              </div>;
-            })}
+            {wallets.map(w=>walletCard(w))}
             {wallets.length===0&&<div style={{gridColumn:"1 / -1",textAlign:"center",padding:24,color:T.textMut,fontSize:FS-1}}>لا توجد محافظ بعد — أضف محفظة من النموذج تحت 👇</div>}
           </div>
           {canEdit&&<div style={{padding:14,borderRadius:14,background:T.bg+"60",border:"1px solid "+T.brd}}>

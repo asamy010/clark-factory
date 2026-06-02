@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.207",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "📱 بطاقة المحفظة بتظهر في تاب المحفظة نفسها",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: في تاب أي محفظة (مثلاً 'فودافون كاش') بقت **بطاقة المحفظة الكاملة** تظهر فوق السجل — نفس البطاقة اللي في تاب 'محافظ' (الصورة/الرمز + الاسم + الرقم + الرصيد + شريط حد الرصيد + شريط سحب الشهر). فتقدر تتابع الحدود والرصيد وأنت بتشوف الحركات، من غير ما ترجع لتاب المحافظ." },
+      { type: "architectural", text: "🛡 عرض فقط — استخرجت البطاقة في renderer واحد (`walletCard`) بيستخدمه التابين (تاب المحافظ + تاب كل محفظة)، فمفيش تكرار والتعديلات بتتطبّق على الاتنين. بيظهر فقط لو الحساب من نوع محفظة. مفيش build env محلي — Vercel هو الـ verifier." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (walletCard helper + استخدامه في تاب المحافظ وتاب الحساب) + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.206",
     date: "2026-06-02",
     types: ["improvement"],
