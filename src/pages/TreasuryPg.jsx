@@ -2582,19 +2582,32 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
 
     {/* ══ JOURNAL VIEW ══ */}
     {(view==="journal"||view.startsWith("acc_"))&&<div>
-      {/* V21.9.207: on a single wallet's own tab, show its full card on top
-          (balance + caps) so it can be monitored without leaving the tab. */}
-      {view.startsWith("acc_")&&(()=>{const _w=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.id===view.slice(4));return _w?<div style={{marginBottom:14,maxWidth:isMob?"100%":360}}>{walletCard(_w)}</div>:null;})()}
       {view.startsWith("acc_")&&(()=>{
         const accId=view.slice(4);const acc=accountsData.find(a=>a.id===accId);if(!acc)return null;
         const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
         const currentAccName=acc.name;
+        /* V21.9.208: wallet-aware header — merge the wallet card into THIS row
+           (icon/number on the left, caps bars below) so a wallet tab shows one
+           professional header instead of a separate card + a duplicate row. */
+        const _w=acc.type==="wallet"?acc:null;
+        const cap=_w?(Number(_w.balanceCap)||0):0;const mcap=_w?(Number(_w.monthlyWithdrawCap)||0):0;
+        const mOut=_w?(walletMonthOut[acc.name]||0):0;
+        const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
+        const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
+        const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
+        const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
         return<Card style={{marginBottom:14,background:"linear-gradient(135deg,"+T.accent+"08,"+T.accent+"03)",border:"1px solid "+T.accent+"20"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-            {/* Left: account name */}
-            <div>
-              <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 "}{acc.name}</div>
-              {acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>}
+            {/* Left: account name (+ wallet icon/number) */}
+            <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+              {_w&&<div style={{width:46,height:46,borderRadius:10,overflow:"hidden",background:T.cardSolid,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0,border:"1px solid "+T.brd}}>
+                {_w.image?<img src={_w.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:(_w.icon||"📱")}
+              </div>}
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{_w?"":(acc.name.toUpperCase().includes("MAIN")?"🏦 ":acc.name.toUpperCase().includes("SUB")?"💰 ":"📘 ")}{acc.name}</div>
+                {_w&&_w.walletNumber?<div style={{fontSize:FS-2,color:T.textMut,marginTop:2,direction:"ltr",textAlign:"right"}}>📞 {_w.walletNumber}</div>:(acc.ownerEmail&&<div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>👤 المسؤول: {acc.ownerEmail}</div>)}
+              </div>
+              {_w&&canEdit&&<span onClick={()=>editAccount(_w)} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:11,background:T.cardSolid,color:T.textSec,border:"1px solid "+T.brd,flexShrink:0}} title="تعديل المحفظة">✏️</span>}
             </div>
             {/* Middle: balance totals */}
             <div style={{display:"flex",gap:16}}>
@@ -2615,6 +2628,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <div onClick={()=>setWaPopupData({date:printDate,account:currentAccName})} style={{padding:"6px 10px",borderRadius:8,background:"#25D36615",border:"1px solid #25D36630",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#25D366"}} title={"إرسال واتساب "+printDate+" — "+currentAccName}>📤 واتساب</div>
             </div>
           </div>
+          {/* V21.9.208: wallet cap bars — same row/card, below the main line. */}
+          {_w&&(cap>0||mcap>0)&&<div style={{display:"flex",gap:16,marginTop:12,flexWrap:"wrap"}}>
+            {cap>0&&<div style={{flex:1,minWidth:200}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
+              <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+            </div>}
+            {mcap>0&&<div style={{flex:1,minWidth:200}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
+              <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+              {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
+            </div>}
+          </div>}
         </Card>})()}
       {canEdit&&<div style={{marginBottom:14,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn primary onClick={()=>{

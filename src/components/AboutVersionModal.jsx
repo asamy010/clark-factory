@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.208",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "📱 دمج بطاقة المحفظة مع هيدر الحساب في صف واحد احترافي",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: في تاب المحفظة كان فيه صفّين (بطاقة المحفظة + هيدر الحساب بالإحصائيات والأزرار) فيهم تكرار للاسم والرصيد. دلوقتي اندمجوا في **كارت واحد احترافي**: الأيقونة/الصورة + الاسم + الرقم (يمين) · وارد/منصرف/الرصيد (نص) · التاريخ/طباعة/PDF/واتساب (شمال) · **أشرطة حد الرصيد وسحب الشهر تحت** — كله في صف واحد." },
+      { type: "architectural", text: "🛡 عرض فقط — الهيدر الموجود بقى wallet-aware (بيضيف أيقونة/رقم/أشرطة الحدود لو الحساب محفظة، وزيّ ما هو للكاش/البنك). شيلت البطاقة المنفصلة المكرّرة. بطاقة تاب 'محافظ' (الـ grid) زيّ ما هي عبر `walletCard`. مفيش build env محلي — Vercel هو الـ verifier." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (دمج البطاقة في هيدر الحساب) + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.207",
     date: "2026-06-02",
     types: ["improvement"],
