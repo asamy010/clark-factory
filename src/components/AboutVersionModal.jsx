@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.217",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "🧹 تاب المحافظ — شيل التاريخ/الطباعة/PDF/واتساب",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: تاب «محافظ إلكترونية» بقى نضيف — شيلت منه toolbar اليومية (منتقي التاريخ + طباعة + PDF + واتساب) لأنه مالوش لازمة في قايمة المحافظ (كل محفظة ليها أزرارها وسجلها الخاص). الـ toolbar ده بيفضل موجود في تاب «اليومية» وتاب كل حساب زي ما هو." },
+      { type: "architectural", text: "🛡 سطر واحد: أضفت «wallets» لقائمة استثناء الـ journal-toolbar (نفس مكان transfers/checks/analysis/accounts/recurring). صفر تأثير على باقي التابات. 📁 MODIFIED: src/pages/TreasuryPg.jsx + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.216",
     date: "2026-06-02",
     types: ["improvement"],

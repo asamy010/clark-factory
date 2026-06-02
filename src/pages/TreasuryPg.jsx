@@ -2737,14 +2737,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     {/* Today mini summary — per-account when viewing specific account.
         V16.19: Hidden on transfers/checks/analysis/accounts — these tabs have
         their own controls and don't need the daily print/PDF/WA toolbar.
-        V18.98: Also hidden on recurring (scheduled entries don't relate to today's totals). */}
+        V18.98: Also hidden on recurring (scheduled entries don't relate to today's totals).
+        V21.9.217: Also hidden on wallets — the محافظ list (cards + add form) has its own
+        per-card controls; the daily date/print/PDF/WA toolbar doesn't apply to it. */}
     {/* V19.70.5: removed the 3 daily-KPI cards (وارد/منصرف/صافي اليوم) — they
         consumed a full row but the same info is in the account summary card below
         for acc views, and on journal view the user picks the date to see daily
         totals via printDaily anyway. The action toolbar (date + print + PDF + WA)
         is collapsed to an inline icon row, and merged into the account summary
         card when view is `acc_`. */}
-    {!["transfers","checks","analysis","accounts","recurring"].includes(view) && !view.startsWith("acc_") && (()=>{
+    {!["transfers","checks","analysis","accounts","recurring","wallets"].includes(view) && !view.startsWith("acc_") && (()=>{
       /* Journal-view-only toolbar (date + actions). For acc_xxx views the toolbar
          lives inside the account summary card to save vertical space. */
       const currentAccName=null;const scopeLabel="الكل";
