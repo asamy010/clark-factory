@@ -1841,6 +1841,52 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(!_ok)return;
         }
       }
+    } else {
+      /* V21.9.212 (e-wallets): apply the SAME caps on EDIT. The edited row is
+         still in `txns` with its OLD values, so we recompute the wallet's
+         projected total EXCLUDING this row (by id) and add the NEW form values —
+         robust to account/type/date/amount changes. We warn ONLY when the edit
+         actually INCREASES the capped total beyond its pre-edit value, so a
+         notes-only edit on a wallet that's already over cap isn't gated. Guarded
+         to wallet accounts (cash/bank edits skip). The new-entry path above is
+         left UNTOUCHED. Commission is not recomputed here (Stage 2) — the old fee
+         child keeps its value and is naturally included in the txns scan. */
+      const _w=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===txAccount);
+      if(_w){
+        const _amt=parseFloat(txAmount)||0;
+        const _isMgr=isAdmin||userRole==="manager";
+        const _orig=(txns||[]).find(t=>t.id===editId)||null;
+        let _block=null;
+        if(_amt>0&&txType==="in"){
+          const _cap=Number(_w.balanceCap)||0;
+          if(_cap>0){
+            let _in=0,_out=0;
+            (txns||[]).forEach(t=>{if(t.id===editId)return;if((t.account||"")!==_w.name)return;if(t.type==="in")_in+=Number(t.amount)||0;else _out+=Number(t.amount)||0;});
+            const _base=_in-_out;
+            const _post=_base+_amt;
+            const _preEff=(_orig&&(_orig.account||"")===_w.name)?((_orig.type==="in"?1:-1)*(Number(_orig.amount)||0)):0;
+            const _pre=_base+_preEff;
+            if(_post>_cap&&_post>_pre)_block="رصيد المحفظة بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
+          }
+        }else if(_amt>0&&txType==="out"){
+          const _mcap=Number(_w.monthlyWithdrawCap)||0;
+          if(_mcap>0){
+            const _mo7=(today||"").slice(0,7);
+            let _moExcl=0;
+            (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"").slice(0,7)===_mo7)_moExcl+=Number(t.amount)||0;});
+            const _newContrib=((txDate||"").slice(0,7)===_mo7)?_amt:0;
+            const _oldContrib=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"").slice(0,7)===_mo7)?(Number(_orig.amount)||0):0;
+            const _post=_moExcl+_newContrib;
+            const _pre=_moExcl+_oldContrib;
+            if(_post>_mcap&&_post>_pre)_block="سحب الشهر بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+          }
+        }
+        if(_block){
+          if(!_isMgr){playBeep("error");showToast("⛔ "+_block+" — محتاج موافقة مدير");return;}
+          const _ok=await ask("⚠️ تجاوز حد المحفظة",_block+"\n\nمتابعة بصلاحية المدير؟",{danger:true});
+          if(!_ok)return;
+        }
+      }
     }
     saveTx();
   };
