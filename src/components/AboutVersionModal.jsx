@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.206",
+    date: "2026-06-02",
+    types: ["improvement"],
+    title: "📱 عمولة المحفظة بقت نسبة % بدل رقم ثابت",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: شرائح العمولة بقت **نسبة مئوية %** من المبلغ بدل رقم ثابت. كل شريحة (من / إلى) ليها **نسبة %** خاصة بيها، والعمولة = المبلغ × النسبة ÷ 100 (مقرّبة لخانتين عشريتين). مثال: من 0 لـ 500 → 1% · من 500 لـ 1000 → 0.75% · الباقي → 0.5%." },
+      { type: "improvement", text: "👁 الـ preview في فورم الحركة + الخصم التلقائي بيستخدموا النسبة تلقائياً. حقل الشريحة بقى 'نسبة %' بدل 'عمولة'." },
+      { type: "architectural", text: "🛡 Back-compat: لو فيه شرائح قديمة بقيمة ثابتة (`fee`)، `computeWalletFee` لسه بيحترمها (fallback) لحد ما تتعدّل لنسبة. تغيير display/حساب فقط — صفر تعديل على منطق الحفظ. مفيش build env محلي — Vercel هو الـ verifier." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (computeWalletFee + buildWalletFields + editAccount + محرّر الشرائح) + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.205",
     date: "2026-06-02",
     types: ["feature"],

@@ -1837,16 +1837,19 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     image:newAccImage||"",
     balanceCap:Math.max(0,Number(newAccBalanceCap)||0),
     monthlyWithdrawCap:Math.max(0,Number(newAccMonthlyCap)||0),
-    /* V21.9.204: normalise + keep meaningful commission tiers only. */
+    /* V21.9.206: each tier carries a PERCENTAGE (pct). Normalise + keep
+       meaningful tiers only. (Legacy fixed-amount `fee` tiers still compute via
+       computeWalletFee's fallback, but new/edited tiers are percentage-based.) */
     tiers:(newAccTiers||[]).map(t=>({
       from:Math.max(0,Number(t.from)||0),
       to:(t.to===""||t.to==null)?null:Math.max(0,Number(t.to)||0),
-      fee:Math.max(0,Number(t.fee)||0),
-    })).filter(t=>t.fee>0||t.to!=null||t.from>0),
+      pct:Math.max(0,Number(t.pct)||0),
+    })).filter(t=>t.pct>0||t.to!=null||t.from>0),
   });
-  /* V21.9.204 (e-wallets Phase 2): fixed commission for `amount` from a wallet's
-     tiers — the first bracket where from ≤ amount ≤ to (to=null = open-ended).
-     Returns 0 when no tier matches or the wallet has none. Pure function. */
+  /* V21.9.206 (e-wallets): commission for `amount` from a wallet's tiers — the
+     first bracket where from ≤ amount ≤ to (to=null = open-ended). The bracket's
+     `pct` is a PERCENTAGE of the amount (rounded to 2 decimals). Legacy fixed
+     `fee` tiers still honoured (fall back to the fixed amount). 0 if none match. */
   const computeWalletFee=(w,amount)=>{
     if(!w||!Array.isArray(w.tiers)||!w.tiers.length)return 0;
     const a=Number(amount)||0;if(a<=0)return 0;
@@ -1854,7 +1857,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!t)continue;
       const from=Number(t.from)||0;
       const to=(t.to===""||t.to==null)?Infinity:(Number(t.to)||0);
-      if(a>=from&&a<=to)return Math.max(0,Number(t.fee)||0);
+      if(a>=from&&a<=to){
+        if(t.pct!=null&&t.pct!=="")return r2(a*(Number(t.pct)||0)/100);
+        return Math.max(0,Number(t.fee)||0);/* legacy fixed-amount tier */
+      }
     }
     return 0;
   };
@@ -1875,7 +1881,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
     setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
     setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000));
-    setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),fee:t.fee==null?"":String(t.fee)})):[])};
+    setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),pct:t.pct==null?"":String(t.pct)})):[])};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
@@ -4683,11 +4689,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>🏷️ شرائح العمولة (اختياري)</label>
                 <span onClick={()=>setNewAccTiers([...(newAccTiers||[]),{from:"",to:"",fee:""}])} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700,padding:"2px 10px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"30"}}>+ شريحة</span>
               </div>
-              {(newAccTiers||[]).length===0&&<div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>مفيش عمولة. مثال: من 0 لـ 500 → 5 ج.م · من 500 لـ 1000 → 10 ج.م · من 1000 لـ (فاضي=مفتوح) → 15 ج.م. العمولة بتتخصم تلقائياً عند السحب من المحفظة.</div>}
+              {(newAccTiers||[]).length===0&&<div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>مفيش عمولة. النسبة % من المبلغ لكل شريحة. مثال: من 0 لـ 500 → 1% · من 500 لـ 1000 → 0.75% · من 1000 لـ (فاضي=مفتوح) → 0.5%. بتتخصم تلقائياً عند السحب من المحفظة.</div>}
               {(newAccTiers||[]).map((t,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
                 <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.from} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,from:v}:x))} placeholder="من"/></div>
                 <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.to} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,to:v}:x))} placeholder="إلى"/></div>
-                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.fee} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,fee:v}:x))} placeholder="عمولة"/></div>
+                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.pct} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,pct:v}:x))} placeholder="نسبة %"/></div>
                 <span onClick={()=>setNewAccTiers((newAccTiers||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontSize:FS,padding:"0 4px",flexShrink:0}} title="حذف الشريحة">🗑️</span>
               </div>)}
             </div>
