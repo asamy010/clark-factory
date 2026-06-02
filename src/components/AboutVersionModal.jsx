@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.215",
+    date: "2026-06-02",
+    types: ["feature"],
+    title: "🏷️ المحافظ — حد أدنى/أقصى للعمولة لكل شريحة",
+    changes: [
+      { type: "feature", text: "🎯 كل شريحة عمولة بقى ليها (اختياري) **أقل عمولة** و**أقصى عمولة** — العمولة بتتحسب نسبة % زي ما هي، وبعدين بتتـ clamp بين الحدّين. مثال: 1% بحد أدنى 5 ج.م وأقصى 100 ج.م → سحب 200 يطلّع 5 (بدل 2)، وسحب 50,000 يطلّع 100 (بدل 500). فاضي = بدون حد." },
+      { type: "improvement", text: "🧩 الـ UI: كل شريحة بقت بلوك بصفّين — (من / إلى / نسبة %) فوق و(أقل عمولة / أقصى عمولة) تحت. متوافق رجعياً تماماً: الشرائح القديمة بلا min/max بتشتغل بالظبط زي ما هي (0 = بدون حد)." },
+      { type: "fix", text: "📝 صلّحت نص قديم في فورم المحفظة كان بيقول 'خصم العمولة والتطبيق الفعلي للحدود جايين في تحديثات قادمة' — دول اتعملوا فعلاً (V204 + V212/213/214)، فالنص بقى بيوضّح إن العمولة بتتخصم والحدود بتتطبّق على الإضافة/التعديل/التحويل." },
+      { type: "architectural", text: "📁 MODIFIED: `src/pages/TreasuryPg.jsx` (computeWalletFee clamp + buildWalletFields + editAccount + tier editor UI + hints) + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.214",
     date: "2026-06-02",
     types: ["feature"],

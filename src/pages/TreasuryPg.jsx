@@ -1948,6 +1948,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       from:Math.max(0,Number(t.from)||0),
       to:(t.to===""||t.to==null)?null:Math.max(0,Number(t.to)||0),
       pct:Math.max(0,Number(t.pct)||0),
+      /* V21.9.215: optional per-tier commission floor/ceiling (0 = unbounded). */
+      min:Math.max(0,Number(t.min)||0),
+      max:Math.max(0,Number(t.max)||0),
     })).filter(t=>t.pct>0||t.to!=null||t.from>0),
   });
   /* V21.9.206 (e-wallets): commission for `amount` from a wallet's tiers — the
@@ -1962,7 +1965,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const from=Number(t.from)||0;
       const to=(t.to===""||t.to==null)?Infinity:(Number(t.to)||0);
       if(a>=from&&a<=to){
-        if(t.pct!=null&&t.pct!=="")return r2(a*(Number(t.pct)||0)/100);
+        if(t.pct!=null&&t.pct!==""){
+          /* V21.9.215 (e-wallets): percentage of the amount, then clamp to the
+             tier's OPTIONAL min/max commission. 0 (or absent) = no bound, so old
+             tiers without min/max behave EXACTLY as before. */
+          let fee=a*(Number(t.pct)||0)/100;
+          const mn=Math.max(0,Number(t.min)||0);
+          const mx=Math.max(0,Number(t.max)||0);
+          if(mn>0&&fee<mn)fee=mn;
+          if(mx>0&&fee>mx)fee=mx;
+          return r2(fee);
+        }
         return Math.max(0,Number(t.fee)||0);/* legacy fixed-amount tier */
       }
     }
@@ -2024,7 +2037,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
     setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
     setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000));
-    setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),pct:t.pct==null?"":String(t.pct)})):[])};
+    setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),pct:t.pct==null?"":String(t.pct),min:t.min==null?"":String(t.min),max:t.max==null?"":String(t.max)})):[])};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
@@ -4868,25 +4881,31 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>
               </div>
             </div>
-            {/* V21.9.204: commission tiers editor (شرائح) — fixed fee per amount bracket. */}
+            {/* V21.9.204/206/215: commission tiers editor — percentage per amount bracket + optional per-tier min/max commission clamp. */}
             <div style={{marginTop:12,padding:10,borderRadius:10,background:T.cardSolid,border:"1px dashed "+T.brd}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>🏷️ شرائح العمولة (اختياري)</label>
-                <span onClick={()=>setNewAccTiers([...(newAccTiers||[]),{from:"",to:"",fee:""}])} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700,padding:"2px 10px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"30"}}>+ شريحة</span>
+                <span onClick={()=>setNewAccTiers([...(newAccTiers||[]),{from:"",to:"",pct:"",min:"",max:""}])} style={{cursor:"pointer",fontSize:FS-2,color:T.accent,fontWeight:700,padding:"2px 10px",borderRadius:6,background:T.accent+"10",border:"1px solid "+T.accent+"30"}}>+ شريحة</span>
               </div>
-              {(newAccTiers||[]).length===0&&<div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>مفيش عمولة. النسبة % من المبلغ لكل شريحة. مثال: من 0 لـ 500 → 1% · من 500 لـ 1000 → 0.75% · من 1000 لـ (فاضي=مفتوح) → 0.5%. بتتخصم تلقائياً عند السحب من المحفظة.</div>}
-              {(newAccTiers||[]).map((t,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.from} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,from:v}:x))} placeholder="من"/></div>
-                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.to} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,to:v}:x))} placeholder="إلى"/></div>
-                <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.pct} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,pct:v}:x))} placeholder="نسبة %"/></div>
-                <span onClick={()=>setNewAccTiers((newAccTiers||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontSize:FS,padding:"0 4px",flexShrink:0}} title="حذف الشريحة">🗑️</span>
+              {(newAccTiers||[]).length===0&&<div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.6}}>مفيش عمولة. النسبة % من المبلغ لكل شريحة. مثال: من 0 لـ 500 → 1% · من 500 لـ 1000 → 0.75% · من 1000 لـ (فاضي=مفتوح) → 0.5%. تقدر كمان تحدّد <b>أقل/أقصى عمولة</b> لكل شريحة (اختياري — فاضي = بدون حد). بتتخصم تلقائياً عند السحب من المحفظة.</div>}
+              {(newAccTiers||[]).map((t,i)=><div key={i} style={{marginBottom:8,padding:8,borderRadius:8,background:T.bg,border:"1px solid "+T.brd}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                  <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.from} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,from:v}:x))} placeholder="من"/></div>
+                  <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.to} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,to:v}:x))} placeholder="إلى (فاضي=مفتوح)"/></div>
+                  <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.pct} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,pct:v}:x))} placeholder="نسبة %"/></div>
+                  <span onClick={()=>setNewAccTiers((newAccTiers||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontSize:FS,padding:"0 4px",flexShrink:0}} title="حذف الشريحة">🗑️</span>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.min} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,min:v}:x))} placeholder="أقل عمولة (اختياري)"/></div>
+                  <div style={{flex:1,minWidth:0}}><Inp type="number" value={t.max} onChange={v=>setNewAccTiers((newAccTiers||[]).map((x,j)=>j===i?{...x,max:v}:x))} placeholder="أقصى عمولة (اختياري)"/></div>
+                </div>
               </div>)}
             </div>
             <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
               <Btn primary onClick={()=>addAccount("wallet")} disabled={!newAccName.trim()}>{editAccId?"💾 حفظ":"➕ إضافة محفظة"}</Btn>
               {editAccId&&<Btn ghost onClick={resetAccForm}>إلغاء</Btn>}
             </div>
-            <div style={{fontSize:FS-3,color:T.textMut,marginTop:8,lineHeight:1.6}}>💡 المحفظة بتشتغل كخزنة منفصلة — تقدر تستلم/تصرف/تحوّل منها من التبويبات العادية. خصم العمولة والتطبيق الفعلي للحدود جايين في تحديثات قادمة.</div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:8,lineHeight:1.6}}>💡 المحفظة بتشتغل كخزنة منفصلة — تقدر تستلم/تصرف/تحوّل منها من التبويبات العادية. العمولة بتتخصم تلقائياً عند السحب، والحدود (الرصيد + السحب الشهري) بتتطبّق على الإضافة والتعديل والتحويل.</div>
           </div>}
         </>;
       })()}
