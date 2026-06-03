@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.233",
+    date: "2026-06-03",
+    types: ["fix"],
+    title: "🤖 الأيجنت — تحسين استخدام الأسئلة الشائعة (FAQs)",
+    changes: [
+      { type: "fix", text: "🎯 الأيجنت كان مش بيجاوب على أسئلة موجودة في الـ FAQs. السبب: كنت بحقن عنوان السؤال + الإجابة بس، من غير **الصيغ البديلة (phrasings)** — فـ Claude مكنش بيربط صياغة العميل بالسؤال. دلوقتي بحقن كل الصيغ البديلة لكل سؤال + تعليمة قوية: «دوّر في الأسئلة الشائعة الأول، ولو سؤال العميل قريب من أي صيغة استخدم الإجابة، ومتقولش مش عارف قبل ما تتأكد»." },
+      { type: "architectural", text: "📁 MODIFIED: api/ai-agent/_processTurn.js (قسم الـ FAQs في buildKnowledge — صيغ + تعليمة أقوى، رفع الحد لـ ٨٠ سؤال). مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.232",
     date: "2026-06-03",
     types: ["fix"],

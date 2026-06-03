@@ -44,11 +44,25 @@ function buildKnowledge(agent, catalog, factoryName) {
   parts.push(`── تعليمات الأسلوب ──\n${styleLines.join("\n")}`);
   const faqs = Array.isArray(agent && agent.faqs) ? agent.faqs : [];
   if (faqs.length) {
-    const faqText = faqs.slice(0, 60)
-      .map((f) => `س: ${String(f.title || "").trim()}\nج: ${String(f.answer || "").trim()}`)
-      .filter((x) => x.replace(/^س:\s*\nج:\s*$/, "").trim().length > 6)
+    const faqText = faqs.slice(0, 80)
+      .map((f) => {
+        const t = String(f.title || "").trim();
+        const a = String(f.answer || "").trim();
+        if (!t && !a) return "";
+        const phr = (Array.isArray(f.phrasings) && f.phrasings.length)
+          ? `\n   (صيغ تانية لنفس السؤال: ${f.phrasings.map((x) => String(x).trim()).filter(Boolean).join(" / ")})`
+          : "";
+        return `• السؤال: ${t}${phr}\n  الإجابة: ${a}`;
+      })
+      .filter((x) => x.trim().length > 6)
       .join("\n\n");
-    if (faqText) parts.push(`── أسئلة شائعة (اعتمد عليها للإجابة بدقة؛ متخترعش معلومة مش موجودة فيها) ──\n${faqText}`);
+    if (faqText) {
+      parts.push(
+        "── الأسئلة الشائعة (مرجعك الأساسي — دوّر هنا الأول) ──\n" +
+        "مهم جداً: قبل ما ترد على أي سؤال، دوّر في القائمة دي الأول. لو سؤال العميل قريب من أي سؤال هنا أو من «الصيغ التانية» بتاعته، استخدم الإجابة المكتوبة (بصياغتك المصرية الطبيعية، مش نسخ حرفي). متقولش «مش عارف» ولا تحوّل لموظف قبل ما تتأكد إن مفيش إجابة مناسبة هنا.\n\n" +
+        faqText
+      );
+    }
   }
   const cat = Array.isArray(catalog) ? catalog : [];
   if (cat.length) {
