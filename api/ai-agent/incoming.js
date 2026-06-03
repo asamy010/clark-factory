@@ -120,12 +120,14 @@ export default async function handler(req, res) {
   };
 
   /* Agent config + bridge creds (admin SDK read of factory/config) */
-  let agent = {}, bridge = {};
+  let agent = {}, bridge = {}, catalog = [], factoryName = "";
   try {
     const snap = await db.doc("factory/config").get();
     const cfg = snap.exists ? (snap.data() || {}) : {};
     agent = cfg.aiAgent || {};
     bridge = cfg.campaignBridge || {};
+    catalog = Array.isArray(cfg.catalog) ? cfg.catalog : [];
+    factoryName = cfg.factoryName || "";
   } catch (e) {
     console.error("[ai-agent/incoming] config read failed:", e?.message || e);
   }
@@ -156,7 +158,9 @@ export default async function handler(req, res) {
   let reply = "", usage = null, model = "", errMsg = null;
   try {
     const out = await processTurn({
-      systemPrompt: agent.personality?.systemPrompt || "",
+      agent,
+      catalog,
+      factoryName,
       customer: customerName ? { name: customerName, type: customerType } : null,
       userMessage: messageText,
     });
