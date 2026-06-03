@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.227",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ٤: أول رد ذكي (محمي بالتجربة)",
+    changes: [
+      { type: "feature", text: "🎯 العتبة الحقيقية: الأيجنت بقى يقدر **يرد** على العميل بـ Claude (Sonnet) بالعامية المصرية حسب الشخصية المضبوطة، ويبعت الرد عبر الجسر. **خامل افتراضياً** — مايردّش غير لما: (١) تفعّل الأيجنت، (٢) تضيف الأرقام التجريبية في testMode. أي حد تاني يفضل «استقبال بس». ده الـ soft launch الآمن." },
+      { type: "architectural", text: "🛡 البوابة: مُفعّل + الجدول≠إيقاف + (لو testMode → القائمة البيضاء) + رقم موجود. بيعيد استخدام مفتاح Anthropic + النموذج (api/ai.js) + الجسر الحالي للإرسال. prompt caching للـ system prompt (تقليل تكلفة Sonnet). بيسجّل كل turn (سؤال + رد + التوكنز + الأخطاء). لسه بدون أدوات (الخطوة الجاية)." },
+      { type: "architectural", text: "📁 NEW: api/ai-agent/_processTurn.js (نداء Claude) + _bridge.js (إرسال للجسر، مفصول عن نظام الحملات). MODIFIED: incoming.js + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.226",
     date: "2026-06-03",
     types: ["feature"],

@@ -22,6 +22,8 @@ import crypto from "crypto";
 import { getDb } from "../_firebase.js";
 import { normalizePhoneCanonical } from "../shopify/_customers.js";
 import { findCustomerByPhone } from "./_customerLookup.js";
+import { processTurn } from "./_processTurn.js";
+import { sendViaBridge } from "./_bridge.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_MSG_LEN = 4000;
@@ -102,32 +104,95 @@ export default async function handler(req, res) {
     } catch (e) { console.warn("[ai-agent/incoming] customer lookup failed:", e?.message || e); }
   }
 
-  /* Write ONE turn doc (ingestion-only). Shape matches the Logs tab:
-     wid / at / phone / customerName / userMessage / assistantReply /
-     skipped+skippedReason. No reply, no tools, no AI yet. */
+  /* ── V21.9.227 (Slice 4): gate → reply → send → log ──
+     INERT by default. The reply path fires ONLY when the agent is enabled AND
+     (testMode off OR the sender is whitelisted). So shipping this changes
+     nothing for customers until the admin explicitly enables + whitelists. */
+  const db = getDb();
+  const nowISO = new Date().toISOString();
+  const baseTurn = {
+    wid: rawId, phone, isLid, at: nowISO,
+    userMessage: messageText,
+    customerName, customerId, customerType,
+    msgType: String(type || "chat"),
+    source: "whatsapp-bridge",
+    createdAt: nowISO,
+  };
+
+  /* Agent config + bridge creds (admin SDK read of factory/config) */
+  let agent = {}, bridge = {};
   try {
-    const db = getDb();
-    const nowISO = new Date().toISOString();
-    await db.collection("aiAgentConversations").add({
-      wid: rawId,
-      phone,
-      isLid,
-      at: nowISO,
-      userMessage: messageText,
-      assistantReply: "",
-      customerName,
-      customerId,
-      customerType,
-      skipped: true,
-      skippedReason: "استقبال فقط — الرد الآلي لسه متفعّلش",
-      ingestOnly: true,
-      msgType: String(type || "chat"),
-      source: "whatsapp-bridge",
-      createdAt: nowISO,
-    });
-    res.status(200).json({ ok: true });
+    const snap = await db.doc("factory/config").get();
+    const cfg = snap.exists ? (snap.data() || {}) : {};
+    agent = cfg.aiAgent || {};
+    bridge = cfg.campaignBridge || {};
   } catch (e) {
-    console.error("[ai-agent/incoming] write failed:", e?.message || e);
-    res.status(500).json({ ok: false, error: "log write failed" });
+    console.error("[ai-agent/incoming] config read failed:", e?.message || e);
   }
+
+  /* Eligibility (soft-launch gate) */
+  const tm = agent.testMode || {};
+  const inWhitelist = Array.isArray(tm.whitelist) && tm.whitelist.some((w) =>
+    w && (w.wid === rawId ||
+      (phone && normalizePhoneCanonical(String(w.wid || "").split("@")[0]) === phone)));
+  let skipReason = null;
+  if (agent.enabled !== true)               skipReason = "الأيجنت متوقّف (enabled=false)";
+  else if (agent.schedule?.mode === "off")  skipReason = "الجدول = إيقاف";
+  else if (tm.enabled && !inWhitelist)      skipReason = "خارج قائمة التجربة (testMode)";
+  else if (!phone)                          skipReason = "LID بدون رقم — محتاج ربط";
+
+  if (skipReason) {
+    try {
+      await db.collection("aiAgentConversations").add({
+        ...baseTurn, assistantReply: "", skipped: true, skippedReason: skipReason, ingestOnly: true,
+      });
+    } catch (e) { console.error("[ai-agent/incoming] skip-log failed:", e?.message || e); }
+    res.status(200).json({ ok: true, skipped: skipReason });
+    return;
+  }
+
+  /* Eligible → generate a reply with Claude */
+  const tStart = Date.now();
+  let reply = "", usage = null, model = "", errMsg = null;
+  try {
+    const out = await processTurn({
+      systemPrompt: agent.personality?.systemPrompt || "",
+      customer: customerName ? { name: customerName, type: customerType } : null,
+      userMessage: messageText,
+    });
+    reply = out.reply || ""; usage = out.usage; model = out.model;
+  } catch (e) {
+    errMsg = e?.message || String(e);
+    console.error("[ai-agent/incoming] processTurn failed:", errMsg);
+  }
+
+  /* Send the reply to the customer via the existing bridge /send */
+  let sent = false, sendErr = null;
+  if (reply && !errMsg) {
+    const bUrl = (bridge.url || process.env.WHATSAPP_BRIDGE_URL || "").trim();
+    const bTok = (bridge.token || process.env.WHATSAPP_BRIDGE_TOKEN || "").trim();
+    if (!bUrl) sendErr = "bridge URL not configured";
+    else {
+      try { await sendViaBridge(bUrl, bTok, phone, reply, customerName); sent = true; }
+      catch (e) { sendErr = e?.message || String(e); console.error("[ai-agent/incoming] sendViaBridge failed:", sendErr); }
+    }
+  }
+
+  /* Log the turn (reply + meta) — webhook always returns 200 so the bridge
+     doesn't retry-storm; failures are recorded on the turn for the admin. */
+  try {
+    await db.collection("aiAgentConversations").add({
+      ...baseTurn,
+      assistantReply: reply,
+      model: model || null,
+      usage,
+      durationMs: Date.now() - tStart,
+      iterations: 1,
+      sent,
+      error: errMsg || sendErr || null,
+      skipped: false,
+    });
+  } catch (e) { console.error("[ai-agent/incoming] turn-log failed:", e?.message || e); }
+
+  res.status(200).json({ ok: true, replied: sent, error: errMsg || sendErr || null });
 }
