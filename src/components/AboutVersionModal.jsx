@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.235",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🎮 الأيجنت — التدخّل اليدوي (Manual Takeover)",
+    changes: [
+      { type: "feature", text: "🎯 أول خطوة في تكملة واجهة الأيجنت: تقدر **تتدخّل يدوياً** في أي محادثة من تاب «سجل المحادثات». افتح المحادثة → زر «🎮 تدخّل» يوقف رد الأيجنت على العميل ده ويسيبك ترد بنفسك، وزر «▶️ استئناف» يرجّع الأيجنت. وانت متحكّم فيه خانة كتابة بتبعت ردك للعميل على واتساب فوراً ويتسجّل في المحادثة كـ «رد يدوي» (أخضر، مميّز عن رد الأيجنت)." },
+      { type: "feature", text: "🛡️ أمان: الأيجنت بيفضل ساكت طول ما المحادثة «تحت السيطرة». التدخّل بيرجع تلقائياً بعد ٢٤ ساعة من غير نشاط (قابلة للتعديل) عشان محادثة منسية ماتفضلش مقفولة على العميل للأبد. فيه فلتر جديد «🎮 تحت السيطرة اليدوية» + عدّاد في الإحصائيات + شارة على المحادثات المتحكَّم فيها." },
+      { type: "architectural", text: "📁 NEW: api/ai-agent/_takeover.js + set-takeover.js + admin-reply.js (endpoints بـ Admin SDK) + src/utils/aiAgentClient.js. MODIFIED: incoming.js (فحص التدخّل في الـ gate)، AIAgentPg.jsx (LogsTab + ConversationThreadCard)، constants (config التدخّل)، firestore.rules (قاعدة aiAgentTakeovers — قراءة للمدير، كتابة سيرفر-سايد فقط). الحالة في aiAgentTakeovers/{wid}." },
+      { type: "fix", text: "⚠️ بعد الـ push لازم: (١) deploy لـ firestore.rules عشان شارات الحالة تظهر لحظياً (الأزرار نفسها شغّالة من غيره لأنها بتعدّي على السيرفر)؛ (٢) مفيش build env محلي — Vercel هو الـ verifier (اتعمل فحص أقواس + قراءة يدوية)." },
+    ],
+  },
+  {
     version: "V21.9.234",
     date: "2026-06-03",
     types: ["fix"],

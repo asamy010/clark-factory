@@ -24,6 +24,7 @@ import { normalizePhoneCanonical } from "../shopify/_customers.js";
 import { findCustomerByPhone } from "./_customerLookup.js";
 import { processTurn } from "./_processTurn.js";
 import { sendViaBridge } from "./_bridge.js";
+import { takeoverDocId, isTakeoverActive } from "./_takeover.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_MSG_LEN = 4000;
@@ -162,6 +163,30 @@ export default async function handler(req, res) {
   else if (agent.schedule?.mode === "off")  skipReason = "الجدول = إيقاف";
   else if (tm.enabled && !inWhitelist)      skipReason = "خارج قائمة التجربة (testMode)";
   else if (!phone)                          skipReason = "LID بدون رقم — محتاج ربط";
+
+  /* V21.9.235 — Manual takeover: if an admin grabbed this conversation, the
+     agent stays SILENT (the human is handling it). Checked ONLY when the agent
+     would otherwise reply, so already-skipped messages cost no extra read. The
+     incoming message is still logged (below) so the admin sees it live. An
+     idle takeover auto-resumes (isTakeoverActive); when it does, flip the flag
+     once so the UI reflects the resume. */
+  if (!skipReason) {
+    try {
+      const toRef = db.collection("aiAgentTakeovers").doc(takeoverDocId(rawId));
+      const toSnap = await toRef.get();
+      if (toSnap.exists) {
+        const to = toSnap.data() || {};
+        if (isTakeoverActive(to, agent, Date.now())) {
+          skipReason = "تدخّل يدوي (الأدمن مسيطر على المحادثة)";
+        } else if (to.active === true) {
+          try { await toRef.set({ active: false, autoResumedAt: nowISO, updatedAt: nowISO }, { merge: true }); }
+          catch (_) { /* best-effort auto-resume flag */ }
+        }
+      }
+    } catch (e) {
+      console.warn("[ai-agent/incoming] takeover check failed:", e?.message || e);
+    }
+  }
 
   if (skipReason) {
     /* V21.9.231: for senders OUTSIDE the testMode whitelist, optionally send the

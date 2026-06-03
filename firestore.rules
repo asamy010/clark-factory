@@ -488,6 +488,14 @@ service cloud.firestore {
       allow read:  if isManagerPlus();
       allow write: if isManagerPlus();
     }
+    /* V21.9.235 — manual takeover state (one doc per wid). Client READS it for
+       live status badges; ALL writes go through admin-SDK endpoints
+       (set-takeover / admin-reply), so the client never mutates it. write:false
+       is defense-in-depth — the Admin SDK bypasses rules anyway. */
+    match /aiAgentTakeovers/{id} {
+      allow read:  if isManagerPlus();
+      allow write: if false;
+    }
 
     /* ──────────────────────────────────────────────────────────
        V21.9.123 — Universal Attachments metadata

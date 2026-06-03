@@ -39,14 +39,15 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
+import { Btn, LoadingBtn, Card, Inp, Sel } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS, INIT_CONFIG } from "../constants/index.js";
 import { gid } from "../utils/format.js";
 import { showToast, ask } from "../utils/popups.js";
 import { compressImg43 } from "../utils/image.js";
 import { db } from "../firebase";
-import { collection, onSnapshot, query, orderBy, limit, doc, deleteDoc, setDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, limit, doc, deleteDoc, setDoc } from "firebase/firestore";
+import { aiAgentSetTakeover, aiAgentAdminReply } from "../utils/aiAgentClient.js";
 
 const DEFAULT_AGENT = INIT_CONFIG.aiAgent;
 
@@ -134,6 +135,19 @@ const TIERS = [
 /* Deep clone helper. Used by the draft+save pattern to ensure isolation
    from server data so local edits don't accidentally mutate the source. */
 const deepClone = (x) => JSON.parse(JSON.stringify(x));
+
+/* V21.9.235 — mirror of the server's takeover-active check
+   (api/ai-agent/_takeover.js) so the UI agrees with the gate: a takeover is
+   "active" (agent muted) only while flagged active AND inside the idle
+   auto-resume window (agent.takeover.autoResumeHours, default 24h). */
+const takeoverActive = (to, agent) => {
+  if (!to || to.active !== true) return false;
+  const h = Number(agent?.takeover?.autoResumeHours);
+  const hours = Number.isFinite(h) && h > 0 ? h : 24;
+  const last = Date.parse(to.lastAdminReplyAt || to.takenOverAt || to.updatedAt || "");
+  if (!last) return true;
+  return (Date.now() - last) <= hours * 60 * 60 * 1000;
+};
 
 /* ────────────────────────────────────────────────────────────
    MAIN PAGE — V19.74.0: draft + Save Changes pattern
@@ -375,7 +389,7 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
         {tab==="faqs"        && <FaqsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="tools"       && <ToolsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="schedule"    && <ScheduleTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
-        {tab==="logs"        && <LogsTab agent={agent} data={data} isMob={isMob}/>}
+        {tab==="logs"        && <LogsTab agent={agent} data={data} isMob={isMob} user={user} canEdit={canEdit}/>}
         {tab==="suggestions" && <SuggestionsTab agent={agent} data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
         {tab==="sandbox"     && <SandboxTab agent={agent} data={data} isMob={isMob}/>}
         {tab==="funnel"      && <FunnelTab agent={agent} data={data} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
@@ -1645,11 +1659,27 @@ function KpiRow({ label, value }){
    one turn (NOT a thread of N messages). Cards group consecutive
    turns by wid so the view reads like a thread.
    ════════════════════════════════════════════════════════════ */
-function LogsTab({ agent, data, isMob }){
+function LogsTab({ agent, data, isMob, user, canEdit }){
   /* Pull last 200 turns ordered by `at` desc. The orderBy needs
      a single-field index (auto-created by Firestore on first query). */
   const { docs: turns, loading, error } = useAgentCollection("aiAgentConversations",
     ref => query(ref, orderBy("at", "desc"), limit(200))
+  );
+
+  /* V21.9.235: live manual-takeover state (one doc per wid). Read-only; if the
+     aiAgentTakeovers rules clause isn't deployed yet the listener errors →
+     empty map (controls still work via the admin-SDK endpoints). */
+  const { docs: takeoverDocs, error: takeoverError } = useAgentCollection("aiAgentTakeovers",
+    ref => query(ref, where("active", "==", true))
+  );
+  const takeoverByWid = useMemo(() => {
+    const m = {};
+    for (const d of takeoverDocs) if (d.wid) m[d.wid] = d;
+    return m;
+  }, [takeoverDocs]);
+  const activeTakeoverCount = useMemo(
+    () => Object.values(takeoverByWid).filter(to => takeoverActive(to, agent)).length,
+    [takeoverByWid, agent]
   );
 
   const [search, setSearch] = useState("");
@@ -1676,9 +1706,11 @@ function LogsTab({ agent, data, isMob }){
       const last = th.turns[th.turns.length-1] || {};
       const isSkipped = th.turns.some(t => t.skipped || t.canned);
       const isError = th.turns.some(t => t.error);
-      if (statusFilter === "ok"      && (isSkipped || isError)) return false;
-      if (statusFilter === "skipped" && !isSkipped) return false;
-      if (statusFilter === "error"   && !isError) return false;
+      const isTakeover = takeoverActive(takeoverByWid[th.wid], agent);
+      if (statusFilter === "ok"       && (isSkipped || isError)) return false;
+      if (statusFilter === "skipped"  && !isSkipped) return false;
+      if (statusFilter === "error"    && !isError) return false;
+      if (statusFilter === "takeover" && !isTakeover) return false;
       if (!q) return true;
       const hay = [
         th.wid, last.customerName, last.phone,
@@ -1686,7 +1718,7 @@ function LogsTab({ agent, data, isMob }){
       ].filter(Boolean).join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [threads, search, statusFilter]);
+  }, [threads, search, statusFilter, takeoverByWid, agent]);
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
@@ -1699,6 +1731,7 @@ function LogsTab({ agent, data, isMob }){
         <div style={{flex:"0 0 180px", minWidth:140}}>
           <Sel value={statusFilter} onChange={setStatusFilter}>
             <option value="">كل الحالات</option>
+            <option value="takeover">🎮 تحت السيطرة اليدوية</option>
             <option value="ok">رد طبيعي</option>
             <option value="skipped">رد آلي/متخطّى</option>
             <option value="error">فشل</option>
@@ -1710,9 +1743,15 @@ function LogsTab({ agent, data, isMob }){
         <StatPill label="إجمالي turns" value={turns.length} color="#0EA5E9"/>
         <StatPill label="threads" value={threads.length} color="#10B981"/>
         <StatPill label="ظاهر" value={filtered.length} color="#8B5CF6"/>
+        <StatPill label="🎮 تدخّل يدوي" value={activeTakeoverCount} color="#F59E0B"/>
         <StatPill label="فشل" value={turns.filter(t=>t.error).length} color="#EF4444"/>
       </div>
 
+      {takeoverError && (
+        <div style={{padding:"8px 12px", marginBottom:14, borderRadius:10, background:"#FEF3C7", color:"#92400E", fontSize:FS-2, lineHeight:1.6}}>
+          ⚠️ مش قادر أقرا حالة «التدخّل اليدوي» لحظياً — محتاج تـ deploy قاعدة <code>aiAgentTakeovers</code> في firestore.rules. أزرار التدخّل/الرد لسه شغّالة (بتعدّي على السيرفر).
+        </div>
+      )}
       {loading && (
         <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:T.brd+"20", fontSize:FS-1, color:T.textMut}}>
           ⏳ بيحمّل الـ conversations من Firestore...
@@ -1743,7 +1782,7 @@ function LogsTab({ agent, data, isMob }){
       ) : (
         <div style={{display:"grid", gap:10}}>
           {filtered.slice(0, 50).map(th => (
-            <ConversationThreadCard key={th.wid} thread={th}/>
+            <ConversationThreadCard key={th.wid} thread={th} takeover={takeoverByWid[th.wid]} agent={agent} user={user} canEdit={canEdit}/>
           ))}
           {filtered.length > 50 && (
             <div style={{textAlign:"center", padding:14, color:T.textMut, fontSize:FS-1}}>
@@ -1756,11 +1795,12 @@ function LogsTab({ agent, data, isMob }){
   );
 }
 
-function ConversationThreadCard({ thread }){
+function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
   const [open, setOpen] = useState(false);
   const t = thread;
   const last = t.turns[t.turns.length-1] || {};
   const isLid = String(t.wid).includes("@lid");
+  const phone = last.phone || (isLid ? "" : String(t.wid).split("@")[0]);
   const totalDuration = t.turns.reduce((s, x) => s + (x.durationMs || 0), 0);
   const allTools = t.turns.flatMap(x => x.toolsUsed || []);
   const cost = t.turns.reduce((s, x) => {
@@ -1770,25 +1810,63 @@ function ConversationThreadCard({ thread }){
              + (Number(u.cache_creation_input_tokens)||0)*1.25/1e6
              + (Number(u.cache_read_input_tokens)||0)*0.10/1e6;
   }, 0);
+
+  /* V21.9.235 — manual takeover controls. localTo is an optimistic override so
+     the acting admin sees the new state instantly even when the live listener
+     isn't permitted yet (aiAgentTakeovers rules not deployed). */
+  const [busy, setBusy] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [localTo, setLocalTo] = useState(undefined);
+  const effTo = localTo !== undefined ? localTo : takeover;
+  const isActiveTakeover = takeoverActive(effTo, agent);
+  const canControl = canEdit && !isLid && !!phone;
+  const autoHours = (() => { const h = Number(agent?.takeover?.autoResumeHours); return Number.isFinite(h) && h > 0 ? h : 24; })();
+
+  const doTakeover = async (active) => {
+    if (busy || !user) return;
+    setBusy(true);
+    try {
+      const r = await aiAgentSetTakeover({ wid: t.wid, active, phone, customerName: last.customerName || "", customerId: last.customerId || "" }, user);
+      if (r?.ok) { setLocalTo(r.takeover || { active }); showToast(active ? "🎮 اتحكمت في المحادثة — الأيجنت موقوف" : "▶️ رجّعنا الأيجنت للمحادثة"); }
+      else showToast("⛔ " + (r?.error || "فشل تغيير حالة التدخّل"));
+    } catch (e) { showToast("⛔ " + (e?.message || "فشل تغيير حالة التدخّل")); }
+    finally { setBusy(false); }
+  };
+
+  const doReply = async () => {
+    const msg = replyText.trim();
+    if (!msg || busy || !user) return;
+    setBusy(true);
+    try {
+      const r = await aiAgentAdminReply({ wid: t.wid, phone, message: msg, customerName: last.customerName || "", customerId: last.customerId || "" }, user);
+      if (r?.ok) { setReplyText(""); setLocalTo({ ...(effTo || {}), active: true, lastAdminReplyAt: r.at || new Date().toISOString() }); showToast("📤 اتبعت الرسالة للعميل"); }
+      else showToast("⛔ " + (r?.error || "فشل إرسال الرسالة"));
+    } catch (e) { showToast("⛔ " + (e?.message || "فشل إرسال الرسالة")); }
+    finally { setBusy(false); }
+  };
+
   const status = last.error ? "error" : (last.canned || last.skipped) ? "skipped" : "ok";
   const statusBadge = status === "error" ? { label: "❌ فشل", bg: "#FEE2E2", color: "#991B1B" }
                     : status === "skipped" ? { label: last.canned ? "🤖 رد آلي" : "⏭ متخطّى", bg: "#E5E7EB", color: "#374151" }
                     : { label: "✅ تم", bg: "#D1FAE5", color: "#065F46" };
   return (
-    <div style={{background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:12, padding:12}}>
+    <div style={{background:T.cardSolid, border:`1px solid ${isActiveTakeover ? "#F59E0B" : T.brd}`, borderRadius:12, padding:12}}>
       <div onClick={()=>setOpen(!open)} style={{cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap"}}>
         <div style={{flex:1, minWidth:200}}>
           <div style={{fontSize:FS, fontWeight:800, color:T.text}}>
-            👤 {last.customerName || (isLid ? "🔒 LID مجهول" : t.wid.split("@")[0])}
+            👤 {last.customerName || (isLid ? "🔒 LID مجهول" : String(t.wid).split("@")[0])}
             {last.stage && <span style={{fontSize:FS-2, color:T.textMut, fontWeight:600, marginInlineStart:8}}>· {last.stage}</span>}
             {isLid && !last.customerName && <span style={{fontSize:FS-3, fontFamily:"monospace", color:T.textMut, fontWeight:600, marginInlineStart:8}}>· {t.wid}</span>}
           </div>
           <div style={{fontSize:FS-1, color:T.textSec, marginTop:4, lineHeight:1.5,
             display:"-webkit-box", WebkitLineClamp:1, WebkitBoxOrient:"vertical", overflow:"hidden"}}>
-            {last.userMessage || "(فاضي)"}
+            {last.userMessage || last.assistantReply || "(فاضي)"}
           </div>
         </div>
         <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0}}>
+          {isActiveTakeover && (
+            <span style={{fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:800, background:"#FEF3C7", color:"#92400E", border:"1px solid #F59E0B"}}>🎮 تدخّل يدوي</span>
+          )}
           <span style={{
             fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:700,
             background: statusBadge.bg, color: statusBadge.color,
@@ -1799,7 +1877,53 @@ function ConversationThreadCard({ thread }){
         </div>
       </div>
       {open && (
-        <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`, maxHeight:400, overflow:"auto"}}>
+        <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
+          {/* ── V21.9.235 Manual takeover control bar ── */}
+          <div style={{marginBottom:12, padding:"10px 12px", borderRadius:10,
+            background: isActiveTakeover ? "#FEF3C720" : T.bg,
+            border:`1px solid ${isActiveTakeover ? "#F59E0B55" : T.brd}`}}>
+            {!canControl ? (
+              <div style={{fontSize:FS-2, color:T.textMut, lineHeight:1.6}}>
+                {(isLid || !phone)
+                  ? "🔒 العميل ده LID من غير رقم — التدخّل اليدوي مش متاح (الأيجنت أصلاً مش بيرد عليه)."
+                  : "👁️ عرض فقط — مفيش صلاحية للتدخّل اليدوي."}
+              </div>
+            ) : !isActiveTakeover ? (
+              <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap"}}>
+                <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.5, flex:1, minWidth:180}}>
+                  🎮 <strong>التدخّل اليدوي:</strong> هيوقف رد الأيجنت على العميل ده وتقدر ترد بنفسك. (بيرجع تلقائياً بعد {autoHours} ساعة من غير نشاط)
+                </div>
+                <LoadingBtn small primary loading={busy} loadingText="..." onClick={()=>doTakeover(true)}>🎮 تدخّل</LoadingBtn>
+              </div>
+            ) : (
+              <div>
+                <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom:8}}>
+                  <div style={{fontSize:FS-2, color:"#92400E", fontWeight:700, lineHeight:1.5}}>
+                    🎮 أنت متحكم في المحادثة دي — الأيجنت موقوف.
+                    {effTo?.takenOverBy && <span style={{fontWeight:500, color:"#78350F"}}> (بدأ: {effTo.takenOverBy})</span>}
+                  </div>
+                  <LoadingBtn small danger loading={busy} loadingText="..." onClick={()=>doTakeover(false)}>▶️ استئناف الأيجنت</LoadingBtn>
+                </div>
+                <div style={{display:"flex", gap:8, alignItems:"flex-end", flexWrap:"wrap"}}>
+                  <textarea
+                    value={replyText}
+                    onChange={(e)=>setReplyText(e.target.value)}
+                    placeholder="اكتب ردك للعميل هنا..."
+                    rows={2}
+                    style={{flex:"1 1 240px", minWidth:200, resize:"vertical", padding:"8px 10px",
+                      borderRadius:8, border:`1px solid ${T.brd}`, background:T.cardSolid, color:T.text,
+                      fontSize:FS-1, fontFamily:"inherit", direction:"rtl"}}
+                  />
+                  <LoadingBtn small primary loading={busy} loadingText="..." disabled={!replyText.trim()} onClick={doReply}>📤 رد للعميل</LoadingBtn>
+                </div>
+                <div style={{fontSize:FS-3, color:T.textMut, marginTop:6, lineHeight:1.5}}>
+                  بيتبعت عبر واتساب للعميل فوراً ويتسجّل في المحادثة كـ «رد يدوي».
+                </div>
+              </div>
+            )}
+          </div>
+          {/* ── Turns ── */}
+          <div style={{maxHeight:400, overflow:"auto"}}>
           {t.turns.map((tn, i) => (
             <div key={tn.id || i} style={{marginBottom:14, paddingBottom:10, borderBottom: i<t.turns.length-1 ? `1px dashed ${T.brd}` : "none"}}>
               {tn.userMessage && (
@@ -1809,10 +1933,17 @@ function ConversationThreadCard({ thread }){
                 </div>
               )}
               {tn.assistantReply && (
-                <div style={{padding:"6px 10px", marginBottom:6, borderRadius:8, background:"#8B5CF608", fontSize:FS-1, color:T.text}}>
-                  <strong style={{color:"#7C3AED", fontSize:FS-2}}>🤖 Agent</strong>
-                  <div style={{marginTop:2, whiteSpace:"pre-wrap"}}>{tn.assistantReply}</div>
-                </div>
+                tn.admin_takeover ? (
+                  <div style={{padding:"6px 10px", marginBottom:6, borderRadius:8, background:"#10B98112", fontSize:FS-1, color:T.text}}>
+                    <strong style={{color:"#059669", fontSize:FS-2}}>👨‍💼 رد يدوي{tn.adminBy ? " · " + tn.adminBy : ""}</strong>
+                    <div style={{marginTop:2, whiteSpace:"pre-wrap"}}>{tn.assistantReply}</div>
+                  </div>
+                ) : (
+                  <div style={{padding:"6px 10px", marginBottom:6, borderRadius:8, background:"#8B5CF608", fontSize:FS-1, color:T.text}}>
+                    <strong style={{color:"#7C3AED", fontSize:FS-2}}>🤖 Agent</strong>
+                    <div style={{marginTop:2, whiteSpace:"pre-wrap"}}>{tn.assistantReply}</div>
+                  </div>
+                )
               )}
               <div style={{fontSize:FS-3, color:T.textMut, marginTop:4, display:"flex", flexWrap:"wrap", gap:8}}>
                 {tn.at && <span>{new Date(tn.at).toLocaleString("ar-EG")}</span>}
@@ -1828,6 +1959,7 @@ function ConversationThreadCard({ thread }){
               <strong>الأدوات في الـ thread:</strong> {Array.from(new Set(allTools)).join(" · ")}
             </div>
           )}
+          </div>
         </div>
       )}
     </div>

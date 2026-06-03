@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.234";
+export const APP_VERSION = "V21.9.235";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -188,6 +188,11 @@ export const INIT_CONFIG = {
       outsideBehavior: "canned",/* canned | silent */
       outsideMessage: "أهلاً بحضرتك. النظام تحت اختبار محدود حالياً، الفريق هيرد عليك بكرة بإذن الله.",
     },
+    /* V21.9.235 — Manual takeover ("التدخّل اليدوي"). An admin can grab a single
+       conversation away from the agent (it stays silent for that wid) and reply
+       by hand via api/ai-agent/admin-reply. State lives in aiAgentTakeovers/{wid};
+       this only sets the idle window after which a forgotten takeover auto-resumes. */
+    takeover: { autoResumeHours: 24 },
     /* Tier discounts (default per spec) */
     tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },
     /* V19.73 — Tier thresholds (annual purchases, EGP) — used by funnel viz
