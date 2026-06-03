@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.231",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ٨: رد آلي للعملاء خارج قائمة التجربة",
+    changes: [
+      { type: "feature", text: "🎯 أثناء التجربة المحدودة (soft launch)، العميل اللي مش في القائمة البيضاء كان بيتجاهَل. دلوقتي بياخد **الرسالة الجاهزة** المضبوطة (مثلاً «النظام تحت اختبار، الفريق هيرد بكرة») لو الإعداد = canned — فمحدش يتساب معلّق. لو = silent يفضل بدون رد. رسالة ثابتة بدون أي تكلفة ذكاء." },
+      { type: "architectural", text: "🛡 بتتسجّل كـ «رد آلي» (canned) في السجل. MODIFIED: api/ai-agent/incoming.js + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.230",
     date: "2026-06-03",
     types: ["feature"],

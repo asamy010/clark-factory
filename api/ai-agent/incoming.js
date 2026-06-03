@@ -164,12 +164,35 @@ export default async function handler(req, res) {
   else if (!phone)                          skipReason = "LID بدون رقم — محتاج ربط";
 
   if (skipReason) {
+    /* V21.9.231: for senders OUTSIDE the testMode whitelist, optionally send the
+       configured canned "under maintenance" reply (so real customers aren't left
+       hanging during soft launch). No AI cost — a fixed message. outsideBehavior
+       = "canned" | "silent". */
+    let cannedReply = null;
+    if (skipReason === "خارج قائمة التجربة (testMode)" && tm.outsideBehavior !== "silent" && phone) {
+      cannedReply = String(tm.outsideMessage || "").trim() || null;
+    }
+    let sentCanned = false;
+    if (cannedReply) {
+      const bUrl = (bridge.url || process.env.WHATSAPP_BRIDGE_URL || "").trim();
+      const bTok = (bridge.token || process.env.WHATSAPP_BRIDGE_TOKEN || "").trim();
+      if (bUrl) {
+        try { await sendViaBridge(bUrl, bTok, phone, cannedReply, customerName); sentCanned = true; }
+        catch (e) { console.warn("[ai-agent/incoming] canned send failed:", e?.message || e); }
+      }
+    }
     try {
       await db.collection("aiAgentConversations").add({
-        ...baseTurn, assistantReply: "", skipped: true, skippedReason: skipReason, ingestOnly: true,
+        ...baseTurn,
+        assistantReply: cannedReply || "",
+        skipped: true,
+        canned: !!cannedReply,
+        sent: sentCanned,
+        skippedReason: skipReason,
+        ingestOnly: !cannedReply,
       });
     } catch (e) { console.error("[ai-agent/incoming] skip-log failed:", e?.message || e); }
-    res.status(200).json({ ok: true, skipped: skipReason });
+    res.status(200).json({ ok: true, skipped: skipReason, canned: !!cannedReply });
     return;
   }
 
