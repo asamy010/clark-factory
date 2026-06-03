@@ -3075,6 +3075,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               else if(v==="دفعة مورد")setTxPartyType("supplier");
               else if(v==="تشغيل خارجي")setTxPartyType("workshop");
               else if(v==="مرتبات")setTxPartyType("employee");
+              /* V21.9.220: «دفعة عميل» من محفظة إلكترونية → اضبط طريقة الدفع تلقائياً
+                 على «تحويل محفظة الكترونية» عشان رسالة الواتساب للعميل تطلع صح.
+                 بيتطبّق على اختيار الفئة ده فقط؛ المستخدم يقدر يغيّرها بعدين. */
+              if(v==="دفعة عميل"&&accountsData.find(a=>a&&typeof a==="object"&&a.name===txAccount&&a.type==="wallet"))setTxMethod("تحويل محفظة الكترونية");
             }}
             options={(txType==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c,label:c}))}
             maxResults={30}
@@ -3110,7 +3114,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   </div>}):<div style={{textAlign:"center",padding:10,color:T.textMut,fontSize:FS-2}}>لا توجد نتائج</div>}
               </div>
             </div>})()}</div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={setTxAccount}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حساب جاري</label><Sel value={txAccount} onChange={v=>{setTxAccount(v);/* V21.9.220: لو حوّلت الحساب لمحفظة والفئة «دفعة عميل» → اضبط طريقة الدفع تلقائياً على تحويل محفظة (نفس منطق onChange الفئة، يغطّي الترتيب العكسي) */if(txCategory==="دفعة عميل"&&accountsData.find(a=>a&&typeof a==="object"&&a.name===v&&a.type==="wallet"))setTxMethod("تحويل محفظة الكترونية")}}>{accounts.map(a=><option key={a} value={a}>{a}</option>)}</Sel></div>
           {/* V19.70.1: payment method dropdown — visible only for cust/supplier payments.
               Saved into custPayments[].method / supplierPayments[].method, displayed
               in event-trigger messages via the {method} variable. */}

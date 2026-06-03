@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.220",
+    date: "2026-06-03",
+    types: ["improvement"],
+    title: "📱 المحافظ — طريقة الدفع تلقائياً «تحويل محفظة» لدفعة العميل",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: لما الحساب يكون محفظة إلكترونية وتختار «دفعة عميل» → طريقة الدفع بتتظبط تلقائياً على «تحويل محفظة الكترونية» — عشان رسالة الواتساب اللي بتوصل للعميل بالدفعة تطلع بالطريقة الصح (متغيّر {method} في قالب الرسالة). بيشتغل سواء اخترت الفئة الأول أو غيّرت الحساب لمحفظة بعدها. تقدر تغيّر الطريقة يدوياً لو حابب." },
+      { type: "architectural", text: "🛡 ربط بسيط في onChange بتاع الفئة + الحساب (مفيش useEffect/auto-override على كل render — فمايتعارضش مع التغيير اليدوي ولا فلو التعديل). 📁 MODIFIED: src/pages/TreasuryPg.jsx + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.219",
     date: "2026-06-02",
     types: ["feature"],
