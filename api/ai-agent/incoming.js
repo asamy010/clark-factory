@@ -21,6 +21,7 @@
 import crypto from "crypto";
 import { getDb } from "../_firebase.js";
 import { normalizePhoneCanonical } from "../shopify/_customers.js";
+import { findCustomerByPhone } from "./_customerLookup.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_MSG_LEN = 4000;
@@ -91,8 +92,18 @@ export default async function handler(req, res) {
   const isLid = rawId.includes("@lid");
   const phone = isLid ? "" : normalizePhoneCanonical(rawId.split("@")[0]);
 
+  /* V21.9.226 (Slice 2-3): recognize the customer by phone (cached lookup).
+     LID senders have no phone → stay unrecognized until mapped. */
+  let customerName = "", customerId = "", customerType = "";
+  if (phone) {
+    try {
+      const c = await findCustomerByPhone(phone);
+      if (c) { customerName = c.name || ""; customerId = c.id || ""; customerType = c.type || ""; }
+    } catch (e) { console.warn("[ai-agent/incoming] customer lookup failed:", e?.message || e); }
+  }
+
   /* Write ONE turn doc (ingestion-only). Shape matches the Logs tab:
-     wid / at / phone / userMessage / assistantReply / customerName /
+     wid / at / phone / customerName / userMessage / assistantReply /
      skipped+skippedReason. No reply, no tools, no AI yet. */
   try {
     const db = getDb();
@@ -104,9 +115,11 @@ export default async function handler(req, res) {
       at: nowISO,
       userMessage: messageText,
       assistantReply: "",
-      customerName: "",
+      customerName,
+      customerId,
+      customerType,
       skipped: true,
-      skippedReason: "استقبال فقط — الرد الآلي لسه متفعّلش (مرحلة 1)",
+      skippedReason: "استقبال فقط — الرد الآلي لسه متفعّلش",
       ingestOnly: true,
       msgType: String(type || "chat"),
       source: "whatsapp-bridge",

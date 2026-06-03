@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.226",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ٢: التعرّف على العميل من رقمه",
+    changes: [
+      { type: "feature", text: "🎯 لما رسالة توصل، البرنامج بيدوّر على العميل برقمه ويعرض **اسمه ونوعه** في تبويب «سجلات» بدل الرقم. الربط بيطابق الرقم بعد تطبيعه مع رقم العميل + الرقم الخام + الأرقام الإضافية. لسه **بدون رد آلي للعميل**." },
+      { type: "architectural", text: "🛡 الكفاءة: كاش بالميموري ٥ دقايق (قراءة قائمة العملاء مرة كل ٥ دقايق مش مع كل رسالة). بيفشل بهدوء (لو مفيش مطابقة يفضل الرقم). NEW: api/ai-agent/_customerLookup.js. MODIFIED: api/ai-agent/incoming.js + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.225",
     date: "2026-06-03",
     types: ["feature"],
