@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.230",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ٧: أداة رابط بوابة العميل (كشف/رصيد آمن)",
+    changes: [
+      { type: "feature", text: "🎯 أداة جديدة: لو العميل طلب كشف حسابه أو رصيده أو طلباته، الأيجنت بيولّد **رابط بوابته الشخصي الآمن** (صالح ٩٠ يوم) ويبعتهوله — يفتحه ويلاقي كل حاجة محدّثة وصح. **الأيجنت مايقولش رقم رصيد من عنده** (أأمن — مفيش خطر رقم غلط). شغّالة بس لو العميل متعرّف عليه (حماية بيانات)." },
+      { type: "architectural", text: "🛡 بيعيد استخدام مولّد الروابط الموقّع الموجود (signCustomerIdWithTs) — نفس بوابة العميل المُجرَّبة، صفر إعادة حساب للمحاسبة. MODIFIED: api/ai-agent/_tools.js + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.229",
     date: "2026-06-03",
     types: ["feature"],

@@ -11,8 +11,11 @@
    (balance/statement/search/orders) are added in later slices.
    ════════════════════════════════════════════════════════════════════════ */
 import { sendViaBridge } from "./_bridge.js";
+import { signCustomerIdWithTs } from "../customer-portal.js";
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL || "https://clark-factory.vercel.app").replace(/\/+$/, "");
 
 /* ── escalate_to_human ───────────────────────────────────────────────── */
 const escalate_to_human = {
@@ -59,11 +62,39 @@ const escalate_to_human = {
   },
 };
 
+/* ── generate_portal_link ────────────────────────────────────────────────
+   Safest "data" tool: instead of quoting a balance (risky), hand the customer
+   a secure signed link to THEIR portal — which already shows the accurate
+   statement / balance / orders / payments. The agent never states a number.
+   Reuses the production signer (signCustomerIdWithTs). Requires a recognized
+   customer (never generate someone else's link). */
+const generate_portal_link = {
+  schema: {
+    name: "generate_portal_link",
+    description: "ولّد رابط آمن وشخصي للعميل يفتح بوابته (كشف الحساب، الرصيد الحالي، الطلبات، الدفعات بالتفصيل). استخدمها لو العميل طلب كشف حسابه أو رصيده أو طلباته أو دفعاته. ⚠️ متقولش رقم رصيد من عندك أبداً — ابعتله الرابط ده. شغّالة بس لو العميل متعرّف عليه.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  async run(_input, ctx) {
+    const { customer } = ctx;
+    if (!customer || !customer.id) {
+      return "العميل مش متعرّف عليه — مينفعش نولّد رابط شخصي (حماية للبيانات). اطلب منه اسمه/اسم الشركة، أو حوّله لموظف للتأكد من هويته.";
+    }
+    try {
+      const ts = String(Math.floor(Date.now() / 1000));
+      const sig = signCustomerIdWithTs(customer.id, ts);
+      const url = `${PUBLIC_BASE}/?p=c&i=${encodeURIComponent(customer.id)}&t=${ts}&s=${encodeURIComponent(sig)}`;
+      return `رابط بوابة العميل (صالح ٩٠ يوم): ${url}\nابعت الرابط ده للعميل — هيلاقي فيه كشف حسابه ورصيده الحالي وطلباته ودفعاته بالتفصيل. متقولش الرصيد بنفسك، الرابط بيوريه كل حاجة محدّثة.`;
+    } catch (e) {
+      return "حصل خطأ في توليد رابط البوابة: " + (e?.message || e) + ". حوّل العميل لموظف.";
+    }
+  },
+};
+
 const REGISTRY = {
   escalate_to_human,
-  /* later slices register: get_customer_balance, get_customer_orders,
-     get_order_status, generate_statement_pdf, generate_portal_link,
-     search_products, notify_sales_team ... */
+  generate_portal_link,
+  /* later slices register: get_customer_orders, get_order_status,
+     search_products, notify_sales_team, send_otp/verify_otp ... */
 };
 
 /* Schemas for implemented tools not explicitly disabled in config */
