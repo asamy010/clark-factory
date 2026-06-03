@@ -3306,9 +3306,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </th>}
           {/* V16.40: dropped ملاحظات, swapped order to: نوع الحركة then بيان (desc takes remaining width)
               V16.47: added "بواسطة" column showing who recorded the entry */}
-          {["الرصيد","تاريخ","اليوم","وارد","منصرف","نوع الحركة","بيان","حساب جاري","موسم","بواسطة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
+          {["الرصيد","تاريخ","اليوم","وارد","منصرف","نوع الحركة","بيان","دفتر اليومية","موسم","بواسطة",""].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
-          {withBalance.slice(0,limit).map(t=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
+          {withBalance.slice(0,limit).map((t,_ri)=>{const locked=isDayLocked(t.date);const isEd=inlineEdit===t.id;const d_=inlineDraft;
             const inpS={padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",background:T.inputBg,color:T.text};
             const startEdit=()=>{setInlineEdit(t.id);setInlineDraft({type:t.type,amount:String(t.amount||""),desc:t.desc||"",notes:t.notes||"",category:t.category||"",date:t.date||"",account:t.account||""})};
             const saveInline=()=>{upConfig(cfg=>{const tx=(cfg.treasury||[]).find(x=>x.id===t.id);if(tx){
@@ -3340,7 +3340,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             }});setInlineEdit(null);setInlineDraft({});showToast("✓ تم التعديل")};
             const cancelInline=()=>{setInlineEdit(null);setInlineDraft({})};
             const isChecked=selectedTxIds.has(t.id);
-            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:""}}>
+            return<tr key={t.id} style={{borderBottom:"1px solid "+T.brd,opacity:locked?0.8:1,background:isChecked?T.err+"06":isEd?T.accent+"06":locked?T.bg:(_ri%2?T.textMut+"12":"")}}>
             {canEdit&&<td style={{padding:"6px 8px",textAlign:"center"}}>
               <input type="checkbox" checked={isChecked} onChange={()=>toggleTxSel(t.id)} style={{cursor:"pointer",width:16,height:16}} title="تحديد للحذف المجمع"/>
             </td>}

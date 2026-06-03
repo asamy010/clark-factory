@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.224",
+    date: "2026-06-03",
+    types: ["improvement"],
+    title: "📒 سجل الحركات — تلوين متبادل للصفوف + تسمية العمود",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد: (١) صفوف سجل الحركات بقت بتلوين متبادل (zebra) — صف عادي وصف رمادي خفيف — عشان تتبع الصف بسهولة وإنت بتقرا بياناته عبر الأعمدة. (٢) عمود «حساب جاري» اتسمّى «دفتر اليومية» (الأصح محاسبياً)." },
+      { type: "architectural", text: "🛡 CSS فقط على صفوف الجدول (الأولوية: الصف المحدد > الصف اللي بتعدّله > يوم مقفول > التلوين المتبادل) — صفر تغيير في البيانات. 📁 MODIFIED: src/pages/TreasuryPg.jsx + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.223",
     date: "2026-06-03",
     types: ["feature"],
