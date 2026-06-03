@@ -36,6 +36,26 @@ function safeEqualHex(a, b) {
   try { return crypto.timingSafeEqual(ba, bb); } catch { return false; }
 }
 
+/* V21.9.229: prior turns for this wid → Claude message history. Single-field
+   equality (auto-indexed, no composite index needed); sort + cap in memory. */
+async function fetchHistory(db, wid) {
+  try {
+    const snap = await db.collection("aiAgentConversations").where("wid", "==", wid).get();
+    const turns = [];
+    snap.forEach((d) => { const t = d.data() || {}; if (t.userMessage) turns.push(t); });
+    turns.sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+    const msgs = [];
+    for (const t of turns.slice(-6)) {
+      msgs.push({ role: "user", content: String(t.userMessage) });
+      if (t.assistantReply) msgs.push({ role: "assistant", content: String(t.assistantReply) });
+    }
+    return msgs;
+  } catch (e) {
+    console.warn("[ai-agent/incoming] history fetch failed:", e?.message || e);
+    return [];
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ ok: false, error: "POST only" });
@@ -153,9 +173,19 @@ export default async function handler(req, res) {
     return;
   }
 
-  /* Eligible → generate a reply with Claude */
+  /* Eligible → generate a reply with Claude (history + tool-use loop) */
   const tStart = Date.now();
-  let reply = "", usage = null, model = "", errMsg = null;
+  const history = await fetchHistory(db, rawId);
+  const toolCtx = {
+    db, wid: rawId, phone,
+    customer: { id: customerId, name: customerName, type: customerType },
+    agent,
+    bridge: {
+      url: (bridge.url || process.env.WHATSAPP_BRIDGE_URL || "").trim(),
+      token: (bridge.token || process.env.WHATSAPP_BRIDGE_TOKEN || "").trim(),
+    },
+  };
+  let reply = "", usage = null, model = "", errMsg = null, toolsUsed = [], iterations = 1;
   try {
     const out = await processTurn({
       agent,
@@ -163,8 +193,11 @@ export default async function handler(req, res) {
       factoryName,
       customer: customerName ? { name: customerName, type: customerType } : null,
       userMessage: messageText,
+      history,
+      toolCtx,
     });
     reply = out.reply || ""; usage = out.usage; model = out.model;
+    toolsUsed = out.toolsUsed || []; iterations = out.iterations || 1;
   } catch (e) {
     errMsg = e?.message || String(e);
     console.error("[ai-agent/incoming] processTurn failed:", errMsg);
@@ -190,8 +223,9 @@ export default async function handler(req, res) {
       assistantReply: reply,
       model: model || null,
       usage,
+      toolsUsed,
       durationMs: Date.now() - tStart,
-      iterations: 1,
+      iterations,
       sent,
       error: errMsg || sendErr || null,
       skipped: false,

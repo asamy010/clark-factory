@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.229",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ٦: محرّك الأدوات + الذاكرة + التصعيد",
+    changes: [
+      { type: "feature", text: "🎯 الأيجنت بقى عنده **ذاكرة محادثة** (بيفتكر آخر رسايل العميل معاه) + **محرّك أدوات**: يقدر يقرّر يستخدم أداة، البرنامج ينفّذها، والنتيجة ترجعله يكمّل رده. أول أداة: **التصعيد لموظف بشري** — لو شكوى/عميل غاضب/طلب كبير، يحوّله + يبعت تنبيه لرقم الدعم + يسجّل التصعيد." },
+      { type: "architectural", text: "🛡 الـ loop محدود بـ ٥ تكرارات (أمان). الذاكرة = آخر ٦ محادثات بـ equality query (مفيش index مطلوب). الأدوات read-only (التصعيد بيكتب في aiAgent* بس + تنبيه عبر الجسر). السجل بيوضّح الأدوات المستخدمة + التكرارات + التوكنز. NEW: api/ai-agent/_tools.js. MODIFIED: _processTurn.js + incoming.js + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.228",
     date: "2026-06-03",
     types: ["feature"],
