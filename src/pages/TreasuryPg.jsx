@@ -4889,7 +4889,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>📱 المحافظ الإلكترونية</div>
             <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               {/* V21.9.221: capacity checker — أنهي محفظة تستقبل مبلغ معيّن بأمان (من غير ما رصيدها يعدّي حد الرصيد) */}
-              {wallets.length>0&&<span onClick={()=>setCapCheck({amount:""})} style={{cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#fff",background:T.accent,padding:"7px 14px",borderRadius:9,whiteSpace:"nowrap",boxShadow:T.shadow}}>🛡️ أنهي محفظة تستقبل مبلغ؟</span>}
+              {wallets.length>0&&<span onClick={()=>setCapCheck({amount:""})} style={{cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#fff",background:T.accent,padding:"7px 14px",borderRadius:9,whiteSpace:"nowrap",boxShadow:T.shadow}}>🛡️ فحص استقبال مبلغ</span>}
               <div style={{fontSize:FS-2,color:T.textMut}}>{wallets.length} محفظة · خزائن منفصلة</div>
             </div>
           </div>
@@ -4920,7 +4920,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 </div>
                 <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,lineHeight:1.6}}>اكتب المبلغ اللي هتستقبله، والبرنامج هيقولك أنهي محافظ تقدر تستقبله من غير ما رصيدها يعدّي حد الرصيد.</div>
                 <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ (ج.م)</label>
-                <Inp type="number" value={capCheck.amount} onChange={v=>setCapCheck({amount:v})} placeholder="مثال: 50000"/>
+                <Inp type="number" value={capCheck.amount} onChange={v=>{const n=parseFloat(v);setCapCheck({amount:(n>60000?"60000":v)})}} placeholder="مثال: 50000"/>
+                <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>🚦 أقصى مبلغ 60,000 ج.م — الحد اليومي لتحويلات المحفظة.</div>
                 {amt>0&&<div style={{margin:"10px 0",fontSize:FS-1,fontWeight:700,color:readyN>0?T.ok:T.err}}>{readyN>0?("✅ "+readyN+" محفظة تقدر تستقبل "+fmt0(amt)+" ج.م"):("⛔ مفيش محفظة تقدر تستقبل "+fmt0(amt)+" ج.م من غير ما تعدّي الحد")}</div>}
                 <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:10}}>
                   {rows.map(r=>{
@@ -4936,6 +4937,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                         <span>{r.hasCap?<>المتاح للاستقبال: <b style={{color:r.avail>0?"#0D9488":T.err}}>{fmt0(r.avail)}</b></>:<b style={{color:"#0D9488"}}>بدون حد رصيد — تستقبل أي مبلغ</b>}</span>
                       </div>
                       {showBad&&r.hasCap&&<div style={{fontSize:FS-3,color:T.err,marginTop:4,fontWeight:600}}>هيعدّي حد الرصيد ({fmt0(r.cap)}) بـ {fmt0(r.over)} ج.م</div>}
+                      {/* V21.9.222: رقم المحفظة + نسخ سريع — عشان تبعته بسرعة للي هيحوّل */}
+                      {r.w.walletNumber&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:6,paddingTop:6,borderTop:"1px solid "+T.brd}}>
+                        <span style={{fontSize:FS-2,color:T.textSec,direction:"ltr",fontWeight:700}}>📞 {r.w.walletNumber}</span>
+                        <span onClick={()=>{try{navigator.clipboard.writeText(String(r.w.walletNumber));showToast("✓ تم نسخ الرقم")}catch(e){showToast("⚠️ تعذّر النسخ")}}} style={{cursor:"pointer",fontSize:FS-2,fontWeight:700,color:T.accent,background:T.accent+"12",border:"1px solid "+T.accent+"30",padding:"4px 10px",borderRadius:7,whiteSpace:"nowrap"}}>📋 نسخ الرقم</span>
+                      </div>}
                     </div>;
                   })}
                   {rows.length===0&&<div style={{textAlign:"center",padding:18,color:T.textMut}}>مفيش محافظ مضافة.</div>}

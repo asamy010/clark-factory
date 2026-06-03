@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.222",
+    date: "2026-06-03",
+    types: ["improvement"],
+    title: "🛡️ فحص استقبال مبلغ — نسخ رقم المحفظة + حد 60 ألف",
+    changes: [
+      { type: "improvement", text: "🎯 بطلب أحمد على نافذة الفحص: (١) الزر اتسمّى «فحص استقبال مبلغ». (٢) تحت كل محفظة بقى يظهر رقمها + زر «📋 نسخ الرقم» — عشان تنسخه وتبعته بسرعة للي هيحوّل. (٣) خانة المبلغ مقفولة على 60,000 ج.م كحد أقصى (الحد اليومي لتحويلات المحفظة)." },
+      { type: "architectural", text: "🛡 عرض/نسخ فقط — مفيش تعديل على البيانات. 📁 MODIFIED: src/pages/TreasuryPg.jsx + package.json + constants + AboutVersionModal." },
+    ],
+  },
+  {
     version: "V21.9.221",
     date: "2026-06-03",
     types: ["feature"],
