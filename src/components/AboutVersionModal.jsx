@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.232",
+    date: "2026-06-03",
+    types: ["fix"],
+    title: "🤖 الأيجنت — تثبيت اللهجة المصرية (مش خليجي/فصحى)",
+    changes: [
+      { type: "fix", text: "🎯 وقت الاختبار طلع الأيجنت بيرد أحياناً بالفصحى أو لهجة خليجية. أضفت **قاعدة لهجة صارمة** في سياقه: يرد بالعامية المصرية **فقط** + قائمة كلمات مصرية يستعملها (إزيّك/عايز/دلوقتي/كده/علشان/مش...) + قائمة كلمات خليجية ممنوعة نهائياً (وش/شلون/الحين/أبغى/ايش/زين...) + تعليمة يصحّح فوراً لو حاد عن المصري." },
+      { type: "architectural", text: "📁 MODIFIED: api/ai-agent/_processTurn.js (بلوك اللهجة في buildKnowledge، ضمن البلوك المخزّن). مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.231",
     date: "2026-06-03",
     types: ["feature"],
