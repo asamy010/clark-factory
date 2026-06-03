@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.234",
+    date: "2026-06-03",
+    types: ["fix"],
+    title: "📦 الكتالوج — استيراد الموديلات بألوانها وسعر بيعها",
+    changes: [
+      { type: "fix", text: "🎯 بطلب أحمد: زر «استيراد من الأوردرات» في تاب الكتالوج كان (١) **مابيستوردش الألوان أصلاً** — bug: بيقرا اسم اللون من حقل غلط (c.name بدل c.color) فالألوان دايماً فاضية، (٢) مابيستوردش سعر البيع. دلوقتي بيستورد **كل ألوان الموديل** (من كل الخامات A→H) + **سعر البيع للعميل** + صورة الموديل، والنافذة بتعرض الألوان والسعر قبل الاستيراد." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/AIAgentPg.jsx (CatalogImportModal — إصلاح c.color + توسعة A→H + sellPrice + image + العرض). الكتالوج ده اللي الأيجنت بيقراه فبيعرف الموديلات وأسعارها للعملاء. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.233",
     date: "2026-06-03",
     types: ["fix"],

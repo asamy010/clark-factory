@@ -3849,21 +3849,27 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
           seenInOrders: 0,
           sizes: new Set(),
           colors: new Set(),
+          sellPrice: null,/* V21.9.234: سعر البيع للعميل */
+          image: "",
         });
       }
       const entry = map.get(code);
       entry.seenInOrders++;
+      /* V21.9.234: سعر البيع للعميل (آخر سعر غير صفري) + صورة الموديل */
+      if (Number(o.sellPrice) > 0) entry.sellPrice = Number(o.sellPrice);
+      if (!entry.image && o.image) entry.image = o.image;
       /* Sizes — orders have a sizeLabel like "6-8-10-12" — split into individual sizes */
       if (o.sizeLabel) {
         const parts = String(o.sizeLabel).split(/[-/،,]+/).map(s => s.trim()).filter(Boolean);
         for (const p of parts) entry.sizes.add(p);
       }
-      /* Colors come from colorsA/B/C/D/E arrays (one per fabric group) */
-      for (const k of ["A","B","C","D","E"]) {
+      /* Colors — V21.9.234 FIX: اقرأ من كل خانات الخامات A→H والاسم الصح `c.color`
+         (كان `c.name` = undefined دايماً فالألوان مكانتش بتتسورد خالص — CLAUDE.md §4). */
+      for (const k of ["A", "B", "C", "D", "E", "F", "G", "H"]) {
         const colorsArr = o["colors" + k];
         if (Array.isArray(colorsArr)) {
           for (const c of colorsArr) {
-            const cn = (typeof c === "string" ? c : c?.name)?.trim();
+            const cn = (typeof c === "string" ? c : (c?.color || "")).trim();
             if (cn) entry.colors.add(cn);
           }
         }
@@ -3899,7 +3905,8 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
         sizes: d.sizes,
         colors: d.colors,/* V19.76 fix — was missing */
         fabrics: [],
-        priceWholesale: null,
+        priceWholesale: d.sellPrice || null,/* V21.9.234: سعر البيع للعميل (من الأوردر) */
+        image: d.image || "",/* V21.9.234: صورة الموديل من الأوردر */
         minOrderQty: null,
         inStock: true,
         tags: [],
@@ -3962,7 +3969,8 @@ function CatalogImportModal({ data, existingCodes, onImport, onClose, isMob }){
                       {d.season ? `موسم ${d.season} · ` : ""}
                       ظهر في {d.seenInOrders} أمر
                       {d.sizes.length > 0 && ` · مقاسات: ${d.sizes.join("/")}`}
-                      {d.colors.length > 0 && ` · ${d.colors.length} لون`}
+                      {d.colors.length > 0 && ` · ألوان: ${d.colors.join("، ")}`}
+                      {d.sellPrice ? ` · 💰 سعر البيع: ${d.sellPrice} ج` : ""}
                     </div>
                   </div>
                 </label>
