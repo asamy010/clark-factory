@@ -686,6 +686,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccImage,setNewAccImage]=useState("");
   const[newAccBalanceCap,setNewAccBalanceCap]=useState("200000");
   const[newAccMonthlyCap,setNewAccMonthlyCap]=useState("200000");
+  const[newAccDailyCap,setNewAccDailyCap]=useState("60000");/* V21.9.223: حد السحب اليومي لكل محفظة */
   const[walletImgBusy,setWalletImgBusy]=useState(false);
   /* V21.9.204 (e-wallets Phase 2): per-wallet commission tiers (شرائح).
      Each tier = {from, to, fee} — a FIXED fee for amounts in [from..to]
@@ -853,6 +854,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const walletMonthOut=useMemo(()=>{
     const mo=(today||"").slice(0,7);const m={};
     txns.forEach(t=>{if(t.type==="out"&&(t.date||"").slice(0,7)===mo){const acc=t.account||"";m[acc]=(m[acc]||0)+(Number(t.amount)||0)}});
+    return m},[txns,today]);
+  /* V21.9.223 (e-wallets): إجمالي صرف «اليوم» (date===today) لكل حساب — للحد اليومي. */
+  const walletDayOut=useMemo(()=>{
+    const m={};
+    txns.forEach(t=>{if(t.type==="out"&&(t.date||"")===today){const acc=t.account||"";m[acc]=(m[acc]||0)+(Number(t.amount)||0)}});
     return m},[txns,today]);
   /* V21.9.114: round final summations so any accumulated float drift (e.g. from
      `0.1 + 0.2 = 0.30000000000000004` after 1000+ txns) doesn't leak into
@@ -1864,10 +1870,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(_cur+_amt>_cap)_block="رصيد المحفظة بعد الاستلام ("+fmt0(_cur+_amt)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
           }
         }else if(_amt>0&&txType==="out"){
-          const _mcap=Number(_w.monthlyWithdrawCap)||0;
-          if(_mcap>0){
-            const _mo=walletMonthOut[_w.name]||0;
-            if(_mo+_amt>_mcap)_block="سحب الشهر بعد العملية ("+fmt0(_mo+_amt)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+          /* V21.9.223: الحد اليومي الأول (الأقرب للتجاوز)، وبعده الشهري لو اليومي عدّى */
+          const _dcap=Number(_w.dailyWithdrawCap ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد */
+          if(_dcap>0){
+            const _do=walletDayOut[_w.name]||0;
+            if(_do+_amt>_dcap)_block="سحب اليوم بعد العملية ("+fmt0(_do+_amt)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(_dcap)+" ج.م). يتجدد بكرة.";
+          }
+          if(!_block){
+            const _mcap=Number(_w.monthlyWithdrawCap)||0;
+            if(_mcap>0){
+              const _mo=walletMonthOut[_w.name]||0;
+              if(_mo+_amt>_mcap)_block="سحب الشهر بعد العملية ("+fmt0(_mo+_amt)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+            }
           }
         }
         if(_block){
@@ -1904,16 +1918,28 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(_post>_cap&&_post>_pre)_block="رصيد المحفظة بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
           }
         }else if(_amt>0&&txType==="out"){
-          const _mcap=Number(_w.monthlyWithdrawCap)||0;
-          if(_mcap>0){
-            const _mo7=(today||"").slice(0,7);
-            let _moExcl=0;
-            (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"").slice(0,7)===_mo7)_moExcl+=Number(t.amount)||0;});
-            const _newContrib=((txDate||"").slice(0,7)===_mo7)?_amt:0;
-            const _oldContrib=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"").slice(0,7)===_mo7)?(Number(_orig.amount)||0):0;
-            const _post=_moExcl+_newContrib;
-            const _pre=_moExcl+_oldContrib;
-            if(_post>_mcap&&_post>_pre)_block="سحب الشهر بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+          /* V21.9.223: الحد اليومي على التعديل (نفس منطق exclude-self + حارس الزيادة) */
+          const _dcap=Number(_w.dailyWithdrawCap ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد */
+          if(_dcap>0){
+            let _doExcl=0;
+            (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"")===today)_doExcl+=Number(t.amount)||0;});
+            const _newC=((txDate||"")===today)?_amt:0;
+            const _oldC=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"")===today)?(Number(_orig.amount)||0):0;
+            const _post=_doExcl+_newC;const _pre=_doExcl+_oldC;
+            if(_post>_dcap&&_post>_pre)_block="سحب اليوم بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(_dcap)+" ج.م). يتجدد بكرة.";
+          }
+          if(!_block){
+            const _mcap=Number(_w.monthlyWithdrawCap)||0;
+            if(_mcap>0){
+              const _mo7=(today||"").slice(0,7);
+              let _moExcl=0;
+              (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"").slice(0,7)===_mo7)_moExcl+=Number(t.amount)||0;});
+              const _newContrib=((txDate||"").slice(0,7)===_mo7)?_amt:0;
+              const _oldContrib=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"").slice(0,7)===_mo7)?(Number(_orig.amount)||0):0;
+              const _post=_moExcl+_newContrib;
+              const _pre=_moExcl+_oldContrib;
+              if(_post>_mcap&&_post>_pre)_block="سحب الشهر بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
+            }
           }
         }
         if(_block){
@@ -1926,7 +1952,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     saveTx();
   };
   /* V21.9.203 (e-wallets): reset the account form back to defaults. */
-  const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000");setNewAccTiers([])};
+  const resetAccForm=()=>{setNewAccName("");setNewAccOwner("");setEditAccId(null);setNewAccType("cash");setNewAccNumber("");setNewAccIcon("📱");setNewAccImage("");setNewAccBalanceCap("200000");setNewAccMonthlyCap("200000");setNewAccDailyCap("60000");setNewAccTiers([])};
   /* V21.9.203: `typeArg` is an EXPLICIT type string ("wallet" | "cash" | "bank").
      The wallet form passes "wallet"; the legacy accounts form calls addAccount
      directly (so typeArg is the click event — ignored, not a string). When
@@ -1941,6 +1967,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     image:newAccImage||"",
     balanceCap:Math.max(0,Number(newAccBalanceCap)||0),
     monthlyWithdrawCap:Math.max(0,Number(newAccMonthlyCap)||0),
+    dailyWithdrawCap:Math.max(0,Number(newAccDailyCap)||0),/* V21.9.223 */
     /* V21.9.206: each tier carries a PERCENTAGE (pct). Normalise + keep
        meaningful tiers only. (Legacy fixed-amount `fee` tiers still compute via
        computeWalletFee's fallback, but new/edited tiers are percentage-based.) */
@@ -1989,10 +2016,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
     const cap=Number(w.balanceCap)||0;const mcap=Number(w.monthlyWithdrawCap)||0;
     const mOut=walletMonthOut[w.name]||0;
+    const dcap=Number(w.dailyWithdrawCap ?? 60000)||0;const dOut=walletDayOut[w.name]||0;/* V21.9.223: قديم بلا حقل → 60 ألف */
     const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
     const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
+    const dPct=dcap>0?Math.min(100,Math.round(dOut/dcap*100)):0;
     const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
     const wColor=wPct>=100?T.err:wPct>=80?T.warn:T.accent;
+    const dColor=dPct>=100?T.err:dPct>=80?T.warn:T.accent;
     return<div key={w.id} style={{padding:14,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
         <div style={{width:44,height:44,borderRadius:10,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0,border:"1px solid "+T.brd}}>
@@ -2018,6 +2048,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
         <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
       </div>}
+      {dcap>0&&<div style={{marginTop:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب اليوم</span><span>{fmt0(dOut)} / {fmt0(dcap)}</span></div>
+        <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:dPct+"%",background:dColor,borderRadius:99,transition:"width 0.2s"}}/></div>
+        {dPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت الحد اليومي — يتجدد بكرة</div>}
+      </div>}
       {mcap>0&&<div style={{marginTop:8}}>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
         <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
@@ -2041,7 +2076,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"");
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
     setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
-    setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000));
+    setNewAccBalanceCap(String(a.balanceCap!=null?a.balanceCap:200000));setNewAccMonthlyCap(String(a.monthlyWithdrawCap!=null?a.monthlyWithdrawCap:200000));setNewAccDailyCap(String(a.dailyWithdrawCap!=null?a.dailyWithdrawCap:60000));
     setNewAccTiers(Array.isArray(a.tiers)?a.tiers.map(t=>({from:t.from==null?"":String(t.from),to:t.to==null?"":String(t.to),pct:t.pct==null?"":String(t.pct),min:t.min==null?"":String(t.min),max:t.max==null?"":String(t.max)})):[])};
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
@@ -2153,6 +2188,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const msgs=[];
     const src=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===fromName);
     if(src){
+      /* V21.9.223: حد السحب اليومي على المصدر */
+      const dcap=Number(src.dailyWithdrawCap ?? 60000)||0;
+      if(dcap>0){
+        const dOut=walletDayOut[src.name]||0;
+        if(dOut+_a>dcap)msgs.push("• سحب اليوم من «"+fromName+"» بعد التحويل ("+fmt0(dOut+_a)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(dcap)+" ج.م)");
+      }
       const mcap=Number(src.monthlyWithdrawCap)||0;
       if(mcap>0){
         const mo=walletMonthOut[src.name]||0;
@@ -4960,6 +5001,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الرقم</label><Inp value={newAccNumber} onChange={setNewAccNumber} placeholder="01xxxxxxxxx"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد الرصيد (ج.م)</label><Inp value={newAccBalanceCap} onChange={setNewAccBalanceCap} placeholder="200000"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد السحب الشهري (ج.م)</label><Inp value={newAccMonthlyCap} onChange={setNewAccMonthlyCap} placeholder="200000"/></div>
+              <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>حد السحب اليومي (ج.م)</label><Inp value={newAccDailyCap} onChange={setNewAccDailyCap} placeholder="60000"/></div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رمز (إيموجي)</label><Inp value={newAccIcon} onChange={setNewAccIcon} placeholder="📱"/></div>
               <div>
                 <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>صورة (اختياري)</label>
