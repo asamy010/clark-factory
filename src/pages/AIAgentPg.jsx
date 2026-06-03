@@ -149,6 +149,29 @@ const takeoverActive = (to, agent) => {
   return (Date.now() - last) <= hours * 60 * 60 * 1000;
 };
 
+/* V21.9.236 — USD cost of one turn's `usage`, at Sonnet-4 pricing per 1M tokens:
+   input $3, output $15, cache-write $3.75, cache-read $0.30. (Before V21.9.236
+   the per-thread card used 1/3 of these by mistake → cost shown was 3× too low.) */
+const turnCost = (u) => {
+  if (!u) return 0;
+  return (Number(u.input_tokens) || 0) * 3.0 / 1e6
+       + (Number(u.output_tokens) || 0) * 15.0 / 1e6
+       + (Number(u.cache_creation_input_tokens) || 0) * 3.75 / 1e6
+       + (Number(u.cache_read_input_tokens) || 0) * 0.30 / 1e6;
+};
+
+/* Cairo-local day key (YYYY-MM-DD) for a Date — analytics bucket all turns by
+   the factory's timezone, not the viewer's. */
+const cairoDayKey = (d) => {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(d);
+    const m = {}; for (const p of parts) m[p.type] = p.value;
+    return `${m.year}-${m.month}-${m.day}`;
+  } catch { return ""; }
+};
+
 /* ────────────────────────────────────────────────────────────
    MAIN PAGE — V19.74.0: draft + Save Changes pattern
    ────────────────────────────────────────────────────────────
@@ -1417,89 +1440,94 @@ function PlaceholderTab({ title, icon, phase, desc }){
 
 /* ════════════════════════════════════════════════════════════
    DASHBOARD TAB
-   V19.72 (placeholder) → V19.77 (live, Phase 2):
-   Reads aiAgentAnalytics live via Firestore listener. Each doc id is
-   a YYYY-MM-DD Cairo dayKey written by the agent's hourly cron.
+   V19.72 (placeholder) → V21.9.236 (real, client-side):
+   Computes analytics LIVE from aiAgentConversations (one doc per turn) —
+   the originally-planned hourly `aiAgentAnalytics` cron was never built,
+   and the turn docs already carry everything we need. Fetches the last 30
+   days once (where at >= since, single-field auto-index) and slices
+   today/7d/30d + buckets per Cairo day in memory.
 
-   New schema (clark-ai-agent v1.0.1):
-     turnsTotal, turnsSuccessful, turnsCanned, turnsSkipped, turnsFailed
-     uniqueSenders, avgDurationMs
-     toolUsage{}, stages{}
-     tokens{ input, output, cacheRead, cacheWrite }
-     estimatedCostUsd
+   Per-turn fields used: userMessage, assistantReply, skipped, canned, error,
+   admin_takeover, wid, at, durationMs, toolsUsed[], usage{ input_tokens,
+   output_tokens, cache_creation_input_tokens, cache_read_input_tokens }.
+   Cost via turnCost() at Sonnet pricing. (FAQ-rate / confidence aren't tracked
+   on turns yet, so they're intentionally not shown rather than faked.)
    ════════════════════════════════════════════════════════════ */
 function DashboardTab({ agent, data, isMob }){
   const [range, setRange] = useState("today");/* today | 7d | 30d */
 
-  /* Live subscription — only mounted while this tab is rendered */
-  const { docs: analyticsDocs, loading } = useAgentCollection("aiAgentAnalytics");
+  /* V21.9.236: real analytics computed client-side from aiAgentConversations
+     (the aiAgentAnalytics cron was never built; the per-turn docs already hold
+     usage/tools/status/duration). Fetch the last 30 days once, then slice
+     today/7d/30d in memory. Single-field range on `at` → auto-indexed. */
+  const since30dISO = useMemo(() => new Date(Date.now() - 30*24*60*60*1000).toISOString(), []);
+  const { docs: turns, loading } = useAgentCollection("aiAgentConversations",
+    ref => query(ref, where("at", ">=", since30dISO), orderBy("at", "desc"))
+  );
 
-  /* Index by dayKey for O(1) lookup */
-  const analytics = useMemo(() => {
-    const m = {};
-    for (const d of analyticsDocs) m[d.dayKey || d.id] = d;
-    return m;
-  }, [analyticsDocs]);
+  const cairoToday = useMemo(() => cairoDayKey(new Date()), [turns.length]);
 
-  /* Build last-N-days array of keys (oldest first) using Cairo timezone */
-  const cairoToday = useMemo(() => {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
-    }).formatToParts(new Date());
-    const m = {}; for (const p of parts) m[p.type] = p.value;
-    return `${m.year}-${m.month}-${m.day}`;
-  }, [analyticsDocs]);
-
+  /* Window of day-keys (oldest→newest) for the selected range. */
   const days = useMemo(() => {
     const n = range === "today" ? 1 : range === "7d" ? 7 : 30;
     const out = [];
     const [yy, mm, dd] = cairoToday.split("-").map(Number);
+    if (!yy) return out;
     const todayDate = new Date(Date.UTC(yy, mm-1, dd));
     for (let i = n-1; i >= 0; i--) {
       const d = new Date(todayDate); d.setUTCDate(d.getUTCDate() - i);
-      const key = d.toISOString().slice(0,10);
-      const label = `${d.getUTCDate()}/${d.getUTCMonth()+1}`;
-      out.push({ key, label, ...(analytics[key] || {}) });
+      out.push({ key: d.toISOString().slice(0,10), label: `${d.getUTCDate()}/${d.getUTCMonth()+1}` });
     }
     return out;
-  }, [range, analytics, cairoToday]);
+  }, [range, cairoToday]);
 
-  const totals = useMemo(() => days.reduce((acc, d) => ({
-    turnsTotal:       acc.turnsTotal       + (d.turnsTotal       || 0),
-    turnsSuccessful:  acc.turnsSuccessful  + (d.turnsSuccessful  || 0),
-    turnsCanned:      acc.turnsCanned      + (d.turnsCanned      || 0),
-    turnsSkipped:     acc.turnsSkipped     + (d.turnsSkipped     || 0),
-    turnsFailed:      acc.turnsFailed      + (d.turnsFailed      || 0),
-    uniqueSenders:    acc.uniqueSenders    + (d.uniqueSenders    || 0),
-    cost:             acc.cost             + (d.estimatedCostUsd || 0),
-    inputTokens:      acc.inputTokens      + (d.tokens?.input    || 0),
-    outputTokens:     acc.outputTokens     + (d.tokens?.output   || 0),
-    cacheReadTokens:  acc.cacheReadTokens  + (d.tokens?.cacheRead  || 0),
-    cacheWriteTokens: acc.cacheWriteTokens + (d.tokens?.cacheWrite || 0),
-    avgResp:          (d.avgDurationMs || 0),/* last day's avg */
-  }), {
-    turnsTotal:0, turnsSuccessful:0, turnsCanned:0, turnsSkipped:0, turnsFailed:0,
-    uniqueSenders:0, cost:0, inputTokens:0, outputTokens:0, cacheReadTokens:0,
-    cacheWriteTokens:0, avgResp:0,
-  }), [days]);
-
-  /* Tool usage aggregated across all days in range */
-  const toolTotals = useMemo(() => {
-    const t = {};
-    for (const d of days) {
-      const u = d.toolUsage || {};
-      for (const [k, v] of Object.entries(u)) t[k] = (t[k] || 0) + v;
+  /* Bucket in-range turns by Cairo day + accumulate totals/tools/senders. */
+  const { perDay, totals, toolTotals, uniqueSenders } = useMemo(() => {
+    const keySet = new Set(days.map(d => d.key));
+    const per = {};
+    for (const d of days) per[d.key] = { key:d.key, label:d.label, success:0, canned:0, skipped:0, failed:0, admin:0 };
+    const tot = { msgs:0, success:0, canned:0, skipped:0, failed:0, admin:0,
+      cost:0, inTok:0, outTok:0, cacheR:0, cacheW:0, dur:0, durN:0, escalations:0 };
+    const tools = {}; const senders = new Set();
+    for (const t of turns) {
+      const key = cairoDayKey(new Date(t.at));
+      if (!keySet.has(key)) continue;
+      const d = per[key];
+      /* tokens/cost/tools accrue from any turn that incurred them */
+      const u = t.usage || {};
+      tot.cost   += turnCost(u);
+      tot.inTok  += Number(u.input_tokens) || 0;
+      tot.outTok += Number(u.output_tokens) || 0;
+      tot.cacheW += Number(u.cache_creation_input_tokens) || 0;
+      tot.cacheR += Number(u.cache_read_input_tokens) || 0;
+      if (Number(t.durationMs) > 0) { tot.dur += Number(t.durationMs); tot.durN++; }
+      for (const name of (t.toolsUsed || [])) { tools[name] = (tools[name]||0)+1; if (name === "escalate_to_human") tot.escalations++; }
+      /* classify the turn */
+      if (t.admin_takeover) { tot.admin++; if (d) d.admin++; continue; }
+      if (!t.userMessage) continue; /* not a customer message */
+      tot.msgs++;
+      if (t.wid) senders.add(t.wid);
+      if (t.error)               { tot.failed++;  if (d) d.failed++; }
+      else if (t.canned)         { tot.canned++;  if (d) d.canned++; }
+      else if (t.skipped)        { tot.skipped++; if (d) d.skipped++; }
+      else if (t.assistantReply) { tot.success++; if (d) d.success++; }
     }
-    return Object.entries(t).sort((a,b) => b[1]-a[1]).slice(0, 5);
-  }, [days]);
+    return {
+      perDay: days.map(d => per[d.key]),
+      totals: tot,
+      toolTotals: Object.entries(tools).sort((a,b) => b[1]-a[1]).slice(0, 6),
+      uniqueSenders: senders.size,
+    };
+  }, [turns, days]);
 
-  const chartData = days.map(d => ({
-    name: d.label,
-    محادثات: d.turnsTotal     || 0,
-    "test mode": d.turnsSkipped || 0,
+  const avgResp = totals.durN ? totals.dur / totals.durN : 0;
+  const successRate = totals.msgs ? Math.round((totals.success / totals.msgs) * 100) : 0;
+  const escalationRate = totals.msgs ? Math.round((totals.escalations / totals.msgs) * 100) : 0;
+  const hasAnyData = totals.msgs > 0 || totals.admin > 0;
+
+  const chartData = perDay.map(d => ({
+    name: d.label, "ناجحة": d.success, "رد آلي": d.canned, "متخطّى": d.skipped, "فشل": d.failed,
   }));
-
-  const hasAnyData = totals.turnsTotal > 0;
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
@@ -1536,33 +1564,39 @@ function DashboardTab({ agent, data, isMob }){
           background:"#FEF3C7", border:"1px solid #FCD34D",
           display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
         }}>
-          <span style={{fontSize:28}}>⏳</span>
+          <span style={{fontSize:28}}>📊</span>
           <div style={{flex:1, minWidth:200}}>
-            <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>مفيش محادثات لسه في الفترة دي</div>
+            <div style={{fontSize:FS, fontWeight:800, color:"#92400E"}}>مفيش محادثات في الفترة دي</div>
             <div style={{fontSize:FS-1, color:"#78350F", marginTop:2, lineHeight:1.5}}>
-              الـ Agent بـ يـ aggregate كل ساعة في `aiAgentAnalytics/{`{دvتاريخ}`}`. لو الـ Agent شغّال بس لسه مفيش رسائل، الكروت هتبقى 0.
+              الأرقام بـ تتحسب لحظياً من المحادثات الفعلية (aiAgentConversations) — مش محتاجة cron. أول ما تيجي رسائل هتظهر هنا.
             </div>
           </div>
         </div>
       )}
       {loading && (
         <div style={{padding:"10px 14px", marginBottom:14, borderRadius:10, background:T.brd+"20", fontSize:FS-1, color:T.textMut}}>
-          ⏳ بيحمّل البيانات من Firestore...
+          ⏳ بيحمّل المحادثات من Firestore...
         </div>
       )}
 
       {/* KPI grid */}
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10, marginBottom:14}}>
-        <KpiCard icon="💬" label="محادثات" value={totals.turnsTotal} color="#0EA5E9"/>
-        <KpiCard icon="✅" label="ناجحة"   value={totals.turnsSuccessful} color="#10B981"/>
-        <KpiCard icon="👥" label="عملاء" value={totals.uniqueSenders} color="#F59E0B"/>
+        <KpiCard icon="💬" label="رسائل العملاء" value={totals.msgs} color="#0EA5E9"/>
+        <KpiCard icon="✅" label="ردّ عليها الأيجنت" value={totals.success} color="#10B981"/>
+        <KpiCard icon="👥" label="عملاء" value={uniqueSenders} color="#F59E0B"/>
         <KpiCard icon="💰" label="تكلفة (USD)" value={"$"+totals.cost.toFixed(3)} color="#8B5CF6"/>
       </div>
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10, marginBottom:14}}>
-        <KpiCard icon="🤖" label="رد آلي (off-hours)" value={totals.turnsCanned} color="#06B6D4"/>
-        <KpiCard icon="⏭" label="مش في الـ whitelist" value={totals.turnsSkipped} color="#94A3B8"/>
-        <KpiCard icon="❌" label="فشل" value={totals.turnsFailed} color="#EF4444"/>
-        <KpiCard icon="⚡" label="متوسط الزمن" value={totals.avgResp ? `${(totals.avgResp/1000).toFixed(1)} ث` : "—"} color="#059669"/>
+        <KpiCard icon="🤖" label="رد آلي" value={totals.canned} color="#06B6D4"/>
+        <KpiCard icon="⏭" label="متخطّى" value={totals.skipped} color="#94A3B8"/>
+        <KpiCard icon="❌" label="فشل" value={totals.failed} color="#EF4444"/>
+        <KpiCard icon="⚡" label="متوسط الزمن" value={avgResp ? `${(avgResp/1000).toFixed(1)} ث` : "—"} color="#059669"/>
+      </div>
+      <div style={{display:"grid", gridTemplateColumns: isMob?"1fr 1fr":"repeat(4, 1fr)", gap:10, marginBottom:14}}>
+        <KpiCard icon="🎮" label="رد يدوي (تدخّل)" value={totals.admin} color="#D97706"/>
+        <KpiCard icon="🆘" label="تصعيد لموظف" value={totals.escalations} color="#DC2626"/>
+        <KpiCard icon="📈" label="نسبة الرد الناجح" value={totals.msgs ? successRate+"%" : "—"} color="#10B981"/>
+        <KpiCard icon="🎯" label="نسبة التصعيد" value={totals.msgs ? escalationRate+"%" : "—"} color="#F59E0B"/>
       </div>
 
       {/* Chart */}
@@ -1575,8 +1609,10 @@ function DashboardTab({ agent, data, isMob }){
               <XAxis dataKey="name" tick={{ fill: T.textSec, fontSize: FS-2 }}/>
               <YAxis allowDecimals={false} tick={{ fill: T.textSec, fontSize: FS-2 }}/>
               <Tooltip contentStyle={{ background: T.cardSolid, border: `1px solid ${T.brd}`, borderRadius: 8, fontSize: FS-1 }}/>
-              <Bar dataKey="محادثات" fill="#8B5CF6" radius={[4,4,0,0]}/>
-              <Bar dataKey="test mode" fill="#94A3B8" radius={[4,4,0,0]}/>
+              <Bar dataKey="ناجحة"  stackId="a" fill="#10B981"/>
+              <Bar dataKey="رد آلي" stackId="a" fill="#06B6D4"/>
+              <Bar dataKey="متخطّى" stackId="a" fill="#94A3B8"/>
+              <Bar dataKey="فشل"    stackId="a" fill="#EF4444"/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1586,13 +1622,16 @@ function DashboardTab({ agent, data, isMob }){
       <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:14}}>
         <div style={cardStyle}>
           <h3 style={{margin:"0 0 14px",fontSize:FS+1,fontWeight:800,color:T.text}}>🪙 استخدام الـ tokens</h3>
-          <CostRow label="Input"        value={totals.inputTokens}      color="#0EA5E9" suffix=" tk" precision={0}/>
-          <CostRow label="Output"       value={totals.outputTokens}     color="#10B981" suffix=" tk" precision={0}/>
-          <CostRow label="Cache write"  value={totals.cacheWriteTokens} color="#F59E0B" suffix=" tk" precision={0}/>
-          <CostRow label="Cache read (مدّخّر)" value={totals.cacheReadTokens}  color="#8B5CF6" suffix=" tk" precision={0}/>
+          <CostRow label="Input"        value={totals.inTok}  color="#0EA5E9" suffix=" tk" precision={0}/>
+          <CostRow label="Output"       value={totals.outTok} color="#10B981" suffix=" tk" precision={0}/>
+          <CostRow label="Cache write"  value={totals.cacheW} color="#F59E0B" suffix=" tk" precision={0}/>
+          <CostRow label="Cache read (مدّخّر)" value={totals.cacheR} color="#8B5CF6" suffix=" tk" precision={0}/>
           <div style={{marginTop:10, paddingTop:10, borderTop:`2px solid ${T.brd}`, display:"flex", justifyContent:"space-between", fontSize:FS, fontWeight:800}}>
             <span>الإجمالي بـ USD</span>
             <span>${totals.cost.toFixed(4)}</span>
+          </div>
+          <div style={{marginTop:6, fontSize:FS-3, color:T.textMut, lineHeight:1.5}}>
+            السعر: Input $3 · Output $15 · Cache write $3.75 · Cache read $0.30 لكل مليون توكن (Sonnet).
           </div>
         </div>
         <div style={cardStyle}>
@@ -1603,7 +1642,7 @@ function DashboardTab({ agent, data, isMob }){
             <KpiRow key={name} label={name} value={count}/>
           ))}
           <div style={{marginTop:10, paddingTop:10, borderTop:`2px solid ${T.brd}`, fontSize:FS-2, color:T.textMut, lineHeight:1.6}}>
-            💡 الأدوات الـ 5 المتاحة: get_faq_answer · search_products · get_product_details · get_company_info · escalate_to_human
+            💡 الأدوات المُنفَّذة حالياً: escalate_to_human · generate_portal_link (الباقي بيتفعّل مع الـ slices الجاية).
           </div>
         </div>
       </div>
@@ -1803,13 +1842,7 @@ function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
   const phone = last.phone || (isLid ? "" : String(t.wid).split("@")[0]);
   const totalDuration = t.turns.reduce((s, x) => s + (x.durationMs || 0), 0);
   const allTools = t.turns.flatMap(x => x.toolsUsed || []);
-  const cost = t.turns.reduce((s, x) => {
-    const u = x.usage || {};
-    return s + (Number(u.input_tokens)||0)*1.0/1e6
-             + (Number(u.output_tokens)||0)*5.0/1e6
-             + (Number(u.cache_creation_input_tokens)||0)*1.25/1e6
-             + (Number(u.cache_read_input_tokens)||0)*0.10/1e6;
-  }, 0);
+  const cost = t.turns.reduce((s, x) => s + turnCost(x.usage), 0);
 
   /* V21.9.235 — manual takeover controls. localTo is an optimistic override so
      the acting admin sees the new state instantly even when the live listener

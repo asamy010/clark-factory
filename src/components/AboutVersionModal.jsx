@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.236",
+    date: "2026-06-03",
+    types: ["feature", "fix"],
+    title: "📊 الأيجنت — لوحة تحليلات حقيقية + تصحيح حساب التكلفة",
+    changes: [
+      { type: "feature", text: "🎯 تكملة واجهة الأيجنت (A3): لوحة التحكم بقت **بتحسب أرقام حقيقية لحظياً** من المحادثات الفعلية (aiAgentConversations) بدل ما تقرا من aiAgentAnalytics اللي كان فاضي (الـ cron اللي كان المفروض يملاه ماتعملش أصلاً). بتعرض: رسائل العملاء، اللي ردّ عليها الأيجنت، عملاء فريدين، التكلفة، الرد الآلي/المتخطّى/الفشل، متوسط زمن الرد، الرد اليدوي (تدخّل)، التصعيد، نسبة الرد الناجح ونسبة التصعيد + رسم بياني يومي (بتوقيت القاهرة) + الـ tokens + أكثر الأدوات استخداماً. الفترات: اليوم / ٧ أيام / ٣٠ يوم." },
+      { type: "fix", text: "💰 **تصحيح حساب التكلفة:** كانت التكلفة في كل محادثة بتتحسب بـ 1/3 السعر الحقيقي (كانت $1/$5 للمليون بدل سعر Sonnet الصح: $3 input · $15 output · $3.75 cache-write · $0.30 cache-read). عملت helper واحد (turnCost) بيستخدمه الـ dashboard وكروت المحادثات. يعني الأرقام دلوقتي أعلى ٣ مرات لأنها بقت **صح** — مش زيادة فعلية في الاستهلاك." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/AIAgentPg.jsx (DashboardTab اتعاد كتابته بالكامل من aiAgentConversations + turnCost/cairoDayKey helpers + تصحيح cost في ConversationThreadCard). ملاحظة: نسبة الـ FAQ والثقة مش متسجّلين على الـ turns فمتعرضوش (أحسن من رقم مضروب). مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.235",
     date: "2026-06-03",
     types: ["feature"],
