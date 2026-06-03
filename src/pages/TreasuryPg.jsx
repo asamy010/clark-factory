@@ -2654,6 +2654,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* ── State for WhatsApp contact picker popup ── */
   /* Stores {date, account} — account null = all */
   const[waPopupData,setWaPopupData]=useState(null);
+  /* V21.9.221 (e-wallets): «أنهي محفظة تستقبل المبلغ ده بأمان؟» — capacity checker.
+     null = مقفول؛ {amount:string} = مفتوح. عرض فقط (مبني على حد الرصيد). */
+  const[capCheck,setCapCheck]=useState(null);
 
   /* ── Share daily report via WhatsApp ──
      V16.13: Text-only — no PDF. Full transaction details in the message body.
@@ -4884,8 +4887,62 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         return<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>📱 المحافظ الإلكترونية</div>
-            <div style={{fontSize:FS-2,color:T.textMut}}>{wallets.length} محفظة · خزائن منفصلة</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              {/* V21.9.221: capacity checker — أنهي محفظة تستقبل مبلغ معيّن بأمان (من غير ما رصيدها يعدّي حد الرصيد) */}
+              {wallets.length>0&&<span onClick={()=>setCapCheck({amount:""})} style={{cursor:"pointer",fontSize:FS-1,fontWeight:700,color:"#fff",background:T.accent,padding:"7px 14px",borderRadius:9,whiteSpace:"nowrap",boxShadow:T.shadow}}>🛡️ أنهي محفظة تستقبل مبلغ؟</span>}
+              <div style={{fontSize:FS-2,color:T.textMut}}>{wallets.length} محفظة · خزائن منفصلة</div>
+            </div>
           </div>
+          {/* V21.9.221: capacity-check popup — pure read. Lists wallets that can receive
+              the typed amount without exceeding their balance cap (ready first), with
+              the available headroom per wallet. No-cap wallets accept any amount. */}
+          {capCheck&&(()=>{
+            const amt=parseFloat(capCheck.amount)||0;
+            const rows=wallets.map(w=>{
+              const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
+              const cap=Number(w.balanceCap)||0;const hasCap=cap>0;
+              const avail=hasCap?Math.max(0,cap-bal):Infinity;
+              const fits=!hasCap||(bal+amt<=cap);
+              const over=hasCap?Math.max(0,(bal+amt)-cap):0;
+              return{w,bal,cap,hasCap,avail,fits,over};
+            }).sort((a,b)=>{
+              if(amt>0&&a.fits!==b.fits)return a.fits?-1:1;
+              const av=a.avail===Infinity?Number.MAX_SAFE_INTEGER:a.avail;
+              const bv=b.avail===Infinity?Number.MAX_SAFE_INTEGER:b.avail;
+              return bv-av;
+            });
+            const readyN=rows.filter(r=>r.fits).length;
+            return<div onClick={()=>setCapCheck(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:520,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>🛡️ فحص استقبال مبلغ</div>
+                  <span onClick={()=>setCapCheck(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:"0 6px"}}>✕</span>
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,lineHeight:1.6}}>اكتب المبلغ اللي هتستقبله، والبرنامج هيقولك أنهي محافظ تقدر تستقبله من غير ما رصيدها يعدّي حد الرصيد.</div>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>المبلغ (ج.م)</label>
+                <Inp type="number" value={capCheck.amount} onChange={v=>setCapCheck({amount:v})} placeholder="مثال: 50000"/>
+                {amt>0&&<div style={{margin:"10px 0",fontSize:FS-1,fontWeight:700,color:readyN>0?T.ok:T.err}}>{readyN>0?("✅ "+readyN+" محفظة تقدر تستقبل "+fmt0(amt)+" ج.م"):("⛔ مفيش محفظة تقدر تستقبل "+fmt0(amt)+" ج.م من غير ما تعدّي الحد")}</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:10}}>
+                  {rows.map(r=>{
+                    const showOk=amt>0&&r.fits;const showBad=amt>0&&!r.fits;
+                    const brd=showOk?T.ok:showBad?T.err:T.brd;
+                    return<div key={r.w.id} style={{padding:"10px 12px",borderRadius:10,border:"1px solid "+brd+(amt>0?"":"55"),background:(amt>0?(r.fits?T.ok:T.err)+"0D":T.bg+"60")}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                        <div style={{fontSize:FS,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6,minWidth:0}}><span>{r.w.icon||"📱"}</span><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.w.name}</span></div>
+                        {amt>0&&<span style={{fontSize:FS-1,fontWeight:800,color:r.fits?T.ok:T.err,whiteSpace:"nowrap"}}>{r.fits?"✅ تقدر":"⛔ هتعدّي"}</span>}
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textMut,marginTop:5,gap:8,flexWrap:"wrap"}}>
+                        <span>الرصيد الحالي: <b style={{color:T.text}}>{fmt0(r.bal)}</b></span>
+                        <span>{r.hasCap?<>المتاح للاستقبال: <b style={{color:r.avail>0?"#0D9488":T.err}}>{fmt0(r.avail)}</b></>:<b style={{color:"#0D9488"}}>بدون حد رصيد — تستقبل أي مبلغ</b>}</span>
+                      </div>
+                      {showBad&&r.hasCap&&<div style={{fontSize:FS-3,color:T.err,marginTop:4,fontWeight:600}}>هيعدّي حد الرصيد ({fmt0(r.cap)}) بـ {fmt0(r.over)} ج.م</div>}
+                    </div>;
+                  })}
+                  {rows.length===0&&<div style={{textAlign:"center",padding:18,color:T.textMut}}>مفيش محافظ مضافة.</div>}
+                </div>
+              </div>
+            </div>;
+          })()}
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(290px,1fr))",gap:12,marginBottom:16}}>
             {wallets.map(w=>walletCard(w))}
             {wallets.length===0&&<div style={{gridColumn:"1 / -1",textAlign:"center",padding:24,color:T.textMut,fontSize:FS-1}}>لا توجد محافظ بعد — أضف محفظة من النموذج تحت 👇</div>}
