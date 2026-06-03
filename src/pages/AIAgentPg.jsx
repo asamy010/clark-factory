@@ -82,7 +82,10 @@ function useAgentCollection(name, queryBuilder) {
     const q = queryBuilder ? queryBuilder(ref) : ref;
     const unsub = onSnapshot(q, (snap) => {
       const out = [];
-      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      /* V21.9.237: spread data FIRST so the authoritative Firestore doc id
+         wins — some docs (e.g. aiAgentEscalations) carry their own `id` field
+         in the data, which would otherwise clobber d.id and break doc() writes. */
+      snap.forEach(d => out.push({ ...d.data(), id: d.id }));
       setDocs(out);
       setLoading(false);
     }, (err) => {
@@ -1721,6 +1724,18 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
     [takeoverByWid, agent]
   );
 
+  /* V21.9.237: open escalations (one doc per escalate_to_human call). The tool
+     writes these but nothing surfaced them — show them in the triage view.
+     Read + resolve are both allowed by the existing aiAgentEscalations rule. */
+  const { docs: escDocs, error: escError } = useAgentCollection("aiAgentEscalations",
+    ref => query(ref, where("status", "==", "open"))
+  );
+  const escByWid = useMemo(() => {
+    const m = {};
+    for (const e of escDocs) { const k = e.wid || ""; if (!k) continue; (m[k] = m[k] || []).push(e); }
+    return m;
+  }, [escDocs]);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
@@ -1746,10 +1761,12 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
       const isSkipped = th.turns.some(t => t.skipped || t.canned);
       const isError = th.turns.some(t => t.error);
       const isTakeover = takeoverActive(takeoverByWid[th.wid], agent);
-      if (statusFilter === "ok"       && (isSkipped || isError)) return false;
-      if (statusFilter === "skipped"  && !isSkipped) return false;
-      if (statusFilter === "error"    && !isError) return false;
-      if (statusFilter === "takeover" && !isTakeover) return false;
+      const isEscalated = (escByWid[th.wid] || []).length > 0;
+      if (statusFilter === "ok"        && (isSkipped || isError)) return false;
+      if (statusFilter === "skipped"   && !isSkipped) return false;
+      if (statusFilter === "error"     && !isError) return false;
+      if (statusFilter === "takeover"  && !isTakeover) return false;
+      if (statusFilter === "escalated" && !isEscalated) return false;
       if (!q) return true;
       const hay = [
         th.wid, last.customerName, last.phone,
@@ -1757,7 +1774,7 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
       ].filter(Boolean).join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [threads, search, statusFilter, takeoverByWid, agent]);
+  }, [threads, search, statusFilter, takeoverByWid, escByWid, agent]);
 
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
 
@@ -1771,6 +1788,7 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
           <Sel value={statusFilter} onChange={setStatusFilter}>
             <option value="">كل الحالات</option>
             <option value="takeover">🎮 تحت السيطرة اليدوية</option>
+            <option value="escalated">🆘 مُصعّد لموظف</option>
             <option value="ok">رد طبيعي</option>
             <option value="skipped">رد آلي/متخطّى</option>
             <option value="error">فشل</option>
@@ -1783,12 +1801,18 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
         <StatPill label="threads" value={threads.length} color="#10B981"/>
         <StatPill label="ظاهر" value={filtered.length} color="#8B5CF6"/>
         <StatPill label="🎮 تدخّل يدوي" value={activeTakeoverCount} color="#F59E0B"/>
+        <StatPill label="🆘 مُصعّد" value={escDocs.length} color="#DC2626"/>
         <StatPill label="فشل" value={turns.filter(t=>t.error).length} color="#EF4444"/>
       </div>
 
       {takeoverError && (
         <div style={{padding:"8px 12px", marginBottom:14, borderRadius:10, background:"#FEF3C7", color:"#92400E", fontSize:FS-2, lineHeight:1.6}}>
           ⚠️ مش قادر أقرا حالة «التدخّل اليدوي» لحظياً — محتاج تـ deploy قاعدة <code>aiAgentTakeovers</code> في firestore.rules. أزرار التدخّل/الرد لسه شغّالة (بتعدّي على السيرفر).
+        </div>
+      )}
+      {escError && (
+        <div style={{padding:"8px 12px", marginBottom:14, borderRadius:10, background:"#FEE2E2", color:"#991B1B", fontSize:FS-2, lineHeight:1.6}}>
+          ⚠️ مش قادر أقرا التصعيدات (aiAgentEscalations): {escError.message || String(escError)}
         </div>
       )}
       {loading && (
@@ -1821,7 +1845,7 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
       ) : (
         <div style={{display:"grid", gap:10}}>
           {filtered.slice(0, 50).map(th => (
-            <ConversationThreadCard key={th.wid} thread={th} takeover={takeoverByWid[th.wid]} agent={agent} user={user} canEdit={canEdit}/>
+            <ConversationThreadCard key={th.wid} thread={th} takeover={takeoverByWid[th.wid]} escalations={escByWid[th.wid]} agent={agent} user={user} canEdit={canEdit}/>
           ))}
           {filtered.length > 50 && (
             <div style={{textAlign:"center", padding:14, color:T.textMut, fontSize:FS-1}}>
@@ -1834,7 +1858,7 @@ function LogsTab({ agent, data, isMob, user, canEdit }){
   );
 }
 
-function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
+function ConversationThreadCard({ thread, takeover, escalations, agent, user, canEdit }){
   const [open, setOpen] = useState(false);
   const t = thread;
   const last = t.turns[t.turns.length-1] || {};
@@ -1878,12 +1902,28 @@ function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
     finally { setBusy(false); }
   };
 
+  /* V21.9.237 — open escalations for this wid (optimistically hide resolved). */
+  const [resolvedEsc, setResolvedEsc] = useState(() => new Set());
+  const visibleEsc = (escalations || []).filter(e => e && e.id && !resolvedEsc.has(e.id));
+  const hasEsc = visibleEsc.length > 0;
+  const resolveEsc = async (esc) => {
+    if (!esc?.id) return;
+    if (!await ask("علّم التصعيد ده إنه اتحل؟", "هيختفي من قائمة المُصعّد.")) return;
+    try {
+      await setDoc(doc(db, "aiAgentEscalations", esc.id), {
+        status: "resolved", resolvedAt: new Date().toISOString(), resolvedBy: user?.email || "",
+      }, { merge: true });
+      setResolvedEsc(prev => { const n = new Set(prev); n.add(esc.id); return n; });
+      showToast("✓ اتعلّمت متابَعة");
+    } catch (e) { showToast("⛔ " + (e?.message || "فشل تعليم التصعيد")); }
+  };
+
   const status = last.error ? "error" : (last.canned || last.skipped) ? "skipped" : "ok";
   const statusBadge = status === "error" ? { label: "❌ فشل", bg: "#FEE2E2", color: "#991B1B" }
                     : status === "skipped" ? { label: last.canned ? "🤖 رد آلي" : "⏭ متخطّى", bg: "#E5E7EB", color: "#374151" }
                     : { label: "✅ تم", bg: "#D1FAE5", color: "#065F46" };
   return (
-    <div style={{background:T.cardSolid, border:`1px solid ${isActiveTakeover ? "#F59E0B" : T.brd}`, borderRadius:12, padding:12}}>
+    <div style={{background:T.cardSolid, border:`1px solid ${hasEsc ? "#DC2626" : isActiveTakeover ? "#F59E0B" : T.brd}`, borderRadius:12, padding:12}}>
       <div onClick={()=>setOpen(!open)} style={{cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap"}}>
         <div style={{flex:1, minWidth:200}}>
           <div style={{fontSize:FS, fontWeight:800, color:T.text}}>
@@ -1897,6 +1937,9 @@ function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
           </div>
         </div>
         <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0}}>
+          {hasEsc && (
+            <span style={{fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:800, background:"#FEE2E2", color:"#991B1B", border:"1px solid #FCA5A5"}}>🆘 مُصعّد</span>
+          )}
           {isActiveTakeover && (
             <span style={{fontSize:FS-3, padding:"2px 8px", borderRadius:8, fontWeight:800, background:"#FEF3C7", color:"#92400E", border:"1px solid #F59E0B"}}>🎮 تدخّل يدوي</span>
           )}
@@ -1911,6 +1954,23 @@ function ConversationThreadCard({ thread, takeover, agent, user, canEdit }){
       </div>
       {open && (
         <div style={{marginTop:10, paddingTop:10, borderTop:`1px solid ${T.brd}`}}>
+          {/* ── V21.9.237 Escalations (escalate_to_human) ── */}
+          {hasEsc && (
+            <div style={{marginBottom:12, padding:"10px 12px", borderRadius:10, background:"#FEE2E2", border:"1px solid #FCA5A5"}}>
+              <div style={{fontSize:FS-1, fontWeight:800, color:"#991B1B", marginBottom:4}}>🆘 مُصعّد لموظف بشري</div>
+              {visibleEsc.map(e => (
+                <div key={e.id} style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap", paddingTop:6, marginTop:6, borderTop:"1px dashed #FCA5A5"}}>
+                  <div style={{flex:1, minWidth:180, fontSize:FS-2, color:"#7F1D1D", lineHeight:1.5}}>
+                    <div>السبب: <strong>{e.reason || "—"}</strong></div>
+                    <div style={{fontSize:FS-3, color:"#991B1B", marginTop:2}}>
+                      إلحاح: {e.urgency || "—"}{e.at ? " · " + new Date(e.at).toLocaleString("ar-EG", {dateStyle:"short", timeStyle:"short"}) : ""}
+                    </div>
+                  </div>
+                  {canEdit && <Btn small onClick={()=>resolveEsc(e)} style={{background:"#fff", color:"#991B1B", border:"1px solid #FCA5A5", fontWeight:700}}>✓ علّمها متابَعة</Btn>}
+                </div>
+              ))}
+            </div>
+          )}
           {/* ── V21.9.235 Manual takeover control bar ── */}
           <div style={{marginBottom:12, padding:"10px 12px", borderRadius:10,
             background: isActiveTakeover ? "#FEF3C720" : T.bg,

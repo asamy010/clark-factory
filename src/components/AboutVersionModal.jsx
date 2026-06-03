@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.237",
+    date: "2026-06-03",
+    types: ["feature", "fix"],
+    title: "🆘 الأيجنت — إظهار التصعيدات في سجل المحادثات",
+    changes: [
+      { type: "feature", text: "🎯 تكملة واجهة الأيجنت (A2): التصعيدات (لما الأيجنت يحوّل محادثة لموظف بشري عبر escalate_to_human) كانت بتتسجّل في aiAgentEscalations بس **مكانش فيه حتة تعرضها** — الأدمن مكنش يعرف إن فيه تصعيد محتاج متابعة. دلوقتي في «سجل المحادثات»: فلتر «🆘 مُصعّد لموظف» + عدّاد + شارة حمرا على المحادثة المُصعّدة + تفاصيل التصعيد (السبب/الإلحاح/الوقت) جوّه المحادثة + زر «✓ علّمها متابَعة» يقفل التصعيد." },
+      { type: "fix", text: "🐞 إصلاح bug في useAgentCollection: كان بيبني الـ doc بـ {id: d.id, ...data} فلو الـ data نفسها فيها حقل id (زي التصعيدات اللي بتتكتب بـ id داخلي) كان بيمسح الـ id الحقيقي للـ doc. اتصلّح لـ {...data, id: d.id} عشان زر «متابَعة» يكتب على الـ doc الصح." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/AIAgentPg.jsx (LogsTab: listener aiAgentEscalations حيث status==open + فلتر + شارة + عدّاد؛ ConversationThreadCard: عرض التصعيد + resolve؛ إصلاح useAgentCollection id). الـ resolve بيكتب client-side (firestore.rules بتسمح manager+ على aiAgentEscalations أصلاً — مفيش تعديل rules). ملاحظة: اقتراحات الـ FAQ (A4 👍/👎) مؤجّلة لأن الباك-إند لسه مابيـ emit نوع faq_suggestion. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.236",
     date: "2026-06-03",
     types: ["feature", "fix"],
