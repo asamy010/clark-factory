@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.225",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🤖 الأيجنت — الخطوة ١: استقبال رسائل العملاء (الأساس)",
+    changes: [
+      { type: "feature", text: "🎯 بداية بناء «عقل» الأيجنت من الصفر. الخطوة ١ (الأساس الآمن): الجسر بقى يوجّه كل رسالة واردة من عميل لـ CLARK (موقّعة)، ومُستقبِل جديد على Vercel بيتحقق من التوقيع ويسجّل الرسالة. النتيجة: المحادثات الواردة بتظهر **حيّة** في تبويب «سجلات» جوّه الأيجنت. **مفيش رد آلي للعميل لسه** — استقبال + تسجيل + عرض فقط (آمن تماماً)." },
+      { type: "architectural", text: "🛡 الأمان: توقيع HMAC مشترك (WEBHOOK_SECRET على الجسر و Vercel) + حارس إعادة (٥ دقايق) + fail-closed لو المفتاح مش متظبط. الكتابة بالـ admin SDK → **مفيش تعديل firestore.rules مطلوب**. الجسر لو الـ webhook مش متظبط بيشتغل زي ما هو بالظبط. أفراد فقط (مش جروبات)." },
+      { type: "architectural", text: "📁 NEW: api/ai-agent/incoming.js. MODIFIED: clark-wa-bridge (server.js + .env.example + v1.2.0 — إنت تنشره على السيرفر) + package.json + constants + AboutVersionModal. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.224",
     date: "2026-06-03",
     types: ["improvement"],

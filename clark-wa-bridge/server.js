@@ -33,6 +33,7 @@ const qrcode = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 const { Client, LocalAuth } = require("whatsapp-web.js");
+const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3001;
 /* V19.30: Optional auth token. If AUTH_TOKEN env var is set, all requests
@@ -40,6 +41,32 @@ const PORT = process.env.PORT || 3001;
    If unset, the bridge runs in open mode (only safe for localhost). */
 const AUTH_TOKEN = (process.env.AUTH_TOKEN || "").trim();
 const STATE_FILE = path.join(__dirname, ".bridge-state.json");
+
+/* V1.2.0 — AI Agent incoming webhook. When WEBHOOK_URL + WEBHOOK_SECRET are
+   both set, every INCOMING individual customer message is forwarded (HMAC-
+   signed, fire-and-forget) to CLARK's agent receiver on Vercel. If either is
+   unset, this is a NO-OP and the bridge behaves exactly as before (outgoing
+   campaigns + opt-out only). */
+const WEBHOOK_URL = (process.env.WEBHOOK_URL || "").trim();
+const WEBHOOK_SECRET = (process.env.WEBHOOK_SECRET || "").trim();
+async function forwardIncomingToWebhook(msg) {
+  if (!WEBHOOK_URL || !WEBHOOK_SECRET) return;             /* not configured → no-op */
+  try {
+    const from = String(msg.from || "");
+    if (!/@c\.us$|@lid$/.test(from)) return;               /* individuals only (skip groups/broadcast/status) */
+    const text = String(msg.body || "");
+    const ts = Date.now();
+    const sig = crypto.createHmac("sha256", WEBHOOK_SECRET).update(`${ts}|${from}|${text}`).digest("hex");
+    const resp = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-clark-sig": sig },
+      body: JSON.stringify({ wid: from, from, body: text, ts, type: msg.type || "chat" }),
+    });
+    if (!resp.ok) console.warn(`[WA→agent] webhook HTTP ${resp.status}`);
+  } catch (e) {
+    console.warn("[WA→agent] forward failed:", e.message);
+  }
+}
 
 const app = express();
 app.use(cors());
@@ -384,8 +411,13 @@ function initWhatsApp() {
 
   /* Opt-out detection: listen for STOP/إلغاء/UNSUBSCRIBE replies */
   waClient.on("message", async (msg) => {
-    if (!settings.detectOptOuts) return;
     if (msg.fromMe) return;
+    /* V1.2.0: forward every incoming customer message to CLARK's AI agent
+       (fire-and-forget; no-op if WEBHOOK_URL/SECRET unset). Runs regardless
+       of the opt-out setting so the agent sees all inbound traffic. */
+    forwardIncomingToWebhook(msg);
+    /* Opt-out detection (unchanged) */
+    if (!settings.detectOptOuts) return;
     const body = (msg.body || "").trim().toUpperCase();
     if (["STOP", "إلغاء", "الغاء", "UNSUBSCRIBE", "إيقاف", "ايقاف"].includes(body)) {
       const phone = msg.from.split("@")[0];
