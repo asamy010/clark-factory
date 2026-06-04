@@ -3571,6 +3571,34 @@ export default function App(){
           if(!eq(server.approvedAt,pending.approvedAt))return false;
           if(!eq(server.rejectedBy,pending.rejectedBy))return false;
           if(!eq(server.rejectedAt,pending.rejectedAt))return false;
+          /* V21.9.244 ROOT-CAUSE FIX (notification end/dismiss desync — exact same
+             class as the V21.9.14 transfer-status fix above):
+             Pre-V21.9.244, _stableMatch compared only treasury-row + transfer
+             fields. A notification entry has NONE of those changing when it's
+             ended/read — so for the transfer-approval greeting-bar chip (and
+             every other notification dismissed via endNotif), _stableMatch was
+             effectively comparing only id (amount/date/type/... are equal or
+             undefined on both copies).
+
+             Result after admin clicked تأكيد / ⏹ إنهاء للجميع:
+             1. optimistic config.notifications had the chip WITH endedAt → hidden.
+             2. before the notificationsDays write round-tripped, ANOTHER split
+                listener fired (treasuryTransfersDays/treasuryDays land in their
+                own day-docs first) → rebuild() ran.
+             3. the reconciliation loop called _stableMatch(serverChipWithoutEndedAt,
+                optimisticChipWithEndedAt) → returned true (endedAt NOT compared).
+             4. pendingMap.delete(chipId) cleared the optimistic copy PREMATURELY.
+             5. merged config.notifications reverted to the server copy WITHOUT
+                endedAt → the ended chip re-appeared (the V21.9.242 symptom).
+
+             Fix: compare the notification-mutable flags so the optimistic copy is
+             RETAINED until the server genuinely reflects the end/read. These keys
+             are undefined on treasury/transfer records, so eq(undefined,undefined)
+             stays true and their dedup is untouched. This is the desync's ROOT —
+             it fixes EVERY ended/read notification, not just transfer chips. */
+          if(!eq(server.endedAt,pending.endedAt))return false;
+          if(!eq(server.endedBy,pending.endedBy))return false;
+          if(!eq(server.read,pending.read))return false;
           return true;
         };
         for(const[id,info]of pendingMap){

@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.244",
+    date: "2026-06-04",
+    types: ["fix"],
+    title: "🔔 الإشعارات — إصلاح جذري لرجوع الإشعار المُنهى بعد الـ refresh",
+    changes: [
+      { type: "fix", text: "🎯 الجذر الحقيقي لمشكلة V21.9.242: أي إشعار بيتقفل بـ«⏹ إنهاء للجميع» (endNotif) أو شارة «طلب موافقة على تحويل» كانت أحياناً بترجع تظهر بعد التأكيد/الإنهاء — رغم إن endedAt كان بيتسجّل صح فعلاً في notificationsDays. السبب الجذري: دالة المطابقة _stableMatch (اللي بتقرر إمتى الحالة المتفائلة optimistic تتمسح بعد ما السيرفر يأكّد) مكانتش بتقارن ولا حقل من حقول الإشعار اللي بتتغيّر عند الإنهاء/القراءة." },
+      { type: "fix", text: "🔬 السيناريو: بعد ما الأدمن يضغط «تأكيد»، النسخة المتفائلة من الإشعار بتحمل endedAt (مخفية صح). لكن قبل ما كتابة notificationsDays تكمّل الـ round-trip، listener تاني (تحويلات/قيود الخزنة بتوصل لـ day-doc بتاعها الأول) بيضرب → rebuild → _stableMatch(نسخة السيرفر من غير endedAt، النسخة المتفائلة بـ endedAt) بترجع true لأن endedAt مش متقارن → الحالة المتفائلة بتتمسح بدري (pendingMap.delete) → config.notifications بترجع لنسخة السيرفر القديمة من غير endedAt → الإشعار يرجع يبان." },
+      { type: "fix", text: "✅ الحل (نفس فئة إصلاح V21.9.14 لحالة التحويلات): _stableMatch بقى يقارن endedAt + endedBy + read كمان. كده النسخة المتفائلة بتفضل متمسّكة لحد ما السيرفر يعكس الإنهاء فعلاً. ده بيصلح الجذر لكل إشعار مُنهى/مقروء — مش بس شارة التحويل اللي V21.9.242 عالجتها كـ workaround. الحقول دي undefined على قيود الخزنة والتحويلات، فـ eq(undefined,undefined)=true ومفيش أي تأثير على الـ dedup بتاعهم." },
+      { type: "architectural", text: "📁 MODIFIED: src/App.jsx (_stableMatch — إضافة ٣ مقارنات حقول قبل return true). تعديل في طبقة الدمج/العرض بس — صفر لمس لأي منطق مالي أو مسار كتابة. مفيش build env محلي — Vercel هو الـ verifier (اتأكدت من توازن الأقواس قبل الكوميت)." },
+    ],
+  },
+  {
     version: "V21.9.243",
     date: "2026-06-04",
     types: ["fix"],
