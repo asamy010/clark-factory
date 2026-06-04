@@ -489,7 +489,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
-  const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:cd-ret,avail:sd-(cd-ret),rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders]);
+  const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:cd-ret,avail:sd-(cd-ret),rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
@@ -2696,6 +2696,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         + "</div>";
         h += "<table><thead><tr>"
           + "<td class='h'>#</td>"
+          + "<td class='h'>صورة</td>"
           + "<td class='h'>الموديل</td>"
           + "<td class='h'>الوصف</td>"
           + "<td class='h'>سيري</td>"
@@ -2705,6 +2706,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         rows.forEach((r,i) => {
           h += "<tr>"
             + "<td style='text-align:center;color:#94A3B8'>"+(i+1)+"</td>"
+            + "<td style='text-align:center;padding:3px'>"+(r.image?"<img src='"+r.image+"' crossorigin='anonymous' style='width:38px;height:auto;max-height:52px;object-fit:contain;border-radius:4px;border:1px solid #CBD5E1'/>":"—")+"</td>"
             + "<td style='font-weight:700'>"+r.modelNo+"</td>"
             + "<td>"+(r.modelDesc||"—")+"</td>"
             + "<td style='text-align:center;color:#0EA5E9;font-weight:700'>"+r.availSeries+(r.rackSize>0?" <span style=\"color:#94A3B8;font-size:9px\">("+r.seriesSets+"×"+r.rackSize+")</span>":"")+"</td>"
@@ -2712,7 +2714,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             + "<td style='text-align:center;color:#F59E0B;font-weight:800;font-size:13px'>"+r.avail+"</td>"
           + "</tr>";
         });
-        h += "<tr class='totals'><td colspan='3' style='text-align:left;font-weight:800'>الإجمالي ("+rows.length+" موديل)</td>"
+        h += "<tr class='totals'><td colspan='4' style='text-align:left;font-weight:800'>الإجمالي ("+rows.length+" موديل)</td>"
           + "<td style='text-align:center;font-weight:800;color:#0EA5E9'>"+fmt(totalSeries)+"</td>"
           + "<td style='text-align:center;font-weight:800;color:#EF4444'>"+fmt(totalBroken)+"</td>"
           + "<td style='text-align:center;font-weight:800;color:#92400E;font-size:14px'>"+fmt(totalAvail)+"</td></tr>";
@@ -2770,6 +2772,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <thead style={{position:"sticky",top:0,zIndex:1}}>
                 <tr style={{background:T.warn+"15",borderBottom:"2px solid "+T.warn+"40"}}>
                   <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:40}}>#</td>
+                  <td style={{padding:"8px 6px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:56}}>صورة</td>
                   <td style={{padding:"8px 10px",fontWeight:700,color:T.text,fontSize:FS-2}}>الموديل</td>
                   <td style={{padding:"8px 10px",fontWeight:700,color:T.text,fontSize:FS-2}}>الوصف</td>
                   <td style={{padding:"8px 10px",fontWeight:700,color:T.text,textAlign:"center",fontSize:FS-2,width:90}}>سيري</td>
@@ -2779,10 +2782,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={6} style={{padding:20,textAlign:"center",color:T.textMut}}>{q?"مفيش نتائج بحث":"مفيش موديلات متاحة"}</td></tr>
+                  <tr><td colSpan={7} style={{padding:20,textAlign:"center",color:T.textMut}}>{q?"مفيش نتائج بحث":"مفيش موديلات متاحة"}</td></tr>
                 ) : rows.map((r,i)=>(
                   <tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
                     <td style={{padding:"7px 10px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{i+1}</td>
+                    <td style={{padding:"4px 6px",textAlign:"center"}}>{r.image?<img src={r.image} alt="" loading="lazy" style={{width:42,height:"auto",maxHeight:58,objectFit:"contain",borderRadius:6,verticalAlign:"middle",border:"1px solid "+T.brd}}/>:<span style={{color:T.textMut,fontSize:FS-2}}>—</span>}</td>
                     <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{r.modelNo}</td>
                     <td style={{padding:"7px 10px",color:T.textSec,fontSize:FS-2}}>{r.modelDesc||"—"}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>
@@ -2797,7 +2801,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               {rows.length > 0 && (
                 <tfoot>
                   <tr style={{background:T.warn+"10",borderTop:"2px solid "+T.warn+"40",position:"sticky",bottom:0}}>
-                    <td colSpan={3} style={{padding:"8px 10px",fontWeight:800,color:T.text,fontSize:FS-2}}>الإجمالي ({rows.length} موديل)</td>
+                    <td colSpan={4} style={{padding:"8px 10px",fontWeight:800,color:T.text,fontSize:FS-2}}>الإجمالي ({rows.length} موديل)</td>
                     <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.accent}}>{fmt(totalSeries)}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.err}}>{fmt(totalBroken)}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",fontWeight:800,color:T.warn,fontSize:FS}}>{fmt(totalAvail)}</td>

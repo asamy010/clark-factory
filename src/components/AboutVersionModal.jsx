@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.245",
+    date: "2026-06-04",
+    types: ["feature"],
+    title: "🖼️ تقرير «رصيد متاح» — إضافة صورة الموديل",
+    changes: [
+      { type: "feature", text: "🎯 [بلاغ أحمد] في صفحة المبيعات → تقرير «رصيد متاح» (الموديلات المتاحة): بقى فيه عمود **صورة الموديل** جنب كل صف (الموديل + الرصيد المتاح) — نفس التقرير بالظبط + الصورة. الصورة بتظهر بنسبتها الطبيعية (طولية زي الأوردر، من غير قص ولا تشويه) على الشاشة وفي الطباعة." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/CustDeliverPg.jsx (stockModels: إضافة image من o.image؛ جدول الشاشة + buildReportHTML للطباعة: عمود صورة + ضبط الـ colSpan). الطباعة بتستخدم crossorigin للصور — محتاجة Firebase Storage CORS متظبط (لو الصور مظهرتش في الطباعة بس، ده إعداد CORS مش كود). مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.244",
     date: "2026-06-04",
     types: ["fix"],
