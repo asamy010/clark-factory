@@ -2706,7 +2706,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         rows.forEach((r,i) => {
           h += "<tr>"
             + "<td style='text-align:center;color:#94A3B8'>"+(i+1)+"</td>"
-            + "<td style='text-align:center;padding:3px'>"+(r.image?"<img src='"+r.image+"' crossorigin='anonymous' style='width:38px;height:auto;max-height:52px;object-fit:contain;border-radius:4px;border:1px solid #CBD5E1'/>":"—")+"</td>"
+            + "<td style='text-align:center;padding:3px'>"+(r.image?"<img src='"+r.image+"' style='width:38px;height:auto;max-height:52px;object-fit:contain;border-radius:4px;border:1px solid #CBD5E1'/>":"—")+"</td>"
             + "<td style='font-weight:700'>"+r.modelNo+"</td>"
             + "<td>"+(r.modelDesc||"—")+"</td>"
             + "<td style='text-align:center;color:#0EA5E9;font-weight:700'>"+r.availSeries+(r.rackSize>0?" <span style=\"color:#94A3B8;font-size:9px\">("+r.seriesSets+"×"+r.rackSize+")</span>":"")+"</td>"

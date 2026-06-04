@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.247",
+    date: "2026-06-04",
+    types: ["fix"],
+    title: "🖼️ إصلاح: صورة الموديل مكسورة في طباعة تقرير «رصيد متاح»",
+    changes: [
+      { type: "fix", text: "🎯 [بلاغ أحمد] بعد V21.9.245، صور الموديلات كانت ظاهرة تمام في الـ popup بس مكسورة (أيقونة «؟») في الطباعة. السبب: حطيت crossorigin='anonymous' على صور الطباعة، وده بيعمل CORS check على روابط Firebase Storage — ولو الـ CORS مش متظبط، المتصفح بيمنع تحميل الصورة. شِلت الـ crossorigin، فالصور بتتحمّل عادي في الطباعة زي الـ popup بالظبط." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/CustDeliverPg.jsx (إزالة crossorigin من img في buildReportHTML). ملاحظة: زر «حفظ PDF» (html2pdf/html2canvas) ممكن يفضل يحتاج Firebase Storage CORS متظبط عشان يحفظ الصور — لكن الطباعة العادية (window.print) شغّالة دلوقتي. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.246",
     date: "2026-06-04",
     types: ["feature"],
