@@ -31,27 +31,35 @@ import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 
-/* V21.9.246 — per-month wallet cap override (admin-only).
-   Sometimes personal (non-factory) money flows through a wallet, throwing off
-   the daily/monthly/balance limit headroom. So an admin can override a wallet's
-   three caps FOR THE CURRENT MONTH ONLY: w.capOverrides = {"YYYY-MM": {
-   dailyWithdrawCap, monthlyWithdrawCap, balanceCap }}. The caps are SOFT
-   warning thresholds (saveTx already lets admins override per-transaction), so
-   this NEVER touches money/legs — it only changes when the "تجاوز الحد" warning
-   fires. Auto-reverts next month (no override key for the new month). */
+/* V21.9.248 — per-month wallet "external/personal amount" (admin-only).
+   Sometimes personal (non-factory) money flows through a wallet — it's NOT
+   recorded as a factory transaction, but it DID consume the real provider
+   limits, so the factory's "remaining" headroom looks higher than reality.
+   So an admin can record an external/personal amount per limit FOR THE CURRENT
+   MONTH ONLY: w.monthExtra = {"YYYY-MM": {extDay, extMonth, extBalance, note,
+   by, at}}. These amounts ADD to the wallet's USAGE (so the remaining headroom
+   drops accordingly and the "تجاوز الحد" warnings stay accurate), are shown
+   SEPARATELY as "خارجي غير مسجّل", and create NO transaction (zero money/leg
+   impact — just an accurate soft-warning threshold). Auto-resets next month
+   (no key for the new month). Replaced the V21.9.246 cap-override approach. */
 function curMonthKeyCairo(){
   const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Cairo",year:"numeric",month:"2-digit"}).formatToParts(new Date());
   let y="",m="";for(const p of parts){if(p.type==="year")y=p.value;if(p.type==="month")m=p.value;}
   return y+"-"+m;
 }
-/* Effective cap = this-month override if set, else the wallet's default field. */
-function walletEffCap(w,field){
-  const o=w&&w.capOverrides&&w.capOverrides[curMonthKeyCairo()];
-  if(o&&o[field]!=null&&o[field]!=="")return Number(o[field]);
-  return w?w[field]:undefined;
+/* Cap threshold passthrough → the wallet's default field. (Thin helper kept so
+   the saveTx/transfer/card cap-check call sites stay byte-for-byte untouched —
+   the override moved from the CAP to the USAGE side per Ahmed's clarification.) */
+function walletEffCap(w,field){ return w?w[field]:undefined; }
+/* External personal amount on a usage dimension this month (extDay/extMonth/
+   extBalance), or 0 if none. */
+function walletMonthExtra(w,field){
+  const o=w&&w.monthExtra&&w.monthExtra[curMonthKeyCairo()];
+  return (o&&Number(o[field]))||0;
 }
-function walletHasMonthOverride(w){
-  return !!(w&&w.capOverrides&&w.capOverrides[curMonthKeyCairo()]);
+function walletHasMonthExtra(w){
+  const o=w&&w.monthExtra&&w.monthExtra[curMonthKeyCairo()];
+  return !!o&&((Number(o.extDay)||0)>0||(Number(o.extMonth)||0)>0||(Number(o.extBalance)||0)>0);
 }
 
 export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
@@ -1894,20 +1902,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(_amt>0&&txType==="in"){
           const _cap=Number(walletEffCap(_w,"balanceCap"))||0;
           if(_cap>0){
-            const _b=accBalances[_w.name]||{in:0,out:0};const _cur=_b.in-_b.out;
+            const _b=accBalances[_w.name]||{in:0,out:0};const _cur=_b.in-_b.out+walletMonthExtra(_w,"extBalance");/* V21.9.248: + الرصيد الخارجي/الشخصي للشهر */
             if(_cur+_amt>_cap)_block="رصيد المحفظة بعد الاستلام ("+fmt0(_cur+_amt)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
           }
         }else if(_amt>0&&txType==="out"){
           /* V21.9.223: الحد اليومي الأول (الأقرب للتجاوز)، وبعده الشهري لو اليومي عدّى */
           const _dcap=Number(walletEffCap(_w,"dailyWithdrawCap") ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد (V21.9.246: + override الشهر) */
           if(_dcap>0){
-            const _do=walletDayOut[_w.name]||0;
+            const _do=(walletDayOut[_w.name]||0)+walletMonthExtra(_w,"extDay");/* V21.9.248: + السحب الخارجي/الشخصي */
             if(_do+_amt>_dcap)_block="سحب اليوم بعد العملية ("+fmt0(_do+_amt)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(_dcap)+" ج.م). يتجدد بكرة.";
           }
           if(!_block){
             const _mcap=Number(walletEffCap(_w,"monthlyWithdrawCap"))||0;
             if(_mcap>0){
-              const _mo=walletMonthOut[_w.name]||0;
+              const _mo=(walletMonthOut[_w.name]||0)+walletMonthExtra(_w,"extMonth");/* V21.9.248: + السحب الشهري الخارجي/الشخصي */
               if(_mo+_amt>_mcap)_block="سحب الشهر بعد العملية ("+fmt0(_mo+_amt)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
             }
           }
@@ -1939,7 +1947,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           if(_cap>0){
             let _in=0,_out=0;
             (txns||[]).forEach(t=>{if(t.id===editId)return;if((t.account||"")!==_w.name)return;if(t.type==="in")_in+=Number(t.amount)||0;else _out+=Number(t.amount)||0;});
-            const _base=_in-_out;
+            const _base=_in-_out+walletMonthExtra(_w,"extBalance");/* V21.9.248: + الرصيد الخارجي/الشخصي */
             const _post=_base+_amt;
             const _preEff=(_orig&&(_orig.account||"")===_w.name)?((_orig.type==="in"?1:-1)*(Number(_orig.amount)||0)):0;
             const _pre=_base+_preEff;
@@ -1949,7 +1957,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           /* V21.9.223: الحد اليومي على التعديل (نفس منطق exclude-self + حارس الزيادة) */
           const _dcap=Number(walletEffCap(_w,"dailyWithdrawCap") ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد (V21.9.246: + override الشهر) */
           if(_dcap>0){
-            let _doExcl=0;
+            let _doExcl=walletMonthExtra(_w,"extDay");/* V21.9.248: + السحب الخارجي/الشخصي */
             (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"")===today)_doExcl+=Number(t.amount)||0;});
             const _newC=((txDate||"")===today)?_amt:0;
             const _oldC=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"")===today)?(Number(_orig.amount)||0):0;
@@ -1960,7 +1968,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             const _mcap=Number(walletEffCap(_w,"monthlyWithdrawCap"))||0;
             if(_mcap>0){
               const _mo7=(today||"").slice(0,7);
-              let _moExcl=0;
+              let _moExcl=walletMonthExtra(_w,"extMonth");/* V21.9.248: + السحب الشهري الخارجي/الشخصي */
               (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"").slice(0,7)===_mo7)_moExcl+=Number(t.amount)||0;});
               const _newContrib=((txDate||"").slice(0,7)===_mo7)?_amt:0;
               const _oldContrib=(_orig&&_orig.type==="out"&&(_orig.account||"")===_w.name&&(_orig.date||"").slice(0,7)===_mo7)?(Number(_orig.amount)||0):0;
@@ -2042,11 +2050,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      visible right there without switching back to the wallets tab. */
   const walletCard=(w)=>{
     const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
+    /* V21.9.248: مبالغ خارجية/شخصية للشهر (مش حركات) — بتنضاف للاستهلاك عشان
+       الباقي المتاح يبقى صح، وبتتعرض منفصلة كـ«خارجي غير مسجّل». */
+    const _extBal=walletMonthExtra(w,"extBalance");const _extDay=walletMonthExtra(w,"extDay");const _extMonth=walletMonthExtra(w,"extMonth");
     const cap=Number(walletEffCap(w,"balanceCap"))||0;const mcap=Number(walletEffCap(w,"monthlyWithdrawCap"))||0;
-    const mOut=walletMonthOut[w.name]||0;
-    const dcap=Number(walletEffCap(w,"dailyWithdrawCap") ?? 60000)||0;const dOut=walletDayOut[w.name]||0;/* V21.9.223: قديم بلا حقل → 60 ألف */
-    const _hasOverride=walletHasMonthOverride(w);/* V21.9.246 */
-    const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
+    const mOut=(walletMonthOut[w.name]||0)+_extMonth;
+    const dcap=Number(walletEffCap(w,"dailyWithdrawCap") ?? 60000)||0;const dOut=(walletDayOut[w.name]||0)+_extDay;/* V21.9.223: قديم بلا حقل → 60 ألف */
+    const balEff=bal+_extBal;
+    const _hasExtra=walletHasMonthExtra(w);
+    const balPct=cap>0?Math.min(100,Math.round(balEff/cap*100)):0;
     const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
     const dPct=dcap>0?Math.min(100,Math.round(dOut/dcap*100)):0;
     const balColor=balPct>=100?T.err:balPct>=80?T.warn:T.ok;
@@ -2059,13 +2071,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:FS,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{w.name}</div>
-          {_hasOverride&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:1}}>📅 حدود مخصّصة للشهر ده</div>}
+          {_hasExtra&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:1}}>💵 مبالغ خارجية مسجّلة للشهر ده</div>}
           {w.walletNumber&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>📞 {w.walletNumber}</div>}
         </div>
         {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
           <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="كل السجل">📒</span>
           <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل المحفظة">✏️</span>
-          {isAdmin&&<span onClick={()=>openMonthLimit(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:_hasOverride?T.warn+"18":T.bg,color:_hasOverride?T.warn:T.textSec,border:"1px solid "+(_hasOverride?T.warn+"40":T.brd)}} title="حدود الشهر ده (أدمن فقط)">📅</span>}
+          {isAdmin&&<span onClick={()=>openMonthLimit(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:_hasExtra?T.warn+"18":T.bg,color:_hasExtra?T.warn:T.textSec,border:"1px solid "+(_hasExtra?T.warn+"40":T.brd)}} title="مبالغ خارجية/شخصية للشهر (أدمن فقط)">💵</span>}
           {/* V21.9.219: delete wallet — allowed ONLY when it has no transactions
               (same guard as delAccount + the accounts view). Blocks with a clear
               message otherwise. If we're inside this wallet's sub-tab, jump back to
@@ -2076,16 +2088,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       <div style={{fontSize:FS-2,color:T.textMut}}>الرصيد الحالي</div>
       <div style={{fontSize:FS+4,fontWeight:900,color:bal>=0?"#0D9488":T.err,lineHeight:1.1}}>{fmt0(bal)} <span style={{fontSize:FS-2,fontWeight:600,color:T.textMut}}>ج.م</span></div>
       {cap>0&&<div style={{marginTop:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد</span><span>{fmt0(bal)} / {fmt0(cap)}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>حد الرصيد{_extBal>0?<span style={{color:T.warn}}> · +{fmt0(_extBal)} خارجي</span>:null}</span><span>{fmt0(balEff)} / {fmt0(cap)}</span></div>
         <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:balPct+"%",background:balColor,borderRadius:99,transition:"width 0.2s"}}/></div>
       </div>}
       {dcap>0&&<div style={{marginTop:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب اليوم</span><span>{fmt0(dOut)} / {fmt0(dcap)}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب اليوم{_extDay>0?<span style={{color:T.warn}}> · +{fmt0(_extDay)} خارجي</span>:null}</span><span>{fmt0(dOut)} / {fmt0(dcap)}</span></div>
         <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:dPct+"%",background:dColor,borderRadius:99,transition:"width 0.2s"}}/></div>
         {dPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت الحد اليومي — يتجدد بكرة</div>}
       </div>}
       {mcap>0&&<div style={{marginTop:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-3,color:T.textMut,marginBottom:3}}><span>سحب الشهر{_extMonth>0?<span style={{color:T.warn}}> · +{fmt0(_extMonth)} خارجي</span>:null}</span><span>{fmt0(mOut)} / {fmt0(mcap)}</span></div>
         <div style={{height:6,borderRadius:99,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:wPct+"%",background:wColor,borderRadius:99,transition:"width 0.2s"}}/></div>
         {wPct>=100&&<div style={{fontSize:FS-3,color:T.err,fontWeight:700,marginTop:3}}>⚠️ وصلت حد السحب الشهري — يتجدد يوم 1</div>}
       </div>}
@@ -2104,14 +2116,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const tf=t==="wallet"?buildWalletFields():{type:t};
         d.treasuryAccounts.push({id:newAccName.trim(),name:newAccName.trim(),ownerEmail:newAccOwner.trim(),...tf})}}});
     resetAccForm();showToast("✓ تمت الإضافة")};
-  /* V21.9.246 — per-month wallet cap override (admin-only). Pre-fills with the
-     CURRENT effective caps; saving writes capOverrides[thisMonth]; clearing
-     reverts to the wallet defaults. Touches only the soft-warning thresholds. */
+  /* V21.9.248 — per-month wallet EXTERNAL/personal amounts (admin-only). These
+     are amounts that flowed through the wallet but aren't factory transactions;
+     they ADD to the usage so the remaining headroom is accurate. Pre-fills with
+     the CURRENT external amounts; saving writes monthExtra[thisMonth]; clearing
+     removes them. Soft-warning side only — zero money/leg impact. */
   const openMonthLimit=(w)=>{
     setMonthLimitW(w);
-    setMlDaily(String(walletEffCap(w,"dailyWithdrawCap")??60000));
-    setMlMonthly(String(walletEffCap(w,"monthlyWithdrawCap")??200000));
-    setMlBalance(String(walletEffCap(w,"balanceCap")??200000));
+    setMlDaily(String(walletMonthExtra(w,"extDay")||""));
+    setMlMonthly(String(walletMonthExtra(w,"extMonth")||""));
+    setMlBalance(String(walletMonthExtra(w,"extBalance")||""));
   };
   const saveMonthLimit=()=>{
     if(!monthLimitW||!isAdmin)return;
@@ -2120,15 +2134,15 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(!Array.isArray(d.treasuryAccounts))return;
       const i=d.treasuryAccounts.findIndex(a=>a&&a.id===wid);
       if(i<0)return;
-      if(!d.treasuryAccounts[i].capOverrides)d.treasuryAccounts[i].capOverrides={};
-      d.treasuryAccounts[i].capOverrides[mk]={
-        dailyWithdrawCap:Math.max(0,Number(mlDaily)||0),
-        monthlyWithdrawCap:Math.max(0,Number(mlMonthly)||0),
-        balanceCap:Math.max(0,Number(mlBalance)||0),
-        setBy:userName,setAt:new Date().toISOString(),
+      if(!d.treasuryAccounts[i].monthExtra)d.treasuryAccounts[i].monthExtra={};
+      d.treasuryAccounts[i].monthExtra[mk]={
+        extDay:Math.max(0,Number(mlDaily)||0),
+        extMonth:Math.max(0,Number(mlMonthly)||0),
+        extBalance:Math.max(0,Number(mlBalance)||0),
+        by:userName,at:new Date().toISOString(),
       };
     });
-    showToast("✅ اتحفظت حدود الشهر للمحفظة");setMonthLimitW(null);
+    showToast("✅ اتسجّلت المبالغ الخارجية للشهر");setMonthLimitW(null);
   };
   const clearMonthLimit=()=>{
     if(!monthLimitW||!isAdmin)return;
@@ -2136,10 +2150,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     upConfig(d=>{
       if(!Array.isArray(d.treasuryAccounts))return;
       const i=d.treasuryAccounts.findIndex(a=>a&&a.id===wid);
-      if(i<0||!d.treasuryAccounts[i].capOverrides)return;
-      delete d.treasuryAccounts[i].capOverrides[mk];
+      if(i<0||!d.treasuryAccounts[i].monthExtra)return;
+      delete d.treasuryAccounts[i].monthExtra[mk];
     });
-    showToast("↩️ رجعنا للحدود الافتراضية للشهر ده");setMonthLimitW(null);
+    showToast("↩️ اتمسحت المبالغ الخارجية للشهر");setMonthLimitW(null);
   };
   const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"");
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
@@ -2259,12 +2273,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* V21.9.223: حد السحب اليومي على المصدر */
       const dcap=Number(walletEffCap(src,"dailyWithdrawCap") ?? 60000)||0;
       if(dcap>0){
-        const dOut=walletDayOut[src.name]||0;
+        const dOut=(walletDayOut[src.name]||0)+walletMonthExtra(src,"extDay");/* V21.9.248 */
         if(dOut+_a>dcap)msgs.push("• سحب اليوم من «"+fromName+"» بعد التحويل ("+fmt0(dOut+_a)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(dcap)+" ج.م)");
       }
       const mcap=Number(walletEffCap(src,"monthlyWithdrawCap"))||0;
       if(mcap>0){
-        const mo=walletMonthOut[src.name]||0;
+        const mo=(walletMonthOut[src.name]||0)+walletMonthExtra(src,"extMonth");/* V21.9.248 */
         if(mo+_a>mcap)msgs.push("• سحب الشهر من «"+fromName+"» بعد التحويل ("+fmt0(mo+_a)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(mcap)+" ج.م)");
       }
     }
@@ -2272,7 +2286,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(dst){
       const cap=Number(dst.balanceCap)||0;
       if(cap>0){
-        const b=accBalances[dst.name]||{in:0,out:0};const cur=b.in-b.out;
+        const b=accBalances[dst.name]||{in:0,out:0};const cur=b.in-b.out+walletMonthExtra(dst,"extBalance");/* V21.9.248 */
         if(cur+_a>cap)msgs.push("• رصيد «"+toName+"» بعد التحويل ("+fmt0(cur+_a)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(cap)+" ج.م)");
       }
     }
@@ -5005,35 +5019,47 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {/* V21.9.221: capacity-check popup — pure read. Lists wallets that can receive
               the typed amount without exceeding their balance cap (ready first), with
               the available headroom per wallet. No-cap wallets accept any amount. */}
-          {/* V21.9.246 — per-month wallet cap override (admin-only) */}
-          {monthLimitW&&(
-            <div onClick={()=>setMonthLimitW(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:18,padding:22,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          {/* V21.9.248 — per-month wallet EXTERNAL/personal amounts (admin-only) */}
+          {monthLimitW&&(()=>{
+            const w=monthLimitW;
+            const _b=accBalances[w.name]||{in:0,out:0};const _bal=_b.in-_b.out;
+            const _fDay=walletDayOut[w.name]||0;const _fMonth=walletMonthOut[w.name]||0;
+            const _capBal=Number(w.balanceCap)||0;const _capDay=Number(w.dailyWithdrawCap??60000)||0;const _capMonth=Number(w.monthlyWithdrawCap)||0;
+            const _extRow=(label,factory,cap,val,setVal)=>{
+              const _v=Number(val)||0;
+              return <div style={{marginBottom:12,padding:"10px 12px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,marginBottom:6}}>
+                  <span style={{fontWeight:700,color:T.text}}>{label}</span>
+                  <span style={{color:T.textMut}}>المسجّل: {fmt0(factory)}{cap>0?" / "+fmt0(cap):" (بلا حد)"}</span>
+                </div>
+                <Inp type="number" value={val} onChange={setVal} placeholder="مبلغ خارجي/شخصي (0)"/>
+                {_v>0&&cap>0&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:5}}>بعد الخارجي: مستهلك {fmt0(factory+_v)} / {fmt0(cap)} → باقي {fmt0(Math.max(0,cap-factory-_v))}</div>}
+              </div>;
+            };
+            return <div onClick={()=>setMonthLimitW(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:18,padding:22,width:"100%",maxWidth:460,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>📅 حدود الشهر — {monthLimitW.name}</div>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>💵 مبالغ خارجية — {w.name}</div>
                   <Btn ghost small onClick={()=>setMonthLimitW(null)}>✕</Btn>
                 </div>
                 <div style={{fontSize:FS-2,color:T.textMut,lineHeight:1.6,marginBottom:14}}>
-                  تعديل حدود المحفظة <strong>للشهر الحالي ({curMonthKeyCairo()}) بس</strong> — وبترجع للافتراضي أول الشهر الجاي. مفيدة لما تستقبل فلوس شخصية على المحفظة فالحدود تبقى مش مظبوطة. الحدود تحذيرية بس ومالهاش أي تأثير على الفلوس/القيود. (أدمن فقط)
+                  سجّل مبالغ <strong>شخصية/خارجية</strong> دخلت المحفظة فعلياً بس <strong>مش حركات مصنع</strong> — بتتحسب استهلاك من الحد عشان الباقي المتاح يبقى صح (مش وهمي)، وبتظهر منفصلة كـ«خارجي». مالهاش <strong>أي تأثير على الفلوس أو الحركات أو القيود</strong>. (للشهر {curMonthKeyCairo()} بس، وبتتمسح أول الشهر الجاي — أدمن فقط)
                 </div>
-                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",marginBottom:4}}>الحد اليومي للسحب (ج.م) — 0 = بلا حد</label>
-                <Inp type="number" value={mlDaily} onChange={setMlDaily}/>
-                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",margin:"12px 0 4px"}}>الحد الشهري للسحب (ج.م) — 0 = بلا حد</label>
-                <Inp type="number" value={mlMonthly} onChange={setMlMonthly}/>
-                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",margin:"12px 0 4px"}}>حد الرصيد (ج.م) — 0 = بلا حد</label>
-                <Inp type="number" value={mlBalance} onChange={setMlBalance}/>
-                <div style={{display:"flex",gap:8,marginTop:18,flexWrap:"wrap"}}>
+                {_extRow("سحب اليوم", _fDay, _capDay, mlDaily, setMlDaily)}
+                {_extRow("سحب الشهر", _fMonth, _capMonth, mlMonthly, setMlMonthly)}
+                {_extRow("الرصيد", _bal, _capBal, mlBalance, setMlBalance)}
+                <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
                   <Btn primary onClick={saveMonthLimit}>💾 حفظ لشهر {curMonthKeyCairo()}</Btn>
-                  {walletHasMonthOverride(monthLimitW)&&<Btn danger onClick={clearMonthLimit}>↩️ رجوع للافتراضي</Btn>}
+                  {walletHasMonthExtra(monthLimitW)&&<Btn danger onClick={clearMonthLimit}>🗑️ مسح الخارجي</Btn>}
                   <Btn ghost onClick={()=>setMonthLimitW(null)}>إلغاء</Btn>
                 </div>
               </div>
-            </div>
-          )}
+            </div>;
+          })()}
           {capCheck&&(()=>{
             const amt=parseFloat(capCheck.amount)||0;
             const rows=wallets.map(w=>{
-              const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
+              const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out+walletMonthExtra(w,"extBalance");/* V21.9.248: + الرصيد الخارجي */
               const cap=Number(walletEffCap(w,"balanceCap"))||0;const hasCap=cap>0;
               const avail=hasCap?Math.max(0,cap-bal):Infinity;
               const fits=!hasCap||(bal+amt<=cap);
