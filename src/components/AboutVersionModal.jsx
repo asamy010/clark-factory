@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.243",
+    date: "2026-06-04",
+    types: ["fix"],
+    title: "🏷️ الأيجنت — تصحيح شارات «مفعّل/قريباً» للأدوات",
+    changes: [
+      { type: "fix", text: "🎯 تبويب «الأدوات» كان بيوري ١٢ أداة بشارة «✓ مفعّل» وهي فعلياً لسه مش متبنية في الـ backend (مش موجودة في الـ REGISTRY بتاع api/ai-agent/_tools.js) — يعني تشغيلها من الـ UI مكانش بيعمل أي حاجة. ده كان بيوهم الأدمن إن أدوات زي «معلومات العميل» و«رصيد العميل» و«حالة طلب» و«إرسال/تأكيد OTP» شغّالة. دلوقتي كل أداة لسه مش متبنية بتوري شارة «🚧 قريباً» الصح." },
+      { type: "fix", text: "✅ الأدوات المتبنية فعلياً (٣ بس) فضلت «✓ مفعّل»: escalate_to_human (تحويل لبشري)، generate_portal_link (لينك البوابة الآمن)، search_products (البحث في الكتالوج). الباقي بقى «قريباً»: get_customer_info · get_product_details · get_customer_balance · get_customer_orders · get_order_status · get_faq_answer · get_company_info · generate_statement_pdf · notify_sales_team · notify_admin_phone_request · send_otp · verify_otp." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/AIAgentPg.jsx (ToolsTab → toolGroups: deployed:false لـ ١٢ أداة). تغيير عرض بحت — صفر لمس لمنطق التشغيل: الـ backend أصلاً بيحصر الأدوات المتاحة على الـ REGISTRY، فالشارة كانت معلومة مضلّلة مش ثغرة. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.242",
     date: "2026-06-04",
     types: ["fix"],

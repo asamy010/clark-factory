@@ -2710,19 +2710,19 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
       title: "📖 READ-ONLY (يقرأ فقط من Firestore)",
       color: "#0EA5E9",
       items: [
-        { key:"get_customer_info",     label:"معلومات العميل",          desc:"اسم، عنوان، tier، الخصم — للسائل نفسه أو بحث محدود", deployed: true },
+        { key:"get_customer_info",     label:"معلومات العميل",          desc:"اسم، عنوان، tier، الخصم — للسائل نفسه أو بحث محدود", deployed: false },
         { key:"search_products",       label:"بحث في المنتجات",         desc:"الموديلات، الأسعار، المخزون", deployed: true, extras:[
           { field:"includePricing", label:"يعرض الأسعار", type:"bool" },
           { field:"includeStock",   label:"يعرض المخزون", type:"bool" },
           { field:"includeImages",  label:"يعرض الصور",   type:"bool" },
           { field:"maxResults",     label:"حد أقصى للنتائج", type:"number", suffix:"موديل" },
         ]},
-        { key:"get_product_details",   label:"تفاصيل موديل",            desc:"كل بيانات موديل بـ كوده (catalog lookup)", deployed: true },
-        { key:"get_customer_balance",  label:"رصيد العميل",             desc:"نفس formula كشف الحساب — للسائل فقط (PII)", deployed: true },
-        { key:"get_customer_orders",   label:"طلبات العميل",            desc:"آخر 30 طلب نشاطاً + حالات — للسائل فقط", deployed: true },
-        { key:"get_order_status",      label:"حالة طلب",                desc:"تفاصيل order_id أو modelNo (السائل فقط)", deployed: true },
-        { key:"get_faq_answer",        label:"الأسئلة المتكررة",        desc:"يـmatch السؤال مع الـ FAQs", deployed: true },
-        { key:"get_company_info",      label:"معلومات المصنع",          desc:"المواسم، الأقمشة، المقاسات، الورش", deployed: true },
+        { key:"get_product_details",   label:"تفاصيل موديل",            desc:"كل بيانات موديل بـ كوده (catalog lookup)", deployed: false },
+        { key:"get_customer_balance",  label:"رصيد العميل",             desc:"نفس formula كشف الحساب — للسائل فقط (PII)", deployed: false },
+        { key:"get_customer_orders",   label:"طلبات العميل",            desc:"آخر 30 طلب نشاطاً + حالات — للسائل فقط", deployed: false },
+        { key:"get_order_status",      label:"حالة طلب",                desc:"تفاصيل order_id أو modelNo (السائل فقط)", deployed: false },
+        { key:"get_faq_answer",        label:"الأسئلة المتكررة",        desc:"يـmatch السؤال مع الـ FAQs", deployed: false },
+        { key:"get_company_info",      label:"معلومات المصنع",          desc:"المواسم، الأقمشة، المقاسات، الورش", deployed: false },
       ],
     },
     {
@@ -2730,22 +2730,22 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
       color: "#8B5CF6",
       items: [
         { key:"generate_portal_link",   label:"لينك الـ portal",         desc:"رابط HMAC-signed صالح 90 يوم — السائل فقط", deployed: true },
-        { key:"generate_statement_pdf", label:"كشف حساب PDF",            desc:"بيـ delegate لـ portal link مع focus=statement", deployed: true },
+        { key:"generate_statement_pdf", label:"كشف حساب PDF",            desc:"بيـ delegate لـ portal link مع focus=statement", deployed: false },
       ],
     },
     {
       title: "🔔 NOTIFY (يبعت رسالة، ما يـكتبش في DB)",
       color: "#F59E0B",
       items: [
-        { key:"notify_sales_team",          label:"إشعار فريق المبيعات",     desc:"⭐ بدلاً من create order. الفريق بـ يدخل الطلب يدوياً", deployed: true, extras:[
+        { key:"notify_sales_team",          label:"إشعار فريق المبيعات",     desc:"⭐ بدلاً من create order. الفريق بـ يدخل الطلب يدوياً", deployed: false, extras:[
           { field:"maxValueBeforeManual", label:"الحد الأقصى قبل المراجعة اليدوية", type:"number", suffix:"ج" },
         ]},
-        { key:"notify_admin_phone_request", label:"طلب ربط رقم/LID",         desc:"يبعت للأدمن LID + اسم مدّعى — يـ surface في aiAgentSuggestions", deployed: true },
+        { key:"notify_admin_phone_request", label:"طلب ربط رقم/LID",         desc:"يبعت للأدمن LID + اسم مدّعى — يـ surface في aiAgentSuggestions", deployed: false },
         { key:"escalate_to_human",          label:"تحويل لبشري",            desc:"بـ context كامل + آخر 5 رسائل", deployed: true },
-        { key:"send_otp",                   label:"إرسال OTP",               desc:"6-digit code في Redis، 5 دقايق default، 3 محاولات أقصى", deployed: true, extras:[
+        { key:"send_otp",                   label:"إرسال OTP",               desc:"6-digit code في Redis، 5 دقايق default، 3 محاولات أقصى", deployed: false, extras:[
           { field:"ttlMin",      label:"مدة الصلاحية",    type:"number", suffix:"دقيقة" },
         ]},
-        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يـ verify الكود — one-time use، يـ delete بعد النجاح", deployed: true },
+        { key:"verify_otp",                 label:"التحقق من OTP",           desc:"بـ يـ verify الكود — one-time use، يـ delete بعد النجاح", deployed: false },
       ],
     },
   ];
