@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.239",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "💰 الأيجنت — سقف التكلفة اليومي (Cost Cap)",
+    changes: [
+      { type: "feature", text: "🎯 تحكّم كامل في «قد إيه» الأيجنت يصرف: حدّد سقف يومي بالدولار من لوحة التحكم. لما مصروف اليوم (بتوقيت القاهرة) يوصل السقف، السيرفر بيوقف نداء Claude لحد بكرة (counter جديد كل يوم → بيرجع لوحده، من غير ما توقف الأيجنت يدوي). كارت في لوحة التحكم بيوريك «مصروف النهارده / السقف» + شريط تقدّم + الحالة (تحت/قرّب/تعدّى) + تعديل السقف والتصرف بعد التعدّي (silent / رسالة جاهزة)." },
+      { type: "feature", text: "🧮 العدّاد في aiAgentBudget/{اليوم} (admin SDK بـ FieldValue.increment) — مفيش تعديل rules. اللوحة بتحسب «مصروف النهارده» من المحادثات نفسها بنفس سعر Sonnet فبيطابق اللي السيرفر بيطبّقه. Fail-open: أي خطأ في قراءة الميزانية مابيوقفش الرد." },
+      { type: "architectural", text: "📁 NEW: api/ai-agent/_budget.js (budgetDocId / turnCostUsd / readTodaySpend / addSpend). MODIFIED: incoming.js (فحص السقف قبل النداء + addSpend بعده + canned over-budget)، AIAgentPg.jsx (كارت الميزانية في DashboardTab + تمرير updateAgent)، constants (config budget). مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.238",
     date: "2026-06-03",
     types: ["feature"],

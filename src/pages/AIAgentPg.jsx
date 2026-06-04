@@ -409,7 +409,7 @@ export function AIAgentPg({ data, upConfig, isMob, canEdit, user }){
 
       {/* ═══ TAB CONTENT ═══ */}
       <div>
-        {tab==="dashboard"   && <DashboardTab agent={agent} data={data} isMob={isMob}/>}
+        {tab==="dashboard"   && <DashboardTab agent={agent} data={data} isMob={isMob} updateAgent={updateAgent} canEdit={canEdit}/>}
         {tab==="personality" && <PersonalityTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
         {tab==="catalog"     && <CatalogTab data={data} upConfig={upConfig} canEdit={canEdit} isMob={isMob}/>}
         {tab==="faqs"        && <FaqsTab agent={agent} updateAgent={updateAgent} canEdit={canEdit} isMob={isMob}/>}
@@ -1459,7 +1459,7 @@ function PlaceholderTab({ title, icon, phase, desc }){
    Cost via turnCost() at Sonnet pricing. (FAQ-rate / confidence aren't tracked
    on turns yet, so they're intentionally not shown rather than faked.)
    ════════════════════════════════════════════════════════════ */
-function DashboardTab({ agent, data, isMob }){
+function DashboardTab({ agent, data, isMob, updateAgent, canEdit }){
   const [range, setRange] = useState("today");/* today | 7d | 30d */
 
   /* V21.9.236: real analytics computed client-side from aiAgentConversations
@@ -1530,6 +1530,22 @@ function DashboardTab({ agent, data, isMob }){
   const successRate = totals.msgs ? Math.round((totals.success / totals.msgs) * 100) : 0;
   const escalationRate = totals.msgs ? Math.round((totals.escalations / totals.msgs) * 100) : 0;
   const hasAnyData = totals.msgs > 0 || totals.admin > 0;
+
+  /* V21.9.239 — today's spend (independent of the range selector) for the
+     cost-cap card. Same Sonnet pricing as the backend budget counter. */
+  const todayCost = useMemo(() => {
+    let c = 0;
+    for (const t of turns) if (cairoDayKey(new Date(t.at)) === cairoToday) c += turnCost(t.usage);
+    return c;
+  }, [turns, cairoToday]);
+  const budget = agent.budget || {};
+  const cap = Number(budget.dailyUsdCap) || 0;
+  const capPct = cap > 0 ? Math.min(200, Math.round((todayCost / cap) * 100)) : 0;
+  const overCap = cap > 0 && todayCost >= cap;
+  const setBudget = (key, val) => updateAgent && updateAgent(a => {
+    if (!a.budget) a.budget = { dailyUsdCap: 0, overBudgetBehavior: "silent", overBudgetMessage: "" };
+    a.budget[key] = val;
+  });
 
   const chartData = perDay.map(d => ({
     name: d.label, "ناجحة": d.success, "رد آلي": d.canned, "متخطّى": d.skipped, "فشل": d.failed,
@@ -1603,6 +1619,49 @@ function DashboardTab({ agent, data, isMob }){
         <KpiCard icon="🆘" label="تصعيد لموظف" value={totals.escalations} color="#DC2626"/>
         <KpiCard icon="📈" label="نسبة الرد الناجح" value={totals.msgs ? successRate+"%" : "—"} color="#10B981"/>
         <KpiCard icon="🎯" label="نسبة التصعيد" value={totals.msgs ? escalationRate+"%" : "—"} color="#F59E0B"/>
+      </div>
+
+      {/* V21.9.239 — daily cost cap / budget governance */}
+      <div style={{...cardStyle, border:`1px solid ${overCap ? "#DC2626" : (cap>0 && capPct>=80) ? "#F59E0B" : T.brd}`}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:10}}>
+          <h3 style={{margin:0, fontSize:FS+1, fontWeight:800, color:T.text}}>💰 سقف التكلفة اليومي</h3>
+          <span style={{fontSize:FS-2, fontWeight:700, color: overCap ? "#991B1B" : cap>0 ? "#059669" : T.textMut}}>
+            {cap>0 ? (overCap ? "🛑 تعدّى السقف — الأيجنت واقف للنهارده" : capPct>=80 ? "⚠️ قرّب من السقف" : "✅ تحت السقف") : "بدون سقف"}
+          </span>
+        </div>
+        <div style={{display:"flex", justifyContent:"space-between", fontSize:FS-1, marginBottom:6}}>
+          <span style={{color:T.textSec}}>مصروف النهارده</span>
+          <span style={{fontWeight:800, color:T.text, fontVariantNumeric:"tabular-nums"}}>
+            ${todayCost.toFixed(3)}{cap>0 && <span style={{color:T.textMut, fontWeight:600}}> / ${cap.toFixed(2)}</span>}
+          </span>
+        </div>
+        {cap>0 && (
+          <div style={{height:10, borderRadius:6, background:T.bg, overflow:"hidden", marginBottom:12}}>
+            <div style={{height:"100%", width:`${Math.min(100,capPct)}%`, background: overCap ? "#DC2626" : capPct>=80 ? "#F59E0B" : "#10B981", transition:"width 0.3s"}}/>
+          </div>
+        )}
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:10}}>
+          <div>
+            <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:4}}>السقف اليومي (USD) — 0 = بدون سقف</label>
+            <Inp type="number" value={budget.dailyUsdCap} onChange={v=>setBudget("dailyUsdCap", v)} readOnly={!canEdit} placeholder="مثال: 5"/>
+          </div>
+          <div>
+            <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:4}}>التصرف بعد تعدّي السقف</label>
+            <Sel value={budget.overBudgetBehavior||"silent"} onChange={v=>setBudget("overBudgetBehavior", v)}>
+              <option value="silent">مفيش رد (silent)</option>
+              <option value="canned">يبعت رسالة جاهزة</option>
+            </Sel>
+          </div>
+        </div>
+        {budget.overBudgetBehavior==="canned" && (
+          <div style={{marginTop:10}}>
+            <label style={{fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:4}}>الرسالة بعد تعدّي السقف</label>
+            <Inp value={budget.overBudgetMessage||""} onChange={v=>setBudget("overBudgetMessage", v)} readOnly={!canEdit} placeholder="أهلاً بحضرتك، هنرد عليك قريب بإذن الله."/>
+          </div>
+        )}
+        <div style={{marginTop:10, fontSize:FS-3, color:T.textMut, lineHeight:1.5}}>
+          بيتحسب بسعر Sonnet الحقيقي وبيرجع تلقائياً بداية كل يوم (توقيت القاهرة). غيّر القيم واضغط «💾 حفظ التغييرات» فوق.
+        </div>
       </div>
 
       {/* Chart */}

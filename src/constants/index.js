@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.238";
+export const APP_VERSION = "V21.9.239";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -193,6 +193,11 @@ export const INIT_CONFIG = {
        by hand via api/ai-agent/admin-reply. State lives in aiAgentTakeovers/{wid};
        this only sets the idle window after which a forgotten takeover auto-resumes. */
     takeover: { autoResumeHours: 24 },
+    /* V21.9.239 — Daily cost cap (Sonnet is billable). dailyUsdCap<=0 = بدون سقف.
+       لما مصروف اليوم (بتوقيت القاهرة) يوصل السقف، الـ gate بيوقف نداء Claude
+       لحد بكرة (counter جديد كل يوم → بيرجع لوحده). overBudgetBehavior: silent
+       (مفيش رد) | canned (يبعت overBudgetMessage). */
+    budget: { dailyUsdCap: 0, overBudgetBehavior: "silent", overBudgetMessage: "" },
     /* Tier discounts (default per spec) */
     tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },
     /* V19.73 — Tier thresholds (annual purchases, EGP) — used by funnel viz

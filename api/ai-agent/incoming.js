@@ -26,6 +26,7 @@ import { processTurn } from "./_processTurn.js";
 import { sendViaBridge } from "./_bridge.js";
 import { takeoverDocId, isTakeoverActive } from "./_takeover.js";
 import { isWithinSchedule } from "./_schedule.js";
+import { readTodaySpend, addSpend } from "./_budget.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_MSG_LEN = 4000;
@@ -205,6 +206,18 @@ export default async function handler(req, res) {
     }
   }
 
+  /* V21.9.239 — daily cost cap. Once today's spend (Cairo day) reaches the
+     configured USD cap, stop calling Claude until tomorrow (fresh counter →
+     auto-recovers; no need to flip enabled). cap<=0 means no cap. Fail-open:
+     a budget-read error returns 0 → never blocks a reply. */
+  if (!skipReason) {
+    const cap = Number(agent.budget && agent.budget.dailyUsdCap) || 0;
+    if (cap > 0) {
+      const spent = await readTodaySpend(db, Date.now());
+      if (spent >= cap) skipReason = "تعدّى سقف الميزانية اليومي";
+    }
+  }
+
   if (skipReason) {
     /* V21.9.231: for senders OUTSIDE the testMode whitelist, optionally send the
        configured canned "under maintenance" reply (so real customers aren't left
@@ -215,6 +228,8 @@ export default async function handler(req, res) {
       cannedReply = String(tm.outsideMessage || "").trim() || null;
     } else if (skipReason === "خارج مواعيد العمل (الجدول)" && phone) {
       cannedReply = offHoursCanned;
+    } else if (skipReason === "تعدّى سقف الميزانية اليومي" && phone && agent.budget?.overBudgetBehavior === "canned") {
+      cannedReply = String(agent.budget.overBudgetMessage || "").trim() || null;
     }
     let sentCanned = false;
     if (cannedReply) {
@@ -269,6 +284,11 @@ export default async function handler(req, res) {
     errMsg = e?.message || String(e);
     console.error("[ai-agent/incoming] processTurn failed:", errMsg);
   }
+
+  /* V21.9.239 — record spend against today's cap. Best-effort + internally
+     fail-safe; the cost was incurred whenever Claude was called (usage set),
+     regardless of whether the send to the customer succeeded. */
+  if (usage) await addSpend(db, Date.now(), usage);
 
   /* Send the reply to the customer via the existing bridge /send */
   let sent = false, sendErr = null;
