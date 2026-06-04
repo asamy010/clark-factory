@@ -31,6 +31,29 @@ import { T } from "../theme.js";
 import { db } from "../firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 
+/* V21.9.246 — per-month wallet cap override (admin-only).
+   Sometimes personal (non-factory) money flows through a wallet, throwing off
+   the daily/monthly/balance limit headroom. So an admin can override a wallet's
+   three caps FOR THE CURRENT MONTH ONLY: w.capOverrides = {"YYYY-MM": {
+   dailyWithdrawCap, monthlyWithdrawCap, balanceCap }}. The caps are SOFT
+   warning thresholds (saveTx already lets admins override per-transaction), so
+   this NEVER touches money/legs — it only changes when the "تجاوز الحد" warning
+   fires. Auto-reverts next month (no override key for the new month). */
+function curMonthKeyCairo(){
+  const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Cairo",year:"numeric",month:"2-digit"}).formatToParts(new Date());
+  let y="",m="";for(const p of parts){if(p.type==="year")y=p.value;if(p.type==="month")m=p.value;}
+  return y+"-"+m;
+}
+/* Effective cap = this-month override if set, else the wallet's default field. */
+function walletEffCap(w,field){
+  const o=w&&w.capOverrides&&w.capOverrides[curMonthKeyCairo()];
+  if(o&&o[field]!=null&&o[field]!=="")return Number(o[field]);
+  return w?w[field]:undefined;
+}
+function walletHasMonthOverride(w){
+  return !!(w&&w.capOverrides&&w.capOverrides[curMonthKeyCairo()]);
+}
+
 export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const userEmail=user?.email||"";
@@ -688,6 +711,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[newAccMonthlyCap,setNewAccMonthlyCap]=useState("200000");
   const[newAccDailyCap,setNewAccDailyCap]=useState("60000");/* V21.9.223: حد السحب اليومي لكل محفظة */
   const[walletImgBusy,setWalletImgBusy]=useState(false);
+  /* V21.9.246: per-month wallet cap override popup (admin-only) */
+  const[monthLimitW,setMonthLimitW]=useState(null);
+  const[mlDaily,setMlDaily]=useState("");
+  const[mlMonthly,setMlMonthly]=useState("");
+  const[mlBalance,setMlBalance]=useState("");
   /* V21.9.204 (e-wallets Phase 2): per-wallet commission tiers (شرائح).
      Each tier = {from, to, fee} — a FIXED fee for amounts in [from..to]
      (Vodafone-Cash style). Leave `to` empty for the open-ended top tier. */
@@ -1864,20 +1892,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _isMgr=isAdmin||userRole==="manager";
         let _block=null;
         if(_amt>0&&txType==="in"){
-          const _cap=Number(_w.balanceCap)||0;
+          const _cap=Number(walletEffCap(_w,"balanceCap"))||0;
           if(_cap>0){
             const _b=accBalances[_w.name]||{in:0,out:0};const _cur=_b.in-_b.out;
             if(_cur+_amt>_cap)_block="رصيد المحفظة بعد الاستلام ("+fmt0(_cur+_amt)+" ج.م) هيتعدّى حد الرصيد ("+fmt0(_cap)+" ج.م).";
           }
         }else if(_amt>0&&txType==="out"){
           /* V21.9.223: الحد اليومي الأول (الأقرب للتجاوز)، وبعده الشهري لو اليومي عدّى */
-          const _dcap=Number(_w.dailyWithdrawCap ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد */
+          const _dcap=Number(walletEffCap(_w,"dailyWithdrawCap") ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد (V21.9.246: + override الشهر) */
           if(_dcap>0){
             const _do=walletDayOut[_w.name]||0;
             if(_do+_amt>_dcap)_block="سحب اليوم بعد العملية ("+fmt0(_do+_amt)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(_dcap)+" ج.م). يتجدد بكرة.";
           }
           if(!_block){
-            const _mcap=Number(_w.monthlyWithdrawCap)||0;
+            const _mcap=Number(walletEffCap(_w,"monthlyWithdrawCap"))||0;
             if(_mcap>0){
               const _mo=walletMonthOut[_w.name]||0;
               if(_mo+_amt>_mcap)_block="سحب الشهر بعد العملية ("+fmt0(_mo+_amt)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(_mcap)+" ج.م). يتجدد يوم 1.";
@@ -1907,7 +1935,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _orig=(txns||[]).find(t=>t.id===editId)||null;
         let _block=null;
         if(_amt>0&&txType==="in"){
-          const _cap=Number(_w.balanceCap)||0;
+          const _cap=Number(walletEffCap(_w,"balanceCap"))||0;
           if(_cap>0){
             let _in=0,_out=0;
             (txns||[]).forEach(t=>{if(t.id===editId)return;if((t.account||"")!==_w.name)return;if(t.type==="in")_in+=Number(t.amount)||0;else _out+=Number(t.amount)||0;});
@@ -1919,7 +1947,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           }
         }else if(_amt>0&&txType==="out"){
           /* V21.9.223: الحد اليومي على التعديل (نفس منطق exclude-self + حارس الزيادة) */
-          const _dcap=Number(_w.dailyWithdrawCap ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد */
+          const _dcap=Number(walletEffCap(_w,"dailyWithdrawCap") ?? 60000)||0;/* V21.9.223: المحافظ القديمة بلا حقل → افتراضي 60 ألف؛ صفر صريح = بلا حد (V21.9.246: + override الشهر) */
           if(_dcap>0){
             let _doExcl=0;
             (txns||[]).forEach(t=>{if(t.id===editId)return;if(t.type==="out"&&(t.account||"")===_w.name&&(t.date||"")===today)_doExcl+=Number(t.amount)||0;});
@@ -1929,7 +1957,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             if(_post>_dcap&&_post>_pre)_block="سحب اليوم بعد التعديل ("+fmt0(_post)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(_dcap)+" ج.م). يتجدد بكرة.";
           }
           if(!_block){
-            const _mcap=Number(_w.monthlyWithdrawCap)||0;
+            const _mcap=Number(walletEffCap(_w,"monthlyWithdrawCap"))||0;
             if(_mcap>0){
               const _mo7=(today||"").slice(0,7);
               let _moExcl=0;
@@ -2014,9 +2042,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      visible right there without switching back to the wallets tab. */
   const walletCard=(w)=>{
     const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
-    const cap=Number(w.balanceCap)||0;const mcap=Number(w.monthlyWithdrawCap)||0;
+    const cap=Number(walletEffCap(w,"balanceCap"))||0;const mcap=Number(walletEffCap(w,"monthlyWithdrawCap"))||0;
     const mOut=walletMonthOut[w.name]||0;
-    const dcap=Number(w.dailyWithdrawCap ?? 60000)||0;const dOut=walletDayOut[w.name]||0;/* V21.9.223: قديم بلا حقل → 60 ألف */
+    const dcap=Number(walletEffCap(w,"dailyWithdrawCap") ?? 60000)||0;const dOut=walletDayOut[w.name]||0;/* V21.9.223: قديم بلا حقل → 60 ألف */
+    const _hasOverride=walletHasMonthOverride(w);/* V21.9.246 */
     const balPct=cap>0?Math.min(100,Math.round(bal/cap*100)):0;
     const wPct=mcap>0?Math.min(100,Math.round(mOut/mcap*100)):0;
     const dPct=dcap>0?Math.min(100,Math.round(dOut/dcap*100)):0;
@@ -2030,11 +2059,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:FS,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{w.name}</div>
+          {_hasOverride&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:1}}>📅 حدود مخصّصة للشهر ده</div>}
           {w.walletNumber&&<div style={{fontSize:FS-2,color:T.textMut,direction:"ltr",textAlign:"right"}}>📞 {w.walletNumber}</div>}
         </div>
         {canEdit&&<div style={{display:"flex",gap:4,flexShrink:0}}>
           <span onClick={()=>{setView("journal");setFilterAcc(w.name)}} style={{cursor:"pointer",padding:"3px 7px",borderRadius:6,fontSize:FS-2,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"30"}} title="كل السجل">📒</span>
           <span onClick={()=>editAccount(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:T.bg,color:T.textSec,border:"1px solid "+T.brd}} title="تعديل المحفظة">✏️</span>
+          {isAdmin&&<span onClick={()=>openMonthLimit(w)} style={{cursor:"pointer",padding:"3px 6px",borderRadius:6,fontSize:11,background:_hasOverride?T.warn+"18":T.bg,color:_hasOverride?T.warn:T.textSec,border:"1px solid "+(_hasOverride?T.warn+"40":T.brd)}} title="حدود الشهر ده (أدمن فقط)">📅</span>}
           {/* V21.9.219: delete wallet — allowed ONLY when it has no transactions
               (same guard as delAccount + the accounts view). Blocks with a clear
               message otherwise. If we're inside this wallet's sub-tab, jump back to
@@ -2073,6 +2104,43 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const tf=t==="wallet"?buildWalletFields():{type:t};
         d.treasuryAccounts.push({id:newAccName.trim(),name:newAccName.trim(),ownerEmail:newAccOwner.trim(),...tf})}}});
     resetAccForm();showToast("✓ تمت الإضافة")};
+  /* V21.9.246 — per-month wallet cap override (admin-only). Pre-fills with the
+     CURRENT effective caps; saving writes capOverrides[thisMonth]; clearing
+     reverts to the wallet defaults. Touches only the soft-warning thresholds. */
+  const openMonthLimit=(w)=>{
+    setMonthLimitW(w);
+    setMlDaily(String(walletEffCap(w,"dailyWithdrawCap")??60000));
+    setMlMonthly(String(walletEffCap(w,"monthlyWithdrawCap")??200000));
+    setMlBalance(String(walletEffCap(w,"balanceCap")??200000));
+  };
+  const saveMonthLimit=()=>{
+    if(!monthLimitW||!isAdmin)return;
+    const mk=curMonthKeyCairo();const wid=monthLimitW.id;
+    upConfig(d=>{
+      if(!Array.isArray(d.treasuryAccounts))return;
+      const i=d.treasuryAccounts.findIndex(a=>a&&a.id===wid);
+      if(i<0)return;
+      if(!d.treasuryAccounts[i].capOverrides)d.treasuryAccounts[i].capOverrides={};
+      d.treasuryAccounts[i].capOverrides[mk]={
+        dailyWithdrawCap:Math.max(0,Number(mlDaily)||0),
+        monthlyWithdrawCap:Math.max(0,Number(mlMonthly)||0),
+        balanceCap:Math.max(0,Number(mlBalance)||0),
+        setBy:userName,setAt:new Date().toISOString(),
+      };
+    });
+    showToast("✅ اتحفظت حدود الشهر للمحفظة");setMonthLimitW(null);
+  };
+  const clearMonthLimit=()=>{
+    if(!monthLimitW||!isAdmin)return;
+    const mk=curMonthKeyCairo();const wid=monthLimitW.id;
+    upConfig(d=>{
+      if(!Array.isArray(d.treasuryAccounts))return;
+      const i=d.treasuryAccounts.findIndex(a=>a&&a.id===wid);
+      if(i<0||!d.treasuryAccounts[i].capOverrides)return;
+      delete d.treasuryAccounts[i].capOverrides[mk];
+    });
+    showToast("↩️ رجعنا للحدود الافتراضية للشهر ده");setMonthLimitW(null);
+  };
   const editAccount=(a)=>{setEditAccId(a.id);setNewAccName(a.name);setNewAccOwner(a.ownerEmail||"");
     /* V21.9.203: hydrate wallet fields when editing a wallet account. */
     setNewAccType(a.type||"cash");setNewAccNumber(a.walletNumber||"");setNewAccIcon(a.icon||"📱");setNewAccImage(a.image||"");
@@ -2189,12 +2257,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     const src=accountsData.find(a=>a&&typeof a==="object"&&a.type==="wallet"&&a.name===fromName);
     if(src){
       /* V21.9.223: حد السحب اليومي على المصدر */
-      const dcap=Number(src.dailyWithdrawCap ?? 60000)||0;
+      const dcap=Number(walletEffCap(src,"dailyWithdrawCap") ?? 60000)||0;
       if(dcap>0){
         const dOut=walletDayOut[src.name]||0;
         if(dOut+_a>dcap)msgs.push("• سحب اليوم من «"+fromName+"» بعد التحويل ("+fmt0(dOut+_a)+" ج.م) هيتعدّى الحد اليومي ("+fmt0(dcap)+" ج.م)");
       }
-      const mcap=Number(src.monthlyWithdrawCap)||0;
+      const mcap=Number(walletEffCap(src,"monthlyWithdrawCap"))||0;
       if(mcap>0){
         const mo=walletMonthOut[src.name]||0;
         if(mo+_a>mcap)msgs.push("• سحب الشهر من «"+fromName+"» بعد التحويل ("+fmt0(mo+_a)+" ج.م) هيتعدّى الحد الشهري ("+fmt0(mcap)+" ج.م)");
@@ -4937,11 +5005,36 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {/* V21.9.221: capacity-check popup — pure read. Lists wallets that can receive
               the typed amount without exceeding their balance cap (ready first), with
               the available headroom per wallet. No-cap wallets accept any amount. */}
+          {/* V21.9.246 — per-month wallet cap override (admin-only) */}
+          {monthLimitW&&(
+            <div onClick={()=>setMonthLimitW(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:18,padding:22,width:"100%",maxWidth:420,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>📅 حدود الشهر — {monthLimitW.name}</div>
+                  <Btn ghost small onClick={()=>setMonthLimitW(null)}>✕</Btn>
+                </div>
+                <div style={{fontSize:FS-2,color:T.textMut,lineHeight:1.6,marginBottom:14}}>
+                  تعديل حدود المحفظة <strong>للشهر الحالي ({curMonthKeyCairo()}) بس</strong> — وبترجع للافتراضي أول الشهر الجاي. مفيدة لما تستقبل فلوس شخصية على المحفظة فالحدود تبقى مش مظبوطة. الحدود تحذيرية بس ومالهاش أي تأثير على الفلوس/القيود. (أدمن فقط)
+                </div>
+                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",marginBottom:4}}>الحد اليومي للسحب (ج.م) — 0 = بلا حد</label>
+                <Inp type="number" value={mlDaily} onChange={setMlDaily}/>
+                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",margin:"12px 0 4px"}}>الحد الشهري للسحب (ج.م) — 0 = بلا حد</label>
+                <Inp type="number" value={mlMonthly} onChange={setMlMonthly}/>
+                <label style={{fontSize:FS-2,fontWeight:700,color:T.textSec,display:"block",margin:"12px 0 4px"}}>حد الرصيد (ج.م) — 0 = بلا حد</label>
+                <Inp type="number" value={mlBalance} onChange={setMlBalance}/>
+                <div style={{display:"flex",gap:8,marginTop:18,flexWrap:"wrap"}}>
+                  <Btn primary onClick={saveMonthLimit}>💾 حفظ لشهر {curMonthKeyCairo()}</Btn>
+                  {walletHasMonthOverride(monthLimitW)&&<Btn danger onClick={clearMonthLimit}>↩️ رجوع للافتراضي</Btn>}
+                  <Btn ghost onClick={()=>setMonthLimitW(null)}>إلغاء</Btn>
+                </div>
+              </div>
+            </div>
+          )}
           {capCheck&&(()=>{
             const amt=parseFloat(capCheck.amount)||0;
             const rows=wallets.map(w=>{
               const b=accBalances[w.name]||{in:0,out:0};const bal=b.in-b.out;
-              const cap=Number(w.balanceCap)||0;const hasCap=cap>0;
+              const cap=Number(walletEffCap(w,"balanceCap"))||0;const hasCap=cap>0;
               const avail=hasCap?Math.max(0,cap-bal):Infinity;
               const fits=!hasCap||(bal+amt<=cap);
               const over=hasCap?Math.max(0,(bal+amt)-cap):0;
