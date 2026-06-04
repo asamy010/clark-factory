@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.242",
+    date: "2026-06-04",
+    types: ["fix"],
+    title: "🛠️ إصلاح: إشعار موافقة التحويل بيرجع بعد التأكيد",
+    changes: [
+      { type: "fix", text: "🎯 [بلاغ أحمد] إشعار «طلب موافقة على تحويل من الخزنة الرئيسية للفرعية» كان بيرجع بعد الـ refresh رغم إنك أكّدت التحويل. **الفلوس كانت سليمة طول الوقت** — التحويل اتأكد مرة واحدة + قيد واحد في الخزينة (الـ idempotency في approveTransfer اشتغل صح، مفيش تكرار للفلوس). المشكلة كانت في عرض الإشعار بس: flag الإخفاء (endedAt) كان بيتسجّل فعلاً في notificationsDays، لكن النسخة المعروضة من الإشعار مكانتش بتعكسه (تضارب split/legacy)." },
+      { type: "fix", text: "✅ الحل (آمن تماماً — مالوش أي علاقة بمنطق القيود المالية): إشعار طلب الموافقة بقى **يختفي حسب حالة التحويل الفعلية** (مصدر حقيقة واحد) — أول ما التحويل يبقى «مؤكد» أو «مرفوض» الإشعار يختفي فوراً، بغض النظر عن flag الـ endedAt، فـ immune ضد أي desync. التعديل في فلتر الإشعارات في App.jsx بس — صفر لمس لـ approveTransfer/الـ legs/أي منطق مالي." },
+      { type: "architectural", text: "📁 MODIFIED: src/App.jsx (فلتر userNotifs — اشتقاق رؤية إشعار transfer_pending من حالة التحويل بدل الاعتماد على endedAt فقط). السبب الأعمق لـ desync الـ endedAt بين notificationsDays والنسخة المعروضة متسجّل كـ follow-up لو ظهر في إشعارات تانية. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.241",
     date: "2026-06-03",
     types: ["feature"],

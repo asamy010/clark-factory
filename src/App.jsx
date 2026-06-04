@@ -5572,8 +5572,25 @@ export default function App(){
   const _now=new Date();
   const userDismisses=userNotifState?.dismisses||{};
   const userReads=userNotifState?.reads||{};
+  /* V21.9.242 — index transfer status by id. A transfer "approval request"
+     notification (greeting-bar chip / transfer_pending) is OBSOLETE once the
+     transfer is no longer pending, so derive its visibility from the ACTUAL
+     transfer status (single source of truth) instead of relying only on
+     endedAt. Root cause of the user-reported bug: approveTransfer DID persist
+     endedAt to notificationsDays + confirmed the transfer (single leg — money
+     safe), but the displayed config.notifications copy of the chip didn't
+     reflect endedAt (split/legacy desync), so the approval chip reappeared
+     after refresh. The status check below is desync-proof. NOTE: this is a
+     display-only filter — it touches ZERO financial/leg logic. */
+  const _tfStatusById={};
+  for(const _t of (config.treasuryTransfers||[])){ if(_t&&_t.id) _tfStatusById[_t.id]=_t.status; }
   const userNotifs=(config.notifications||[]).filter(n=>n.toEmail===userEmail||n.toEmail==="all").filter(n=>{
     if(n.endedAt)return false;
+    /* Transfer-approval request → hide once the transfer is resolved. */
+    if(n.transferId&&(n.type==="transfer_pending"||(n.link&&n.link.subType==="transfer_pending"))){
+      const _st=_tfStatusById[n.transferId];
+      if(_st==="confirmed"||_st==="rejected")return false;
+    }
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     /* V19.53: per-user dismiss check — primary path */
     if(userDismisses[n.id])return false;
