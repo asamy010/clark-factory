@@ -262,6 +262,7 @@ export default async function handler(req, res) {
     db, wid: rawId, phone,
     customer: { id: customerId, name: customerName, type: customerType },
     agent,
+    catalog, /* V21.9.240 — full catalog for the search_products tool */
     bridge: {
       url: (bridge.url || process.env.WHATSAPP_BRIDGE_URL || "").trim(),
       token: (bridge.token || process.env.WHATSAPP_BRIDGE_TOKEN || "").trim(),

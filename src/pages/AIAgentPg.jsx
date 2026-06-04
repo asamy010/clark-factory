@@ -1707,7 +1707,7 @@ function DashboardTab({ agent, data, isMob, updateAgent, canEdit }){
             <KpiRow key={name} label={name} value={count}/>
           ))}
           <div style={{marginTop:10, paddingTop:10, borderTop:`2px solid ${T.brd}`, fontSize:FS-2, color:T.textMut, lineHeight:1.6}}>
-            💡 الأدوات المُنفَّذة حالياً: escalate_to_human · generate_portal_link (الباقي بيتفعّل مع الـ slices الجاية).
+            💡 الأدوات المُنفَّذة حالياً: search_products · generate_portal_link · escalate_to_human. (بيانات العميل/الطلبات بتتقدّم عبر رابط البوابة الآمن.)
           </div>
         </div>
       </div>

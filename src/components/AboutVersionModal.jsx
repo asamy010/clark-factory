@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.240",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "🔎 الأيجنت — أداة البحث في الكتالوج (search_products)",
+    changes: [
+      { type: "feature", text: "🎯 الأيجنت بقى يقدر يدوّر في **كل** الكتالوج (مش بس أول ٤٠ موديل اللي في سياقه): العميل يسأل عن موديل/نوع/خامة/لون، والأيجنت يستخدم أداة search_products ويرجّع لحد ٨ نتائج بالاسم والسعر والمقاسات والألوان. الأداة بتقرا config.catalog بس (آمنة تماماً — مفيش بيانات شغل). اسم اللون من c.color. التوجل بتاعها موجود في تبويب «الأدوات»." },
+      { type: "architectural", text: "📁 MODIFIED: api/ai-agent/_tools.js (تسجيل search_products في الـ REGISTRY)، incoming.js (حقن catalog في toolCtx)، AIAgentPg.jsx (تحديث قائمة الأدوات). ملاحظة: أدوات بيانات العميل/الطلبات/الرصيد **بقصد** بتتقدّم عبر generate_portal_link (البوابة الآمنة الموقّعة) بدل ما نعيد حساب المحاسبة سيرفر-سايد — زي إرشاد الـ handoff §5.B7. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.239",
     date: "2026-06-03",
     types: ["feature"],

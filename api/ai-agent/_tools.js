@@ -90,11 +90,54 @@ const generate_portal_link = {
   },
 };
 
+/* ── search_products ─────────────────────────────────────────────────────
+   Catalog search — SAFE (reads only config.catalog, no business data). The
+   system prompt only carries the first ~40 products, so this lets the agent
+   answer about the rest of the range. Matches name/code/category/fabric/color
+   (color name = c.color per CLAUDE.md §4). One query → up to 8 matches with
+   price + sizes + colors. ctx.catalog is injected by incoming.js. */
+const search_products = {
+  schema: {
+    name: "search_products",
+    description: "دوّر في كتالوج المصنع عن موديلات بالاسم أو الكود أو النوع أو الخامة أو اللون. استخدمها لو العميل سأل عن موديل أو نوع منتج أو خامة معيّنة، أو طلب موديل بالاسم/الكود بالظبط (هترجّع تفاصيله). بترجّع لحد ٨ نتائج بالاسم والسعر والمقاسات والألوان. متخترعش منتج مش في النتائج.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "كلمة البحث: اسم/كود/نوع/خامة/لون الموديل" } },
+      required: ["query"],
+    },
+  },
+  async run(input, ctx) {
+    const cat = Array.isArray(ctx && ctx.catalog) ? ctx.catalog : [];
+    const q = String(input.query || "").trim().toLowerCase();
+    if (!q) return "اكتب كلمة بحث (اسم موديل / كود / نوع / خامة / لون).";
+    if (!cat.length) return "الكتالوج فاضي حالياً — مفيش منتجات متسجّلة. حوّل العميل لموظف لو محتاج.";
+    const colorsOf = (p) => (Array.isArray(p.colors) ? p.colors : []).map((c) => (typeof c === "string" ? c : (c && c.color) || "")).filter(Boolean);
+    const hay = (p) => [p.name, p.nameEn, p.code, p.category, ...(Array.isArray(p.fabrics) ? p.fabrics : []), ...colorsOf(p)]
+      .filter(Boolean).join(" ").toLowerCase();
+    const hits = cat.filter((p) => p && hay(p).includes(q)).slice(0, 8);
+    if (!hits.length) return `مفيش نتائج لـ «${input.query}» في الكتالوج. جرّب كلمة تانية، أو اسأل العميل يوضّح الموديل، أو حوّله لموظف.`;
+    const lines = hits.map((p) => {
+      const bits = [String(p.name || p.code || "").trim()];
+      if (p.category) bits.push(String(p.category));
+      if (p.priceWholesale) bits.push(`جملة: ${p.priceWholesale} ج`);
+      if (Array.isArray(p.sizes) && p.sizes.length) bits.push(`مقاسات: ${p.sizes.join("، ")}`);
+      const cols = colorsOf(p);
+      if (cols.length) bits.push(`ألوان: ${cols.join("، ")}`);
+      if (p.minOrderQty) bits.push(`أقل طلب: ${p.minOrderQty}`);
+      if (p.inStock === false) bits.push("⚠️ مش متوفر حالياً");
+      return "• " + bits.filter(Boolean).join(" · ");
+    });
+    return `لقيت ${hits.length} نتيجة في الكتالوج:\n${lines.join("\n")}\n(اعرض اللي يهم العميل بصياغتك، ومتقولش أسعار غير دي.)`;
+  },
+};
+
 const REGISTRY = {
   escalate_to_human,
   generate_portal_link,
-  /* later slices register: get_customer_orders, get_order_status,
-     search_products, notify_sales_team, send_otp/verify_otp ... */
+  search_products,
+  /* Customer account/order/balance reads are intentionally served by
+     generate_portal_link (secure signed portal) rather than re-implemented
+     here — see CLAUDE.md / handoff §5.B7 (never re-state money server-side). */
 };
 
 /* Schemas for implemented tools not explicitly disabled in config */
