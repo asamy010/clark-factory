@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.241",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "⚙️ الأيجنت — تحكّم كامل في المحرّك من الـ UI (Runtime)",
+    changes: [
+      { type: "feature", text: "🎯 تحكّم كامل في «إزاي» الأيجنت بيفكّر ويرد — من تبويب «الأدوات» → «إعدادات المحرّك»: درجة الإبداع (temperature)، أقصى طول للرد (tokens)، عمق الذاكرة (عدد الأدوار اللي بيفتكرها)، وأقصى دورات للأدوات. + حقل الموديل (متقدّم): سيبه فاضي للافتراضي (Sonnet) أو غيّره لـ Haiku (أرخص/أسرع) أو Opus (أقوى) للتحكم في التكلفة/الجودة." },
+      { type: "feature", text: "🛡️ كل القيم بتتـ clamp لمدى آمن سيرفر-سايد (temperature ٠–١، tokens ٢٥٦–٤٠٩٦، إلخ) مع fallback للديفولت — يعني config فاضي = نفس السلوك بالظبط، وقيمة غلط مش هتكسر النداء. الموديل الغلط بس هو اللي ممكن يوقف الردود (في تحذير واضح في الـ UI)." },
+      { type: "architectural", text: "📁 MODIFIED: api/ai-agent/_processTurn.js (يقرا agent.runtime بـ clampInt/clampNum + fallback للـ constants: model/temp/maxTokens/maxIterations/historyTurns)، AIAgentPg.jsx (كارت «إعدادات المحرّك» في ToolsTab)، constants (config runtime). بنية الـ caching + tool-use زي ما هي. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.240",
     date: "2026-06-03",
     types: ["feature"],

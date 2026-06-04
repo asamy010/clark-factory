@@ -2669,6 +2669,7 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
   const tools = agent.tools || INIT_CONFIG.aiAgent.tools;
   const tiers = agent.tierDiscounts || INIT_CONFIG.aiAgent.tierDiscounts;
   const esc   = agent.escalation || INIT_CONFIG.aiAgent.escalation;
+  const rt    = agent.runtime || INIT_CONFIG.aiAgent.runtime;
 
   const setTool = (toolKey, field, val) => updateAgent(a => {
     if (!a.tools) a.tools = JSON.parse(JSON.stringify(INIT_CONFIG.aiAgent.tools));
@@ -2692,7 +2693,14 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
     a.escalation.autoTriggers[key] = val;
   });
 
+  /* V21.9.241 — runtime/engine knobs (clamped server-side in _processTurn). */
+  const setRuntime = (key, val) => updateAgent(a => {
+    if (!a.runtime) a.runtime = { ...INIT_CONFIG.aiAgent.runtime };
+    a.runtime[key] = val;
+  });
+
   const cardStyle = { background:T.cardSolid, border:`1px solid ${T.brd}`, borderRadius:14, padding: isMob?14:18, marginBottom:14 };
+  const lblStyle  = { fontSize:FS-2, fontWeight:700, color:T.textSec, display:"block", marginBottom:4 };
 
   /* V19.77.1: deployed === backend tool actually wired in clark-ai-agent.
      Items without `deployed: true` are placeholders for upcoming tools — they
@@ -2750,6 +2758,39 @@ function ToolsTab({ agent, updateAgent, canEdit, isMob }){
         fontSize:FS-1, color:"#0369A1", lineHeight:1.5,
       }}>
         💡 <strong>كل الأدوات READ-ONLY أو NOTIFY-ONLY.</strong> الـ Agent ما يقدرش يكتب في CLARK collections (customers, orders, ...). الكتابة مسموحة بس على `aiAgent*` collections (logs الـ agent المعزولة). ده security boundary بـ يتعمل enforce في الـ backend's Firestore wrapper.
+      </div>
+
+      {/* V21.9.241 — engine / runtime controls (full UI control over model behavior) */}
+      <div style={cardStyle}>
+        <h3 style={{margin:"0 0 4px", fontSize:FS+1, fontWeight:800, color:T.text}}>⚙️ إعدادات المحرّك (Runtime)</h3>
+        <div style={{fontSize:FS-2, color:T.textMut, marginBottom:14, lineHeight:1.5}}>
+          تحكّم في سلوك الموديل. القيم بتتـ clamp لمدى آمن على السيرفر — سيبها زي ما هي لو مش متأكد. غيّر واضغط «💾 حفظ التغييرات» فوق.
+        </div>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:12}}>
+          <div>
+            <label style={lblStyle}>درجة الإبداع (temperature) — ٠ دقيق · ١ متنوّع</label>
+            <Inp type="number" step="0.1" value={rt.temperature} onChange={v=>setRuntime("temperature", v)} readOnly={!canEdit} placeholder="0.4"/>
+          </div>
+          <div>
+            <label style={lblStyle}>أقصى طول للرد (tokens) — ٢٥٦ لـ ٤٠٩٦</label>
+            <Inp type="number" value={rt.maxTokens} onChange={v=>setRuntime("maxTokens", v)} readOnly={!canEdit} placeholder="1024"/>
+          </div>
+          <div>
+            <label style={lblStyle}>عمق الذاكرة (عدد الأدوار) — ٠ لـ ١٢</label>
+            <Inp type="number" value={rt.historyTurns} onChange={v=>setRuntime("historyTurns", v)} readOnly={!canEdit} placeholder="6"/>
+          </div>
+          <div>
+            <label style={lblStyle}>أقصى دورات للأدوات (tool loop) — ١ لـ ٨</label>
+            <Inp type="number" value={rt.maxIterations} onChange={v=>setRuntime("maxIterations", v)} readOnly={!canEdit} placeholder="5"/>
+          </div>
+        </div>
+        <div style={{marginTop:12}}>
+          <label style={lblStyle}>الموديل (متقدّم) — سيبه فاضي للافتراضي</label>
+          <Inp value={rt.model||""} onChange={v=>setRuntime("model", v)} readOnly={!canEdit} placeholder="فاضي = claude-sonnet-4 (الافتراضي)"/>
+          <div style={{fontSize:FS-3, color:"#B45309", marginTop:4, lineHeight:1.5}}>
+            ⚠️ غيّره بس لو متأكد من اسم موديل Anthropic صحيح ومتاح لحسابك — اسم غلط هيوقف ردود الأيجنت. فاضي = claude-sonnet-4 (أو AI_AGENT_MODEL من الـ env). Haiku أرخص/أسرع، Opus أقوى/أغلى.
+          </div>
+        </div>
       </div>
 
       {/* Tool groups */}

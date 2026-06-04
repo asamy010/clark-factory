@@ -21,6 +21,18 @@ const MAX_HISTORY_TURNS = 6;
 
 const LEN_MAP = { short: "مختصر جداً (جملة-جملتين)", medium: "متوسط (٢-٤ جمل)", long: "مفصّل لكن من غير حشو" };
 
+/* V21.9.241 — clamp a config-supplied runtime knob into a safe range, falling
+   back to the default if it's missing/non-numeric. Keeps UI-driven overrides
+   from ever sending the API an invalid value. */
+function clampNum(v, lo, hi, dflt) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+}
+function clampInt(v, lo, hi, dflt) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+}
+
 function buildKnowledge(agent, catalog, factoryName) {
   const p = (agent && agent.personality) || {};
   const parts = [];
@@ -91,11 +103,11 @@ function accumulate(total, u) {
   total.cache_read_input_tokens += Number(u.cache_read_input_tokens) || 0;
 }
 
-async function callClaude({ key, system, messages, tools }) {
+async function callClaude({ key, system, messages, tools, model, maxTokens, temperature }) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), CALL_TIMEOUT_MS);
   try {
-    const body = { model: MODEL, max_tokens: MAX_TOKENS, temperature: TEMPERATURE, system, messages };
+    const body = { model, max_tokens: maxTokens, temperature, system, messages };
     if (tools && tools.length) body.tools = tools;
     const r = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -121,6 +133,17 @@ export async function processTurn({ agent, catalog, factoryName, customer, userM
   const key = (process.env.ANTHROPIC_API_KEY || "").trim();
   if (!key) throw new Error("ANTHROPIC_API_KEY not set");
 
+  /* V21.9.241 — runtime knobs from config.aiAgent.runtime (UI-controlled),
+     clamped to safe ranges with the long-standing constants as fallback. An
+     empty model falls back to MODEL (env AI_AGENT_MODEL or the Sonnet default),
+     so unset config = identical behavior to before. */
+  const rt = (agent && agent.runtime) || {};
+  const model = (rt.model && String(rt.model).trim()) || MODEL;
+  const maxTokens = clampInt(rt.maxTokens, 256, 4096, MAX_TOKENS);
+  const temperature = clampNum(rt.temperature, 0, 1, TEMPERATURE);
+  const maxIterations = clampInt(rt.maxIterations, 1, 8, MAX_ITERATIONS);
+  const maxHistoryTurns = clampInt(rt.historyTurns, 0, 12, MAX_HISTORY_TURNS);
+
   const knowledge = buildKnowledge(agent || {}, catalog, factoryName);
   const ctx = (customer && customer.name)
     ? `[سياق داخلي — معلومة للمساعدة فقط، متعرضهاش حرفياً] العميل المتكلّم: ${customer.name}${customer.type ? " · النوع: " + customer.type : ""}. خاطبه بـ «أ/${customer.name}». لو احتجت بياناته الحيّة (رصيد/طلبات/كشف) استخدم أداة — متخترعش رقم.`
@@ -132,7 +155,7 @@ export async function processTurn({ agent, catalog, factoryName, customer, userM
 
   const tools = getToolSchemas(agent || {});
   const messages = [];
-  for (const h of (Array.isArray(history) ? history.slice(-MAX_HISTORY_TURNS * 2) : [])) {
+  for (const h of (Array.isArray(history) ? history.slice(-maxHistoryTurns * 2) : [])) {
     if (h && (h.role === "user" || h.role === "assistant") && h.content) {
       messages.push({ role: h.role, content: String(h.content) });
     }
@@ -143,9 +166,9 @@ export async function processTurn({ agent, catalog, factoryName, customer, userM
   const toolsUsed = [];
   let iterations = 0;
 
-  while (iterations < MAX_ITERATIONS) {
+  while (iterations < maxIterations) {
     iterations++;
-    const data = await callClaude({ key, system, messages, tools });
+    const data = await callClaude({ key, system, messages, tools, model, maxTokens, temperature });
     accumulate(usage, data.usage);
 
     if (data.stop_reason === "tool_use" && toolCtx) {
@@ -164,11 +187,11 @@ export async function processTurn({ agent, catalog, factoryName, customer, userM
       continue;
     }
 
-    return { reply: textOf(data.content), usage, model: MODEL, toolsUsed, iterations };
+    return { reply: textOf(data.content), usage, model, toolsUsed, iterations };
   }
 
   return {
     reply: "آسف، حصل تعقيد بسيط — هحوّلك لموظف يتابع معاك.",
-    usage, model: MODEL, toolsUsed, iterations, maxedOut: true,
+    usage, model, toolsUsed, iterations, maxedOut: true,
   };
 }

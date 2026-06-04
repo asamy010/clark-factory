@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.9.240";
+export const APP_VERSION = "V21.9.241";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -198,6 +198,10 @@ export const INIT_CONFIG = {
        لحد بكرة (counter جديد كل يوم → بيرجع لوحده). overBudgetBehavior: silent
        (مفيش رد) | canned (يبعت overBudgetMessage). */
     budget: { dailyUsdCap: 0, overBudgetBehavior: "silent", overBudgetMessage: "" },
+    /* V21.9.241 — runtime knobs (UI-controlled، بـ clamping آمن + fallback في
+       _processTurn). model فاضي = الافتراضي (env AI_AGENT_MODEL أو Sonnet).
+       temperature 0–1، maxTokens 256–4096، maxIterations 1–8، historyTurns 0–12. */
+    runtime: { model: "", temperature: 0.4, maxTokens: 1024, maxIterations: 5, historyTurns: 6 },
     /* Tier discounts (default per spec) */
     tierDiscounts: { Bronze: 0, Silver: 3, Gold: 5, Platinum: 8 },
     /* V19.73 — Tier thresholds (annual purchases, EGP) — used by funnel viz
