@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.238",
+    date: "2026-06-03",
+    types: ["feature"],
+    title: "⏰ الأيجنت — تطبيق الجدول الزمني فعلياً (Schedule)",
+    changes: [
+      { type: "feature", text: "🎯 تحكّم كامل في «إمتى» الأيجنت يرد: تبويب «الجدول الزمني» كان بيحفظ المواعيد بس **السيرفر كان بيتجاهلها** (كان بيطبّق «موقوف» فقط). دلوقتي السيرفر بيطبّق الجدول بالكامل بتوقيت القاهرة: مواعيد كل يوم (on/off + من/إلى)، المواعيد اللي بتعدّي نص الليل (مثلاً ٢٠:٠٠→١٠:٠٠)، والإجازات. بره المواعيد بيتصرّف حسب «سلوك خارج الساعات»: «يرد ويحاول يساعد» (يرد عادي) / «يبعت رسالة إن الفريق هيرد» / «يحوّل لبشري» — بيبعت الرسالة المحددة من غير ما يستهلك Claude." },
+      { type: "feature", text: "🛡️ آمن افتراضياً: السلوك الافتراضي «يرد ويحاول يساعد» — يعني الجدول مش هيمنع أي رد إلا لما تختار سلوك تاني بنفسك. الفحص في الـ gate بيتم بس لما الأيجنت كان هيرد أصلاً (مفيش تكلفة إضافية على المتخطّى)." },
+      { type: "architectural", text: "📁 NEW: api/ai-agent/_schedule.js (isWithinSchedule — Cairo tz + overnight windows + holidays). MODIFIED: incoming.js (فحص الجدول في الـ gate + canned off-hours)، AIAgentPg.jsx (ملاحظة إن السيرفر بيطبّق الجدول). ملاحظة: offHoursBehavior=escalate_all دلوقتي بيبعت الرسالة زي say_we_reply؛ تمييزه (تسجيل تصعيد للفريق) ممكن لاحقاً. مفيش build env محلي — Vercel هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.237",
     date: "2026-06-03",
     types: ["feature", "fix"],

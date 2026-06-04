@@ -1062,7 +1062,10 @@ function ScheduleTab({ agent, updateAgent, canEdit, isMob }){
 
       {/* Mode */}
       <div style={cardStyle}>
-        <h3 style={{margin:"0 0 14px",fontSize:FS+2,fontWeight:800,color:T.text}}>⏰ نمط التشغيل</h3>
+        <h3 style={{margin:"0 0 6px",fontSize:FS+2,fontWeight:800,color:T.text}}>⏰ نمط التشغيل</h3>
+        <div style={{fontSize:FS-2, color:"#059669", marginBottom:14, lineHeight:1.5}}>
+          ✅ السيرفر بيطبّق الجدول ده فعلياً (بتوقيت القاهرة) — بره المواعيد، حسب «التصرف خارج المواعيد» تحت.
+        </div>
         <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
           {[
             { val:"specific", label:"ساعات محددة يومياً", icon:"🕐", desc:"الـ Agent بيرد بس في الساعات اللي تحتها"},

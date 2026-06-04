@@ -25,6 +25,7 @@ import { findCustomerByPhone } from "./_customerLookup.js";
 import { processTurn } from "./_processTurn.js";
 import { sendViaBridge } from "./_bridge.js";
 import { takeoverDocId, isTakeoverActive } from "./_takeover.js";
+import { isWithinSchedule } from "./_schedule.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const MAX_MSG_LEN = 4000;
@@ -188,6 +189,22 @@ export default async function handler(req, res) {
     }
   }
 
+  /* V21.9.238 — enforce the configured schedule (Africa/Cairo). Before this only
+     mode==="off" was honored; "specific" (per-day windows + holidays) was
+     ignored. "24x7" always answers. Outside the window → offHoursBehavior:
+     "answer_anyway" replies normally, otherwise send the canned offHoursMessage
+     and skip the AI call. Only evaluated when the agent would otherwise reply. */
+  let offHoursCanned = null;
+  if (!skipReason && agent.schedule && agent.schedule.mode === "specific") {
+    if (!isWithinSchedule(agent.schedule, Date.now())) {
+      const beh = agent.schedule.offHoursBehavior || "answer_anyway";
+      if (beh !== "answer_anyway") {
+        skipReason = "خارج مواعيد العمل (الجدول)";
+        offHoursCanned = String(agent.schedule.offHoursMessage || "").trim() || null;
+      }
+    }
+  }
+
   if (skipReason) {
     /* V21.9.231: for senders OUTSIDE the testMode whitelist, optionally send the
        configured canned "under maintenance" reply (so real customers aren't left
@@ -196,6 +213,8 @@ export default async function handler(req, res) {
     let cannedReply = null;
     if (skipReason === "خارج قائمة التجربة (testMode)" && tm.outsideBehavior !== "silent" && phone) {
       cannedReply = String(tm.outsideMessage || "").trim() || null;
+    } else if (skipReason === "خارج مواعيد العمل (الجدول)" && phone) {
+      cannedReply = offHoursCanned;
     }
     let sentCanned = false;
     if (cannedReply) {
