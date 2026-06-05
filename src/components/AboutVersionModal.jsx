@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.249",
+    date: "2026-06-05",
+    types: ["fix"],
+    title: "🛡️ التحويلات — منع تكرار الحركات عند التأكيد المتزامن",
+    changes: [
+      { type: "fix", text: "🐛 [Root cause] لو نفس التحويل اتأكد مرتين في نفس اللحظة (من جهازين أدمن، أو من نفس الجهاز بعد ما الـ guard يفضي بثانيتين والنت لسه بيزامن) — كل تأكيد كان بيولّد ID عشوائي لنفس الحركة، فالـ merge اليومي ما كانش يقدر يوحّدهم → حركتين «صادر» و«وارد» مكررتين والرصيد بيتضخّم. الإصلاح: ID الحركة بقى مشتقّ من رقم التحويل (tf-<id>-out/-in)، فأي تأكيد متكرر بينتج نفس الـ ID والـ transaction بيستبدله مكانه بدل ما يكرره." },
+      { type: "fix", text: "🛡️ متوافق رجعياً 100%: التحويلات القديمة حركاتها متغيّرتش، وفحص التكرار (بالـ transferId) والتعديل/الحذف زي ما هما. كمان القيد المحاسبي (autoPost) بقى idempotent عند إعادة التأكيد. صفر تعديل في firestore.rules." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/TreasuryPg.jsx — approveTransfer: deterministic leg ids بدل gid(). لا يوجد build env محلي — Vercel/التيست المباشر هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.248",
     date: "2026-06-04",
     types: ["feature"],

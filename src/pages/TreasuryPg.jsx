@@ -2357,12 +2357,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const existingLegs=(d.treasury||[]).filter(t=>t.transferId===tf.id);
       const hasOut=existingLegs.some(t=>t.type==="out");
       const hasIn=existingLegs.some(t=>t.type==="in");
+      /* V21.9.249 ROOT CAUSE FIX — deterministic leg ids.
+         BUG: legs used `id:gid()` (random). The local idempotency check above
+         (hasOut/hasIn by transferId) only sees THIS device's local snapshot, and
+         the split-collection transactional merge in syncSplitCollection dedups by
+         entry `id` ONLY (not by transferId). So when the SAME transfer is confirmed
+         twice — from two admin devices at once, or the same device after the 2s
+         in-flight guard expires while the Firestore listener round-trip is still
+         pending — each confirm minted DIFFERENT gids for the same logical leg →
+         the per-day transaction could not collapse them → duplicate out/in legs
+         (account balance inflated, V21.9.14 dup-ledger class).
+         FIX: derive the id from the transfer id + side. Two confirms now produce
+         the SAME id, so the merge replaces in-place instead of appending. This is
+         backward-compatible: existing legs (random gids) are untouched; the
+         transferId-based check, edit, and delete paths are unaffected; and
+         autoPost.treasury (sourceId = leg.id) becomes idempotent on re-confirm too. */
       if(!hasOut){
-        _outLeg={id:gid(),type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
+        _outLeg={id:"tf-"+tf.id+"-out",type:"out",amount:tf.amount,desc:"تحويل إلى "+tf.toAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.fromAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
         d.treasury.unshift(_outLeg);
       }
       if(!hasIn){
-        _inLeg={id:gid(),type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
+        _inLeg={id:"tf-"+tf.id+"-in",type:"in",amount:tf.amount,desc:"تحويل من "+tf.fromAccount+(tf.note?" — "+tf.note:""),notes:"",category:"تحويل داخلي",account:tf.toAccount,season:d.activeSeason||"",date:tf.date,day:dayN,transferId:tf.id,by:tf.sentBy||userName,createdAt:nowISO()};
         d.treasury.unshift(_inLeg);
       }
       /* Mark pending notif as read; notify requester of approval */
