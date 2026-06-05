@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.250",
+    date: "2026-06-05",
+    types: ["fix"],
+    title: "🛡️ المرتبات — منع تكرار صرف/خصومات الأسبوع عند الإقفال المتزامن",
+    changes: [
+      { type: "fix", text: "🐛 [Root cause — أخطر فئة في النظام] لو نفس الأسبوع اتقفل مرتين في نفس اللحظة (أدمنين/جهازين، أو نفس الجهاز بعد ما الـ guard يفضي والنت لسه بيزامن) — كل إقفال كان بيولّد IDs عشوائية لكل حركة (مرتب/سلفة/دفعة ورشة/مصروف)، فالـ merge اليومي ما كانش يوحّدهم → **صرف مرتبات مرتين** + تكرار السلف والمصاريف في الخزنة. حركات المرتب تحديداً ماكانش عليها أي حماية (عكس السلف/الورش اللي ليها فحص). الإصلاح: ID كل حركة بقى مشتقّ من (رقم الأسبوع + رقم الموظف/السلفة/الدفعة) — أي إقفال متكرر بينتج نفس الـ IDs فالـ transaction بيستبدلها مكانها بدل ما يكرّرها." },
+      { type: "fix", text: "🛡️ متوافق رجعياً وآمن: مسارات إعادة الفتح/الاستعادة بتمسح حركات الأسبوع بالـ snapshotId أو (weekId+النوع) — مش بالـ ID — فمفيش حاجة تتكسر. الأسابيع المقفولة قديماً متغيّرتش. كمان القيود المحاسبية (autoPost) بقت idempotent عند إعادة الإقفال. fallback لـ ID عشوائي لو أي sub-id ناقص (منع تصادم). صفر تعديل في firestore.rules." },
+      { type: "architectural", text: "📁 MODIFIED: src/pages/HRPg.jsx — approveWeek: deterministic ids عبر helper (_detId) لكل الحركات الـ 8 (salary hrLog/treasury، advance tx/log، ws pay/tx، expense tx، supplier payment). الـ audit log سايب gid() (append-only). لا يوجد build env محلي — build نجح + التيست المباشر هو الـ verifier." },
+    ],
+  },
+  {
     version: "V21.9.249",
     date: "2026-06-05",
     types: ["fix"],

@@ -1680,6 +1680,26 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     const _autoPostOtherExp=[];   /* {tx} — for autoPost.treasury (hr_other_expense) */
     try{
     upConfig(d=>{if(!d.hrLog)d.hrLog=[];if(!d.treasury)d.treasury=[];if(!d.empDebts)d.empDebts=[];
+      /* V21.9.250 ROOT CAUSE FIX — deterministic ids for every entry minted on
+         week-close (same fix family as V21.9.249 transfer legs).
+         BUG: salary/advance/ws/expense entries used `id:gid()` (random). The week's
+         own idempotency anchor (openWeek.status==="closed") is read from the LOCAL
+         snapshot, and the split-collection transactional merge dedups by entry `id`
+         ONLY. So closing the SAME week twice — two admins/devices at once, or the
+         same device after the in-flight guard clears while the Firestore listener is
+         still syncing — minted DIFFERENT gids for the same logical record, and the
+         per-day merge could not collapse them → DOUBLE salary payout + duplicated
+         advances/ws/expenses in the ledger (the worst money-integrity class in CLARK;
+         salary entries had NO stale-link guard at all, unlike advances/ws/expenses).
+         FIX: derive each id from (weekId + the record's stable sub-id). A second close
+         produces the SAME ids → the merge replaces in-place instead of appending.
+         SAFE: rollback/reopen paths delete by snapshotId (line ~2237) or
+         weekId+sourceType (line ~6661) — never by the entry's own id — so deterministic
+         ids don't disturb them; existing closed weeks (random gids) are untouched; and
+         autoPost.* (sourceId = entry id) becomes idempotent on re-close too.
+         DEFENSIVE: fall back to gid() if a sub-id is somehow missing, so we never mint
+         a colliding "...-undefined" id that would overwrite a sibling entry. */
+      const _detId=(prefix,sub)=>(sub!==undefined&&sub!==null&&sub!=="")?(prefix+"-"+openWeek.id+"-"+sub):gid();
       /* V15.88 FIX: Declare wAdvs HERE (outside if/else) — was declared inside else block at 
          line 1493 but USED in snapshot code at line 1627 (outside block) → ReferenceError that
          caused silent save failures. Bug from V15.24. */
@@ -1692,7 +1712,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       }else{
       /* Log each salary. V21.9.40: capture for post-commit autoPost.hr. */
       records.forEach(r=>{
-        const _salLog={id:gid(),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,account:"SUB CASH",by:userName,createdAt:new Date().toISOString(),snapshotId};
+        const _salLog={id:_detId("hrsallog",r.empId),type:"salary",empId:r.empId,empName:r.empName,amount:r.netBalance,grossPay:r.grossPay,weeklySalary:r.weeklySalary,prevBalance:r.prevBalance,prevBalanceManualOverride:!!r.prevBalanceIsManual,overtimePay:r.overtimePay||0,weekAdvances:r.weekAdvances,bonus:r.bonus,specialDeduct:r.specialDeduct,deductReason:salDeductReason[r.empId]||"",debtInstall:r.debtInstall,debtItems:r.debtItems,thursdayPay:r.thursdayPay,remainingBalance:r.remainingBalance,weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,date:today,account:"SUB CASH",by:userName,createdAt:new Date().toISOString(),snapshotId};
         d.hrLog.unshift(_salLog);
         const _emp=(d.employees||[]).find(x=>x.id===r.empId)||{id:r.empId,name:r.empName};
         /* Only post if thursdayPay>0 (matches treasury entry). Salary with 0 payment = full carryover, nothing to post. */
@@ -1757,7 +1777,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       records.forEach(r=>{const e=(d.employees||[]).find(x=>x.id===r.empId);if(e)e.prevBalance=r.remainingBalance});
       /* Treasury — individual entry per employee (thursday pay). Uses useDate (editable close date). */
       const dayN=dayName(useDate);
-      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:gid(),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayN,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
+      records.forEach(r=>{if(r.thursdayPay>0)d.treasury.unshift({id:_detId("hrsal",r.empId),type:"out",amount:r2(r.thursdayPay),desc:"مرتب "+r.empName+" W"+openWeek.weekNum,category:"مرتبات",account:"SUB CASH",season:d.activeSeason||"",date:useDate,day:dayN,sourceType:"hr_salary",weekId:openWeek.id,empId:r.empId,by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate})});
       /* Weekly advances (planned) — register in treasury + hrLog NOW at week closure.
          Legacy advances that were already registered (treasuryTxId exists) are just tagged with snapshotId.
          V15.88: wAdvs now declared outside if/else block (see line ~1437). */
@@ -1771,7 +1791,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           _existingAdvTx.snapshotId=snapshotId;
         }else{
           /* New planned advance — register in treasury on close */
-          const advTxId=gid();
+          const advTxId=_detId("hradvtx",a.id);
           const advDayName=dayName(a.date||useDate);
           d.treasury.unshift({
             id:advTxId,type:"out",amount:r2(Number(a.amount)||0),
@@ -1783,7 +1803,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             by:userName,createdAt:new Date().toISOString(),snapshotId,actualCloseDate,backdated:useDate!==actualCloseDate
           });
           const _advLog={
-            id:gid(),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
+            id:_detId("hradvlog",a.id),type:"weekly_advance",empId:a.empId,empName:a.empName,empJob:a.empJob||"",
             amount:Number(a.amount)||0,note:a.note||"",
             weekId:openWeek.id,weekStart:openWeek.weekStart,weekEnd:openWeek.weekEnd,
             date:a.date||useDate,account:"SUB CASH",by:userName,createdAt:new Date().toISOString(),
@@ -1811,7 +1831,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* Already registered earlier — tag with snapshotId for rollback */
           _existingTx.snapshotId=snapshotId;
         }else{
-          const wsPayId=gid();const wsTxId=gid();
+          const wsPayId=_detId("hrwspay",p.id);const wsTxId=_detId("hrwstx",p.id);
           /* V15.89: If date was auto-assigned (user didn't pick it), use the actual close date
              so treasury entry matches when cash physically left. Manually-set dates are respected. */
           const effDate=p.autoDate?useDate:(p.date||useDate);
@@ -1859,7 +1879,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           /* Already registered earlier — tag with snapshotId for rollback */
           _existingTx.snapshotId=snapshotId;
         }else{
-          const exTxId=gid();
+          const exTxId=_detId("hrexptx",ex.id);
           const exDayName=dayName(ex.date||useDate);
           /* Register in treasury as a regular expense (NOT in wsPayments) */
           const _exTx={
@@ -1887,7 +1907,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           if(ex.supplierId){
             if(!Array.isArray(d.supplierPayments))d.supplierPayments=[];
             d.supplierPayments.push({
-              id:gid(),
+              id:_detId("hrexpsup",ex.id),
               supplierId:ex.supplierId,
               supplierName:ex.supplierName||"",
               amount:r2(Number(ex.amount)||0),
