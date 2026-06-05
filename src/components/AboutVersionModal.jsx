@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.253",
+    date: "2026-06-05",
+    types: ["fix"],
+    title: "🚀 إعادة نشر — تفعيل أداة إصلاح المرتبات (252)",
+    changes: [
+      { type: "fix", text: "🔁 كوميت V21.9.252 وصل GitHub لكن Vercel ما عملش له build (الـ webhook اتفوّت بسبب تذبذب اتصال وقت الـ push). الإصدار ده بيعيد النشر — فبيشمل أداة إصلاح حركات المرتبات المفقودة من الخزنة (api/maintenance/repair-payroll-week-treasury.js + كارت لوحة التشخيص). مفيش كود اتغيّر غير رقم الإصدار." },
+    ],
+  },
+  {
     version: "V21.9.252",
     date: "2026-06-05",
     types: ["feature"],
