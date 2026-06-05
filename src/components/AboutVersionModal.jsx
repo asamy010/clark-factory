@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.252",
+    date: "2026-06-05",
+    types: ["feature"],
+    title: "🔧 أداة إصلاح — استرجاع حركات المرتبات المفقودة من الخزنة",
+    changes: [
+      { type: "feature", text: "🛡️ [معالجة gap الذرّية عبر المستندات] إقفال الأسبوع بيتسجّل في 3 كتابات منفصلة (config + split + partitioned) مش transaction واحد. لو فشلت كتابة الـ split جزئياً (أو تعديل/سباق أجهزة شال الحركات) — ممكن أسبوع يكون «مقفول» لكن حركات المرتب الخاصة بيه مش موجودة في الخزنة. (المرتبات تحديداً كانت الوحيدة بدون recovery — السلف/الورش/المصاريف بتعالج نفسها عند إعادة الإقفال). أداة جديدة في لوحة التشخيص: «🔧 إصلاح أسابيع مقفولة ناقصة مرتبات» — بتقرأ الأسابيع المقفولة + closedRecords، تحدد المرتبات المفقودة، وتعيد إنشاءها بالـ deterministic id (hrsal-<week>-<emp>) بـ merge آمن في treasuryDays." },
+      { type: "feature", text: "✅ آمن بالكامل: dry-run أول (preview + عينة) → تأكيد → تنفيذ. Idempotent (مفيش تكرار لو اتشغّل مرتين)، إضافة فقط (مفيش حذف)، كل حركة مُعلَّمة بـ repairReason + تسجيل في migrationLog (قابل للمراجعة والتراجع). كمان بيكتشف الاتجاه العكسي (حركات مرتب لأسبوع غير مقفول) ويبلّغ عنه للمراجعة اليدوية بدون أي تعديل آلي." },
+      { type: "architectural", text: "📁 NEW: api/maintenance/repair-payroll-week-treasury.js (admin، server-side، Admin SDK فمش محتاج تعديل rules). MODIFIED: shopifyClient.js (wrapper repairPayrollWeekTreasury + timeout)، DiagnosticsPanel.jsx (كارت + handler). build + node --check نجحوا." },
+    ],
+  },
+  {
     version: "V21.9.251",
     date: "2026-06-05",
     types: ["fix"],

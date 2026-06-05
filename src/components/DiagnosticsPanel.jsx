@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, repairConfirmedTransfers } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, repairConfirmedTransfers, repairPayrollWeekTreasury } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -46,6 +46,10 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   const [transferRepairBusy, setTransferRepairBusy] = useState(false);
   const [transferRepairResult, setTransferRepairResult] = useState(null);
   const [transferRepairScan, setTransferRepairScan] = useState(null);
+  /* V21.9.252: payroll week → treasury salary-leg recovery */
+  const [payrollRepairBusy, setPayrollRepairBusy] = useState(false);
+  const [payrollRepairResult, setPayrollRepairResult] = useState(null);
+  const [payrollRepairScan, setPayrollRepairScan] = useState(null);
   /* V21.9.23: Firestore rules deployment test — detects "rules not published"
      bug where partitioned collections (customersDocs / productsDocs / etc.)
      get permission-denied on the client even though they exist on server. */
@@ -284,6 +288,62 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
       }
     } catch(e){ showToast("⛔ " + e.message); }
     finally { setTransferRepairBusy(false); }
+  };
+
+  /* V21.9.252: Recover missing SALARY treasury legs for closed payroll weeks.
+     Cross-document atomicity gap — a week marked closed whose hr_salary legs
+     never landed in treasuryDays. dry-run → confirm → real run. Idempotent +
+     additive-only (recreates with deterministic ids, never deletes). */
+  const scanPayrollRepair = async () => {
+    if(!canEdit) return;
+    setPayrollRepairBusy(true);
+    try {
+      const r = await repairPayrollWeekTreasury({ dryRun: true }, user);
+      setPayrollRepairScan(r);
+      if(!r?.ok){
+        showToast("⛔ " + (r?.error || "فشل scan"));
+        return;
+      }
+      if(r.weeks_with_missing_salary === 0){
+        showToast(
+          r.orphan_salary_weeks > 0
+            ? `✨ مفيش أسابيع مقفولة ناقصة مرتبات. ⚠️ لكن فيه ${r.orphan_salary_weeks} أسبوع بحركات مرتب وهو مش مقفول — محتاج مراجعة يدوية.`
+            : "✨ كل الأسابيع المقفولة سليمة — مفيش حركات مرتب ناقصة"
+        );
+        return;
+      }
+      const yes = await ask(
+        "🔧 إصلاح أسابيع المرتبات الناقصة من الخزنة",
+        `لقينا ${r.weeks_with_missing_salary} أسبوع مقفول لكن ناقص حركات مرتب في الخزنة.\n\n` +
+        `📊 التفاصيل:\n` +
+        `• أسابيع اتفحصت: ${r.weeks_scanned}\n` +
+        `• أسابيع ناقصها مرتبات: ${r.weeks_with_missing_salary}\n` +
+        `• حركات مرتب محتاجة إنشاء: ${r.salary_legs_to_create}\n` +
+        `• أيام متأثرة: ${r.days_affected}\n` +
+        (r.orphan_salary_weeks > 0 ? `• ⚠️ تحذير: ${r.orphan_salary_weeks} أسبوع بحركات مرتب وهو مش مقفول (مش هيتصلح آلياً — مراجعة يدوية)\n` : "") +
+        `\n${r.sample_repaired?.length ? "🔍 عينة من الأسابيع:\n" + r.sample_repaired.slice(0, 5).map(w =>
+          `• W${w.weekNum} (${w.date}) — ناقص ${w.missing} مرتب` +
+          (w.sampleEmps?.length ? ": " + w.sampleEmps.map(e => `${e.emp} ${e.amount}ج`).join("، ") : "")
+        ).join("\n") + "\n\n" : ""}` +
+        `✅ آمن:\n` +
+        `• Idempotent — لو ضغطت مرتين مفيش تكرار (deterministic id: hrsal-<week>-<emp>)\n` +
+        `• Merge مع حركات اليوم الموجودة (مش overwrite)\n` +
+        `• إضافة فقط — مفيش حذف. كل حركة مُعلَّمة بـ repairReason للـ audit\n\n` +
+        `⚠️ ده بيسجّل صرف مرتب في الخزنة (حركة out) — راجع العينة وتأكد إن الفلوس فعلاً خرجت.\n\n` +
+        `تأكيد إنشاء حركات المرتب الناقصة؟`
+      );
+      if(!yes) return;
+
+      const real = await repairPayrollWeekTreasury({ dryRun: false }, user);
+      setPayrollRepairResult(real);
+      if(real?.ok){
+        showToast(`✅ تم! 🔧 ${real.salary_legs_created} حركة مرتب لـ ${real.weeks_with_missing_salary} أسبوع`);
+        setTimeout(() => runCheck(), 1500);
+      } else {
+        showToast("⛔ " + (real?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setPayrollRepairBusy(false); }
   };
 
   /* V21.9.44: Recurring treasury migration handler.
@@ -1954,6 +2014,56 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
               {transferRepairResult.sample_repaired.slice(0, 5).map((t, i) => (
                 <li key={i} style={{ marginTop: 2 }}>
                   <b>{t.amount}</b> ج.م — {t.from} → {t.to} ({t.date}) <span style={{ color: T.textMut }}>[{t.missing}]</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* V21.9.252: Payroll week → treasury salary-leg recovery.
+          Detects closed weeks whose hr_salary treasury legs never landed
+          (cross-document atomicity gap). Always-available tool. */}
+      <div style={{
+        padding: 12,
+        marginBottom: 12,
+        background: payrollRepairResult?.ok ? T.ok + "10" : T.brd + "12",
+        border: "1.5px solid " + (payrollRepairResult?.ok ? T.ok : T.brd),
+        borderRadius: 10,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800, color: payrollRepairResult?.ok ? T.ok : T.text, fontSize: FS }}>
+              {payrollRepairResult?.ok
+                ? "✅ تم إصلاح حركات المرتبات الناقصة"
+                : "🔧 إصلاح أسابيع مقفولة ناقصة مرتبات في الخزنة"}
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+              {payrollRepairResult?.ok
+                ? `أنشأنا ${payrollRepairResult.salary_legs_created} حركة مرتب لـ ${payrollRepairResult.weeks_with_missing_salary} أسبوع. الحركات دلوقتي في الخزنة.`
+                : `لو أسبوع اتقفل (status="closed") لكن حركات المرتب الخاصة بيه مش موجودة في الخزنة (gap الذرّية عبر المستندات)، اضغط الزر لـ scan + إصلاح. الـ Tool يقرأ الأسابيع المقفولة + closedRecords، يحدد المرتبات المفقودة، ويـ create الحركات بالـ deterministic id (merge آمن مش overwrite). Idempotent — آمن لو ضغطته مرتين.`}
+            </div>
+            {payrollRepairScan && !payrollRepairResult?.ok && (
+              <div style={{ marginTop: 6, padding: 6, background: T.brd + "20", borderRadius: 6, fontSize: FS - 3 }}>
+                آخر scan: {payrollRepairScan.weeks_scanned} أسبوع اتفحص · {payrollRepairScan.weeks_with_missing_salary} ناقصه مرتبات · {payrollRepairScan.salary_legs_to_create} حركة محتاجة إنشاء
+                {payrollRepairScan.orphan_salary_weeks > 0 && <> · ⚠️ {payrollRepairScan.orphan_salary_weeks} أسبوع غير مقفول بحركات مرتب</>}
+              </div>
+            )}
+          </div>
+          {!payrollRepairResult?.ok && (
+            <LoadingBtn loading={payrollRepairBusy} loadingText="جاري الفحص..." onClick={scanPayrollRepair} disabled={!canEdit} small
+              style={{ background: T.text, color: "#fff", border: "none", fontWeight: 800 }}>
+              🔧 فحص + إصلاح
+            </LoadingBtn>
+          )}
+        </div>
+        {payrollRepairResult?.ok && payrollRepairResult.salary_legs_created > 0 && payrollRepairResult.sample_repaired && (
+          <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+            🔍 عينة من الأسابيع اللي اتصلحت:
+            <ul style={{ marginTop: 4, paddingInlineStart: 20 }}>
+              {payrollRepairResult.sample_repaired.slice(0, 5).map((w, i) => (
+                <li key={i} style={{ marginTop: 2 }}>
+                  <b>W{w.weekNum}</b> ({w.date}) — {w.missing} مرتب
                 </li>
               ))}
             </ul>

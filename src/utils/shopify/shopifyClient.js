@@ -43,6 +43,8 @@ const LONG_OPERATIONS = {
   /* V21.9.45: confirmed transfers leg-recovery — scans transfers + treasuryDays.
      Generous timeout for installs with thousands of transfers. */
   "/api/maintenance/repair-confirmed-transfers": 180000,
+  /* V21.9.252: payroll week → treasury salary-leg recovery — scans weeks + treasuryDays. */
+  "/api/maintenance/repair-payroll-week-treasury": 180000,
   "/api/shopify/campaign-prepare-run":    180000,
 };
 function getTimeoutForPath(path){
@@ -374,6 +376,17 @@ export function migrateRecurringTreasury(opts, user){
    → { ok, transfers_scanned, transfers_with_missing_legs, legs_created, ... } */
 export function repairConfirmedTransfers(opts, user){
   return call("POST", "/api/maintenance/repair-confirmed-transfers", opts || {}, user);
+}
+
+/* V21.9.252 — Recover missing salary treasury legs for CLOSED payroll weeks.
+   Addresses the cross-document atomicity gap: a week marked closed whose
+   expected hr_salary treasury entries are absent (split write failed / later
+   edit / cross-device race). Idempotent — recreates only what's missing, with
+   the deterministic id "hrsal-<weekId>-<empId>", merged into treasuryDays.
+   Additive-only (never deletes). { dryRun? } — ALWAYS run dryRun:true first.
+   → { ok, weeks_scanned, weeks_with_missing_salary, salary_legs_created, ... } */
+export function repairPayrollWeekTreasury(opts, user){
+  return call("POST", "/api/maintenance/repair-payroll-week-treasury", opts || {}, user);
 }
 
 /* V21.9.28 — Migration Log inspector + backup restore.
