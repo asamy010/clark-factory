@@ -191,13 +191,13 @@ export function evaluateHealthIssues({ data, configDoc, listenerErrors, cfgSizeB
     });
   }
 
-  /* 4c. Stale tombstones — _deletedCustPayTreasuryIds shouldn't exceed cap (200) */
-  if (Array.isArray(cfg._deletedCustPayTreasuryIds) && cfg._deletedCustPayTreasuryIds.length > 200) {
+  /* 4c. Stale tombstones — _deletedCustPayTreasuryIds shouldn't exceed cap (1000) */
+  if (Array.isArray(cfg._deletedCustPayTreasuryIds) && cfg._deletedCustPayTreasuryIds.length > 1000) {
     issues.push({
       kind: "stale_tombstones",
       severity: "info",
       title: `Tombstone array تخطى الحد — ${cfg._deletedCustPayTreasuryIds.length} entry`,
-      detail: "الـ _deletedCustPayTreasuryIds مفروض cap على 200. أي ذيادة بـ تستهلك مساحة بـ لا فائدة.",
+      detail: "الـ _deletedCustPayTreasuryIds مفروض cap على 1000 (V21.9.251: اترفع من 200 لتقليل خطر بعث المحذوفات). أي ذيادة بـ تستهلك مساحة بـ لا فائدة.",
       hint: "صغير الأثر — هـ يتـ trim تلقائياً في الـ delete التالية.",
       navigateTo: null,
     });

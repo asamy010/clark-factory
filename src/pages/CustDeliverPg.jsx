@@ -3193,8 +3193,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                in TreasuryPg checks this set before re-linking. */
             if(!d._deletedCustPayTreasuryIds)d._deletedCustPayTreasuryIds=[];
             if(pay.treasuryTxId)d._deletedCustPayTreasuryIds.push(pay.treasuryTxId);
-            /* Cap the tombstone list to prevent indefinite growth (200 most recent) */
-            if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
+            /* V21.9.251: dedup + cap رفعته 200→1000 — الـ FIFO القديم كان ممكن يطرد tombstone لسه محتاجينه */
+            d._deletedCustPayTreasuryIds=[...new Set(d._deletedCustPayTreasuryIds)];if(d._deletedCustPayTreasuryIds.length>1000)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-1000);
           }
         });
         /* V18.35: reverse the journal entry if it exists */

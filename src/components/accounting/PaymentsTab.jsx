@@ -97,7 +97,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           }
           if (!d._deletedCustPayTreasuryIds) d._deletedCustPayTreasuryIds = [];
           if (pay.treasuryTxId) d._deletedCustPayTreasuryIds.push(pay.treasuryTxId);
-          if (d._deletedCustPayTreasuryIds.length > 200) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-200);
+          d._deletedCustPayTreasuryIds = [...new Set(d._deletedCustPayTreasuryIds)]; if (d._deletedCustPayTreasuryIds.length > 1000) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap 200→1000 */
         }
       } else if (p._kind === "supPay") {
         const pay = (d.supplierPayments || []).find(x => x.id === p.id);
@@ -109,7 +109,7 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
           }
           if (!d._deletedSupplierPayTreasuryIds) d._deletedSupplierPayTreasuryIds = [];
           if (pay.treasuryTxId) d._deletedSupplierPayTreasuryIds.push(pay.treasuryTxId);
-          if (d._deletedSupplierPayTreasuryIds.length > 200) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-200);
+          d._deletedSupplierPayTreasuryIds = [...new Set(d._deletedSupplierPayTreasuryIds)]; if (d._deletedSupplierPayTreasuryIds.length > 1000) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap 200→1000 */
         }
       } else if (p._kind === "treasuryOrphanCust" || p._kind === "treasuryOrphanSup") {
         /* The id is "tcust:RAW_ID" or "tsup:RAW_ID" — strip the prefix */
@@ -118,7 +118,8 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         const tomb = p._kind === "treasuryOrphanCust" ? "_deletedCustPayTreasuryIds" : "_deletedSupplierPayTreasuryIds";
         if (!d[tomb]) d[tomb] = [];
         d[tomb].push(rawId);
-        if (d[tomb].length > 200) d[tomb] = d[tomb].slice(-200);
+        /* V21.9.251: dedup + cap 200→1000 */
+        d[tomb] = [...new Set(d[tomb])]; if (d[tomb].length > 1000) d[tomb] = d[tomb].slice(-1000);
       }
     });
     setConfirmDel(null);
@@ -268,8 +269,9 @@ export function PaymentsTab({ config, upConfig, userName, T, FS, isMob, showToas
         if (!Array.isArray(d._deletedSupplierPayTreasuryIds)) d._deletedSupplierPayTreasuryIds = [];
         deadCust.forEach(p => p.treasuryTxId && d._deletedCustPayTreasuryIds.push(p.treasuryTxId));
         deadSup.forEach(p => p.treasuryTxId && d._deletedSupplierPayTreasuryIds.push(p.treasuryTxId));
-        if (d._deletedCustPayTreasuryIds.length > 200) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-200);
-        if (d._deletedSupplierPayTreasuryIds.length > 200) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-200);
+        /* V21.9.251: dedup + cap 200→1000 */
+        d._deletedCustPayTreasuryIds = [...new Set(d._deletedCustPayTreasuryIds)]; if (d._deletedCustPayTreasuryIds.length > 1000) d._deletedCustPayTreasuryIds = d._deletedCustPayTreasuryIds.slice(-1000);
+        d._deletedSupplierPayTreasuryIds = [...new Set(d._deletedSupplierPayTreasuryIds)]; if (d._deletedSupplierPayTreasuryIds.length > 1000) d._deletedSupplierPayTreasuryIds = d._deletedSupplierPayTreasuryIds.slice(-1000);
       });
       showToast("✓ تم تنظيف " + (cleanupPreview.deadCust.length + cleanupPreview.deadSup.length) + " دفعة ميتة");
       setCleanupPreview(null);

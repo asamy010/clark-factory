@@ -1634,12 +1634,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(tx&&(tx.custId||tx.sourceType==="cust_payment"||tx.category==="دفعة عميل")){
       if(!Array.isArray(d._deletedCustPayTreasuryIds))d._deletedCustPayTreasuryIds=[];
       d._deletedCustPayTreasuryIds.push(tx.id);
-      if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
+      d._deletedCustPayTreasuryIds=[...new Set(d._deletedCustPayTreasuryIds)];if(d._deletedCustPayTreasuryIds.length>1000)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap رفعته 200→1000 — الـ FIFO القديم كان ممكن يطرد tombstone لسه محتاجينه فتتبعت حركة محذوفة عمداً */
     }
     if(tx&&(tx.supplierId||tx.sourceType==="supplier_payment"||tx.category==="دفعة مورد")){
       if(!Array.isArray(d._deletedSupplierPayTreasuryIds))d._deletedSupplierPayTreasuryIds=[];
       d._deletedSupplierPayTreasuryIds.push(tx.id);
-      if(d._deletedSupplierPayTreasuryIds.length>200)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-200);
+      d._deletedSupplierPayTreasuryIds=[...new Set(d._deletedSupplierPayTreasuryIds)];if(d._deletedSupplierPayTreasuryIds.length>1000)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap رفعته 200→1000 */
     }
     if(tx){
       /* Remove linked hrLog advance entry */
@@ -1789,12 +1789,12 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(_custTombstones.length>0){
         if(!Array.isArray(d._deletedCustPayTreasuryIds))d._deletedCustPayTreasuryIds=[];
         d._deletedCustPayTreasuryIds.push(..._custTombstones);
-        if(d._deletedCustPayTreasuryIds.length>200)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-200);
+        d._deletedCustPayTreasuryIds=[...new Set(d._deletedCustPayTreasuryIds)];if(d._deletedCustPayTreasuryIds.length>1000)d._deletedCustPayTreasuryIds=d._deletedCustPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap رفعته 200→1000 — الـ FIFO القديم كان ممكن يطرد tombstone لسه محتاجينه فتتبعت حركة محذوفة عمداً */
       }
       if(_supTombstones.length>0){
         if(!Array.isArray(d._deletedSupplierPayTreasuryIds))d._deletedSupplierPayTreasuryIds=[];
         d._deletedSupplierPayTreasuryIds.push(..._supTombstones);
-        if(d._deletedSupplierPayTreasuryIds.length>200)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-200);
+        d._deletedSupplierPayTreasuryIds=[...new Set(d._deletedSupplierPayTreasuryIds)];if(d._deletedSupplierPayTreasuryIds.length>1000)d._deletedSupplierPayTreasuryIds=d._deletedSupplierPayTreasuryIds.slice(-1000);/* V21.9.251: dedup + cap رفعته 200→1000 */
       }
       /* V16.9: Now batch-remove all transfer records + their paired legs */
       if(transferIdsToDelete.size>0){

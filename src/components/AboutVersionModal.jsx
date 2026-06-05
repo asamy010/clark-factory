@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.251",
+    date: "2026-06-05",
+    types: ["fix"],
+    title: "🪦 الـ Tombstones — تقليل خطر «بعث» الدفعات المحذوفة",
+    changes: [
+      { type: "fix", text: "🐛 لما بتمسح دفعة عميل/مورد، النظام بيسجّل ID حركة الخزنة في قائمة tombstones عشان آلية الاسترجاع التلقائي ماتبعتهاش تاني. القائمة كانت محدودة بـ200 (FIFO) — فلو مسحت أكتر من 200 دفعة، أقدم IDs كانت بتتشال، ولو فضلت حركة منهم في القاعدة (بسبب فشل مزامنة) كانت ممكن «تتبعت» وتظهر تاني (شكوى «حذفت ولسه ظاهرة»). دلوقتي: القائمة بتتعملها dedup (إزالة المكرر) والحد اترفع من 200 لـ1000 في كل مسارات الحذف." },
+      { type: "improvement", text: "🧹 نفس التعديل اتطبّق بشكل موحّد في كل أماكن الحذف (الخزنة + تسليم العملاء + تبويب المدفوعات المحاسبي) + تحديث فحص الصحة (healthCheck) ليتوافق مع الحد الجديد. الـ dedup كمان بيقلّل حجم البيانات المستهلك من غير فائدة." },
+      { type: "architectural", text: "📁 MODIFIED: TreasuryPg.jsx, CustDeliverPg.jsx, accounting/PaymentsTab.jsx, utils/healthCheck.js — 8 مواضع cap موحّدة على dedup+1000. build نجح، صفر تعديل rules." },
+    ],
+  },
+  {
     version: "V21.9.250",
     date: "2026-06-05",
     types: ["fix"],
