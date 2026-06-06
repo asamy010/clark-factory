@@ -198,7 +198,7 @@ function Overview({ ov, isMob, go, allowed }){
       )}
 
       <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "16px 0 10px" }}>📂 الأقسام</div>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "repeat(3,1fr)", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
         {card("quotations", "📋", "#E0F2FE", "#0284C7", "عروض الأسعار", "إنشاء وإرسال وتحويل لأوامر", ov.openQ + " مفتوح")}
         {card("orders", "📑", "#EEF2FF", "#6366F1", "أوامر البيع", "حجز مخزون + تحويل لفاتورة", ov.ordCount + " مؤكّد")}
         {card("invoices", "📤", "#D1FAE5", "#059669", "فواتير البيع", "ترحيل + تحصيل + طباعة", ov.postedCount + " مرحّلة · " + ov.unpaidCount + " غير مدفوعة")}

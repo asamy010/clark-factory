@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.11.2",
+    date: "2026-06-06",
+    types: ["improvement"],
+    title: "🛍️ نظرة عامة — كروت الأقسام على صف واحد",
+    changes: [
+      { type: "improvement", text: "🗂️ كروت الأقسام في «نظرة عامة» بقت كلها على صف واحد (4 أعمدة على الكمبيوتر بدل 3 اللي كانت بتلفّ لسطرين، وعمودين على الموبايل)." },
+    ],
+  },
+  {
     version: "V21.11.1",
     date: "2026-06-06",
     types: ["feature", "improvement"],
