@@ -4,7 +4,7 @@
    الأوامر بتتولّد من عروض الأسعار (Quote → SO). الفوترة في Slice 3.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, SearchSel } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
@@ -62,6 +62,15 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     orders.forEach(o => { const s = o.status || "confirmed"; if(acc[s] != null) acc[s]++; acc.total++; });
     return acc;
   }, [orders]);
+
+  /* V21.10.8 (#1): deep-link — open a sales order by id from a cross-link. */
+  useEffect(() => {
+    const open = (id) => { const so = (data.salesOrders || []).find(x => x && x.id === id); if(so){ setShowForm(false); setActiveSO(so); return true; } return false; };
+    try { const p = window.__clarkOpenSalesDoc; if(p && p.kind === "salesOrder" && open(p.id)) delete window.__clarkOpenSalesDoc; } catch(e) {}
+    const h = (e) => { if(e?.detail?.kind === "salesOrder" && e.detail.id) open(e.detail.id); };
+    window.addEventListener("clark-open-sales-doc", h);
+    return () => window.removeEventListener("clark-open-sales-doc", h);
+  }, [data.salesOrders]);
 
   const handleCreateDirect = (payload) => {
     const ps = data.purchaseSettings || {};

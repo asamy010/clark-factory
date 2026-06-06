@@ -8,6 +8,7 @@ import { Btn } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
+import { openSalesDoc } from "../../utils/sales/navDoc.js";
 
 const STATUS_META = {
   confirmed:         { label: "مؤكّد",        color: "#0EA5E9", bg: "#0EA5E915" },
@@ -77,9 +78,11 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onCrea
           {/* cross-links */}
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
             <div style={{ fontWeight: 700, color: "#8B5CF6", marginBottom: 4 }}>🔗 المستندات المرتبطة</div>
-            <div style={{ color: T.text }}>عرض السعر: <b>{so.fromQuotationNo || "—"}</b></div>
+            {so.fromQuotationId
+              ? <div onClick={() => openSalesDoc("quotation", so.fromQuotationId)} style={{ color: "#8B5CF6", cursor: "pointer", fontWeight: 600 }}>عرض السعر: <b>{so.fromQuotationNo || "—"}</b> ↗</div>
+              : <div style={{ color: T.textMut }}>عرض السعر: — (أمر مباشر)</div>}
             {invExists
-              ? <div style={{ color: T.text }}>الفاتورة: <b>{so.salesInvoiceNo}</b></div>
+              ? <div onClick={() => openSalesDoc("invoice", so.salesInvoiceId)} style={{ color: "#8B5CF6", cursor: "pointer", fontWeight: 600 }}>الفاتورة: <b>{so.salesInvoiceNo}</b> ↗</div>
               : invMissing
                 ? <div style={{ color: T.err }}>⚠️ الفاتورة ({so.salesInvoiceNo}) مكانتش اتحفظت — اضغط «إعادة إنشاء فاتورة»</div>
                 : <div style={{ color: T.textMut }}>الفاتورة: — لسه مفيش</div>}

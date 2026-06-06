@@ -21,6 +21,7 @@ import { printInvoice } from "../utils/printInvoice.js";
 /* V21.10.4 — Payment from invoice (Phase 12d) */
 import { recordInvoicePaymentMutator, invoiceBalance } from "../utils/sales/invoicePayments.js";
 import { PaymentFromInvoiceModal } from "../components/sales/PaymentFromInvoiceModal.jsx";
+import { openSalesDoc } from "../utils/sales/navDoc.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 /* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
    The entityType is derived dynamically from invoice.type (sales vs purchase). */
@@ -55,6 +56,22 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
   const invoices = data.salesInvoices || [];
   const customers = data.customers || [];
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+
+  /* V21.10.8 (#1): deep-link — open an invoice by id from a cross-link. */
+  useEffect(() => {
+    const open = (id) => { const inv = (data.salesInvoices || []).find(x => x && x.id === id); if(inv){ setActiveInvoice(inv); return true; } return false; };
+    try { const p = window.__clarkOpenSalesDoc; if(p && p.kind === "invoice" && open(p.id)) delete window.__clarkOpenSalesDoc; } catch(e) {}
+    const h = (e) => { if(e?.detail?.kind === "invoice" && e.detail.id) open(e.detail.id); };
+    window.addEventListener("clark-open-sales-doc", h);
+    return () => window.removeEventListener("clark-open-sales-doc", h);
+  }, [data.salesInvoices]);
+
+  /* V21.10.8 (#3): unpaid posted sales invoices (aging alert) */
+  const unpaid = useMemo(() => {
+    const list = invoices.filter(i => i.status === "posted" && invoiceBalance(i) > 0.01);
+    const total = list.reduce((s, i) => s + invoiceBalance(i), 0);
+    return { count: list.length, total };
+  }, [invoices]);
 
   /* Filter invoices */
   const filtered = useMemo(() => {
@@ -214,6 +231,15 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
         ➕ إنشاء فواتير من {uninvoicedDeliveries.length} تسليم
       </Btn>}
     </div>
+
+    {/* V21.10.8 (#3): unpaid posted invoices alert — click filters to posted */}
+    {unpaid.count > 0 && <div onClick={() => setStatus("posted")} style={{display:"flex", alignItems:"center", gap:10, padding:"10px 14px", marginBottom:14, borderRadius:10, background:"#EF444410", border:"1px solid #EF444430", cursor:"pointer"}}>
+      <span style={{fontSize:18}}>💸</span>
+      <div style={{flex:1, fontSize:FS-1, color:T.text, fontWeight:600}}>
+        <b style={{color:T.err}}>{unpaid.count}</b> فاتورة مرحّلة لسه عليها متبقي — إجمالي المتبقي <b style={{color:T.err, direction:"ltr", display:"inline-block"}}>{fmt(unpaid.total.toFixed(2))}</b>
+      </div>
+      <span style={{fontSize:FS-2, color:T.err, fontWeight:700}}>عرض ↗</span>
+    </div>}
 
     {/* Stats cards */}
     <div style={{display:"grid", gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginBottom:14}}>
@@ -486,8 +512,8 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       {(invoice.fromSalesOrderNo || invoice.fromQuotationNo) && (
         <div style={{display:"flex", gap:8, flexWrap:"wrap", marginBottom:14, padding:"8px 12px", background:"#8B5CF608", border:"1px dashed #8B5CF630", borderRadius:8, fontSize:FS-2}}>
           <span style={{fontWeight:700, color:"#8B5CF6"}}>🔗 مصدر الفاتورة:</span>
-          {invoice.fromSalesOrderNo && <span style={{color:T.text}}>أمر البيع <b>{invoice.fromSalesOrderNo}</b></span>}
-          {invoice.fromQuotationNo && <span style={{color:T.text}}>· عرض السعر <b>{invoice.fromQuotationNo}</b></span>}
+          {invoice.fromSalesOrderNo && <span onClick={()=>openSalesDoc("salesOrder", invoice.fromSalesOrderId)} style={{color:"#8B5CF6", cursor:"pointer", fontWeight:600}}>أمر البيع <b>{invoice.fromSalesOrderNo}</b> ↗</span>}
+          {invoice.fromQuotationNo && <span onClick={()=>openSalesDoc("quotation", invoice.fromQuotationId)} style={{color:"#8B5CF6", cursor:"pointer", fontWeight:600}}>· عرض السعر <b>{invoice.fromQuotationNo}</b> ↗</span>}
         </div>
       )}
 

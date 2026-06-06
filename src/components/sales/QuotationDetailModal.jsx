@@ -9,6 +9,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { displayStatus } from "../../utils/sales/quotations.js";
+import { openSalesDoc } from "../../utils/sales/navDoc.js";
 
 const STATUS_META = {
   draft:     { label: "مسودة",   color: "#6B7280", bg: "#6B728015" },
@@ -165,7 +166,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
             <div style={{ fontWeight: 700, color: "#8B5CF6", marginBottom: 4 }}>🔗 المستندات المرتبطة</div>
             {soExists
-              ? <div style={{ color: T.text }}>أمر البيع: <b>{quote.convertedToSalesOrderNo}</b></div>
+              ? <div onClick={() => openSalesDoc("salesOrder", quote.convertedToSalesOrderId)} style={{ color: "#8B5CF6", cursor: "pointer", fontWeight: 600 }}>أمر البيع: <b>{quote.convertedToSalesOrderNo}</b> ↗</div>
               : isOrphan
                 ? <div style={{ color: T.err }}>⚠️ أمر البيع ({quote.convertedToSalesOrderNo}) مكانش اتحفظ — اضغط «إعادة التحويل»</div>
                 : <div style={{ color: T.textMut }}>— لسه مفيش أمر بيع</div>}

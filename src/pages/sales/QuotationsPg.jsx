@@ -4,7 +4,7 @@
    standalone — صفر مساس بالمخزون/المحاسبة. التحويل لأمر بيع في Slice 2.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel, SearchSel } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
@@ -67,6 +67,25 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
     return acc;
   }, [quotations, today]);
 
+  /* V21.10.8 (#3): عروض قربت تنتهي صلاحيتها (خلال 3 أيام، لسه draft/sent) */
+  const expiringSoon = useMemo(() => {
+    const limit = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
+    return quotations.filter(q => {
+      const ds = displayStatus(q, today);
+      return (ds === "draft" || ds === "sent") && q.validUntil && q.validUntil >= today && q.validUntil <= limit;
+    });
+  }, [quotations, today]);
+
+  /* V21.10.8 (#1): deep-link — open a quotation by id when navigated to from
+     another document's cross-link. */
+  useEffect(() => {
+    const open = (id) => { const q = (data.salesQuotations || []).find(x => x && x.id === id); if(q){ setShowForm(false); setActiveQuote(q); return true; } return false; };
+    try { const p = window.__clarkOpenSalesDoc; if(p && p.kind === "quotation" && open(p.id)) delete window.__clarkOpenSalesDoc; } catch(e) {}
+    const h = (e) => { if(e?.detail?.kind === "quotation" && e.detail.id) open(e.detail.id); };
+    window.addEventListener("clark-open-sales-doc", h);
+    return () => window.removeEventListener("clark-open-sales-doc", h);
+  }, [data.salesQuotations]);
+
   /* ── actions ── */
   const openNew = () => { setEditQuote(null); setShowForm(true); };
   const openEdit = (q) => { setActiveQuote(null); setEditQuote(q); setShowForm(true); };
@@ -123,6 +142,12 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
         <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>📋 عروض الأسعار</div>
         {canEdit && <Btn primary onClick={openNew} style={{ background: "#0EA5E9" }}>+ عرض جديد</Btn>}
       </div>
+
+      {/* تنبيه: عروض قربت تنتهي */}
+      {expiringSoon.length > 0 && <div onClick={() => setStatus("sent")} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 12, borderRadius: 10, background: "#F59E0B12", border: "1px solid #F59E0B35", cursor: "pointer" }}>
+        <span style={{ fontSize: 18 }}>⏰</span>
+        <div style={{ flex: 1, fontSize: FS - 1, color: T.text, fontWeight: 600 }}><b style={{ color: "#D97706" }}>{expiringSoon.length}</b> عرض سعر قربت تنتهي صلاحيتهم (خلال 3 أيام)</div>
+      </div>}
 
       {/* إحصائيات */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
