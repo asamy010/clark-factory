@@ -72,12 +72,13 @@ function escapeHtml(s){
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onStatus, onSend, onDelete, onClose }){
+export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onStatus, onSend, onConvert, onDelete, onClose }){
   if(!quote) return null;
   const ds = displayStatus(quote);
   const meta = STATUS_META[ds] || STATUS_META.draft;
   const canMutate = canEdit && quote.status !== "converted";
   const canDelete = canEdit && ["draft", "rejected", "expired"].includes(ds);
+  const canConvert = canEdit && !quote.convertedToSalesOrderId && !["converted", "rejected"].includes(quote.status);
 
   const handlePrint = () => {
     /* فتح النافذة synchronously (popup-safety §7) — ده click مباشر فـ آمن */
@@ -187,7 +188,11 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
           {canMutate && ds !== "accepted" && <Btn ghost small onClick={() => onStatus("accepted")} style={{ color: "#10B981" }}>✓ مقبول</Btn>}
           {canMutate && ds !== "rejected" && <Btn ghost small onClick={() => onStatus("rejected")} style={{ color: T.err }}>✗ مرفوض</Btn>}
           {canDelete && <Btn ghost small onClick={onDelete} style={{ color: T.err }}>🗑 حذف</Btn>}
-          <Btn small onClick={() => {}} style={{ opacity: 0.45, cursor: "not-allowed", background: "#8B5CF6", color: "#fff" }} title="يتفعّل في التحديث الجاي (Slice 2)">🔄 حوّل لأمر بيع</Btn>
+          {canConvert
+            ? <Btn small onClick={() => onConvert && onConvert(quote)} style={{ background: "#8B5CF6", color: "#fff" }}>🔄 حوّل لأمر بيع</Btn>
+            : quote.convertedToSalesOrderNo
+              ? <span style={{ alignSelf: "center", fontSize: FS - 2, color: "#8B5CF6", fontWeight: 700 }}>✓ {quote.convertedToSalesOrderNo}</span>
+              : null}
         </div>
       </div>
     </div>

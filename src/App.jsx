@@ -43,8 +43,8 @@ const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
 import {
   syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS,
-  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199, SPLIT_FIELDS_V21100,
-  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199, SPLIT_FLAG_V21100,
+  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199, SPLIT_FIELDS_V21100, SPLIT_FIELDS_V21101,
+  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199, SPLIT_FLAG_V21100, SPLIT_FLAG_V21101,
   _deepEqual,/* V19.65: order-independent equality for listener pending-cleanup */
   /* V19.51 — sales-doc + tasks-doc split namespaces */
   SALES_SPLIT_COLLECTIONS, SALES_SPLIT_FIELDS, SALES_SPLIT_FIELDS_V1951, SALES_SPLIT_FLAG_V1951,
@@ -92,6 +92,7 @@ const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "Cust
 /* V21.9.115: Unified Contacts directory — appears on the home tile after dashboard. */
 const ContactsPg = lazyNamed(() => import("./pages/ContactsPg.jsx"), "ContactsPg");
 const QuotationsPg = lazyNamed(() => import("./pages/sales/QuotationsPg.jsx"), "QuotationsPg");
+const SalesOrdersPg = lazyNamed(() => import("./pages/sales/SalesOrdersPg.jsx"), "SalesOrdersPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -453,6 +454,11 @@ export default function App(){
     }
     if(configDoc[SPLIT_FLAG_V21100]){
       for(const f of SPLIT_FIELDS_V21100){
+        merged[f]=splitData[f]||[];
+      }
+    }
+    if(configDoc[SPLIT_FLAG_V21101]){
+      for(const f of SPLIT_FIELDS_V21101){
         merged[f]=splitData[f]||[];
       }
     }
@@ -2793,6 +2799,31 @@ export default function App(){
       }
     })();
   },[user,configDoc,splitLoaded]);
+  /* V21.10.1 — salesOrders brand-new field (Phase 12b). Stamp flag once. */
+  const splitDaysV21101MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysV21101MigrationRef.current)return;
+    if(!configDoc)return;
+    if(configDoc._splitDaysV21101Done)return;
+    if(!splitLoaded)return;
+    splitDaysV21101MigrationRef.current=true;
+    (async()=>{
+      try{
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV21101Done)return;
+          tx.set(ref,{...fresh,_splitDaysV21101Done:true});
+        });
+        console.log("[V21.10.1] salesOrders split flag stamped.");
+      }catch(e){
+        console.warn("[V21.10.1] salesOrders flag stamp failed:",e?.message||e);
+        splitDaysV21101MigrationRef.current=false;
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
   const splitDaysV2199MigrationRef=useRef(false);
   useEffect(()=>{
     if(!user||splitDaysV2199MigrationRef.current)return;
@@ -4675,6 +4706,12 @@ export default function App(){
       }
       if(prev[SPLIT_FLAG_V21100]){
         for(const f of SPLIT_FIELDS_V21100){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V21101]){
+        for(const f of SPLIT_FIELDS_V21101){
           next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
           splitFieldsActive.push(f);
         }
@@ -6997,6 +7034,7 @@ export default function App(){
         {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
             Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
         {tab==="salesQuotations"&&canViewTab("salesQuotations")&&<QuotationsPg data={data} upConfig={upConfig} isMob={isMob} user={user} canEdit={canEditTab("salesQuotations")}/>}
+        {tab==="salesOrders"&&canViewTab("salesOrders")&&<SalesOrdersPg data={data} upConfig={upConfig} isMob={isMob} user={user} canEdit={canEditTab("salesOrders")}/>}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}

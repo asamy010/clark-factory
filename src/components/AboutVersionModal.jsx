@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.1",
+    date: "2026-06-06",
+    types: ["feature", "architectural"],
+    title: "📑 Phase 12b — أوامر البيع + خصم المخزون (Sales Orders)",
+    changes: [
+      { type: "feature", text: "🔄 زرار «حوّل لأمر بيع» في عرض السعر اتفعّل: بيعمل أمر بيع (أمر-YYYY-NNNN) snapshot من بنود العرض، وبيعلّم العرض «متحوّل» مع ربط ثنائي الاتجاه. شاشة «أوامر البيع» جديدة: قائمة + فلاتر + إحصائيات + تفاصيل + إلغاء." },
+      { type: "feature", text: "📦 خصم المخزون الفعلي عند التحويل — للأصناف من المخزن (inventoryItems) فقط عبر applyStockDelta (نفس آلية الاستلام)، مع تسجيل حركة في stockMovements. لو «منع البيع عند نقص المخزون» مفعّل بيرفض التحويل ويوضّح النواقص. موديلات الـ orders مش بتتأثر (بتفضل عبر شاشة التسليم زي ما هي — قرار Ahmed). الإلغاء بيرجّع المخزون المخصوم بدقّة من سجل deduction مخزّن على الأمر." },
+      { type: "architectural", text: "🏗️ NEW: utils/sales/salesOrders.js (convert/cancel mutators + stock checks + reversal self-contained) · pages/sales/SalesOrdersPg.jsx · components/sales/SalesOrderDetailModal.jsx. daily-split salesOrdersDays (V21101) + counter salesOrder + firestore.rules (isSalesScope) + permissions (8 roles) + TABS. مفيش قيود محاسبية في المرحلة دي — الإيراد/COGS عند الفاتورة (Slice 3). build نجح." },
+    ],
+  },
+  {
     version: "V21.10.0",
     date: "2026-06-06",
     types: ["feature", "architectural"],

@@ -14,6 +14,7 @@ import {
   saveQuotationMutator, setQuotationStatusMutator, sendQuotationMutator,
   deleteQuotationMutator, displayStatus,
 } from "../../utils/sales/quotations.js";
+import { convertQuotationToSalesOrderMutator } from "../../utils/sales/salesOrders.js";
 import { QuotationFormModal } from "../../components/sales/QuotationFormModal.jsx";
 import { QuotationDetailModal } from "../../components/sales/QuotationDetailModal.jsx";
 
@@ -86,6 +87,25 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
   const handleSend = (id, channel) => {
     upConfig(d => sendQuotationMutator(d, id, channel, userName));
     setActiveQuote(prev => prev && prev.id === id ? { ...prev, status: prev.status === "draft" ? "sent" : prev.status, sentChannel: channel } : prev);
+  };
+
+  const handleConvert = async (q) => {
+    const ps = data.purchaseSettings || {};
+    const stockEnabled = !!ps.stockEnabled;
+    const ok = await ask(
+      "تحويل لأمر بيع",
+      "هيتعمل أمر بيع من " + (q.quoteNo || "العرض") + "." + (stockEnabled ? " الأصناف (من المخزن) هيتخصم رصيدها فعلياً." : "") + " متأكد؟",
+      { confirmText: "حوّل" }
+    );
+    if(!ok) return;
+    let res = { ok: true };
+    upConfig(d => { res = convertQuotationToSalesOrderMutator(d, q.id, userName, { stockEnabled, blockOnInsufficientStock: ps.blockOnInsufficientStock !== false }); });
+    if(res && res.ok){
+      setActiveQuote(null);
+      showToast("✓ اتعمل أمر البيع " + (res.salesOrder?.orderNo || "") + (stockEnabled && res.salesOrder?.stockDeducted ? " وخصم المخزون" : ""));
+    } else {
+      showToast("⛔ " + (res?.error || "تعذّر التحويل"));
+    }
   };
 
   const handleDelete = async (q) => {
@@ -171,6 +191,7 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
           onEdit={openEdit}
           onStatus={(st) => handleStatus(activeQuote.id, st)}
           onSend={(ch) => handleSend(activeQuote.id, ch)}
+          onConvert={() => handleConvert(activeQuote)}
           onDelete={() => handleDelete(activeQuote)}
           onClose={() => setActiveQuote(null)}
         />

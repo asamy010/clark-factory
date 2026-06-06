@@ -59,6 +59,8 @@ export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
    document chain, Slice 1) — daily-split from day 1 per CLAUDE.md §2.
    No legacy data to migrate; the flag is just stamped once on app open. */
 export const SPLIT_FIELDS_V21100 = ["salesQuotations"];
+/* V21.10.1 — Sales Orders (أوامر البيع، Phase 12b). Daily-split from day 1. */
+export const SPLIT_FIELDS_V21101 = ["salesOrders"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -70,6 +72,7 @@ export const SPLIT_FLAG_V2197 = "_splitDaysV2197Done";
 export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
 export const SPLIT_FLAG_V2199 = "_splitDaysV2199Done";
 export const SPLIT_FLAG_V21100 = "_splitDaysV21100Done";
+export const SPLIT_FLAG_V21101 = "_splitDaysV21101Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -107,6 +110,8 @@ export const SPLIT_COLLECTIONS = {
   shopifyPendingOrders: "shopifyOrdersDays",
   /* V21.10.0 — Sales Quotations (Phase 12a). Day key = quote.date. */
   salesQuotations: "salesQuotationsDays",
+  /* V21.10.1 — Sales Orders (Phase 12b). Day key = order.date. */
+  salesOrders: "salesOrdersDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -495,6 +500,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V21100]) {
     for (const field of SPLIT_FIELDS_V21100) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V21101]) {
+    for (const field of SPLIT_FIELDS_V21101) delete stripped[field];
   }
   return stripped;
 }
