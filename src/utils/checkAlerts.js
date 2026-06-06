@@ -15,7 +15,7 @@
      - toEndIds : ids of THIS user's outstanding chk_* notifs that should
                   be ended (state transition OR check left "معلق")
 
-   Deterministic id: `chk_<checkId>_<recipientEmail>_<state>` — so the
+   Deterministic id: `chkd_<checkId>_<recipientEmail>_<state>` (due-date based) — so the
    split-collection transactional merge naturally dedups across devices
    (same principle as the V21.9.249/250 leg-id fixes), and a state change
    produces a NEW id (old one gets ended).
@@ -78,7 +78,7 @@ export function computeCheckAlertActions({ checks, notifications, checkAlerts, c
     if(isRcv && !inRcv) continue;
     if(!isPay && !isRcv) continue;
 
-    const due = String(c.date || "").slice(0, 10);
+    const due = String(c.dueDate || "").slice(0, 10);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(due)) continue;
 
     const diff = daysBetween(todayStr, due); /* >0 future, 0 today, <0 past */
@@ -89,7 +89,11 @@ export function computeCheckAlertActions({ checks, notifications, checkAlerts, c
     else if(diff <= leadDays) state = "upcoming";
     if(!state) continue;
 
-    const id = `chk_${c.id}_${userEmail}_${state}`;
+    /* V21.9.256: id prefix "chkd_" = due-date-based. The old "chk_" prefix
+       (V21.9.254/255) mistakenly used c.date (issue date) — those stale
+       notifs are auto-ended by the cleanup loop below since they can never
+       be in the dueDate-based desired set. */
+    const id = `chkd_${c.id}_${userEmail}_${state}`;
     desiredIds.add(id);
 
     /* Deterministic id → if it already exists (any state on this entry id),
@@ -128,13 +132,14 @@ export function computeCheckAlertActions({ checks, notifications, checkAlerts, c
     });
   }
 
-  /* End any of THIS user's outstanding chk_* notifs that are no longer
-     desired — covers both state transitions (old state) AND cleanup when
-     a check leaves "معلق" (settled/cancelled/bounced). */
+  /* End any of THIS user's outstanding check-alert notifs that are no longer
+     desired — covers state transitions, cleanup when a check leaves "معلق",
+     AND retiring the legacy "chk_" (issue-date) notifs from V21.9.254/255. */
   for(const n of notifs){
     if(!n || n.endedAt) continue;
     if(n.toEmail !== userEmail) continue;
-    if(typeof n.id !== "string" || !n.id.startsWith("chk_")) continue;
+    if(typeof n.id !== "string") continue;
+    if(!n.id.startsWith("chk_") && !n.id.startsWith("chkd_")) continue;
     if(!desiredIds.has(n.id)) out.toEndIds.push(n.id);
   }
 
