@@ -503,6 +503,16 @@ export default function App(){
     /* V19.63: removed `splitLoaded`/`partitionedLoaded`/`salesSplitLoaded`/`tasksSplitLoaded`
        from the dep array — V19.59 dropped these gates from the merge body, so they were
        triggering 4 redundant useMemo runs (and 4 redundant snapshot writes) per cold start. */
+    /* V21.10.6 ROOT-FIX (treasury delete resurrection): honor persisted deletion
+       tombstones. A deleted treasury entry must NEVER reappear — even if a server
+       day-doc delete-write lost a race and the entry physically lingers in
+       treasuryDays. The tombstone lives in factory/config so it survives refresh.
+       Filtering here covers EVERY consumer of data.treasury (balances, reports,
+       UI). The listener also filters splitData.treasury so it's never re-written. */
+    if(Array.isArray(configDoc?._deletedTreasuryIds)&&configDoc._deletedTreasuryIds.length&&Array.isArray(merged.treasury)){
+      const _deadTx=new Set(configDoc._deletedTreasuryIds.map(String));
+      merged.treasury=merged.treasury.filter(t=>!_deadTx.has(String(t&&t.id)));
+    }
     return merged},[configDoc,salesDoc,tasksDoc,splitData,partitionedData,salesSplitData,tasksSplitData]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
@@ -3782,16 +3792,53 @@ export default function App(){
       };
       /* V19.49 + V19.60 + V19.61 BUGFIX: field-isolated rebuild + sync ref update.
          See partitioned rebuild for full reasoning. */
+      /* V21.10.6 ROOT-FIX (treasury delete resurrection): collected here, purged
+         after setState (side-effects must not live inside the state updater). */
+      let _treasuryToPurge=null;
       setSplitData(prev=>{
         const next={...prev};
         for(const f of SPLIT_FIELDS){
           if(firstFires[f]){
-            next[f]=flatten(dayDocs[f],pendingSplitWritesRef.current[f]||new Map());
+            let arr=flatten(dayDocs[f],pendingSplitWritesRef.current[f]||new Map());
+            /* V21.10.6: honor treasury deletion tombstones. Hide any entry whose
+               id is tombstoned in factory/config (deleted but physically lingering
+               in treasuryDays due to a lost server-delete race) so it's NEVER
+               re-written from splitDataRef, and flag it for physical purge. */
+            if(f==="treasury"){
+              const _td=configDocRef.current&&Array.isArray(configDocRef.current._deletedTreasuryIds)?configDocRef.current._deletedTreasuryIds:null;
+              if(_td&&_td.length){
+                const _dead=new Set(_td.map(String));
+                const _before=arr.length;
+                arr=arr.filter(t=>!_dead.has(String(t&&t.id)));
+                if(arr.length<_before){
+                  const _lingering=[];
+                  for(const ents of dayDocs.treasury.values()){
+                    for(const e of ents){ if(e&&_dead.has(String(e.id)))_lingering.push(e); }
+                  }
+                  _treasuryToPurge=_lingering;
+                }
+              }
+            }
+            next[f]=arr;
           }
         }
         splitDataRef.current=next;/* V19.61: sync ref update */
         return next;
       });
+      /* V21.10.6: physical purge of resurrected (tombstoned) treasury entries —
+         once per id per session, transaction-based + idempotent. Diagnostic log
+         surfaces the race so we can pin the true root cause from production. */
+      if(_treasuryToPurge&&_treasuryToPurge.length){
+        if(!window.__clarkTrCleaned)window.__clarkTrCleaned=new Set();
+        const _toClean=_treasuryToPurge.filter(e=>e&&!window.__clarkTrCleaned.has(String(e.id)));
+        if(_toClean.length){
+          _toClean.forEach(e=>window.__clarkTrCleaned.add(String(e.id)));
+          console.warn("[V21.10.6 treasury-resurrection] "+_toClean.length+" tombstoned entr(ies) reappeared from server — hidden + purging:",_toClean.map(e=>({id:e.id,date:e.date,amount:e.amount,desc:e.desc})));
+          syncAllSplitChanges({treasury:_toClean},{treasury:[]})
+            .then(()=>console.warn("[V21.10.6] purged "+_toClean.length+" resurrected treasury entries from treasuryDays ✓"))
+            .catch(err=>console.warn("[V21.10.6] treasury purge failed:",err?.message||err));
+        }
+      }
       /* mark loaded after first round trip from ALL collections */
       if(SPLIT_FIELDS.every(f=>firstFires[f])){
         setSplitLoaded(true);

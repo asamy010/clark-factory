@@ -1564,6 +1564,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     };
     const _label="حذف حركة: "+(txCheck?.desc||"غير معروف").slice(0,40)+(txCheck?.amount?" ("+Number(txCheck.amount).toLocaleString()+" ج)":"");
     upConfig(d=>{
+    /* V21.10.6: snapshot treasury ids before delete (tombstone root-fix) */
+    const _beforeTreasuryIds=new Set((d.treasury||[]).map(t=>String(t&&t.id)));
     /* Remove linked cust/supplier/ws payments + hrLog advances */
     const tx=(d.treasury||[]).find(t=>t.id===id);
     /* V16.9: If this tx is part of a transfer, delete BOTH legs + the transfer record */
@@ -1653,7 +1655,18 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if(matchIdx>=0){
           d.hrLog=d.hrLog.filter((_,i)=>i!==matchIdx);
         }
-      }}});
+      }
+      /* V21.10.6 ROOT-FIX: tombstone every treasury id removed (same as bulkDeleteTxs) */
+      const _afterTreasuryIds=new Set((d.treasury||[]).map(t=>String(t&&t.id)));
+      const _removedTreasuryIds=[..._beforeTreasuryIds].filter(x=>!_afterTreasuryIds.has(x));
+      if(_removedTreasuryIds.length>0){
+        if(!Array.isArray(d._deletedTreasuryIds))d._deletedTreasuryIds=[];
+        d._deletedTreasuryIds.push(..._removedTreasuryIds);
+        d._deletedTreasuryIds=[...new Set(d._deletedTreasuryIds)];
+        if(d._deletedTreasuryIds.length>3000)d._deletedTreasuryIds=d._deletedTreasuryIds.slice(-3000);
+        try{console.warn("[V21.10.6 treasury-tombstone] deleted id tombstoned:",_removedTreasuryIds);}catch(_){}
+      }
+    }});
     /* V16.2: Push undo AFTER the mutation */
     pushUndo({
       label:_label,
@@ -1731,6 +1744,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(ids.length===0)return;
     }
     upConfig(d=>{
+      /* V21.10.6: snapshot treasury ids BEFORE delete — used to tombstone every
+         id actually removed (parent + wallet-fee children + transfer legs). */
+      const _beforeTreasuryIds=new Set((d.treasury||[]).map(t=>String(t&&t.id)));
       const toDelete=(d.treasury||[]).filter(t=>ids.includes(t.id));
       let deletedCount=0,skippedCount=0,totalAmount=0,adminBypassCount=0;
       /* V16.9: Track transferIds to remove (so we delete the transfer record + paired leg only once) */
@@ -1811,6 +1827,20 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         d.treasury=(d.treasury||[]).filter(t=>!t.transferId||!transferIdsToDelete.has(t.transferId));
         d.treasuryTransfers=(d.treasuryTransfers||[]).filter(tf=>!transferIdsToDelete.has(tf.id));
         if(d.notifications)d.notifications=d.notifications.filter(n=>!n.transferId||!transferIdsToDelete.has(n.transferId));
+      }
+      /* V21.10.6 ROOT-FIX (treasury delete resurrection): persisted tombstone.
+         Capture EVERY treasury id removed in this op so even if the day-doc
+         delete-write loses a server race, the merge/listener layer hides it
+         forever (tombstone lives in factory/config → survives refresh) and the
+         cleanup pass purges it physically from treasuryDays. */
+      const _afterTreasuryIds=new Set((d.treasury||[]).map(t=>String(t&&t.id)));
+      const _removedTreasuryIds=[..._beforeTreasuryIds].filter(id=>!_afterTreasuryIds.has(id));
+      if(_removedTreasuryIds.length>0){
+        if(!Array.isArray(d._deletedTreasuryIds))d._deletedTreasuryIds=[];
+        d._deletedTreasuryIds.push(..._removedTreasuryIds);
+        d._deletedTreasuryIds=[...new Set(d._deletedTreasuryIds)];
+        if(d._deletedTreasuryIds.length>3000)d._deletedTreasuryIds=d._deletedTreasuryIds.slice(-3000);
+        try{console.warn("[V21.10.6 treasury-tombstone] bulk-deleted ids tombstoned:",_removedTreasuryIds);}catch(_){}
       }
       /* Audit log: bulk delete */
       if(deletedCount>0&&typeof addAudit==="function"){

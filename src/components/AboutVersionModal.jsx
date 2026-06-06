@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.6",
+    date: "2026-06-06",
+    types: ["fix"],
+    title: "🛡️ إصلاح جذري: الحركات المحذوفة في الخزنة بترجع بعد refresh",
+    changes: [
+      { type: "fix", text: "عَرَض: حركة خزنة (وارد/منصرف) تتحذف ثم ترجع بعد الـ refresh. السبب: في حالات نادرة (race) كتابة حذف الحركة من treasuryDays على السيرفر بتضيع، فالحركة بتفضل موجودة فعلياً وترجع تظهر بعد الـ refresh. (نفس class مشكلة V21.9.69 اللي رجعت.)" },
+      { type: "fix", text: "الإصلاح (دفاع متعدد الطبقات): (1) Tombstone دائم — أي حركة بتتحذف بيتسجّل id بتاعها في factory/config._deletedTreasuryIds (بيعيش بعد الـ refresh). (2) فلترة عند بناء data.treasury + في الـ listener — الحركة المحذوفة مش هتظهر تاني أبداً ولا تتعاد كتابتها. (3) تنظيف فعلي تلقائي — لو لقى حركة tombstoned لسه موجودة في treasuryDays بيمسحها فعلياً. (4) Logging تشخيصي بيرصد أي resurrection في الـ console عشان نوصل للجذر النهائي." },
+      { type: "fix", text: "⚠️ ملاحظة: الحركات المحذوفة قبل التحديث ده (مفيش لها tombstone) — احذفها مرة واحدة كمان بعد التحديث وهتختفي نهائياً وتتمسح فعلياً." },
+    ],
+  },
+  {
     version: "V21.10.5",
     date: "2026-06-06",
     types: ["feature"],
