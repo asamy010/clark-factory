@@ -4988,7 +4988,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         setManualInstallFor(null);
         showToast("✓ تم تسجيل القسط");
       };
-      return<div onClick={()=>setManualInstallFor(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+      return<div onClick={()=>setManualInstallFor(null)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:14,padding:18,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 50px rgba(0,0,0,0.18)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>
@@ -5021,7 +5021,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     })()}
 
     {/* ══ EDIT EMPLOYEE POPUP — تعديل كل تفاصيل الموظف ══ */}
-    {editPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditPopup(null)}>
+    {editPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8}}>
@@ -5148,7 +5148,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const warnCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="warn").length:0;
       const existsCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="exists").length:0;
       const errCount=bulkImportParsed?bulkImportParsed.filter(r=>r.status==="error").length:0;
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkImport(false)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkImport(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:"#8B5CF6"}}>📋 إدخال جماعي للموظفين</div>
@@ -5201,7 +5201,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     {/* ══ BULK PRINT POPUP ══ */}
     {showBulkPrint&&openWeek&&(()=>{const weekSelected=getSelectedEmps(openWeek.id);const inWeek=activeEmps.filter(e=>weekSelected.includes(e.id));
       const selCount=Object.values(bulkPrintSel).filter(Boolean).length;
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkPrint(false)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowBulkPrint(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>🖨 طباعة مجمعة للكشوفات</div>
@@ -5301,7 +5301,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <div style="text-align:center;border-top:1px solid #94a3b8;padding-top:4px;min-width:120px">${emp.name}</div>
         </div></body></html>`;
         w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEmpStatement(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEmpStatement(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:800,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div>
@@ -5419,7 +5419,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         playBeep("done");
         showToast("✅ تم تسجيل استلام "+emp.name);
       };
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpQrScanner(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowEmpQrScanner(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:560,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid "+T.ok,boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.ok+"25"}}>
             <div style={{fontSize:FS+3,fontWeight:900,color:T.ok,display:"flex",alignItems:"center",gap:8}}>
@@ -5466,7 +5466,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     {fraudListPopup&&(()=>{
       const w=fraudListPopup.week;
       const emps=fraudListPopup.emps||[];
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFraudListPopup(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFraudListPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:600,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid "+T.err,boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.err+"25"}}>
             <div style={{fontSize:FS+2,fontWeight:900,color:T.err,display:"flex",alignItems:"center",gap:8}}>
@@ -5544,7 +5544,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         setManualConfirmPopup(null);
         showToast("✓ تم تأكيد "+ids.length+" مرتب يدوياً");
       };
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setManualConfirmPopup(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setManualConfirmPopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:620,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid #F59E0B25"}}>
             <div style={{fontSize:FS+2,fontWeight:900,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
@@ -5600,7 +5600,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const emp=employees.find(e=>e.id===empQrView);
       if(!emp)return null;
       const qrText="CLARK:EMP:"+emp.id;
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setEmpQrView(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setEmpQrView(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,padding:isMob?20:32,width:"100%",maxWidth:480,boxShadow:"0 25px 70px rgba(0,0,0,0.5)",display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
           {/* Header */}
           <div style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:12,borderBottom:"2px solid #0EA5E925"}}>
@@ -5674,7 +5674,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         setEnvelopePopup(null);
       };
       const allFilteredSelected=filtered.length>0&&filtered.every(e=>envelopePopup.selected.has(e.id));
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setEnvelopePopup(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setEnvelopePopup(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:680,maxHeight:"92vh",display:"flex",flexDirection:"column",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
           {/* Header */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:"2px solid #F59E0B25"}}>
@@ -5751,7 +5751,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       const diffHr=Math.floor(diffMs/(1000*60*60));
       const diffMin=Math.floor((diffMs%(1000*60*60))/(1000*60));
       const diffTxt=diffHr>0?diffHr+" ساعة و "+diffMin+" دقيقة":diffMin+" دقيقة";
-      return<div style={{position:"fixed",inset:0,background:"rgba(220,38,38,0.7)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setFraudWarning(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(220,38,38,0.7)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setFraudWarning(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:520,border:"4px solid "+T.err,boxShadow:"0 25px 70px rgba(220,38,38,0.4)",animation:"fraudShake 0.4s"}}>
           {/* Big warning header */}
           <div style={{textAlign:"center",marginBottom:18}}>
@@ -8031,7 +8031,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         setVerifyReview(null);
         setTimeout(()=>setVerifyScanning(true),100);
       };
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",padding:12,backdropFilter:"blur(6px)"}} onClick={close}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",padding:12,backdropFilter:"blur(6px)"}} onClick={close}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:isMob?"100%":620,maxHeight:"95vh",overflowY:"auto",border:"3px solid "+T.ok,boxShadow:"0 25px 70px rgba(0,0,0,0.5)",display:"flex",flexDirection:"column"}}>
           {/* Sticky header */}
           <div style={{padding:"14px 20px",borderBottom:"2px solid "+T.ok+"25",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.cardSolid,position:"sticky",top:0,zIndex:2}}>

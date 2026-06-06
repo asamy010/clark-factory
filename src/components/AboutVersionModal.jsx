@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.258",
+    date: "2026-06-06",
+    types: ["fix"],
+    title: "🔒 منع سكرول الخلفية وراء النوافذ المنبثقة",
+    changes: [
+      { type: "fix", text: "السبب الجذري: النوافذ المنبثقة (overlays) كانت position:fixed لكن مكانتش بتمنع الـ <body> ورّاها من السكرول، فلما تعمل scroll والنافذة مفتوحة كانت الخلفية بتتحرّك. الحل: قاعدة CSS واحدة body:has(.pop-overlay){overflow:hidden} بتقفل سكرول الصفحة طول ما أي نافذة مفتوحة." },
+      { type: "fix", text: "توحيد الكلاس: ضفنا class=\"pop-overlay\" لكل خلفيات النوافذ الحقيقية اللي كانت ناقصاه (34 نافذة أحادية السطر + الـ migration overlay + StageProgressModal + ماسح الـ QR) عبر HR والخزنة والأوردرات والحملات والإعدادات وغيرها. الـ click-catchers بتاعة القوائم المنسدلة (من غير خلفية) متأثرتش — القوائم لسه بتتقفل بالضغط برّاها." },
+    ],
+  },
+  {
     version: "V21.9.257",
     date: "2026-06-06",
     types: ["feature"],

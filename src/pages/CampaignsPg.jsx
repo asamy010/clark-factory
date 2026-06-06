@@ -1894,7 +1894,7 @@ function SendScreen({data, upConfig, user, template, segment, audience, onClose,
       </div>
 
       {/* V19.29: Skip with note dialog */}
-      {skipDialog && <div onClick={() => setSkipDialog(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+      {skipDialog && <div onClick={() => setSkipDialog(false)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
         <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid,borderRadius:14,padding:18,width:"100%",maxWidth:400,border:"1px solid "+T.brd}}>
           <div style={{fontSize:FS+1,fontWeight:800,marginBottom:10}}>⊘ تخطّي عميل</div>
           <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>سبب التخطي (للأرشيف):</div>
@@ -3611,7 +3611,7 @@ function CampaignDetailModal({campaign, data, upConfig, canEdit, templates, onCl
     showToast("✓ تم التصدير");
   };
 
-  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,backdropFilter:"blur(3px)",overflowY:"auto"}}>
+  return <div onClick={onClose} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,backdropFilter:"blur(3px)",overflowY:"auto"}}>
     <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid,borderRadius:14,padding:18,width:"100%",maxWidth:780,border:"1px solid "+T.brd,marginTop:30,marginBottom:30}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,gap:10}}>
         <div style={{flex:1,minWidth:0}}>

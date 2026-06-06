@@ -106,7 +106,7 @@ export function ServiceInvoiceModal({mode, data, upConfig, user, onClose}){
   const titleColor = isSales ? T.accent : "#8B5CF6";
   const titleEmoji = isSales ? "🛠" : "🛠";
 
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget)onClose()}}>
+  return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget)onClose()}}>
     <div style={{background:T.bg,borderRadius:14,maxWidth:900,width:"100%",maxHeight:"92vh",overflow:"auto",border:"2px solid "+titleColor+"30",boxShadow:"0 25px 70px rgba(0,0,0,0.4)"}}>
       {/* Header */}
       <div style={{position:"sticky",top:0,background:T.bg,padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:1}}>

@@ -49,7 +49,7 @@ export function StageProgressModal({order,onClose}){
   const isDoneState=stage==="تم التسليم لمخزن الجاهز"||order.closed;
   const isPartialStock=stage==="في مخزن الجاهز جزئي";
 
-  return <div onClick={(e)=>{if(e.target===e.currentTarget)onClose()}} style={{
+  return <div onClick={(e)=>{if(e.target===e.currentTarget)onClose()}} className="pop-overlay" style={{
     position:"fixed",inset:0,background:"rgba(15,23,42,0.4)",zIndex:10001,
     display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 16px",
     backdropFilter:"blur(3px)",

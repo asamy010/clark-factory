@@ -8002,7 +8002,7 @@ export default function App(){
         </div>
       </div>})()}
     {/* ══ SAVING OVERLAY ══ */}
-    {savingOverlay&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
+    {savingOverlay&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",backdropFilter:"blur(4px)",zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",direction:"rtl",fontFamily:"'Cairo',sans-serif"}}>
       <div style={{background:T.cardSolid,borderRadius:20,padding:"32px 40px",textAlign:"center",minWidth:280,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",border:"1px solid "+T.brd}}>
         <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
           <Spinner size="large" color={T.accent}/>
@@ -8021,6 +8021,7 @@ export default function App(){
         step 2 (sync day docs) and step 3 (config write). */}
     {migrationStatus && (
       <div
+        className="pop-overlay"
         /* V21.9.19: ALWAYS block backdrop click (no onClick handler).
            User explicitly requested "ممنوع الغلق" (cannot be closed) during
            the migration. Even outside dismissable state, clicking outside
@@ -8093,7 +8094,7 @@ export default function App(){
       </div>
     )}
     {/* V19.48: Full notifications popup — opens when user clicks "+N more" chip in greeting bar */}
-    {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    {notifPopupOpen&&<div onClick={(e)=>{if(e.target===e.currentTarget)setNotifPopupOpen(false)}} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:T.bg,borderRadius:14,maxWidth:520,width:"100%",maxHeight:"82vh",border:"2px solid #6366F140",boxShadow:"0 25px 70px rgba(0,0,0,0.3)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         {/* Header */}
         <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.brd,background:"#6366F108",display:"flex",justifyContent:"space-between",alignItems:"center"}}>

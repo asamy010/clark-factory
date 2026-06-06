@@ -42,6 +42,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;background:#EFF6FF}
+    /* V21.9.258: lock background scroll while ANY modal overlay (.pop-overlay)
+       is open. Root cause of the "background scrolls behind the popup" bug:
+       overlays were position:fixed but never prevented the underlying <body>
+       from scrolling. One :has() rule covers every current + future overlay
+       that carries the shared .pop-overlay class (supported in all current
+       browsers; the app already targets modern Safari/Chrome). */
+    body:has(.pop-overlay){overflow:hidden!important}
     /* V21.9.158: prevent horizontal scroll on the body/root level on mobile.
        Individual scrollable strips (sub-view chips, tables in cards, etc.) still
        handle their own horizontal scroll via overflow-x:auto on their containers.

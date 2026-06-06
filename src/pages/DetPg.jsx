@@ -1981,7 +1981,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       })});
       if(canEdit&&!order.closed&&t.cutQty>0&&activeFabs.length>0)items.push({icon:"📤",label:"تسليم ورشة",color:"#8B5CF6",onClick:run(()=>{setShowDeliver(true);setDWs("");setDType("");setDQty(0);setDPrice("");setDNote("")})});
       if(canEdit&&!order.closed)items.push({icon:"➕",label:"أوردر جديد",color:T.ok,onClick:run(()=>setShowNew(true))});
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={close}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={close}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"12px 0 20px",borderTop:"1px solid "+T.brd,boxShadow:"0 -8px 24px rgba(0,0,0,0.15)",animation:"slideUp 0.2s ease-out"}}>
           {/* Drag handle */}
           <div style={{width:40,height:4,borderRadius:2,background:T.brd,margin:"0 auto 12px"}}/>
@@ -2172,7 +2172,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {pushModalOrder&&<ShopifyPushModal order={pushModalOrder} data={data} user={user} isMob={isMob} onClose={()=>setPushModalOrder(null)}/>}
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
-    {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
+    {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
       <div style={{position:"relative",height:"90vh",aspectRatio:"4 / 5",maxWidth:"95vw",borderRadius:16,overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
         <img src={order.image} alt={order.modelNo||""} loading="eager" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
       </div>

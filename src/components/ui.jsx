@@ -307,7 +307,7 @@ export function QRScanner({onScan,onClose}){
     return()=>{active=false;if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())}
   },[]);
   const stop=()=>{if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());onClose()};
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:99999,display:"flex",flexDirection:"column"}}>
+  return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"#000",zIndex:99999,display:"flex",flexDirection:"column"}}>
     <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,0.8)"}}>
       <span style={{color:"#fff",fontWeight:700,fontSize:16}}>📷 مسح QR Code</span>
       <button onClick={stop} style={{background:"#EF4444",color:"#fff",border:"none",borderRadius:8,padding:"8px 20px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ اغلاق</button>

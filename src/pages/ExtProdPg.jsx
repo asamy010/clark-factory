@@ -1440,7 +1440,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
         <span style={{color:T.textSec,fontWeight:400}}>— الإجماليات بتعتمد على الخزنة فقط (V19.20)، اضغط "تنظيف" للمراجعة</span>
       </div>}
       {/* Cleanup modal */}
-      {showCleanup&&<div onClick={()=>setShowCleanup(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+      {showCleanup&&<div onClick={()=>setShowCleanup(false)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 50px rgba(0,0,0,0.18)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div>

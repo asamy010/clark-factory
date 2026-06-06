@@ -5505,7 +5505,7 @@ export function BackupRestoreCard({config,salesDoc,tasksDoc,orders,isMob,user,up
     </div>}
 
     {/* Restore confirmation dialog */}
-    {confirmRestore&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmRestore(null)}>
+    {confirmRestore&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmRestore(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,maxWidth:560,width:"100%",border:"2px solid "+T.err,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{fontSize:48,textAlign:"center",marginBottom:8}}>🚨</div>
         <div style={{fontSize:FS+2,fontWeight:800,color:T.err,textAlign:"center",marginBottom:14}}>تأكيد عملية خطيرة: استعادة نسخة احتياطية</div>

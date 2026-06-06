@@ -3026,7 +3026,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           const selectAllCats=(val)=>setOdooSyncPopup(p=>{const n={};Object.keys(catStats).forEach(c=>{n[c]=val});return{...p,selectedCats:n}});
           const goPreview=async()=>{await buildOdooPreview();setOdooSyncPopup(p=>({...p,step:"preview"}))};
           const selectedCount=Object.keys(odooSyncPopup.selectedCats).filter(c=>odooSyncPopup.selectedCats[c]&&catStats[c]).length;
-          return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
+          return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
                 <div style={{fontSize:FS+2,fontWeight:800,color:"#714867",display:"flex",alignItems:"center",gap:8}}>
@@ -3086,7 +3086,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             closePopup();
             await syncToOdoo(pv.newTxns);
           };
-          return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
+          return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={closePopup}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"1px solid "+T.brd}}>
                 <div style={{fontSize:FS+2,fontWeight:800,color:"#714867",display:"flex",alignItems:"center",gap:8}}>
@@ -3163,7 +3163,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         return null;
       })()}
 
-      {showForm&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowForm(false);setEditId(null)}}>
+      {showForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowForm(false);setEditId(null)}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:600,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{editId?"✏️ تعديل حركة":"+ حركة جديدة"}</div>
@@ -5051,7 +5051,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 {_v>0&&cap>0&&<div style={{fontSize:FS-3,color:T.warn,fontWeight:700,marginTop:5}}>بعد الخارجي: مستهلك {fmt0(factory+_v)} / {fmt0(cap)} → باقي {fmt0(Math.max(0,cap-factory-_v))}</div>}
               </div>;
             };
-            return <div onClick={()=>setMonthLimitW(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            return <div onClick={()=>setMonthLimitW(null)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
               <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:18,padding:22,width:"100%",maxWidth:460,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div style={{fontSize:FS+2,fontWeight:800,color:T.warn}}>💵 مبالغ خارجية — {w.name}</div>
@@ -5087,7 +5087,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               return bv-av;
             });
             const readyN=rows.filter(r=>r.fits).length;
-            return<div onClick={()=>setCapCheck(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+            return<div onClick={()=>setCapCheck(null)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
               <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:520,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <div style={{fontSize:FS+2,fontWeight:800,color:T.text}}>🛡️ فحص استقبال مبلغ</div>
@@ -5266,7 +5266,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* ══ RESET CONFIRMATION POPUP ══ */}
-    {showResetPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>{setShowResetPopup(false);setResetConfirmText("")}}>
+    {showResetPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>{setShowResetPopup(false);setResetConfirmText("")}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:28,width:"100%",maxWidth:520,border:"3px solid "+T.err,boxShadow:"0 25px 80px rgba(239,68,68,0.3)"}}>
         <div style={{fontSize:56,textAlign:"center",marginBottom:10}}>⚠️</div>
         <div style={{fontSize:FS+4,fontWeight:900,color:T.err,textAlign:"center",marginBottom:14}}>مسح شامل — لا رجعة فيه</div>
@@ -5302,7 +5302,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       /* V21.9.83 (Treasury audit Bug #1 + #4): delegate to central helper.
          Pre-V21.9.83 included settlement entries in due → inflated balance. */
       const wsBalance=(wsName)=>computeWorkshopBalance(wsName,data).balance;
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowPartyPicker(null);if(!txPartyId){setTxCategory("")}}}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>{setShowPartyPicker(null);if(!txPartyId){setTxCategory("")}}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:540,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:FS+1,fontWeight:800,color:T.accent}}>{title}</div>
@@ -5334,7 +5334,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </div>})()}
 
     {/* ══ TRANSFER FORM POPUP ══ */}
-    {showTransfer&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowTransfer(false)}>
+    {showTransfer&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowTransfer(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🔄 تحويل بين الخزن</div>
@@ -5365,7 +5365,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* V16.26: Edit confirmed transfer — same fields as create, syncs both treasury legs on save */}
-    {editTf&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditTf(null)}>
+    {editTf&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setEditTf(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:480,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>✏️ تعديل تحويل</div>
@@ -5397,7 +5397,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* ═══ V14.52: First-visit warning popup for non-whitelisted users ═══ */}
-    {showFirstVisitWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowFirstVisitWarning(false)}>
+    {showFirstVisitWarning&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setShowFirstVisitWarning(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:28,width:"100%",maxWidth:460,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.45)",textAlign:"center"}}>
         <div style={{fontSize:54,marginBottom:14}}>🔒</div>
         <div style={{fontSize:FS+4,fontWeight:900,color:T.err,marginBottom:10}}>وضع قراءة فقط</div>
@@ -5424,7 +5424,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* ══ GENERIC CONFIRM POPUP ══ */}
-    {confirmPopup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmPopup(null)}>
+    {confirmPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setConfirmPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:440,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)",textAlign:"center"}}>
         <div style={{fontSize:44,marginBottom:10}}>{confirmPopup.variant==="danger"?"⚠️":confirmPopup.variant==="warn"?"⚠️":"❓"}</div>
         <div style={{fontSize:FS+3,fontWeight:800,color:confirmPopup.variant==="danger"?T.err:confirmPopup.variant==="warn"?T.warn:T.text,marginBottom:8}}>{confirmPopup.title||"تأكيد"}</div>
@@ -5441,7 +5441,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const contacts=(data.waContacts||[]).filter(c=>(c.reports||[]).includes("treasuryDaily")||(c.reports||[]).length===0);
       const popupDate=waPopupData.date;const popupAcc=waPopupData.account;
       const scopeLabel=popupAcc||"كل الحسابات";
-      return<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setWaPopupData(null)}>
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setWaPopupData(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"2px solid "+T.brd}}>
             <div style={{fontSize:FS+3,fontWeight:800,color:"#25D366"}}>📤 إرسال تقرير يومية الخزنة</div>
