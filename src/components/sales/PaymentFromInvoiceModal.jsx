@@ -55,6 +55,8 @@ export function PaymentFromInvoiceModal({ invoice, data, onSubmit, onClose }){
               <Sel value={method} onChange={setMethod}>
                 <option value="نقدي كاش">نقدي كاش</option>
                 <option value="تحويل بنكي">تحويل بنكي</option>
+                <option value="محفظة إلكترونية">محفظة إلكترونية</option>
+                <option value="انستاباي">انستاباي</option>
               </Sel>
             </div>
             <div>

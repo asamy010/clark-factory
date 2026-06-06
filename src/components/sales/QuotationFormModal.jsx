@@ -30,7 +30,8 @@ function _addDays(iso, n){
   return new Date(t + n * 86400000).toISOString().split("T")[0];
 }
 
-export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, userName, onSave, onClose }){
+export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, userName, onSave, onClose, mode = "quote", previewNo }){
+  const isOrder = mode === "order";
   const customers = useMemo(() => (data.customers || []).filter(c => !c.archived), [data.customers]);
   const orders = data.orders || [];
   const inventoryItems = data.inventoryItems || [];
@@ -102,12 +103,12 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 720, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
-          <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{isEdit ? "✏️ تعديل عرض — " + (editQuote.quoteNo || "") : "📋 عرض سعر جديد"}</div>
+          <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{isOrder ? (isEdit ? "✏️ تعديل أمر بيع" : "📑 أمر بيع جديد") : (isEdit ? "✏️ تعديل عرض — " + (editQuote.quoteNo || "") : "📋 عرض سعر جديد")}</div>
           <Btn ghost small onClick={onClose}>✕</Btn>
         </div>
 
         <div style={{ padding: 18 }}>
-          {!isEdit && <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 10 }}>الرقم الجاي: <b style={{ color: "#0EA5E9" }}>{nextQuotationNo(data)}</b></div>}
+          {!isEdit && <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 10 }}>الرقم الجاي: <b style={{ color: "#0EA5E9" }}>{previewNo || nextQuotationNo(data)}</b></div>}
 
           {/* العميل */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -120,9 +121,9 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
               <Inp value={customerNameAdHoc} onChange={v => { setCustomerNameAdHoc(v); if(v) setCustomerId(""); }} placeholder="اسم العميل..." />
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-            <div><label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>تاريخ العرض</label><Inp type="date" value={date} onChange={setDate} /></div>
-            <div><label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>صالح حتى</label><Inp type="date" value={validUntil} onChange={setValidUntil} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: isOrder ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div><label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>{isOrder ? "تاريخ الأمر" : "تاريخ العرض"}</label><Inp type="date" value={date} onChange={setDate} /></div>
+            {!isOrder && <div><label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>صالح حتى</label><Inp type="date" value={validUntil} onChange={setValidUntil} /></div>}
           </div>
 
           {/* البنود */}
@@ -188,7 +189,7 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
 
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn ghost onClick={onClose}>إلغاء</Btn>
-          <Btn primary onClick={handleSave} style={{ background: "#0EA5E9" }}>{isEdit ? "💾 حفظ التعديل" : "📋 حفظ العرض"}</Btn>
+          <Btn primary onClick={handleSave} style={{ background: "#0EA5E9" }}>{isOrder ? (isEdit ? "💾 حفظ" : "📑 حفظ أمر البيع") : (isEdit ? "💾 حفظ التعديل" : "📋 حفظ العرض")}</Btn>
         </div>
       </div>
     </div>

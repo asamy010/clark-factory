@@ -10,10 +10,11 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
-import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator } from "../../utils/sales/salesOrders.js";
+import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
 import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
+import { QuotationFormModal } from "../../components/sales/QuotationFormModal.jsx";
 
 const STATUS_META = {
   confirmed:         { label: "مؤكّد",        color: "#0EA5E9", bg: "#0EA5E915" },
@@ -32,6 +33,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   const [partyId, setPartyId] = useState("");
   const [search, setSearch] = useState("");
   const [activeSO, setActiveSO] = useState(null);
+  const [showForm, setShowForm] = useState(false);
 
   const orders = data.salesOrders || [];
   const customers = data.customers || [];
@@ -60,6 +62,19 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     orders.forEach(o => { const s = o.status || "confirmed"; if(acc[s] != null) acc[s]++; acc.total++; });
     return acc;
   }, [orders]);
+
+  const handleCreateDirect = (payload) => {
+    const ps = data.purchaseSettings || {};
+    const opts = { stockEnabled: !!ps.stockEnabled, blockOnInsufficientStock: ps.blockOnInsufficientStock !== false };
+    let res = { ok: true };
+    upConfig(d => { res = createSalesOrderDirectMutator(d, payload, userName, opts); });
+    if(res && res.ok){
+      setShowForm(false);
+      showToast("✓ اتعمل أمر البيع " + (res.salesOrder?.orderNo || "") + (opts.stockEnabled && res.salesOrder?.stockDeducted ? " وخصم المخزون" : ""));
+    } else {
+      showToast("⛔ " + (res?.error || "تعذّر إنشاء الأمر"));
+    }
+  };
 
   const handleCreateInvoice = async (so) => {
     const autoPostOn = (data.invoiceSettings || {}).autoPostOnSalesInvoiceCreate === true;
@@ -104,7 +119,10 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     <div style={{ padding: isMob ? 12 : 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>📑 أوامر البيع</div>
-        <div style={{ fontSize: FS - 2, color: T.textMut }}>الأوامر بتتولّد من «عروض الأسعار»</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: FS - 2, color: T.textMut }}>أو بتتولّد من «عروض الأسعار»</span>
+          {canEdit && <Btn primary onClick={() => setShowForm(true)} style={{ background: "#0EA5E9" }}>+ أمر بيع جديد</Btn>}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
@@ -151,7 +169,17 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
         </div>
       )}
 
-      {activeSO && (
+      {showForm && (
+        <QuotationFormModal
+          data={data}
+          mode="order"
+          previewNo={nextSalesOrderNo(data)}
+          userName={userName}
+          onSave={handleCreateDirect}
+          onClose={() => setShowForm(false)}
+        />
+      )}
+      {activeSO && !showForm && (
         <SalesOrderDetailModal
           so={activeSO}
           data={data}

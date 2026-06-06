@@ -35,6 +35,7 @@
 
 import { applyStockDelta } from "../categories.js";
 import { reserveInvoiceNo } from "../invoices.js";
+import { recalcQuotationTotals } from "./quotations.js";
 
 const SO_PREFIX = "أمر"; /* عربي حسب قرار Ahmed (V21.10.0) */
 
@@ -83,6 +84,59 @@ export function checkStockForItems(d, items){
     if(have < need) short.push({ itemId, name: it?.name || itemId, need, have });
   }
   return short;
+}
+
+/* خصم/تسجيل مخزون أمر البيع — مشترك بين التحويل والإنشاء المباشر:
+   • inventoryItems → خصم فعلي عبر applyStockDelta + حركة out.
+   • order models   → حركة مخزون رقابية فقط (out، بدون خصم رقمي). التسليم
+     الفعلي للموديلات عبر CustDeliverPg — قرار Ahmed V21.10.7 يمنع الخصم
+     المزدوج. */
+function _applySalesOrderStock(d, so, items, opts, userName, nowIso){
+  if(!opts || !opts.stockEnabled) return;
+  if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+  if(!Array.isArray(so.orderMovements)) so.orderMovements = [];
+  /* (1) inventoryItems — خصم فعلي */
+  const needs = _aggregateInventoryNeeds(items);
+  for(const [itemId, qty] of needs){
+    const it = (d.inventoryItems || []).find(x => x.id === itemId);
+    if(!it) continue;
+    const unitCost = Number(it.avgCost) || 0;
+    const ok = applyStockDelta(d, it.categoryId, itemId, -qty, null);
+    if(!ok) continue;
+    const mvId = _mid();
+    so.stockDeductions.push({ itemId, categoryId: it.categoryId, qty, itemName: it.name || "", unit: it.unit || "", unitCost });
+    so.stockMovementIds.push(mvId);
+    d.stockMovements.push({
+      id: mvId, type: "out", itemType: it.categoryId, itemId, itemName: it.name || "",
+      qty: -qty, unit: it.unit || "", price: unitCost, date: so.date,
+      sourceType: "sales_order", sourceId: so.id,
+      notes: "خصم أمر بيع " + so.orderNo, createdBy: userName || "", createdAt: nowIso,
+    });
+  }
+  /* (2) order models — حركة رقابية فقط (V21.10.7 #5) */
+  const orderNeeds = new Map();
+  for(const it of items){
+    if(it && it.sourceType === "order" && it.sourceId){
+      const q = Number(it.qty) || 0;
+      if(q > 0) orderNeeds.set(it.sourceId, (orderNeeds.get(it.sourceId) || 0) + q);
+    }
+  }
+  for(const [orderId, qty] of orderNeeds){
+    const mvId = _mid();
+    const modelNo = (items.find(x => x.sourceId === orderId)?.modelNo) || orderId;
+    so.orderMovements.push({ orderId, qty, modelNo, mvId });
+    so.stockMovementIds.push(mvId);
+    d.stockMovements.push({
+      id: mvId, type: "out", itemType: "order", itemId: orderId, itemName: modelNo,
+      qty: -qty, unit: "قطعة", price: 0, date: so.date,
+      sourceType: "sales_order", sourceId: so.id,
+      notes: "حجز موديل — أمر بيع " + so.orderNo + " (حركة رقابية؛ التسليم الفعلي عبر شاشة التسليم)",
+      createdBy: userName || "", createdAt: nowIso,
+    });
+  }
+  so.stockDeducted = so.stockDeductions.length > 0;
+  so.stockDeductedAt = nowIso;
+  so.stockDeductedBy = userName || "";
 }
 
 /* ── Convert Quotation → Sales Order (+ stock deduction) ── */
@@ -136,6 +190,7 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
     salesInvoiceId: "", salesInvoiceNo: "",
     stockDeducted: false,
     stockDeductions: [],
+    orderMovements: [],
     stockMovementIds: [],
     stockDeductedAt: "", stockDeductedBy: "",
     cancelReason: "", cancelledAt: "", cancelledBy: "",
@@ -146,31 +201,8 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
     createdBy: userName || "",
   };
 
-  /* خصم المخزون (inventoryItems فقط) */
-  if(opts.stockEnabled){
-    if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
-    const needs = _aggregateInventoryNeeds(items);
-    for(const [itemId, qty] of needs){
-      const it = (d.inventoryItems || []).find(x => x.id === itemId);
-      if(!it) continue; /* صنف اتمسح — نتخطّاه بأمان */
-      const unitCost = Number(it.avgCost) || 0;
-      const ok = applyStockDelta(d, it.categoryId, itemId, -qty, null);
-      if(!ok) continue;
-      const mvId = _mid();
-      so.stockDeductions.push({ itemId, categoryId: it.categoryId, qty, itemName: it.name || "", unit: it.unit || "", unitCost });
-      so.stockMovementIds.push(mvId);
-      d.stockMovements.push({
-        id: mvId, type: "out", itemType: it.categoryId, itemId, itemName: it.name || "",
-        qty: -qty, unit: it.unit || "", price: unitCost, date: so.date,
-        sourceType: "sales_order", sourceId: so.id,
-        notes: "خصم أمر بيع " + orderNo,
-        createdBy: userName || "", createdAt: nowIso,
-      });
-    }
-    so.stockDeducted = so.stockDeductions.length > 0;
-    so.stockDeductedAt = nowIso;
-    so.stockDeductedBy = userName || "";
-  }
+  /* خصم/تسجيل المخزون (helper مشترك — inventoryItems خصم فعلي + order models حركة رقابية) */
+  _applySalesOrderStock(d, so, items, opts, userName, nowIso);
 
   if(!Array.isArray(d.salesOrders)) d.salesOrders = [];
   d.salesOrders.unshift(so);
@@ -184,6 +216,49 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
   if(!Array.isArray(quote.statusHistory)) quote.statusHistory = [];
   quote.statusHistory.push({ from: quote.statusHistory.slice(-1)[0]?.to || "draft", to: "converted", at: nowIso, by: userName || "" });
 
+  return { ok: true, salesOrder: so };
+}
+
+/* ── Create Sales Order DIRECTLY (standalone, not from a quotation) ──
+   V21.10.8 (#2). نفس منطق التحويل بس من غير عرض مصدر. بيرجّع {ok,error?,salesOrder?}. */
+export function createSalesOrderDirectMutator(d, payload, userName, opts = {}){
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if(items.length === 0) return { ok: false, error: "أضف بند واحد على الأقل" };
+  const hasCustomer = (payload.customerId && String(payload.customerId).trim()) || (payload.customerNameAdHoc && payload.customerNameAdHoc.trim());
+  if(!hasCustomer) return { ok: false, error: "اختر عميل أو اكتب اسم عميل" };
+  /* فحص المخزون (للأصناف) لو التفعيل + المنع شغّالين */
+  if(opts.stockEnabled && opts.blockOnInsufficientStock){
+    const short = checkStockForItems(d, items);
+    if(short.length > 0){
+      return { ok: false, error: "مخزون غير كافٍ: " + short.map(s => `${s.name} (متاح ${s.have} / مطلوب ${s.need})`).join("، ") };
+    }
+  }
+  const totals = recalcQuotationTotals({ items, discountPct: payload.discountPct || 0 });
+  const nowIso = new Date().toISOString();
+  const orderNo = reserveSalesOrderNo(d);
+  const so = {
+    id: _gid(), orderNo,
+    date: payload.date || new Date().toISOString().split("T")[0],
+    customerId: payload.customerId || "",
+    customerName: payload.customerName || "",
+    customerPhone: payload.customerPhone || "",
+    customerNameAdHoc: payload.customerId ? "" : (payload.customerNameAdHoc || ""),
+    items: totals.items,
+    subtotal: totals.subtotal, discountPct: totals.discountPct,
+    totalDiscount: totals.totalDiscount, total: totals.total,
+    status: "confirmed",
+    fromQuotationId: "", fromQuotationNo: "",
+    salesInvoiceId: "", salesInvoiceNo: "",
+    stockDeducted: false, stockDeductions: [], orderMovements: [], stockMovementIds: [],
+    stockDeductedAt: "", stockDeductedBy: "",
+    cancelReason: "", cancelledAt: "", cancelledBy: "",
+    statusHistory: [{ from: "", to: "confirmed", at: nowIso, by: userName || "", note: "أمر بيع مباشر" }],
+    notes: payload.notes || "", salesPerson: payload.salesPerson || userName || "",
+    createdAt: nowIso, createdBy: userName || "",
+  };
+  _applySalesOrderStock(d, so, totals.items, opts, userName, nowIso);
+  if(!Array.isArray(d.salesOrders)) d.salesOrders = [];
+  d.salesOrders.unshift(so);
   return { ok: true, salesOrder: so };
 }
 
@@ -276,6 +351,20 @@ export function cancelSalesOrderMutator(d, soId, userName, reason){
         qty: +ded.qty, unit: ded.unit || "", price: ded.unitCost || 0, date: new Date().toISOString().split("T")[0],
         sourceType: "sales_order_cancel", sourceId: so.id,
         notes: "إلغاء أمر بيع " + (so.orderNo || "") + " — استرجاع مخزون",
+        createdBy: userName || "", createdAt: nowIso,
+      });
+    }
+  }
+  /* V21.10.7 (#5): عكس حركات الموديلات الرقابية (in) — مفيش خصم رقمي اتعمل
+     فمفيش applyStockDelta، بس نسجّل حركة استرجاع للأثر الرقابي. */
+  if(Array.isArray(so.orderMovements) && so.orderMovements.length > 0){
+    if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+    for(const om of so.orderMovements){
+      d.stockMovements.push({
+        id: _mid(), type: "in", itemType: "order", itemId: om.orderId, itemName: om.modelNo || om.orderId,
+        qty: +(Number(om.qty) || 0), unit: "قطعة", price: 0, date: new Date().toISOString().split("T")[0],
+        sourceType: "sales_order_cancel", sourceId: so.id,
+        notes: "إلغاء حجز موديل — " + (so.orderNo || ""),
         createdBy: userName || "", createdAt: nowIso,
       });
     }
