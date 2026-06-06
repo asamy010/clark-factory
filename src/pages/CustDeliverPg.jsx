@@ -62,7 +62,7 @@ import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
    when opening 'جرد المخزن من المبيعات' page after Vite/ESM strict-mode upgrade. */
 let _auditScanMode = "series";
 
-export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season}){
+export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season,hubView}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
   const[showCustForm,setShowCustForm]=useState(false);const[showCustList,setShowCustList]=useState(false);const[custSalesLog,setCustSalesLog]=useState(null);const[editSaleIdx,setEditSaleIdx]=useState(null);const[editSaleQty,setEditSaleQty]=useState(0);const[logCustF,setLogCustF]=useState("");const[logModelF,setLogModelF]=useState("");const[logDateF,setLogDateF]=useState("");const[logTypeFilter,setLogTypeFilter]=useState("");const[logLimit,setLogLimit]=useState(50);const[quoteCust,setQuoteCust]=useState(null);const[balReview,setBalReview]=useState(false);const[pendingRcv,setPendingRcv]=useState(null);
   /* V18.63: Delivery-note popup state — same flow as quoteCust but prints quantities only (no prices). */
@@ -215,6 +215,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V19.66: double-submit guard for the QR confirm-sale popup */
   const qrSaleSubmittingRef=useRef(false);
   const[sessFilterQ,setSessFilterQ]=useState("");
+  /* V21.11.1: سجل التسليمات — عرض أول 25 + «عرض المزيد» (طلب Ahmed). */
+  const[sessLimit,setSessLimit]=useState(25);
   const[reportRange,setReportRange]=useState({from:"",to:""});const[showReport,setShowReport]=useState(false);const[rptType,setRptType]=useState("all");const[rptCust,setRptCust]=useState("");const[rptModel,setRptModel]=useState("");
   const[invAudit,setInvAudit]=useState(null);/* {items:{orderId:{counted:n}},scanning:false} */
   const[groupPrint,setGroupPrint]=useState(null);const[addCustPick,setAddCustPick]=useState(null);const[stockRcv,setStockRcv]=useState(null);/* {items:{},scanning:false} */
@@ -1206,7 +1208,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       .sales-group-title{font-size:${FS-1}px;font-weight:800;color:${T.textSec};margin:0 0 10px;padding:0 4px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.5px}
       .sales-group-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
     `}</style>
-    {(()=>{
+    {/* V21.11.1: hubView يتحكم في الأقسام لما الصفحة جوّه هَب المبيعات.
+       null = سلوك قديم (كله ظاهر، شاشة كاملة) — backward compatible. */}
+    {(!hubView||hubView==="quickActions")&&(()=>{
       /* ═══ SVG ICONS — professional inline icons ═══ */
       const ICON=(path,size=26,strokeWidth=2)=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" style={{display:"block"}}>{path}</svg>;
       const I={
@@ -1366,7 +1370,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>;
     })()}
     {/* ═══ SALES STATS CARDS ═══ */}
-    {(()=>{
+    {(!hubView||hubView==="overview")&&(()=>{
       /* V18.27: Apply per-customer discount to sales/returns/balance.
          Step 1: Build perCust GROSS sales/returns first (no discount).
          Step 2: Build perCust payments (cash/check/other).
@@ -3666,7 +3670,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         {key:"audits",label:"📋 جرد المبيعات",count:audCount,color:"#F59E0B"},
         {key:"stale",label:"⚠️ موديلات راكدة",count:staleCount,color:"#EF4444",hidden:staleCount===0},
       ];
-      return<div style={{display:"flex",gap:0,marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.brd,background:T.cardSolid,boxShadow:T.shadow,flexWrap:isMob?"wrap":"nowrap"}}>
+      return hubView?null:<div style={{display:"flex",gap:0,marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.brd,background:T.cardSolid,boxShadow:T.shadow,flexWrap:isMob?"wrap":"nowrap"}}>
         {tabs.filter(t=>!t.hidden).map(t=>{const isActive=salesTab===t.key;
           return<div key={t.key} onClick={()=>setSalesTab(t.key)} style={{flex:1,minWidth:isMob?"50%":"auto",padding:isMob?"10px 8px":"12px 14px",cursor:"pointer",textAlign:"center",fontWeight:isActive?800:600,fontSize:isMob?FS-2:FS-1,background:isActive?t.color+"12":"transparent",color:isActive?t.color:T.textSec,borderBottom:isActive?"3px solid "+t.color:"3px solid transparent",transition:"all 0.15s",userSelect:"none"}} onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=T.bg+"50"}} onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background="transparent"}}>
             <div>{t.label}</div>
@@ -3675,11 +3679,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>;
     })()}
     {/* Sessions Log */}
-    {salesTab==="sessions"&&<Card title={"📦 سجل التسليمات ("+sessions.length+")"}>
+    {(hubView?hubView==="deliveryLog":salesTab==="sessions")&&<Card title={"📦 سجل التسليمات ("+sessions.length+")"}>
       <div style={{marginBottom:10}}><Inp value={sessFilterQ} onChange={setSessFilterQ} placeholder="فلتر بالتاريخ أو اسم العميل أو رقم الموديل..."/></div>
       {(()=>{const fSess=sortedSessions.filter(s=>{if(!sessFilterQ.trim())return true;const q=sessFilterQ.trim().toLowerCase();const mNos=s.modelIds.map(id=>{const o=orders.find(x=>x.id===id);return o?.modelNo||""}).join(" ").toLowerCase();const cNames=s.custIds.map(id=>{const c=customers.find(x=>x.id===id);return c?.name||""}).join(" ").toLowerCase();return(s.date||"").includes(q)||mNos.includes(q)||cNames.includes(q)});
         return fSess.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {fSess.map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;const st=s.status||"جاري التجهيز";const stColor=st==="تم التسليم"?"#EF4444":st==="تم الشحن"?"#0EA5E9":"#F59E0B";
+        {fSess.slice(0,sessLimit).map(s=>{const totalQty=Object.values(s.grid||{}).reduce((sum,v)=>sum+(Number(v)||0),0);const isActive=activeSession===s.id;const st=s.status||"جاري التجهيز";const stColor=st==="تم التسليم"?"#EF4444":st==="تم الشحن"?"#0EA5E9":"#F59E0B";
           const confirmed=s.saleConfirmed;const isFree=s.freeSale;const isClosed=st==="تم التسليم";
           return<div key={s.id} style={{padding:"12px 16px",borderRadius:12,background:isClosed?"#FEF2F2":isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:isClosed?"1px solid #EF444430":confirmed?"1px solid #10B98130":"1px solid "+T.brd,cursor:"pointer",transition:"all 0.15s",opacity:isClosed?0.7:1}} onClick={()=>setActiveSession(isActive?null:s.id)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
@@ -3699,10 +3703,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               </div>
             </div>
           </div>})}
+      {fSess.length>sessLimit&&<div onClick={()=>setSessLimit(l=>l+25)} style={{textAlign:"center",padding:"10px",marginTop:4,borderRadius:10,background:T.accentBg,color:T.accent,fontWeight:800,cursor:"pointer",fontSize:FS-1,border:"1px solid "+T.accent+"30"}}>⬇️ عرض المزيد ({fSess.length-sessLimit} متبقي)</div>}
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>}
     {/* ── V17.7: Returns Log — grouped by customer ── */}
-    {salesTab==="returns"&&(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
+    {(hubView?hubView==="returnsLog":salesTab==="returns")&&(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
       if(allReturns.length===0)return<Card title={"↩️ سجل المرتجعات"}><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مرتجعات بعد</div></Card>;
       /* Group by custId — collect each customer's full return history */
       const byCust={};
@@ -3845,7 +3850,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>;
     })()}
     {/* ── Sales Audits Section ── */}
-    {salesTab==="audits"&&<Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
+    {(hubView?hubView==="audits":salesTab==="audits")&&<Card title={"📋 جرد المبيعات ("+audits.length+")"} style={{marginBottom:16}}>
       {sortedAudits.length>0?<div style={{display:"flex",flexDirection:"column",gap:8}}>
         {sortedAudits.map(a=>{const totalQ=Object.values(a.grid||{}).reduce((s,v)=>s+(Number(v)||0),0);const isActive=activeAudit===a.id;
           return<div key={a.id} style={{padding:"10px 14px",borderRadius:10,background:isActive?T.accent+"08":T.cardSolid,border:isActive?"2px solid "+T.accent:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>{if(isActive){setActiveAudit(null);setAuditInclude(null)}else{setActiveAudit(a.id);const g=a.grid||{};const custIds=[...new Set(Object.keys(g).map(k=>k.split("_")[1]))].filter(id=>auditCusts.some(c=>c.id===id));setAuditInclude(custIds.length>0?custIds:null)}}}>
@@ -6504,7 +6509,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>
     </div>}
     {/* V16.17: Stale models alert — V17.9: now in its own tab */}
-    {salesTab==="stale"&&(()=>{
+    {(hubView?hubView==="stale":salesTab==="stale")&&(()=>{
       const now=new Date();
       const staleModels=stockModels.filter(m=>{if(m.avail<=0)return false;const o=orders.find(x=>x.id===m.id);if(!o)return false;
         const lastSaleDate=(o.customerDeliveries||[]).reduce((latest,d)=>d.date>latest?d.date:latest,"");
