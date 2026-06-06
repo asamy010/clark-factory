@@ -12,6 +12,7 @@ import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
+import { computeCheckAlertActions } from "./utils/checkAlerts.js";
 import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { startClockSync } from "./utils/serverTime.js";
@@ -811,6 +812,7 @@ export default function App(){
   const[autoMigrationProgress,setAutoMigrationProgress]=useState(null);
   const[autoMigrationResults,setAutoMigrationResults]=useState([]);
   const autoMigrationRanRef=useRef(false);/* prevent re-run on re-render */
+  const checkAlertsRanRef=useRef(false);/* V21.9.254: due-checks alerts generator runs once per session */
   /* V21.9.47: full health-issues state (terminal listeners + pending migrations
      + size warnings + data sanity). Updates every 30s + on configDoc change.
      Pre-V21.9.47 the user couldn't see "what's wrong" at a glance — they had
@@ -919,6 +921,55 @@ export default function App(){
         setAutoMigrationProgress(null);
       }
     }, 3000);
+    return ()=>clearTimeout(timeoutId);
+  },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
+  /* V21.9.254: Due-checks alerts generator. Materializes side-panel
+     notifications (like transfer-approval chips) for the CURRENT user when
+     a "معلق" check approaches/passes its due date. Client-side, once per
+     session, diff-before-write (no Firestore write unless something changed).
+     NO external push — side notification list only. Reuses the existing
+     notifications split collection + per-user read/dismiss state.
+     Deps mirror the auto-migration effect; runs once via checkAlertsRanRef. */
+  useEffect(()=>{
+    if(checkAlertsRanRef.current) return;
+    if(!user||!configDoc) return;
+    if(!splitLoaded||!partitionedLoaded) return;
+    if(!isOnline) return;
+    const ca=configDoc.checkAlerts;
+    const email=user?.email||"";
+    if(!ca||ca.enabled!==true){ checkAlertsRanRef.current=true; return; }
+    const inList=(Array.isArray(ca.payableRecipients)&&ca.payableRecipients.includes(email))
+              ||(Array.isArray(ca.receivableRecipients)&&ca.receivableRecipients.includes(email));
+    if(!email||!inList){ checkAlertsRanRef.current=true; return; }
+    checkAlertsRanRef.current=true;
+    /* Settle after the auto-migration window so we don't pile work on boot. */
+    const timeoutId=setTimeout(()=>{
+      try{
+        const checks=(splitDataRef.current?.checks)||configDoc.checks||[];
+        const notifications=(splitDataRef.current?.notifications)||configDoc.notifications||[];
+        const customers=(partitionedDataRef.current?.customers)||configDoc.customers||[];
+        const suppliers=(partitionedDataRef.current?.suppliers)||configDoc.suppliers||[];
+        const now=new Date();
+        const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+        const { toCreate, toEndIds }=computeCheckAlertActions({ checks, notifications, checkAlerts:ca, customers, suppliers, userEmail:email, today });
+        if(toCreate.length===0 && toEndIds.length===0) return;
+        const endSet=new Set(toEndIds);
+        upConfig(d=>{
+          if(!Array.isArray(d.notifications)) d.notifications=[];
+          /* Existence-guard create (idempotent across concurrent clients). */
+          const existing=new Set(d.notifications.map(n=>String(n&&n.id)));
+          for(const notif of toCreate){
+            if(!existing.has(String(notif.id))) d.notifications.push(notif);
+          }
+          if(endSet.size){
+            const _now=new Date().toISOString();
+            for(const n of d.notifications){
+              if(n && endSet.has(n.id) && !n.endedAt){ n.endedAt=_now; n.endedBy="system"; }
+            }
+          }
+        });
+      }catch(e){ console.warn("[V21.9.254 checkAlerts] generator failed:",e?.message||e); }
+    },4500);
     return ()=>clearTimeout(timeoutId);
   },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
   /* V21.9.47: evaluate full health every 15s + on configDoc change.
@@ -5657,6 +5708,8 @@ export default function App(){
     /* V15.50: Delivery confirmation notification types get specific styling + link to custDelivery */
     if(n.type==="delivery_confirmed")return{msg:n.msg,color:"#10B981",icon:"✅",orderId:null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt,goTo:"custDelivery"};
     if(n.type==="delivery_issue")return{msg:n.msg,color:"#EF4444",icon:"⚠️",orderId:null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt,goTo:"custDelivery"};
+    /* V21.9.254: due-check alert chip — clickable, deep-links to the checks view. */
+    if(n.type==="check_alert")return{msg:n.msg,color:n.checkState==="overdue"?"#DC2626":n.checkState==="due"?"#F59E0B":"#0EA5E9",icon:"🧾",orderId:null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt,notifLink:n.link};
     return{msg:n.msg,color:n.type==="طلب"?"#8B5CF6":n.type==="مهمة"?T.accent:T.warn,icon:n.type==="طلب"?"📩":n.type==="مهمة"?"📌":"💬",orderId:n.orderId||null,isNotif:true,notifId:n.id,from:n.fromName,date:n.createdAt};
   }),...appAlerts];
   const alertCount=allAlerts.length;
@@ -5685,7 +5738,8 @@ export default function App(){
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
-    return t==="تذكير"||t==="طلب"||t==="مهمة"||t==="مهمة عاجلة";
+    /* V21.9.254: surface due-check alerts in the side notification list too. */
+    return t==="تذكير"||t==="طلب"||t==="مهمة"||t==="مهمة عاجلة"||t==="check_alert";
   });
   /* Helper: format time-remaining for an expiring notification. Returns "1س 23د" / "45د" / "آخر اليوم" / null. */
   const formatRemaining=(n)=>{
@@ -5719,7 +5773,7 @@ export default function App(){
          V21.9.145: stash the initial view in sessionStorage so TreasuryPg reads it
          on FIRST render (no flash of the default tab before the event listener kicks
          in 150ms later). The existing event still fires to handle scrolling. */
-      const targetView=subType==="transfer_pending"?"transfers":undefined;
+      const targetView=subType==="transfer_pending"?"transfers":(subType==="checks"?"checks":undefined);
       if(targetView){
         try { sessionStorage.setItem("treasury-deep-link",JSON.stringify({view:targetView,entryId:id,ts:Date.now()})); } catch(_) {}
       }
@@ -5744,6 +5798,7 @@ export default function App(){
     "طلب":        {icon:"📩",bg:"#F5F3FF",border:"#DDD6FE",text:"#7C3AED"},
     "مهمة":       {icon:"📌",bg:"#EFF6FF",border:"#BFDBFE",text:"#2563EB"},
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
+    "check_alert": {icon:"🧾",bg:"#ECFEFF",border:"#A5F3FC",text:"#0E7490"},
   };
 
   /* V19.48: Live ticker is wired at top of component (before early returns) for hook-order stability. */

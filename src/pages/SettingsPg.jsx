@@ -1304,6 +1304,90 @@ function SecurityAlertsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,setDirt
   </Card>;
 }
 
+/* V21.9.254: Due-Checks Alerts settings card (manager/admin).
+   Writes cfg.checkAlerts = { enabled, leadDays, payableRecipients[], receivableRecipients[] }.
+   Two user pickers (payable vs receivable recipients) reusing the
+   allowedEditors checkbox-row pattern. The generator (App.jsx) reads this
+   on boot and materializes side-panel notifications for the matching users. */
+export function CheckAlertsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,setDirty,userRole}){
+  const DEF={enabled:false,leadDays:3,payableRecipients:[],receivableRecipients:[]};
+  const savedJson=useMemo(()=>JSON.stringify({...DEF,...(config.checkAlerts||{})}),[config.checkAlerts]);/* eslint-disable-line */
+  const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
+  const draftJson=JSON.stringify(draft);
+  const isDirty=draftJson!==savedJson;
+  useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
+  useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
+  const canEdit=userRole==="admin"||userRole==="manager";
+  const allUsers=(config.usersList||[]).filter(u=>u&&u.email);
+  const upd=(fn)=>setDraft(p=>{const n={...p};fn(n);return n});
+  const toggleRecipient=(field,email)=>upd(x=>{const cur=Array.isArray(x[field])?x[field]:[];x[field]=cur.includes(email)?cur.filter(e=>e!==email):[...cur,email]});
+  const handleSave=()=>{
+    if(!canEdit){showToast("⛔ غير مصرّح — للمدير فقط");return}
+    const clean={
+      enabled:!!draft.enabled,
+      leadDays:Math.max(0,Number(draft.leadDays)||0),
+      payableRecipients:Array.isArray(draft.payableRecipients)?draft.payableRecipients:[],
+      receivableRecipients:Array.isArray(draft.receivableRecipients)?draft.receivableRecipients:[],
+    };
+    upConfig(d=>{d.checkAlerts=clean});
+    showToast("✅ تم حفظ تنبيهات الشيكات المستحقة");
+  };
+  const handleDiscard=()=>{ask("إلغاء التعديلات","هل تريد إلغاء التعديلات؟",{danger:true,confirmText:"إلغاء"}).then(ok=>{if(ok)setDraft(JSON.parse(savedJson))})};
+  const renderPicker=(field,title,icon,accent)=>{
+    const list=Array.isArray(draft[field])?draft[field]:[];
+    return<div style={{padding:12,borderRadius:10,background:accent+"04",border:"1px solid "+accent+"20"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{fontSize:FS-1,fontWeight:800,color:accent,display:"flex",alignItems:"center",gap:6}}>
+          <span>{icon}</span><span>{title}</span>
+        </div>
+        <div style={{fontSize:FS-3,padding:"2px 8px",borderRadius:6,background:accent+"15",color:accent,fontWeight:700}}>{list.length}</div>
+      </div>
+      {allUsers.length===0?<div style={{padding:"14px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا يوجد مستخدمين — أضف مستخدمين أولاً</div>:
+      <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:220,overflowY:"auto"}}>
+        {allUsers.map(u=>{
+          const on=list.includes(u.email);
+          return<div key={u.email} onClick={()=>toggleRecipient(field,u.email)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:on?accent+"10":T.bg,border:"1px solid "+(on?accent+"30":T.brd),transition:"all 0.15s"}}>
+            <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(on?accent:T.textMut),background:on?accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {on&&<svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.email.split("@")[0]}</div>
+              <div style={{fontSize:FS-3,color:T.textMut,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
+            </div>
+          </div>;
+        })}
+      </div>}
+    </div>;
+  };
+  return<Card title={"🔔 تنبيهات الشيكات المستحقة"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
+    <CardSubtitle icon="💡">إشعارات تظهر في القائمة الجانبية (زي إشعارات التحويل) عند اقتراب أو تأخّر استحقاق شيك «معلق» — مفيش رسائل واتساب ولا push خارجي. بتظهر وقت فتح البرنامج وتختفي تلقائياً لما الشيك يتسوّى.</CardSubtitle>
+    {isDirty&&<div style={{fontSize:FS-2,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.warn+"10",borderRadius:8,border:"1px solid "+T.warn+"30",fontWeight:700}}>✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد</div>}
+    {!canEdit&&<div style={{fontSize:FS-2,color:T.err,marginBottom:12,padding:"8px 12px",background:T.err+"10",borderRadius:8,border:"1px solid "+T.err+"30",fontWeight:700}}>⛔ العرض فقط — تعديل الإعدادات للمدير فقط</div>}
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:draft.enabled?T.ok+"08":T.bg,border:"1px solid "+(draft.enabled?T.ok+"30":T.brd),marginBottom:12,cursor:"pointer"}} onClick={()=>upd(x=>{x.enabled=!x.enabled})}>
+      <div style={{width:42,height:24,borderRadius:12,background:draft.enabled?T.ok:T.textMut,position:"relative",transition:"all 0.15s",flexShrink:0}}>
+        <div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:3,insetInlineStart:draft.enabled?21:3,transition:"all 0.15s"}}/>
+      </div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:FS-1,fontWeight:800,color:T.text}}>تفعيل تنبيهات الشيكات</div>
+        <div style={{fontSize:FS-3,color:T.textMut}}>{draft.enabled?"مفعّل — هتظهر للمستلمين المحددين تحت":"متوقّف"}</div>
+      </div>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+      <span style={{fontSize:FS-1,fontWeight:700,color:T.text}}>نبّه قبل الاستحقاق بـ</span>
+      <Inp type="number" min="0" value={draft.leadDays??""} onChange={v=>upd(x=>{x.leadDays=Math.max(0,Number(v)||0)})} style={{width:70,textAlign:"center"}}/>
+      <span style={{fontSize:FS-2,color:T.textMut}}>يوم</span>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10}}>
+      {renderPicker("payableRecipients","مستلمو تنبيهات شيكات الدفع","📤",T.warn)}
+      {renderPicker("receivableRecipients","مستلمو تنبيهات شيكات القبض","📥",T.accent)}
+    </div>
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,paddingTop:12,borderTop:"1px solid "+T.brd}}>
+      <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء التعديلات</Btn>
+      <Btn primary onClick={handleSave} disabled={!isDirty||!canEdit} style={(!isDirty||!canEdit)?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>
+    </div>
+  </Card>;
+}
+
 /* V18.34: WhatsApp message preview — renders summary text in a WhatsApp-style
    green bubble with *bold* highlighted, RTL-aware. Used inside WhatsappSummaryCard. */
 function WhatsappLivePreview({draft, T, FS, isMob}){
@@ -4410,6 +4494,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
     {/* Security Flags Settings */}
     <SecurityAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,securityAlerts:d}))}/>
+    <CheckAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,checkAlerts:d}))} userRole={userRole}/>
     </>}
 
     {/* Sales Settings */}

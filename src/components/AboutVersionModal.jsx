@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.254",
+    date: "2026-06-05",
+    types: ["feature"],
+    title: "🔔 تنبيهات الشيكات المستحقة في القائمة الجانبية",
+    changes: [
+      { type: "feature", text: "🎯 الشيكات «المعلّقة» اللي بيقرب أو يعدّي تاريخ استحقاقها بقت تظهر كإشعارات في القائمة الجانبية (زي إشعارات التحويل بين الخزن) — وقت فتح البرنامج. ٣ حالات: 🔔 قريب الاستحقاق (قبل بعدد أيام تحدده)، ⚠️ مستحق النهارده، 🔴 متأخر. الضغط على الإشعار بيفتح شاشة الشيكات. الإشعار بيختفي تلقائياً لما الشيك يتسوّى (تحصيل/دفع/إلغاء/ارتداد). مفيش واتساب ولا push خارجي — قائمة جانبية بس." },
+      { type: "feature", text: "⚙️ كارت جديد في الإعدادات «🔔 تنبيهات الشيكات المستحقة» (للمدير): تفعيل/إيقاف، عدد أيام التنبيه المسبق، وقائمتي مستلمين منفصلتين — مين يستقبل تنبيهات شيكات الدفع ومين يستقبل تنبيهات القبض. كل مستخدم بيشوف بس اللي اتحدد له." },
+      { type: "architectural", text: "📁 NEW: src/utils/checkAlerts.js (مولّد نقي، deterministic ids chk_<check>_<email>_<state> — dedup عبر split-merge). MODIFIED: App.jsx (generator useEffect on-boot، diff-before-write، توجيه القائمة الجانبية + deep-link لـ view الشيكات)، SettingsPg.jsx (CheckAlertsCard). يستخدم نظام الإشعارات القائم (notificationsDays + userNotifStates) — صفر تعديل rules. build نجح." },
+    ],
+  },
+  {
     version: "V21.9.253",
     date: "2026-06-05",
     types: ["fix"],
