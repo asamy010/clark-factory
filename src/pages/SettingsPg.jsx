@@ -4359,6 +4359,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="business" && <>
     {/* Treasury Settings — draft pattern */}
     <TreasurySettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,treasurySettings:d}))} userRole={userRole}/>
+    <CheckAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,checkAlerts:d}))} userRole={userRole}/>
 
     {/* V18.46: Odoo Sync Settings (gated by master toggle) */}
     <Card title="🔗 ربط Odoo — تزامن الخزنة" style={{marginBottom:16}}>
@@ -4494,7 +4495,6 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
 
     {/* Security Flags Settings */}
     <SecurityAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,securityAlerts:d}))}/>
-    <CheckAlertsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,checkAlerts:d}))} userRole={userRole}/>
     </>}
 
     {/* Sales Settings */}
