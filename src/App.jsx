@@ -13,6 +13,8 @@ import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
 import { computeCheckAlertActions } from "./utils/checkAlerts.js";
+import { computeReminderActions } from "./utils/reminders.js";
+import { describeRecurrence as describeReminderRecurrence, getNextDueDate as getReminderNextDue } from "./utils/recurring.js";
 import { setUpConfigCallback as registerAutoPostCallback } from "./utils/accounting/autoPost.js";
 import { prefetchIpInfo } from "./utils/device.js";
 import { startClockSync } from "./utils/serverTime.js";
@@ -614,8 +616,20 @@ export default function App(){
       }
     } catch(_) {}
   }, []);
-  const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|null */
+  const[quickPopup,setQuickPopup]=useState(null);/* "task"|"notif"|"scheduled"|null */
   const[qpTo,setQpTo]=useState("");const[qpText,setQpText]=useState("");const[qpType,setQpType]=useState("تذكير");
+  /* V21.9.257: Scheduled-reminders creation form + management modal state. */
+  const[remTitle,setRemTitle]=useState("");
+  const[remNotifType,setRemNotifType]=useState("notif");/* "notif"|"task" */
+  const[remPattern,setRemPattern]=useState("once");/* once|daily|weekly|monthly */
+  const[remStart,setRemStart]=useState("");
+  const[remDow,setRemDow]=useState(1);/* 0-6 weekly */
+  const[remDom,setRemDom]=useState(1);/* 1-28 monthly */
+  const[remEnd,setRemEnd]=useState("");
+  const[remTargetEmails,setRemTargetEmails]=useState([]);/* emails when not "all" */
+  const[remAll,setRemAll]=useState(false);/* manager: target everyone */
+  const[remEditId,setRemEditId]=useState(null);
+  const[remMgrOpen,setRemMgrOpen]=useState(false);
   /* V19.48: Notification expiry duration. Values: "1h"|"2h"|"1d"|"endday"|"none". Default: "2h". */
   const[qpDuration,setQpDuration]=useState("2h");
   /* V21.9.146: optional link context for the notification — lets the sender
@@ -813,6 +827,7 @@ export default function App(){
   const[autoMigrationResults,setAutoMigrationResults]=useState([]);
   const autoMigrationRanRef=useRef(false);/* prevent re-run on re-render */
   const checkAlertsRanRef=useRef(false);/* V21.9.254: due-checks alerts generator runs once per session */
+  const remindersRanRef=useRef(false);/* V21.9.257: scheduled-reminders generator runs once per session */
   /* V21.9.47: full health-issues state (terminal listeners + pending migrations
      + size warnings + data sanity). Updates every 30s + on configDoc change.
      Pre-V21.9.47 the user couldn't see "what's wrong" at a glance — they had
@@ -970,6 +985,37 @@ export default function App(){
         });
       }catch(e){ console.warn("[V21.9.254 checkAlerts] generator failed:",e?.message||e); }
     },4500);
+    return ()=>clearTimeout(timeoutId);
+  },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
+  /* V21.9.257: Scheduled-reminders generator. Materializes side-panel
+     notifications from cfg.reminderRules for the CURRENT user on boot.
+     Same lifecycle as the check-alerts generator (once/session, diff-before-
+     write, deterministic ids, no external push). */
+  useEffect(()=>{
+    if(remindersRanRef.current) return;
+    if(!user||!configDoc) return;
+    if(!splitLoaded||!partitionedLoaded) return;
+    if(!isOnline) return;
+    const rules=Array.isArray(configDoc.reminderRules)?configDoc.reminderRules:[];
+    const email=user?.email||"";
+    if(!email||rules.length===0){ remindersRanRef.current=true; return; }
+    remindersRanRef.current=true;
+    const timeoutId=setTimeout(()=>{
+      try{
+        const notifications=(splitDataRef.current?.notifications)||configDoc.notifications||[];
+        const now=new Date();
+        const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+        const { toCreate }=computeReminderActions({ rules, notifications, userEmail:email, today });
+        if(toCreate.length===0) return;
+        upConfig(d=>{
+          if(!Array.isArray(d.notifications)) d.notifications=[];
+          const existing=new Set(d.notifications.map(n=>String(n&&n.id)));
+          for(const notif of toCreate){
+            if(!existing.has(String(notif.id))) d.notifications.push(notif);
+          }
+        });
+      }catch(e){ console.warn("[V21.9.257 reminders] generator failed:",e?.message||e); }
+    },5000);
     return ()=>clearTimeout(timeoutId);
   },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
   /* V21.9.47: evaluate full health every 15s + on configDoc change.
@@ -6550,7 +6596,10 @@ export default function App(){
                   <span style={{fontSize:FS+1,flexShrink:0}}>🔔</span>
                   <span style={{fontSize:FS-1,fontWeight:800,color:"#4F46E5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>الإشعارات{subBarNotifs.length>0?" ("+subBarNotifs.length+")":""}</span>
                 </div>
-                {subBarNotifs.length>0&&<span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8,whiteSpace:"nowrap"}}>عرض الكل</span>}
+                <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                  <span onClick={()=>setRemMgrOpen(true)} title="إدارة التذكيرات المجدولة" style={{cursor:"pointer",fontSize:FS,color:"#0EA5E9"}}>⏰</span>
+                  {subBarNotifs.length>0&&<span onClick={()=>setNotifPopupOpen(true)} style={{cursor:"pointer",fontSize:FS-3,color:"#4F46E5",fontWeight:700,padding:"2px 10px",borderRadius:5,background:"rgba(255,255,255,0.5)",flexShrink:0,marginInlineStart:8,whiteSpace:"nowrap"}}>عرض الكل</span>}
+                </div>
               </div>
               {/* V21.9.145: chip layout redesigned — text wraps naturally instead of
                   truncating, link surfaces as a real BUTTON below the meta (no longer
@@ -6978,6 +7027,7 @@ export default function App(){
         <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
           <div onClick={()=>{setQuickPopup("task");setQpTo("");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="task"?T.accent:T.bg,color:quickPopup==="task"?"#fff":T.text}}>📌 مهمة</div>
           <div onClick={()=>{setQuickPopup("notif");setQpTo("all");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
+          <div onClick={()=>{setQuickPopup("scheduled");setRemEditId(null);setRemTitle("");setRemNotifType("notif");setRemPattern("once");setRemStart(new Date().toISOString().split("T")[0]);setRemDow(1);setRemDom(1);setRemEnd("");setRemTargetEmails([me.email].filter(Boolean));setRemAll(false)}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="scheduled"?"#0EA5E9":T.bg,color:quickPopup==="scheduled"?"#fff":T.text}}>⏰ مجدول</div>
         </div>
         {quickPopup==="task"?<div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={qpTo} onChange={setQpTo}><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":u.role==="sales_accountant"?"محاسب مبيعات":u.role==="purchase_accountant"?"محاسب مشتريات":"مشاهد")}</option>)}</Sel></div>
@@ -6985,7 +7035,63 @@ export default function App(){
           <Btn primary onClick={()=>{if(!qpTo||!qpText.trim())return;const target=targets.find(u=>u.email===qpTo);
             upTasks(d=>{if(!Array.isArray(d.tasks))d.tasks=[];d.tasks.unshift({id:Date.now(),text:qpText.trim(),done:false,date:new Date().toISOString().split("T")[0],fromUid:user?.uid||"",fromEmail:user?.email||"",fromName:me.name,toEmail:qpTo,toName:target?.name||qpTo.split("@")[0]})});
             setQuickPopup(null);setQpTo("");setQpText("");showToast("✓ تم ارسال المهمة")}} style={{width:"100%"}}>📌 ارسال المهمة</Btn>
-        </div>:<div>
+        </div>:quickPopup==="scheduled"?(()=>{
+          const isMgr=me.role==="admin"||me.role==="manager";
+          const dows=["الأحد","الإثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+          const saveRem=()=>{
+            if(!remTitle.trim()){showToast("اكتب عنوان التذكير");return}
+            if(!remStart){showToast("اختر تاريخ البداية");return}
+            let tgts;
+            if(isMgr){tgts=remAll?"all":(remTargetEmails.length?[...remTargetEmails]:[me.email])}
+            else{tgts=[me.email]}
+            const rule={
+              id:remEditId||("rem_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7)),
+              title:remTitle.trim(),notifType:remNotifType==="task"?"task":"notif",
+              targets:tgts,pattern:remPattern,startDate:remStart,
+              ...(remPattern==="weekly"?{dayOfWeek:Number(remDow)||0}:{}),
+              ...(remPattern==="monthly"?{dayOfMonth:Math.min(28,Math.max(1,Number(remDom)||1))}:{}),
+              ...(remEnd?{endDate:remEnd}:{}),
+              active:true,createdBy:me.email,createdByName:me.name,createdAt:new Date().toISOString(),
+            };
+            upConfig(d=>{if(!Array.isArray(d.reminderRules))d.reminderRules=[];
+              if(remEditId){const i=d.reminderRules.findIndex(r=>r&&r.id===remEditId);if(i>=0)d.reminderRules[i]={...d.reminderRules[i],...rule};else d.reminderRules.push(rule)}
+              else d.reminderRules.push(rule)});
+            remindersRanRef.current=false;/* allow regen this session so the new rule materializes */
+            setQuickPopup(null);setRemEditId(null);setRemTitle("");
+            showToast(remEditId?"✓ تم تعديل التذكير":"✓ تم إنشاء التذكير المجدول");
+          };
+          return<div>
+          <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>عنوان التذكير</label><Inp value={remTitle} onChange={setRemTitle} placeholder="مثلاً: تابع شحنة المورد..."/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={remNotifType} onChange={setRemNotifType}><option value="notif">💬 تذكير</option><option value="task">📌 مهمة</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التكرار</label><Sel value={remPattern} onChange={setRemPattern}><option value="once">مرة واحدة</option><option value="daily">يومياً</option><option value="weekly">أسبوعياً</option><option value="monthly">شهرياً</option></Sel></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:remPattern==="once"?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{remPattern==="once"?"التاريخ":"تاريخ البداية"}</label><Inp type="date" value={remStart} onChange={setRemStart}/></div>
+            {remPattern==="weekly"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم الأسبوع</label><Sel value={String(remDow)} onChange={v=>setRemDow(Number(v))}>{dows.map((d,i)=><option key={i} value={i}>{d}</option>)}</Sel></div>}
+            {remPattern==="monthly"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم الشهر (1-28)</label><Inp type="number" min="1" max="28" value={remDom} onChange={v=>setRemDom(Math.min(28,Math.max(1,Number(v)||1)))}/></div>}
+            {remPattern==="daily"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ النهاية (اختياري)</label><Inp type="date" value={remEnd} onChange={setRemEnd}/></div>}
+          </div>
+          {(remPattern==="weekly"||remPattern==="monthly")&&<div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ النهاية (اختياري)</label><Inp type="date" value={remEnd} onChange={setRemEnd}/></div>}
+          <div style={{marginBottom:10,padding:"8px 10px",background:T.bg,borderRadius:8,border:"1px solid "+T.brd}}>
+            <div style={{fontSize:FS-3,color:T.textMut,marginBottom:6,fontWeight:700}}>👥 المستلمون</div>
+            {!isMgr?<div style={{fontSize:FS-2,color:T.textSec}}>هيتبعت ليك انت بس ({me.email})</div>:<>
+              <div onClick={()=>setRemAll(a=>!a)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:6,cursor:"pointer",background:remAll?"#0EA5E910":"transparent",marginBottom:6}}>
+                <div style={{width:16,height:16,borderRadius:4,border:"2px solid "+(remAll?"#0EA5E9":T.textMut),background:remAll?"#0EA5E9":"transparent"}}/>
+                <span style={{fontSize:FS-2,fontWeight:700,color:T.text}}>كل المستخدمين</span>
+              </div>
+              {!remAll&&<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:150,overflowY:"auto"}}>
+                {allUsers.map(u=>{const on=remTargetEmails.includes(u.email);return<div key={u.email} onClick={()=>setRemTargetEmails(p=>on?p.filter(e=>e!==u.email):[...p,u.email])} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?"#0EA5E910":"transparent"}}>
+                  <div style={{width:15,height:15,borderRadius:4,border:"2px solid "+(on?"#0EA5E9":T.textMut),background:on?"#0EA5E9":"transparent"}}/>
+                  <span style={{fontSize:FS-2,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</span>
+                </div>})}
+              </div>}
+            </>}
+          </div>
+          <Btn primary onClick={saveRem} style={{width:"100%",background:"#0EA5E9"}}>{remEditId?"💾 حفظ التعديل":"⏰ إنشاء التذكير"}</Btn>
+          <div onClick={()=>{setRemMgrOpen(true)}} style={{textAlign:"center",marginTop:10,fontSize:FS-2,color:"#0EA5E9",fontWeight:700,cursor:"pointer"}}>⚙️ إدارة التذكيرات المجدولة</div>
+          </div>;
+        })():<div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الى</label><Sel value={qpTo} onChange={setQpTo}><option value="all">الكل</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")}</option>)}</Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={qpType} onChange={setQpType}><option value="تذكير">💬 تذكير</option><option value="طلب">📩 طلب</option><option value="مهمة">📌 مهمة</option><option value="مهمة عاجلة">🔴 عاجل</option></Sel></div>
@@ -7044,6 +7150,45 @@ export default function App(){
         </div>}
       </div>
     </div>})()}
+    {/* V21.9.257: Scheduled Reminders — management modal */}
+    {remMgrOpen&&(()=>{
+      const isMgr=userRole==="admin"||userRole==="manager";
+      const myEmail=user?.email||"";
+      const allRules=(config.reminderRules||[]);
+      const rules=isMgr?allRules:allRules.filter(r=>r&&(r.createdBy===myEmail||r.targets===myEmail||(Array.isArray(r.targets)&&r.targets.includes(myEmail))));
+      const todayIso=new Date().toISOString().split("T")[0];
+      const descTargets=(t)=>t==="all"?"الكل":(Array.isArray(t)?(t.length===1?(t[0].split("@")[0]):t.length+" مستخدم"):"—");
+      const descRec=(r)=>r.pattern==="once"?("مرة واحدة — "+(r.startDate||"")):describeReminderRecurrence(r);
+      const nextDue=(r)=>{if(r.pattern==="once")return(r.startDate&&r.startDate>=todayIso)?r.startDate:(r.startDate||"—");const n=getReminderNextDue(r,todayIso);return n||"—"};
+      const togglePause=(id)=>upConfig(d=>{const r=(d.reminderRules||[]).find(x=>x&&x.id===id);if(r)r.active=r.active===false?true:false});
+      const delRule=(id)=>{ask("حذف التذكير","متأكد تحذف التذكير ده نهائياً؟",{danger:true,confirmText:"حذف"}).then(ok=>{if(ok)upConfig(d=>{d.reminderRules=(d.reminderRules||[]).filter(x=>x&&x.id!==id)})})};
+      const editRule=(r)=>{setRemEditId(r.id);setRemTitle(r.title||"");setRemNotifType(r.notifType==="task"?"task":"notif");setRemPattern(r.pattern||"once");setRemStart(r.startDate||todayIso);setRemDow(Number(r.dayOfWeek)||0);setRemDom(Number(r.dayOfMonth)||1);setRemEnd(r.endDate||"");if(r.targets==="all"){setRemAll(true);setRemTargetEmails([])}else{setRemAll(false);setRemTargetEmails(Array.isArray(r.targets)?[...r.targets]:[])}setRemMgrOpen(false);setQuickPopup("scheduled")};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setRemMgrOpen(false)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontWeight:800,fontSize:FS+2,color:T.text}}>⏰ التذكيرات المجدولة{rules.length?" ("+rules.length+")":""}</div>
+            <Btn ghost small onClick={()=>setRemMgrOpen(false)}>✕</Btn>
+          </div>
+          {rules.length===0?<div style={{textAlign:"center",padding:"30px 14px",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>مفيش تذكيرات مجدولة لسه. اقفل ده وافتح تبويب «⏰ مجدول» عشان تضيف واحد.</div>:
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {rules.map(r=>{const paused=r.active===false;return<div key={r.id} style={{padding:"10px 12px",borderRadius:10,background:paused?T.bg:"#0EA5E908",border:"1px solid "+(paused?T.brd:"#0EA5E925")}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:FS,color:T.text}}>{r.notifType==="task"?"📌 ":"💬 "}{r.title}{paused?" ⏸":""}</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:3,lineHeight:1.6}}>{descRec(r)} · 👥 {descTargets(r.targets)}{r.endDate?" · لحد "+r.endDate:""}</div>
+                  <div style={{fontSize:FS-3,color:paused?T.textMut:"#0EA5E9",marginTop:2,fontWeight:700}}>الاستحقاق الجاي: {nextDue(r)}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,marginTop:8,justifyContent:"flex-end"}}>
+                <Btn ghost small onClick={()=>togglePause(r.id)} style={{fontSize:FS-2}}>{paused?"▶️ تشغيل":"⏸ إيقاف"}</Btn>
+                <Btn ghost small onClick={()=>editRule(r)} style={{fontSize:FS-2}}>✏️ تعديل</Btn>
+                <Btn ghost small onClick={()=>delRule(r.id)} style={{fontSize:FS-2,color:T.err}}>🗑 حذف</Btn>
+              </div>
+            </div>})}
+          </div>}
+        </div>
+      </div>;
+    })()}
     {/* Mobile AI Chat Popup */}
     {isMob&&aiOpen&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99997,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:10}} onClick={()=>setAiOpen(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,border:"1px solid "+T.brd,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",display:"flex",flexDirection:"column",height:"85vh",width:"100%",maxWidth:420}}>
