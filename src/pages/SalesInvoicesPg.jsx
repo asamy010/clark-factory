@@ -18,6 +18,9 @@ import {
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printInvoice } from "../utils/printInvoice.js";
+/* V21.10.4 — Payment from invoice (Phase 12d) */
+import { recordInvoicePaymentMutator, invoiceBalance } from "../utils/sales/invoicePayments.js";
+import { PaymentFromInvoiceModal } from "../components/sales/PaymentFromInvoiceModal.jsx";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 /* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
    The entityType is derived dynamically from invoice.type (sales vs purchase). */
@@ -348,6 +351,27 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   const [showReview, setShowReview] = useState(false);
   /* V19.41: Purchase return picker toggle (only relevant for posted purchase invoices) */
   const [showReturnPicker, setShowReturnPicker] = useState(false);
+  /* V21.10.4 — payment-from-invoice modal */
+  const [showPay, setShowPay] = useState(false);
+  const paidAmount = Number(invoice.paidAmount) || 0;
+  const balanceDue = invoiceBalance(invoice);
+  const canPay = !isPurchase && invoice.status === "posted" && balanceDue > 0 && !!invoice.customerId && !!upConfig;
+  const userName = user?.displayName || (user?.email || "").split("@")[0] || "";
+  const handleRecordPayment = (args) => {
+    let res = { ok: true };
+    upConfig(d => { res = recordInvoicePaymentMutator(d, { invoiceId: invoice.id, type, ...args, userName }); });
+    if(res && res.ok){
+      /* القيد المحاسبي (Cash Dr / AR Cr) — fire-and-forget بعد الـ upConfig، نفس نمط CustDeliverPg */
+      try {
+        const cust = (data.customers || []).find(c => c.id === invoice.customerId);
+        autoPost.customerPay(data, res.payment, cust, userName).catch(() => {});
+      } catch(e){ /* non-fatal */ }
+      setShowPay(false);
+      showToast("✓ تم تسجيل الدفعة " + fmt(args.amount));
+    } else {
+      showToast("⛔ " + (res?.error || "تعذّر تسجيل الدفعة"));
+    }
+  };
   /* V18.58: Free discount editor — local state, applied to invoice on change */
   const [discountType, setDiscountType] = useState(invoice.discountType || (invoice.discountPct ? "pct" : "amount"));
   const [discountValue, setDiscountValue] = useState(
@@ -521,6 +545,15 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             <span style={{fontWeight:800, color:T.text}}>الإجمالي المستحق</span>
             <span style={{fontWeight:800, color:T.accent, direction:"ltr"}}>{fmt((isDraft ? computedTotal : invoice.total).toFixed(2))}</span>
           </div>
+          {/* V21.10.4: paid / balance (sales invoices, once any payment recorded) */}
+          {!isPurchase && paidAmount > 0 && <>
+            <div style={{display:"flex", justifyContent:"space-between", padding:"3px 0", fontSize:FS-1, color:"#10B981"}}>
+              <span>المدفوع</span><span style={{fontWeight:700, direction:"ltr"}}>{fmt(paidAmount.toFixed(2))}</span>
+            </div>
+            <div style={{display:"flex", justifyContent:"space-between", padding:"3px 0", fontSize:FS-1, color:balanceDue>0?T.err:T.textSec}}>
+              <span>المتبقي</span><span style={{fontWeight:800, direction:"ltr"}}>{fmt(balanceDue.toFixed(2))}</span>
+            </div>
+          </>}
         </div>
       </div>
 
@@ -581,9 +614,17 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             ↪️ ارتجاع للمورد
           </Btn>
         )}
+        {canPay && <Btn onClick={() => setShowPay(true)} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700}}>💵 ادفع</Btn>}
         {invoice.status === "posted" && <Btn onClick={() => onVoid(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
       </div>
     </div>
+    {/* V21.10.4: Payment-from-invoice modal */}
+    {showPay && <PaymentFromInvoiceModal
+      invoice={invoice}
+      data={data}
+      onSubmit={handleRecordPayment}
+      onClose={() => setShowPay(false)}
+    />}
     {/* V18.90: Review request modal */}
     {showReview && <ReviewRequestModal
       link={{

@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.4",
+    date: "2026-06-06",
+    types: ["feature"],
+    title: "💵 Phase 12d — الدفع من داخل الفاتورة",
+    changes: [
+      { type: "feature", text: "زرار «💵 ادفع» جوّة الفاتورة المرحّلة (لما يكون فيه متبقي): بيفتح مودال (مبلغ + طريقة + حساب خزنة + تاريخ + ملاحظات) وبيسجّل: حركة خزنة (دفعة عميل) + سجل دفعة عميل مربوط بالفاتورة + قيد محاسبي (نقدية مدين / عملاء دائن عبر autoPost الموجود). الفاتورة بتعرض «المدفوع» و«المتبقي»." },
+      { type: "feature", text: "الدفعة مربوطة بسلسلة المستندات بالكامل: linkedInvoiceId + linkedSalesOrderId + linkedQuotationId، وحركة الخزنة فيها ربط بالفاتورة. أعاد استخدام نفس آلية دفعات CustDeliverPg المثبتة (treasury + custPayments + autoPost.customerPay) — مفيش محاسبة جديدة اتكتبت." },
+      { type: "feature", text: "سياسة: الدفع متاح فقط للفاتورة المرحّلة (posted) وعميل مسجّل. ملاحظة صلاحيات: كتابة الخزنة تتطلب صلاحية الخزنة (مدير/محاسب مشتريات) — نفس قيد الدفعات الحالي في النظام. (دفع فاتورة المشتريات في الـ purchase mirror لاحقاً.)" },
+    ],
+  },
+  {
     version: "V21.10.3",
     date: "2026-06-06",
     types: ["feature"],
