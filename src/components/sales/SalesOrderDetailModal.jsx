@@ -17,10 +17,14 @@ const STATUS_META = {
   cancelled:         { label: "ملغي",         color: "#EF4444", bg: "#EF444415" },
 };
 
-export function SalesOrderDetailModal({ so, canEdit, onCancelOrder, onClose }){
+export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onCreateInvoice, onClose }){
   if(!so) return null;
   const meta = STATUS_META[so.status] || STATUS_META.confirmed;
   const canCancel = canEdit && so.status !== "cancelled" && so.status !== "invoiced";
+  /* V21.10.3: invoice existence (self-heal — re-invoice if the doc is missing) */
+  const invExists = !!(so.salesInvoiceId && (data?.salesInvoices || []).some(i => i && i.id === so.salesInvoiceId));
+  const invMissing = !!so.salesInvoiceId && !invExists;
+  const canInvoice = canEdit && so.status !== "cancelled" && !invExists;
 
   return (
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
@@ -74,9 +78,11 @@ export function SalesOrderDetailModal({ so, canEdit, onCancelOrder, onClose }){
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
             <div style={{ fontWeight: 700, color: "#8B5CF6", marginBottom: 4 }}>🔗 المستندات المرتبطة</div>
             <div style={{ color: T.text }}>عرض السعر: <b>{so.fromQuotationNo || "—"}</b></div>
-            {so.salesInvoiceNo
+            {invExists
               ? <div style={{ color: T.text }}>الفاتورة: <b>{so.salesInvoiceNo}</b></div>
-              : <div style={{ color: T.textMut }}>الفاتورة: — (تتفعّل في التحديث الجاي)</div>}
+              : invMissing
+                ? <div style={{ color: T.err }}>⚠️ الفاتورة ({so.salesInvoiceNo}) مكانتش اتحفظت — اضغط «إعادة إنشاء فاتورة»</div>
+                : <div style={{ color: T.textMut }}>الفاتورة: — لسه مفيش</div>}
           </div>
 
           {so.status === "cancelled" && so.cancelReason && (
@@ -97,7 +103,11 @@ export function SalesOrderDetailModal({ so, canEdit, onCancelOrder, onClose }){
 
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {canCancel && <Btn ghost small onClick={onCancelOrder} style={{ color: T.err }}>✗ إلغاء الأمر (استرجاع مخزون)</Btn>}
-          <Btn small onClick={() => {}} style={{ opacity: 0.45, cursor: "not-allowed", background: "#8B5CF6", color: "#fff" }} title="يتفعّل في التحديث الجاي (Slice 3)">🧾 إنشاء فاتورة</Btn>
+          {canInvoice
+            ? <Btn small onClick={() => onCreateInvoice && onCreateInvoice(so)} style={{ background: "#8B5CF6", color: "#fff" }}>🧾 {invMissing ? "إعادة إنشاء فاتورة" : "إنشاء فاتورة"}</Btn>
+            : invExists
+              ? <span style={{ alignSelf: "center", fontSize: FS - 2, color: "#8B5CF6", fontWeight: 700 }}>🧾 {so.salesInvoiceNo}</span>
+              : null}
         </div>
       </div>
     </div>

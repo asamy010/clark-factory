@@ -34,6 +34,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { applyStockDelta } from "../categories.js";
+import { reserveInvoiceNo } from "../invoices.js";
 
 const SO_PREFIX = "أمر"; /* عربي حسب قرار Ahmed (V21.10.0) */
 
@@ -184,6 +185,72 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
   quote.statusHistory.push({ from: quote.statusHistory.slice(-1)[0]?.to || "draft", to: "converted", at: nowIso, by: userName || "" });
 
   return { ok: true, salesOrder: so };
+}
+
+/* ── Create Sales Invoice from Sales Order (Slice 3 / Phase 12c) ── */
+/* بيعمل فاتورة مبيعات DRAFT من أمر البيع باستخدام نظام الفواتير الموجود
+   (salesInvoices → salesInvoicesDays + counter INV). بيربط الفاتورة بأمر
+   البيع وعرض السعر (cross-links) ويعلّم الأمر "مفوتر". مفيش ترحيل/محاسبة
+   هنا — الفاتورة draft، الترحيل + الدفع في Slice 4.
+   SELF-HEAL: بيبلوك بس لو الفاتورة موجودة فعلاً (يعالج partial write).
+   بيرجّع { ok, error?, invoice? }. */
+export function createInvoiceFromSalesOrderMutator(d, soId, userName){
+  if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
+  const so = d.salesOrders.find(x => x && x.id === soId);
+  if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  if(so.status === "cancelled") return { ok: false, error: "أمر البيع ملغي — لا يمكن فوترته" };
+  if(so.salesInvoiceId){
+    const existingInv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId);
+    if(existingInv) return { ok: false, error: "أمر البيع مفوتر بالفعل (" + (so.salesInvoiceNo || "") + ")" };
+    /* فاتورة مفقودة (partial write) — نسمح بإعادة الفوترة */
+  }
+
+  const nowIso = new Date().toISOString();
+  const invoiceNo = reserveInvoiceNo(d, "sales");
+  const items = (so.items || []).map(it => ({
+    orderId: it.sourceType === "order" ? (it.sourceId || "") : "",
+    modelNo: it.modelNo || it.description || "",
+    modelDesc: it.description || "",
+    qty: Number(it.qty) || 0,
+    unitPrice: Number(it.unitPrice) || 0,
+    lineTotal: Number(it.lineTotal) || 0,
+  }));
+  const invoice = {
+    id: "inv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
+    invoiceNo,
+    type: "sales",
+    customerId: so.customerId || "",
+    customerName: so.customerName || "",
+    customerNameAdHoc: so.customerId ? "" : (so.customerNameAdHoc || ""),
+    date: new Date().toISOString().split("T")[0],
+    deliveryRef: null,
+    deliveryRefs: [],
+    items,
+    subtotal: so.subtotal || 0,
+    discountPct: so.discountPct || 0,
+    discount: so.totalDiscount || 0,
+    total: so.total || 0,
+    status: "draft",
+    notes: so.notes || "",
+    /* V21.10.3 cross-links (add-only on the existing invoice schema) */
+    fromSalesOrderId: so.id,
+    fromSalesOrderNo: so.orderNo || "",
+    fromQuotationId: so.fromQuotationId || "",
+    fromQuotationNo: so.fromQuotationNo || "",
+    createdAt: nowIso,
+    createdBy: userName || "",
+  };
+  if(!Array.isArray(d.salesInvoices)) d.salesInvoices = [];
+  d.salesInvoices.unshift(invoice);
+
+  const from = so.status;
+  so.salesInvoiceId = invoice.id;
+  so.salesInvoiceNo = invoiceNo;
+  so.status = "invoiced";
+  if(!Array.isArray(so.statusHistory)) so.statusHistory = [];
+  so.statusHistory.push({ from, to: "invoiced", at: nowIso, by: userName || "", note: "فاتورة " + invoiceNo });
+
+  return { ok: true, invoice };
 }
 
 /* ── Cancel Sales Order (+ stock reversal) ── */

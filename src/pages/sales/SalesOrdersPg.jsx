@@ -10,7 +10,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
-import { cancelSalesOrderMutator } from "../../utils/sales/salesOrders.js";
+import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator } from "../../utils/sales/salesOrders.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
 
 const STATUS_META = {
@@ -58,6 +58,19 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     orders.forEach(o => { const s = o.status || "confirmed"; if(acc[s] != null) acc[s]++; acc.total++; });
     return acc;
   }, [orders]);
+
+  const handleCreateInvoice = async (so) => {
+    const ok = await ask("إنشاء فاتورة", "هيتعمل فاتورة مبيعات (مسودة) من " + (so.orderNo || "الأمر") + ". تقدر تراجعها وترحّلها من «فواتير المبيعات». متأكد؟", { confirmText: "إنشاء" });
+    if(!ok) return;
+    let res = { ok: true };
+    upConfig(d => { res = createInvoiceFromSalesOrderMutator(d, so.id, userName); });
+    if(res && res.ok){
+      setActiveSO(prev => prev && prev.id === so.id ? { ...prev, status: "invoiced", salesInvoiceId: res.invoice.id, salesInvoiceNo: res.invoice.invoiceNo } : prev);
+      showToast("✓ اتعملت الفاتورة " + (res.invoice?.invoiceNo || "") + " (مسودة)");
+    } else {
+      showToast("⛔ " + (res?.error || "تعذّر إنشاء الفاتورة"));
+    }
+  };
 
   const handleCancel = async (so) => {
     const ok = await ask("إلغاء أمر البيع", "إلغاء " + (so.orderNo || "الأمر") + (so.stockDeducted ? " هيرجّع المخزون المخصوم للأصناف." : ".") + " متأكد؟", { danger: true, confirmText: "إلغاء الأمر" });
@@ -122,8 +135,10 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
       {activeSO && (
         <SalesOrderDetailModal
           so={activeSO}
+          data={data}
           canEdit={canEdit}
           onCancelOrder={() => handleCancel(activeSO)}
+          onCreateInvoice={() => handleCreateInvoice(activeSO)}
           onClose={() => setActiveSO(null)}
         />
       )}

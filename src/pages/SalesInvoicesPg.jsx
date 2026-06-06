@@ -457,6 +457,16 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         </div>
       </div>
 
+      {/* V21.10.3: cross-links — shown only for invoices generated from the
+          Odoo-style document chain (Sales Order / Quotation). Read-only. */}
+      {(invoice.fromSalesOrderNo || invoice.fromQuotationNo) && (
+        <div style={{display:"flex", gap:8, flexWrap:"wrap", marginBottom:14, padding:"8px 12px", background:"#8B5CF608", border:"1px dashed #8B5CF630", borderRadius:8, fontSize:FS-2}}>
+          <span style={{fontWeight:700, color:"#8B5CF6"}}>🔗 مصدر الفاتورة:</span>
+          {invoice.fromSalesOrderNo && <span style={{color:T.text}}>أمر البيع <b>{invoice.fromSalesOrderNo}</b></span>}
+          {invoice.fromQuotationNo && <span style={{color:T.text}}>· عرض السعر <b>{invoice.fromQuotationNo}</b></span>}
+        </div>
+      )}
+
       {/* Items table */}
       <div style={{border:"1px solid "+T.brd, borderRadius:8, overflow:"hidden", marginBottom:14}}>
         <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1}}>
