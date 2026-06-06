@@ -255,6 +255,12 @@ service cloud.firestore {
       allow write: if isSalesScope();
     }
 
+    /* V21.10.0 — Sales Quotations (عروض الأسعار) daily split */
+    match /salesQuotationsDays/{day} {
+      allow read:  if isSalesScope();
+      allow write: if isSalesScope();
+    }
+
     match /purchaseInvoicesDays/{day} {
       allow read:  if isPurchaseScope();
       allow write: if isPurchaseScope();

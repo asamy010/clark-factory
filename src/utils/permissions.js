@@ -48,6 +48,8 @@ export const PERMISSION_TABS = [
   { key: "contacts",         label: "جهات الاتصال",        icon: "👥", group: "core" },
   /* V19.44 — These six tabs were UNGATED before V19.44 (open to all roles).
      Added them to the matrix to close the gap. */
+  /* V21.10.0 — Sales Quotations (Odoo-style document chain, Phase 12a) */
+  { key: "salesQuotations",  label: "عروض الأسعار",        icon: "📋", group: "sales" },
   { key: "salesInvoices",    label: "فواتير المبيعات",     icon: "📤", group: "sales" },
   { key: "creditNotes",      label: "إشعارات دائنة",       icon: "↩️", group: "sales" },
   { key: "purchase",         label: "مشتريات",             icon: "🛍️", group: "purchase" },
@@ -171,7 +173,7 @@ export const DEFAULT_PERMS = {
   admin: {
     dashboard:"edit", details:"edit", external:"edit", reports:"edit",
     tasks:"edit", db:"edit", custDeliver:"edit", contacts:"edit",
-    salesInvoices:"edit", creditNotes:"edit",
+    salesQuotations:"edit", salesInvoices:"edit", creditNotes:"edit",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"edit",
     hr: {weeks:"edit",verify:"edit",employees:"edit",security:"edit"},
@@ -182,7 +184,7 @@ export const DEFAULT_PERMS = {
   manager: {
     dashboard:"edit", details:"edit", external:"edit", reports:"edit",
     tasks:"edit", db:"edit", custDeliver:"edit", contacts:"edit",
-    salesInvoices:"edit", creditNotes:"edit",
+    salesQuotations:"edit", salesInvoices:"edit", creditNotes:"edit",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"view",
     hr: {weeks:"view",verify:"view",employees:"view",security:"view"},
@@ -198,7 +200,7 @@ export const DEFAULT_PERMS = {
   sales_accountant: {
     dashboard:"view", details:"view", external:"view", reports:"edit",
     tasks:"edit", db:"view", custDeliver:"edit", contacts:"edit",
-    salesInvoices:"edit", creditNotes:"edit",
+    salesQuotations:"edit", salesInvoices:"edit", creditNotes:"edit",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"edit", pieces:"edit", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
@@ -209,7 +211,7 @@ export const DEFAULT_PERMS = {
   purchase_accountant: {
     dashboard:"view", details:"view", external:"edit", reports:"edit",
     tasks:"edit", db:"edit", custDeliver:"hide", contacts:"edit",
-    salesInvoices:"hide", creditNotes:"hide",
+    salesQuotations:"hide", salesInvoices:"hide", creditNotes:"hide",
     purchase:"edit", purchaseInvoices:"edit", debitNotes:"edit",
     warehouse:"edit", pieces:"edit", treasury:"edit",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
@@ -226,7 +228,7 @@ export const DEFAULT_PERMS = {
   warehouse_keeper: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
     tasks:"edit", db:"view", custDeliver:"hide", contacts:"view",
-    salesInvoices:"hide", creditNotes:"hide",
+    salesQuotations:"hide", salesInvoices:"hide", creditNotes:"hide",
     purchase:"edit", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"edit", pieces:"edit", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},
@@ -237,7 +239,7 @@ export const DEFAULT_PERMS = {
   payroll_accountant: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
     tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
-    salesInvoices:"hide", creditNotes:"hide",
+    salesQuotations:"hide", salesInvoices:"hide", creditNotes:"hide",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"hide", pieces:"hide", treasury:"view",
     hr: {weeks:"edit",verify:"hide",employees:"edit",security:"view"},
@@ -248,7 +250,7 @@ export const DEFAULT_PERMS = {
   payroll_verifier: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
     tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
-    salesInvoices:"hide", creditNotes:"hide",
+    salesQuotations:"hide", salesInvoices:"hide", creditNotes:"hide",
     purchase:"hide", purchaseInvoices:"hide", debitNotes:"hide",
     warehouse:"hide", pieces:"hide", treasury:"view",
     hr: {weeks:"view",verify:"edit",employees:"view",security:"view"},
@@ -259,7 +261,7 @@ export const DEFAULT_PERMS = {
   viewer: {
     dashboard:"view", details:"view", external:"hide", reports:"view",
     tasks:"edit", db:"hide", custDeliver:"hide", contacts:"view",
-    salesInvoices:"view", creditNotes:"view",
+    salesQuotations:"view", salesInvoices:"view", creditNotes:"view",
     purchase:"view", purchaseInvoices:"view", debitNotes:"view",
     warehouse:"view", pieces:"view", treasury:"hide",
     hr: {weeks:"hide",verify:"hide",employees:"hide",security:"hide"},

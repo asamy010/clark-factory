@@ -43,8 +43,8 @@ const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
 import {
   syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS,
-  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199,
-  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199,
+  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199, SPLIT_FIELDS_V21100,
+  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199, SPLIT_FLAG_V21100,
   _deepEqual,/* V19.65: order-independent equality for listener pending-cleanup */
   /* V19.51 — sales-doc + tasks-doc split namespaces */
   SALES_SPLIT_COLLECTIONS, SALES_SPLIT_FIELDS, SALES_SPLIT_FIELDS_V1951, SALES_SPLIT_FLAG_V1951,
@@ -91,6 +91,7 @@ import { lazyNamed, PageLoader, ChunkErrorBoundary } from "./utils/lazyLoad.jsx"
 const CustDeliverPg = lazyNamed(() => import("./pages/CustDeliverPg.jsx"), "CustDeliverPg");
 /* V21.9.115: Unified Contacts directory — appears on the home tile after dashboard. */
 const ContactsPg = lazyNamed(() => import("./pages/ContactsPg.jsx"), "ContactsPg");
+const QuotationsPg = lazyNamed(() => import("./pages/sales/QuotationsPg.jsx"), "QuotationsPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
 /* V19.48: Debit notes (purchase returns) */
@@ -447,6 +448,11 @@ export default function App(){
     }
     if(configDoc[SPLIT_FLAG_V2199]){
       for(const f of SPLIT_FIELDS_V2199){
+        merged[f]=splitData[f]||[];
+      }
+    }
+    if(configDoc[SPLIT_FLAG_V21100]){
+      for(const f of SPLIT_FIELDS_V21100){
         merged[f]=splitData[f]||[];
       }
     }
@@ -2758,6 +2764,35 @@ export default function App(){
 
      V21.9.19: also the success state no longer auto-dismisses — the user
      explicitly clicks "تم، أكمل" so they SEE that the migration ran. */
+  /* V21.10.0 — salesQuotations is a BRAND-NEW field (Phase 12a). No legacy
+     data in factory/config to migrate — we just stamp the split flag once so
+     hydration + stripSplitArrays activate (mirrors the legacyOrders.length===0
+     branch of the V2199 migration). Safe to run early: splitData.salesQuotations
+     is always [] until the first quote is created. */
+  const splitDaysV21100MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysV21100MigrationRef.current)return;
+    if(!configDoc)return;
+    if(configDoc._splitDaysV21100Done)return;/* already stamped */
+    if(!splitLoaded)return;
+    splitDaysV21100MigrationRef.current=true;
+    (async()=>{
+      try{
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV21100Done)return;
+          tx.set(ref,{...fresh,_splitDaysV21100Done:true});
+        });
+        console.log("[V21.10.0] salesQuotations split flag stamped.");
+      }catch(e){
+        console.warn("[V21.10.0] salesQuotations flag stamp failed:",e?.message||e);
+        splitDaysV21100MigrationRef.current=false;/* allow retry next render */
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
   const splitDaysV2199MigrationRef=useRef(false);
   useEffect(()=>{
     if(!user||splitDaysV2199MigrationRef.current)return;
@@ -4634,6 +4669,12 @@ export default function App(){
       }
       if(prev[SPLIT_FLAG_V2199]){
         for(const f of SPLIT_FIELDS_V2199){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
+      if(prev[SPLIT_FLAG_V21100]){
+        for(const f of SPLIT_FIELDS_V21100){
           next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
           splitFieldsActive.push(f);
         }
@@ -6955,6 +6996,7 @@ export default function App(){
         {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}
         {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
             Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
+        {tab==="salesQuotations"&&canViewTab("salesQuotations")&&<QuotationsPg data={data} upConfig={upConfig} isMob={isMob} user={user} canEdit={canEditTab("salesQuotations")}/>}
         {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}

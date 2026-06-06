@@ -55,6 +55,10 @@ export const SPLIT_FIELDS_V2198 = ["whatsappCampaigns", "whatsappCampaignRuns"];
    of the doc at 200 orders cap). CLAUDE.md §2 has flagged this as TODO since
    V19.91. Migration runs auto on app open, just like every other split. */
 export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
+/* V21.10.0 — Sales Quotations (عروض الأسعار). Fresh feature (Odoo-style
+   document chain, Slice 1) — daily-split from day 1 per CLAUDE.md §2.
+   No legacy data to migrate; the flag is just stamped once on app open. */
+export const SPLIT_FIELDS_V21100 = ["salesQuotations"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -65,6 +69,7 @@ export const SPLIT_FLAG_V2195 = "_splitDaysV2195Done";
 export const SPLIT_FLAG_V2197 = "_splitDaysV2197Done";
 export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
 export const SPLIT_FLAG_V2199 = "_splitDaysV2199Done";
+export const SPLIT_FLAG_V21100 = "_splitDaysV21100Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -100,6 +105,8 @@ export const SPLIT_COLLECTIONS = {
      Existing maintenance endpoint name was "shopifyOrdersDays" — we keep that
      so the V21.9.3 manual migration tool's output is compatible. */
   shopifyPendingOrders: "shopifyOrdersDays",
+  /* V21.10.0 — Sales Quotations (Phase 12a). Day key = quote.date. */
+  salesQuotations: "salesQuotationsDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -485,6 +492,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V2199]) {
     for (const field of SPLIT_FIELDS_V2199) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V21100]) {
+    for (const field of SPLIT_FIELDS_V21100) delete stripped[field];
   }
   return stripped;
 }

@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.10.0",
+    date: "2026-06-06",
+    types: ["feature", "architectural"],
+    title: "📋 Phase 12a — عروض الأسعار (Sales Quotations) standalone",
+    changes: [
+      { type: "feature", text: "🎯 بداية حلقة المستندات على نمط Odoo: شاشة «عروض الأسعار» جديدة في قسم المبيعات. تقدر تعمل عرض سعر بأي مزيج من البنود (أوردر / صنف مخزون / منتج عام / خدمة نص حر)، بكميات وأسعار وخصومات (% أو مبلغ) لكل بند + خصم إجمالي. ترقيم عربي: عرض-YYYY-NNNN. الحالات: مسودة/مُرسل/مقبول/مرفوض/منتهي. صلاحية افتراضية 14 يوم (تتحسب expired تلقائياً في العرض). طباعة PDF + إرسال واتساب مباشر للعميل." },
+      { type: "feature", text: "🔒 standalone تماماً — مفيش أي مساس بالمخزون أو المحاسبة أو الفواتير الحالية. زرار «حوّل لأمر بيع» موجود بس معطّل لحد التحديث الجاي (Slice 2). الصلاحيات: المدير/محاسب المبيعات = تعديل؛ المشتريات/المخزن/المرتبات = مخفي؛ المشاهد = عرض." },
+      { type: "architectural", text: "🏗️ NEW: utils/sales/quotations.js (منطق نقي + counter بنمط reserveInvoiceNo) · pages/sales/QuotationsPg.jsx · components/sales/QuotationFormModal + QuotationDetailModal. تخزين daily-split على salesQuotationsDays/{date} مسجّل من اليوم الأول (CLAUDE.md §2) — splitCollections + dataLimits + hydration ×2 + flag-stamp migration + firestore.rules (isSalesScope) + permissions (8 roles) + TABS. حقل جديد بالكامل = مفيش بيانات قديمة تتنقل، الـ flag بيتختم مرة واحدة عند الفتح." },
+    ],
+  },
+  {
     version: "V21.9.259",
     date: "2026-06-06",
     types: ["improvement"],
