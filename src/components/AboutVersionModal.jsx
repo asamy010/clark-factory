@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.9.259",
+    date: "2026-06-06",
+    types: ["improvement"],
+    title: "🎨 تنظيف قائمة الثيمات",
+    changes: [
+      { type: "improvement", text: "حذف الثيم «الداكن» نهائياً، وإعادة تسمية «بينك شيك» → «بينك» و«أودو» → «بيربل». المستخدمون اللي كانوا مفعّلين الداكن بيرجعوا تلقائياً للثيم «الفاتح» (مع حماية للقيمة المخزّنة في localStorage)." },
+    ],
+  },
+  {
     version: "V21.9.258",
     date: "2026-06-06",
     types: ["fix"],

@@ -1106,12 +1106,15 @@ export default function App(){
   /* V15.63: Bot tasks permanently disabled — user requested removal.
      V15.76: Dead ref removed — was never read anywhere. */
   const themeKey="clark-theme-"+(user?.uid||"default");
-  const[theme,setTheme_]=useState(()=>{try{return localStorage.getItem("clark-theme-default")||"light"}catch(e){return"light"}});
+  /* V21.9.259: validate the persisted theme against THEMES — the "dark" theme
+     was removed, so users who had it selected must fall back to "light" cleanly
+     (otherwise the picker shows no selection and T relies on its own fallback). */
+  const[theme,setTheme_]=useState(()=>{try{const s=localStorage.getItem("clark-theme-default");return THEMES[s]?s:"light"}catch(e){return"light"}});
   /* V15.3: themeTick forces re-render of all components when T/TH/TD/TDB/TDL mutate.
      Without this, components read stale theme values because T is module-level (not React state). */
   const[themeTick,setThemeTick]=useState(0);
   const setTheme=v=>{setTheme_(v);try{localStorage.setItem(themeKey,v)}catch(e){}setActiveTheme(v);setThemeTick(n=>n+1)};
-  useEffect(()=>{try{const saved=localStorage.getItem(themeKey);if(saved&&saved!==theme)setTheme_(saved)}catch(e){}},[themeKey]);
+  useEffect(()=>{try{const saved=localStorage.getItem(themeKey);if(saved&&saved!==theme&&THEMES[saved])setTheme_(saved)}catch(e){}},[themeKey]);
   /* V15.76: Run setActiveTheme only when theme actually changes, not every render.
      useRef lets us call synchronously before children render (so T is correct on first paint),
      while skipping the expensive rebuild when theme is unchanged.
