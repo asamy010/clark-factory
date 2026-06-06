@@ -95,6 +95,8 @@ const QuotationsPg = lazyNamed(() => import("./pages/sales/QuotationsPg.jsx"), "
 const SalesOrdersPg = lazyNamed(() => import("./pages/sales/SalesOrdersPg.jsx"), "SalesOrdersPg");
 const SalesInvoicesPg = lazyNamed(() => import("./pages/SalesInvoicesPg.jsx"), "SalesInvoicesPg");
 const CreditNotesPg = lazyNamed(() => import("./pages/CreditNotesPg.jsx"), "CreditNotesPg");
+/* V21.11.0: Sales Hub — توحيد المبيعات (تايل واحد «مبيعات» + تاب الجديد/الحالي). */
+const SalesHubPg = lazyNamed(() => import("./pages/SalesHubPg.jsx"), "SalesHubPg");
 /* V19.48: Debit notes (purchase returns) */
 const DebitNotesPg = lazyNamed(() => import("./pages/DebitNotesPg.jsx"), "DebitNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
@@ -6619,7 +6621,10 @@ export default function App(){
         const saveNote=(note)=>{upTasks(d=>{if(!d.stickyNotes)d.stickyNotes=[];const idx=d.stickyNotes.findIndex(n=>n.id===note.id);if(idx>=0)d.stickyNotes[idx]=note;else{if(d.stickyNotes.filter(n=>n.email===uemail).length>=20){showToast("⚠️ الحد الاقصى 20 ملاحظة");return}d.stickyNotes.push(note)}});setStickyForm(null);showToast("✓ تم الحفظ")};
         const delNote=(id)=>{upTasks(d=>{d.stickyNotes=(d.stickyNotes||[]).filter(n=>n.id!==id)})};
         const uid=user?.uid||"";const rawTasks=(config||{}).tasks;const tasksList=Array.isArray(rawTasks)?rawTasks:[];const myTasks=tasksList.filter(t=>(t.toEmail===uemail||t.toUid===uid)&&!t.done);
-        const visibleTabs=TABS.filter(t=>canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
+        /* V21.11.0: تايل «مبيعات» (key="sales") يظهر لو المستخدم يقدر يشوف أي
+           قسم بيع — لأن "sales" مفتاح مجمّع مش في سجل الصلاحيات. */
+        const SALES_TAB_KEYS=["custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"];
+        const visibleTabs=TABS.filter(t=>t.key==="sales"?SALES_TAB_KEYS.some(k=>canViewTab(k)):canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
 
         return<div>
           <style>{`
@@ -7075,15 +7080,15 @@ export default function App(){
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole}/>}
         {tab==="reports"&&<ReportsHub data={data} isMob={isMob} season={season} statusCards={statusCards}/>}
         {tab==="settings"&&canEditTab("settings")&&<SettingsPg config={config} upConfig={upConfig} upSales={upSales} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole} theme={theme} setTheme={setTheme} season={season} orders={orders} syncWsIds={syncWsIds} replaceOrder={replaceOrder} updOrder={updOrder} configDoc={configDoc} salesDoc={salesDoc} tasksDoc={tasksDoc}/>}
-        {tab==="custDeliver"&&<CustDeliverPg data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("custDeliver")} user={user} season={season}/>}
+        {/* V21.11.0: Sales Hub — تايل «مبيعات» واحد بيجمع التسليمات + المستندات
+            الأربعة. الهَب بيـ map المفتاح الداخل (sales/custDeliver/salesQuotations/
+            salesOrders/salesInvoices/creditNotes) للوضع/القسم الصح، فالروابط القديمة
+            (navigate/goto-tab/notif-deeplink) كلها بتفتح المكان الصح. الصلاحيات
+            محفوظة جوّه الهَب لكل قسم بـ canViewTab. */}
+        {["sales","custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"].includes(tab)
+          && <SalesHubPg tab={tab} data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} user={user} season={season} canViewTab={canViewTab} canEditTab={canEditTab}/>}
         {/* V21.9.115: Contacts page — unified directory. canEdit gated like custDeliver (sales-side). */}
         {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}
-        {/* V19.48: 6 tabs that were UNGATED before V19.48 (open to all roles).
-            Now properly checked via canViewTab — viewer/payroll/etc. see "hide". */}
-        {tab==="salesQuotations"&&canViewTab("salesQuotations")&&<QuotationsPg data={data} upConfig={upConfig} isMob={isMob} user={user} canEdit={canEditTab("salesQuotations")}/>}
-        {tab==="salesOrders"&&canViewTab("salesOrders")&&<SalesOrdersPg data={data} upConfig={upConfig} isMob={isMob} user={user} canEdit={canEditTab("salesOrders")}/>}
-        {tab==="salesInvoices"&&canViewTab("salesInvoices")&&<SalesInvoicesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
-        {tab==="creditNotes"&&canViewTab("creditNotes")&&<CreditNotesPg data={data} upConfig={upConfig} isMob={isMob} user={user}/>}
         {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
         {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
         {/* V19.48: Debit notes (purchase returns) */}

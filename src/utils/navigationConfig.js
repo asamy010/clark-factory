@@ -57,9 +57,11 @@ export const TAB_SUBVIEWS = {
     { id: "dashboard", label: "الرئيسية", tabKey: "home" },
   ],
   sales: [
-    { id: "custDeliver",    label: "مبيعات",        tabKey: "custDeliver" },
-    { id: "salesInvoices",  label: "فواتير",        tabKey: "salesInvoices" },
-    { id: "creditNotes",    label: "إشعارات دائنة", tabKey: "creditNotes" },
+    { id: "custDeliver",     label: "مبيعات",        tabKey: "custDeliver" },
+    { id: "salesQuotations", label: "عروض الأسعار",  tabKey: "salesQuotations" },
+    { id: "salesOrders",     label: "أوامر البيع",   tabKey: "salesOrders" },
+    { id: "salesInvoices",   label: "فواتير",        tabKey: "salesInvoices" },
+    { id: "creditNotes",     label: "إشعارات دائنة", tabKey: "creditNotes" },
     { id: "shopify",        label: "Shopify",       tabKey: "shopify",
       /* shopify يـ hide تلقائياً لو غير enabled — checked in App.jsx */
       requiresShopify: true },
@@ -165,6 +167,7 @@ export const FAB_ACTIONS = [
    ──────────────────────────────────────────────────────────── */
 export function bottomTabFromTabKey(tabKey) {
   if (!tabKey || tabKey === "home") return "home";
+  if (tabKey === "sales") return "sales"; // V21.11.0: مفتاح الهَب المجمّع
   for (const bottomId of Object.keys(TAB_SUBVIEWS)) {
     const subviews = TAB_SUBVIEWS[bottomId];
     if (subviews.some(sv => sv.tabKey === tabKey)) return bottomId;
