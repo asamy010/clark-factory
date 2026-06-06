@@ -4511,6 +4511,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         const inv = config.invoiceSettings || {};
         const autoPostFromInvoice = inv.autoPostFromInvoice === true;
         const autoPostOnCreate    = inv.autoPostOnCreate === true;
+        const autoPostOnSOInvoice = inv.autoPostOnSalesInvoiceCreate === true;
         const setFlag = (key, val) => upConfig(d => {
           if(!d.invoiceSettings) d.invoiceSettings = {};
           d.invoiceSettings[key] = val;
@@ -4557,6 +4558,24 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
             </div>
             <span style={{fontSize:FS, fontWeight:800, color:autoPostOnCreate?T.accent:T.textMut, padding:"6px 14px", background:(autoPostOnCreate?T.accent:T.textMut)+"15", borderRadius:6}}>{autoPostOnCreate?"مُفعّل":"معطّل"}</span>
           </div>}
+          {/* V21.10.5 — Auto-post invoices created from the Sales-Order chain (Odoo flow) */}
+          <div onClick={() => setFlag("autoPostOnSalesInvoiceCreate", !autoPostOnSOInvoice)} style={{
+            display:"flex", alignItems:"flex-start", gap:12,
+            padding:"14px 16px", borderRadius:10, cursor:"pointer", marginTop:12,
+            background: autoPostOnSOInvoice ? "#8B5CF608" : T.bg,
+            border: "2px solid " + (autoPostOnSOInvoice ? "#8B5CF640" : T.brd),
+          }}>
+            <span style={{fontSize:24, color: autoPostOnSOInvoice?"#8B5CF6":T.textMut, fontWeight:800}}>{autoPostOnSOInvoice?"☑":"☐"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:FS+1, fontWeight:800, color:T.text, marginBottom:4}}>ترحيل تلقائي للفاتورة المتولّدة من أمر البيع</div>
+              <div style={{fontSize:FS-2, color:T.textSec, lineHeight:1.6}}>
+                <b>عند التفعيل:</b> لما تعمل فاتورة من «أمر بيع» بتترحّل تلقائياً (قيد محاسبي فوري) — جاهزة للدفع على طول.
+                <br/>
+                <b>عند التعطيل (الافتراضي):</b> الفاتورة تتعمل مسودة وتترحّل يدوياً من «فواتير المبيعات».
+              </div>
+            </div>
+            <span style={{fontSize:FS, fontWeight:800, color:autoPostOnSOInvoice?"#8B5CF6":T.textMut, padding:"6px 14px", background:(autoPostOnSOInvoice?"#8B5CF6":T.textMut)+"15", borderRadius:6}}>{autoPostOnSOInvoice?"مُفعّل":"معطّل"}</span>
+          </div>
         </div>;
       })()}
     </Card>

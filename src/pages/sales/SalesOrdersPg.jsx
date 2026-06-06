@@ -11,6 +11,8 @@ import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
 import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator } from "../../utils/sales/salesOrders.js";
+import { postInvoiceMutator } from "../../utils/invoices.js";
+import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
 
 const STATUS_META = {
@@ -60,15 +62,32 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   }, [orders]);
 
   const handleCreateInvoice = async (so) => {
-    const ok = await ask("إنشاء فاتورة", "هيتعمل فاتورة مبيعات (مسودة) من " + (so.orderNo || "الأمر") + ". تقدر تراجعها وترحّلها من «فواتير المبيعات». متأكد؟", { confirmText: "إنشاء" });
+    const autoPostOn = (data.invoiceSettings || {}).autoPostOnSalesInvoiceCreate === true;
+    const ok = await ask("إنشاء فاتورة", "هيتعمل فاتورة مبيعات من " + (so.orderNo || "الأمر") + (autoPostOn ? " وهتترحّل تلقائياً (قيد محاسبي)." : " (مسودة — ترحّلها بعدين من «فواتير المبيعات»).") + " متأكد؟", { confirmText: "إنشاء" });
     if(!ok) return;
     let res = { ok: true };
-    upConfig(d => { res = createInvoiceFromSalesOrderMutator(d, so.id, userName); });
-    if(res && res.ok){
-      setActiveSO(prev => prev && prev.id === so.id ? { ...prev, status: "invoiced", salesInvoiceId: res.invoice.id, salesInvoiceNo: res.invoice.invoiceNo } : prev);
-      showToast("✓ اتعملت الفاتورة " + (res.invoice?.invoiceNo || "") + " (مسودة)");
-    } else {
-      showToast("⛔ " + (res?.error || "تعذّر إنشاء الفاتورة"));
+    await upConfig(d => { res = createInvoiceFromSalesOrderMutator(d, so.id, userName); });
+    if(!res || !res.ok){ showToast("⛔ " + (res?.error || "تعذّر إنشاء الفاتورة")); return; }
+    const inv = res.invoice;
+    setActiveSO(prev => prev && prev.id === so.id ? { ...prev, status: "invoiced", salesInvoiceId: inv.id, salesInvoiceNo: inv.invoiceNo } : prev);
+
+    if(!autoPostOn){ showToast("✓ اتعملت الفاتورة " + inv.invoiceNo + " (مسودة)"); return; }
+
+    /* ترحيل تلقائي — نفس مسار handlePost في SalesInvoicesPg (order=null زي فواتير الخدمات) */
+    try {
+      await upConfig(d => { postInvoiceMutator(d, inv.id, "sales", userName); });
+      const postedInv = { ...inv, status: "posted", postedAt: new Date().toISOString(), postedBy: userName };
+      const cust = (data.customers || []).find(c => c.id === inv.customerId);
+      const pres = await autoPost.salesInvoicePosted(data, postedInv, cust, null, userName);
+      if(pres && pres.main && pres.main.ok && pres.main.entry){
+        await upConfig(d => {
+          const i = (d.salesInvoices || []).findIndex(x => x.id === inv.id);
+          if(i >= 0) d.salesInvoices[i].postedJournalRef = { date: pres.main.entry.date, entryId: pres.main.entry.id, refNo: pres.main.entry.refNo };
+        });
+      }
+      showToast("✓ اتعملت الفاتورة " + inv.invoiceNo + " واترحّلت");
+    } catch(e){
+      showToast("✓ اتعملت الفاتورة " + inv.invoiceNo + " — لكن الترحيل التلقائي فشل، رحّلها يدوياً");
     }
   };
 
