@@ -91,8 +91,16 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
   if(!Array.isArray(d.salesQuotations)) return { ok: false, error: "لا توجد عروض" };
   const quote = d.salesQuotations.find(q => q && q.id === quoteId);
   if(!quote) return { ok: false, error: "العرض غير موجود" };
-  if(quote.status === "converted" || quote.convertedToSalesOrderId) return { ok: false, error: "العرض متحوّل بالفعل لأمر بيع" };
   if(quote.status === "rejected") return { ok: false, error: "العرض مرفوض — مينفعش يتحوّل" };
+  /* V21.10.2 SELF-HEAL: block فقط لو أمر البيع موجود فعلاً. لو العرض متعلّم
+     "متحوّل" بس الأمر مش موجود (partial write — مثلاً rules اتنشرت متأخرة أو
+     انقطع النت وقت الكتابة عبر الـ collections) نسمح بإعادة التحويل بدل ما
+     يفضل العرض orphan مش بيتحوّل ولا بيتحذف. */
+  if(quote.convertedToSalesOrderId){
+    const existingSO = (d.salesOrders || []).find(s => s && s.id === quote.convertedToSalesOrderId);
+    if(existingSO) return { ok: false, error: "العرض متحوّل بالفعل لأمر بيع" };
+    /* orphan — نكمّل ونعيد التحويل (الحقول هتتكتب من جديد تحت) */
+  }
 
   const items = Array.isArray(quote.items) ? quote.items : [];
   if(items.length === 0) return { ok: false, error: "العرض مفيهوش بنود" };

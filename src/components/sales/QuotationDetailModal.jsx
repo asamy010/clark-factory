@@ -78,7 +78,11 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
   const meta = STATUS_META[ds] || STATUS_META.draft;
   const canMutate = canEdit && quote.status !== "converted";
   const canDelete = canEdit && ["draft", "rejected", "expired"].includes(ds);
-  const canConvert = canEdit && !quote.convertedToSalesOrderId && !["converted", "rejected"].includes(quote.status);
+  /* V21.10.2: SO is "orphaned" if the quote points to one that no longer exists
+     (partial write). Allow re-conversion in that case. */
+  const soExists = !!(quote.convertedToSalesOrderId && (data?.salesOrders || []).some(s => s && s.id === quote.convertedToSalesOrderId));
+  const isOrphan = !!quote.convertedToSalesOrderId && !soExists;
+  const canConvert = canEdit && quote.status !== "rejected" && !soExists;
 
   const handlePrint = () => {
     /* فتح النافذة synchronously (popup-safety §7) — ده click مباشر فـ آمن */
@@ -160,9 +164,11 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
           {/* cross-links (Slice 2+) */}
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
             <div style={{ fontWeight: 700, color: "#8B5CF6", marginBottom: 4 }}>🔗 المستندات المرتبطة</div>
-            {quote.convertedToSalesOrderNo
+            {soExists
               ? <div style={{ color: T.text }}>أمر البيع: <b>{quote.convertedToSalesOrderNo}</b></div>
-              : <div style={{ color: T.textMut }}>— لسه مفيش أمر بيع (يتفعّل في التحديث الجاي)</div>}
+              : isOrphan
+                ? <div style={{ color: T.err }}>⚠️ أمر البيع ({quote.convertedToSalesOrderNo}) مكانش اتحفظ — اضغط «إعادة التحويل»</div>
+                : <div style={{ color: T.textMut }}>— لسه مفيش أمر بيع</div>}
           </div>
 
           {quote.notes && <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}><b>ملاحظات:</b> {quote.notes}</div>}
@@ -189,8 +195,8 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
           {canMutate && ds !== "rejected" && <Btn ghost small onClick={() => onStatus("rejected")} style={{ color: T.err }}>✗ مرفوض</Btn>}
           {canDelete && <Btn ghost small onClick={onDelete} style={{ color: T.err }}>🗑 حذف</Btn>}
           {canConvert
-            ? <Btn small onClick={() => onConvert && onConvert(quote)} style={{ background: "#8B5CF6", color: "#fff" }}>🔄 حوّل لأمر بيع</Btn>
-            : quote.convertedToSalesOrderNo
+            ? <Btn small onClick={() => onConvert && onConvert(quote)} style={{ background: "#8B5CF6", color: "#fff" }}>🔄 {isOrphan ? "إعادة التحويل لأمر بيع" : "حوّل لأمر بيع"}</Btn>
+            : soExists
               ? <span style={{ alignSelf: "center", fontSize: FS - 2, color: "#8B5CF6", fontWeight: 700 }}>✓ {quote.convertedToSalesOrderNo}</span>
               : null}
         </div>
