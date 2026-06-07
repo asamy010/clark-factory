@@ -156,6 +156,38 @@ export function getAccountLedger(coa, days, accountId){
   return {account, lines, totals};
 }
 
+/* ─── GENERAL LEDGER (V21.18.0 — دفتر الأستاذ) ───
+   حركات حساب واحد من شجرة الحسابات (مع رصيد تراكمي). لو الحساب أب (غير ورقي)
+   بنضمّ حركات كل الحسابات الفرعية تحته. الرصيد التراكمي حسب الطبيعة المحاسبية
+   للحساب المختار (أصول/مصروفات = مدين، باقي = دائن). */
+export function getGeneralLedger(coa, days, accountId, options){
+  const account = getAccount(coa, accountId);
+  if(!account) return { account: null, lines: [], totals: { debit: 0, credit: 0, balance: 0 } };
+  const from = options?.from || null, to = options?.to || null;
+  const ids = new Set([accountId]);
+  if(!account.isLeaf) getDescendants(coa, accountId).forEach(d => ids.add(d.id));
+  const isDebitNatural = account.type === "asset" || account.type === "expense";
+
+  const matched = flattenEntries(days)
+    .filter(({ line }) => ids.has(line.accountId))
+    .filter(({ date }) => { if(from && date < from) return false; if(to && date > to) return false; return true; })
+    .sort((a, b) => { if(a.date !== b.date) return a.date.localeCompare(b.date); return (a.entry.createdAt || "").localeCompare(b.entry.createdAt || ""); });
+
+  let running = 0;
+  const lines = matched.map(({ date, entry, line }) => {
+    const dr = Number(line.debit) || 0, cr = Number(line.credit) || 0;
+    running += isDebitNatural ? (dr - cr) : (cr - dr);
+    return {
+      date, refNo: entry.refNo, entryId: entry.id, narration: entry.narration,
+      sourceType: entry.sourceType, accountCode: line.accountCode, accountName: line.accountName,
+      partyName: line.partyName || "", note: line.note || "",
+      debit: dr, credit: cr, runningBalance: running,
+    };
+  });
+  const totals = lines.reduce((a, l) => { a.debit += l.debit; a.credit += l.credit; return a; }, { debit: 0, credit: 0, balance: running });
+  return { account, lines, totals, isDebitNatural };
+}
+
 /* For a single party (customer/workshop/employee), return the consolidated
    debit/credit/balance across all accounts, useful for party statements. */
 export function getPartyTotals(days, partyId){

@@ -17,6 +17,7 @@ import { JournalTab } from "../components/accounting/JournalTab.jsx";
 import { TrialBalanceTab } from "../components/accounting/TrialBalanceTab.jsx";
 import { FinancialReportsTab } from "../components/accounting/FinancialReportsTab.jsx";
 import { PartyLedgerTab } from "../components/accounting/PartyLedgerTab.jsx";
+import { GeneralLedgerTab } from "../components/accounting/GeneralLedgerTab.jsx";
 import { PaymentsTab } from "../components/accounting/PaymentsTab.jsx";
 import { AgingReportTab } from "../components/accounting/AgingReportTab.jsx";
 import { AccountingSettingsTab } from "../components/accounting/AccountingSettingsTab.jsx";
@@ -32,6 +33,7 @@ const TAB_DEFS = [
   {key:"dashboard",label:"لوحة البيانات", icon:"📊"},
   {key:"coa",      label:"شجرة الحسابات", icon:"🌳"},
   {key:"journal",  label:"دفتر اليومية",  icon:"📔"},
+  {key:"gl",       label:"دفتر الأستاذ",  icon:"📒"},
   {key:"tb",       label:"ميزان المراجعة", icon:"⚖️"},
   /* V18.63: renamed from "كشف حساب طرف" → "كشف حساب جاري" (more accurate accounting term) */
   {key:"party",    label:"كشف حساب جاري",  icon:"👥"},
@@ -63,6 +65,15 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
      is read-only and lightweight — gives the user a financial overview on
      entry rather than dropping them into the Chart of Accounts editor. */
   const [active, setActive] = useState("dashboard");
+  /* V21.18.0: deep-link لفتح قيد يومية معيّن (من لينك الفاتورة أو دفتر الأستاذ) */
+  const [journalTarget, setJournalTarget] = useState(null);
+  useEffect(() => {
+    const open = (t) => { if(t && t.entryId){ setJournalTarget({ date: t.date, entryId: t.entryId, ts: Date.now() }); setActive("journal"); } };
+    try { const p = window.__clarkOpenJournalEntry; if(p && p.entryId){ open(p); delete window.__clarkOpenJournalEntry; } } catch(_){}
+    const h = (e) => { if(e?.detail?.entryId) open(e.detail); };
+    window.addEventListener("clark-open-journal-entry", h);
+    return () => window.removeEventListener("clark-open-journal-entry", h);
+  }, []);
   const [showToast, ToastNode] = useToast();
   const winW = useWin();
   const isPhone = winW < 720;
@@ -168,6 +179,12 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
     {active === "journal" && <JournalTab
       coa={coa} config={config}
       T={T} FS={FS} isMob={isMob} showToast={showToast} userName={userName}
+      openTarget={journalTarget}
+    />}
+    {active === "gl" && <GeneralLedgerTab
+      coa={coa}
+      configInfo={{factoryName: config.factoryName||"CLARK", logo: config.logo, address: config.address||"", phone: config.phone||""}}
+      T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "tb" && <TrialBalanceTab
       coa={coa}

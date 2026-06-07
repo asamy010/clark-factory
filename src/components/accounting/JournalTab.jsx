@@ -15,12 +15,23 @@ import { ask, tell } from "../../utils/popups.js";
 /* V21.9.188: cross-page action handoff (Dashboard "+ قيد جديد" button). */
 import { consumePendingAction } from "../../utils/pendingAction.js";
 
-export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
+export function JournalTab({coa, config, T, FS, isMob, showToast, userName, openTarget}){
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = useState(today);
   const [day, setDay]   = useState(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);/* null | "new" | <existingEntry> */
+  const [highlightId, setHighlightId] = useState(null);/* V21.18.0: deep-link highlight */
+
+  /* V21.18.0: عند الوصول من لينك (فاتورة/دفتر أستاذ) — انتقل لتاريخ القيد وأبرزه */
+  useEffect(() => {
+    if(!openTarget || !openTarget.entryId) return;
+    if(openTarget.date && openTarget.date !== date) setDate(openTarget.date);
+    setHighlightId(openTarget.entryId);
+    const t = setTimeout(() => setHighlightId(null), 4000);
+    return () => clearTimeout(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [openTarget?.entryId, openTarget?.ts]);
 
   /* Load whenever date changes */
   const loadDay = async (d) => {
@@ -179,9 +190,11 @@ export function JournalTab({coa, config, T, FS, isMob, showToast, userName}){
       : entries.length === 0 ? <div style={{padding:30, textAlign:"center", color:T.textMut, background:T.bg, borderRadius:10, border:"1px dashed "+T.brd}}>
         لا توجد قيود في هذا اليوم. <span onClick={() => setEditing("new")} style={{color:T.accent, cursor:"pointer", fontWeight:700, textDecoration:"underline"}}>أضف قيد جديد</span>
       </div>
-      : sorted.map(e => <div key={e.id} style={{
-        marginBottom:8, border:"1px solid "+T.brd, borderRadius:8, overflow:"hidden",
+      : sorted.map(e => <div key={e.id} ref={highlightId===e.id ? (el)=>{ if(el) setTimeout(()=>el.scrollIntoView({behavior:"smooth", block:"center"}), 60); } : null} style={{
+        marginBottom:8, border:"2px solid "+(highlightId===e.id ? T.accent : T.brd), borderRadius:8, overflow:"hidden",
         opacity: e.status==="void" ? 0.55 : 1,
+        boxShadow: highlightId===e.id ? "0 0 0 3px "+T.accent+"33" : "none",
+        transition:"box-shadow .3s, border-color .3s",
       }}>
         <div style={{display:"flex", flexWrap:"wrap", alignItems:"center", gap:8, padding:"8px 12px", background:T.accent+"06", borderBottom:"1px solid "+T.brd}}>
           <span style={{fontFamily:"monospace", fontSize:FS-2, fontWeight:800, color:T.accent}}>{e.refNo}</span>

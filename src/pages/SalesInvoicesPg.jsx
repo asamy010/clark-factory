@@ -507,6 +507,23 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         </div>
       </div>
 
+      {/* V21.18.0: لينك قيد اليومية — للفواتير المرحّلة. الضغط يفتح القيد في المحاسبة. */}
+      {invoice.status === "posted" && invoice.postedJournalRef && invoice.postedJournalRef.entryId && (() => {
+        const ref = invoice.postedJournalRef;
+        const openJE = (jDate, eid) => {
+          if(!eid) return;
+          try { window.__clarkOpenJournalEntry = { date: jDate, entryId: eid }; } catch(_){}
+          window.dispatchEvent(new CustomEvent("goto-tab", { detail: "accounting" }));
+          setTimeout(() => window.dispatchEvent(new CustomEvent("clark-open-journal-entry", { detail: { date: jDate, entryId: eid } })), 220);
+          onClose && onClose();
+        };
+        return <div style={{display:"flex", gap:10, flexWrap:"wrap", marginBottom:14, padding:"8px 12px", background:T.accent+"08", border:"1px dashed "+T.accent+"40", borderRadius:8, fontSize:FS-2, alignItems:"center"}}>
+          <span style={{fontWeight:700, color:T.accent}}>📔 قيد اليومية:</span>
+          <span onClick={()=>openJE(ref.date, ref.entryId)} style={{color:T.accent, cursor:"pointer", fontWeight:800, fontFamily:"monospace", textDecoration:"underline", textUnderlineOffset:2}}>{ref.refNo || "عرض القيد"} ↗</span>
+          {ref.cogsEntryId && <span onClick={()=>openJE(ref.cogsDate, ref.cogsEntryId)} style={{color:T.accent, cursor:"pointer", fontWeight:600, fontFamily:"monospace"}}>· قيد التكلفة {ref.cogsRefNo || ""} ↗</span>}
+        </div>;
+      })()}
+
       {/* V21.10.3: cross-links — shown only for invoices generated from the
           Odoo-style document chain (Sales Order / Quotation). Read-only. */}
       {(invoice.fromSalesOrderNo || invoice.fromQuotationNo) && (
