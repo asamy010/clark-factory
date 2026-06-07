@@ -284,7 +284,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
     />}
     {/* V18.85: Service invoice modal */}
     {showServiceModal && <ServiceInvoiceModal
-      mode="purchase" data={data} upConfig={upConfig} user={user}
+      mode="purchase" data={data} upConfig={upConfig} user={user} isMob={isMob}
       onClose={()=>setShowServiceModal(false)}
     />}
     {/* V19.39: Floating bulk-post bar */}

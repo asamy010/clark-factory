@@ -352,7 +352,7 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
     />}
     {/* V18.85: Service invoice modal */}
     {showServiceModal && <ServiceInvoiceModal
-      mode="sales" data={data} upConfig={upConfig} user={user}
+      mode="sales" data={data} upConfig={upConfig} user={user} isMob={isMob}
       onClose={()=>setShowServiceModal(false)}
     />}
     {/* V19.39: Floating bulk-post bar (only renders when items are selected) */}
@@ -529,15 +529,17 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             </tr>
           </thead>
           <tbody>
-            {(invoice.items||[]).map((it,i) => <tr key={i} style={{borderTop:"1px solid "+T.brd}}>
+            {(invoice.items||[]).map((it,i) => it.isSection ? <tr key={i} style={{borderTop:"1px solid "+T.brd, background:T.accent+"0c"}}>
+              <td colSpan={4} style={{padding:"8px 10px", fontWeight:800, color:T.accent}}>📑 {it.title||""}</td>
+            </tr> : <tr key={i} style={{borderTop:"1px solid "+T.brd}}>
               <td style={{padding:"8px 10px"}}>
-                <div style={{fontWeight:700, color:T.text}}>{invoice.subtype==="service" ? (it.description||"—") : (isPurchase ? it.name : (it.modelNo||"—"))}</div>
+                <div style={{fontWeight:700, color:T.text}}>{invoice.subtype==="service" ? (it.description||"—") : (isPurchase ? it.name : (it.modelNo||"—"))}{it.unit ? <span style={{fontSize:FS-3, color:T.textMut}}> / {it.unit}</span> : null}</div>
                 {invoice.subtype!=="service" && !isPurchase && it.modelDesc && <div style={{fontSize:FS-3, color:T.textMut}}>{it.modelDesc}</div>}
                 {invoice.subtype==="service" && it.accountName && <div style={{fontSize:FS-3, color:T.textMut}}>📊 {it.accountName}</div>}
               </td>
               <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:600}}>{fmt(it.qty)}</td>
-              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", color:T.textSec}}>{fmt(it.unitPrice.toFixed(2))}</td>
-              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:T.text}}>{fmt(it.lineTotal.toFixed(2))}</td>
+              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", color:T.textSec}}>{fmt(Number(it.unitPrice||0).toFixed(2))}</td>
+              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:T.text}}>{fmt(Number(it.lineTotal||0).toFixed(2))}</td>
             </tr>)}
           </tbody>
         </table>

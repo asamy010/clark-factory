@@ -487,10 +487,11 @@ export function buildSalesServiceInvoice(d, payload, userName){
      amounts on multi-line invoices. */
   const invoiceNo = reserveInvoiceNo(d, "sales");
   const cust = payload.customerId ? (d.customers||[]).find(c => c.id === payload.customerId) : null;
-  const items = (payload.items||[]).map(it => ({
+  const items = (payload.items||[]).map(it => it && it.isSection ? ({ isSection: true, title: it.title||"", description: it.title||"", qty: 0, unitPrice: 0, lineTotal: 0, accountId: "", accountName: "" }) : ({
     description: (it.description||"").trim(),
     qty: Number(it.qty)||1,
     unitPrice: Number(it.unitPrice)||0,
+    unit: it.unit||"",
     lineTotal: r2((Number(it.qty)||1) * (Number(it.unitPrice)||0)),/* V21.9.56 */
     accountId: it.accountId||"",
     accountName: it.accountName||"",
@@ -524,10 +525,11 @@ export function buildPurchaseServiceInvoice(d, payload, userName){
      V21.9.56: r2() parity with buildSalesServiceInvoice above (same V19.66 hardening). */
   const invoiceNo = reserveInvoiceNo(d, "purchase");
   const sup = payload.supplierId ? (d.suppliers||[]).find(s => s.id === payload.supplierId) : null;
-  const items = (payload.items||[]).map(it => ({
+  const items = (payload.items||[]).map(it => it && it.isSection ? ({ isSection: true, title: it.title||"", description: it.title||"", qty: 0, unitPrice: 0, lineTotal: 0, accountId: "", accountName: "" }) : ({
     description: (it.description||"").trim(),
     qty: Number(it.qty)||1,
     unitPrice: Number(it.unitPrice)||0,
+    unit: it.unit||"",
     lineTotal: r2((Number(it.qty)||1) * (Number(it.unitPrice)||0)),/* V21.9.56 */
     accountId: it.accountId||"",
     accountName: it.accountName||"",
