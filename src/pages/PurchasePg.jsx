@@ -19,6 +19,7 @@ import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
 /* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
+import { DocLineEditor } from "../components/sales/DocLineEditor.jsx";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
@@ -421,21 +422,57 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     });
   };
   const removePoItem=(idx)=>{setPo(p=>{const items=[...(p.items||[])];items.splice(idx,1);return{...p,items}})};
-  
+
+  /* ── V21.17.3: DocLineEditor adapter لأمر الشراء (مع الحفاظ على الربط بالمخزون) ──
+     po.items بتفضل schema أمر الشراء الموسّع: {itemType,itemId,itemName,qty,unit,
+     unitPrice(gross),discountType,discountValue,price(net),amount,...} + الأقسام. */
+  const poToEditor=(it)=>it&&it.isSection?{...it}:({
+    id:it.id, sourceType:it.itemType||"service", sourceId:it.itemId||"",
+    modelNo:it.itemName||"", description:"", unit:it.unit||"",
+    qty:it.qty??0, unitPrice:(it.unitPrice!=null?it.unitPrice:it.price)||0,
+    discountType:it.discountType||"pct", discountValue:it.discountValue||0, notes:it.notes||""
+  });
+  const editorToPo=(it)=>{
+    if(it&&it.isSection)return{isSection:true,title:it.title||""};
+    const qty=Number(it.qty)||0, up=Number(it.unitPrice)||0, sub=qty*up;
+    const dVal=Number(it.discountValue)||0;
+    const disc=it.discountType==="amount"?Math.min(Math.max(dVal,0),sub):sub*(Math.min(Math.max(dVal,0),100)/100);
+    const net=r2(sub-disc);
+    return{ id:it.id||gid(), itemType:(it.sourceType&&it.sourceType!=="service")?it.sourceType:"", itemId:it.sourceId||"",
+      itemName:it.modelNo||it.description||"", qty, unit:it.unit||"", unitPrice:up,
+      discountType:it.discountType||"pct", discountValue:dVal, price:qty>0?r2(net/qty):net, amount:net, notes:it.notes||"" };
+  };
+  const poProductOptions=(()=>{
+    const opts=[];
+    getCategories(data).forEach(cat=>{ const key=cat.legacy||cat.id;
+      getItemsForCategory(data,cat.id).forEach(x=>opts.push({value:key+":"+x.id,label:(cat.emoji||"📦")+" "+x.name+(x.unit?" ("+x.unit+")":"")})); });
+    return opts;
+  })();
+  const resolveProductPO=(value,cur)=>{
+    const s=String(value), ci=s.indexOf(":"); const sourceType=s.slice(0,ci), sourceId=s.slice(ci+1);
+    let catId=sourceType; if(catId==="fabric")catId="core_fabric"; else if(catId==="accessory")catId="core_accessory";
+    const found=getItemsForCategory(data,catId).find(x=>String(x.id)===String(sourceId));
+    return { sourceType, sourceId, modelNo:found?.name||"", description:"", unit:found?.unit||cur?.unit||"", unitPrice:Number(found?.price??found?.avgCost??0)||cur?.unitPrice };
+  };
+  const poEditorItems=(po?.items||[]).map(poToEditor);
+  const setPoEditorItems=(updater)=>setPo(p=>{ if(!p)return p; const cur=(p.items||[]).map(poToEditor); const next=typeof updater==="function"?updater(cur):updater; return {...p,items:next.map(editorToPo)}; });
+
   const savePo=async()=>{
     if(!canEdit){await denyAction("هذا الإجراء على أمر الشراء");return;}
     if(!po)return;
     if(!po.supplierId){await tell("بيانات ناقصة","يرجى اختيار المورد",{type:"warning"});return}
-    const validItems=(po.items||[]).filter(it=>it.itemId&&(Number(it.qty)||0)>0);
-    if(validItems.length===0){await tell("لا توجد بنود","أضف بند واحد على الأقل",{type:"warning"});return}
-    
+    /* V21.17.3: نقبل البنود المربوطة (itemId) + النص الحر (itemName) + الأقسام */
+    const realItems=(po.items||[]).filter(it=>!it.isSection&&(it.itemId||String(it.itemName||"").trim())&&(Number(it.qty)||0)>0);
+    if(realItems.length===0){await tell("لا توجد بنود","أضف بند واحد على الأقل",{type:"warning"});return}
+    const validItems=(po.items||[]).filter(it=>it.isSection?String(it.title||"").trim():((it.itemId||String(it.itemName||"").trim())&&(Number(it.qty)||0)>0));
+
     const supplier=suppliers.find(s=>String(s.id)===String(po.supplierId));
-    const totalAmount=validItems.reduce((s,it)=>s+(Number(it.amount)||0),0);
+    const totalAmount=realItems.reduce((s,it)=>s+(Number(it.amount)||0),0);
     const poNo=po.poNo||nextPoNo();
     const poId=po.id||gid();
     const isEdit=!!po.id;
     
-    const confirmed=await ask(isEdit?"تعديل أمر الشراء":"إنشاء أمر شراء","• المورد: "+(supplier?.name||"—")+"\n• عدد البنود: "+validItems.length+"\n• الإجمالي: "+fmt(r2(totalAmount))+" ج.م\n\n⚠️ أمر الشراء توثيق فقط — لا يؤثر على المخزن حتى يتم الاستلام",{confirmText:isEdit?"تعديل":"إنشاء"});
+    const confirmed=await ask(isEdit?"تعديل أمر الشراء":"إنشاء أمر شراء","• المورد: "+(supplier?.name||"—")+"\n• عدد البنود: "+realItems.length+"\n• الإجمالي: "+fmt(r2(totalAmount))+" ج.م\n\n⚠️ أمر الشراء توثيق فقط — لا يؤثر على المخزن حتى يتم الاستلام",{confirmText:isEdit?"تعديل":"إنشاء"});
     if(!confirmed)return;
     
     upConfig(d=>{
@@ -443,7 +480,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       const obj={
         id:poId,poNo,supplierId:po.supplierId,supplierName:supplier?.name||"",
         date:po.date||today,
-        items:validItems.map(it=>({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:Number(it.qty)||0,unit:it.unit||"",price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
+        items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
         totalAmount:r2(totalAmount),notes:po.notes||"",
         createdBy:userName,createdAt:po.createdAt||new Date().toISOString()
       };
@@ -474,7 +511,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const convertPoToReceipt=(p)=>{
     setRcpt({
       supplierId:p.supplierId,supplierName:p.supplierName,date:today,
-      items:(p.items||[]).map(it=>({id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it.qty,unit:it.unit,price:it.price,amount:it.amount,notes:it.notes||"",_fromPo:p.id})),
+      items:(p.items||[]).filter(it=>!it.isSection).map(it=>({id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it.qty,unit:it.unit,price:it.price,amount:it.amount,notes:it.notes||"",_fromPo:p.id})),
       paymentMethod:"credit",treasuryAccount:"",paidAmount:0,notes:"من أمر الشراء "+p.poNo,
       checkBank:"",checkNo:"",checkDueDate:"",_poId:p.id
     });
@@ -490,7 +527,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const printPo=(p)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(p.supplierId));
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
-    const rows=(p.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
+    const rows=(p.items||[]).map(it=>it.isSection?"<tr><td colspan='5' style='background:#EDE9FE;font-weight:800'>📑 "+(it.title||"")+"</td></tr>":"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+supplier.phone+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rows+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(p.totalAmount))+" ج.م</td></tr></tbody></table>"+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -2318,61 +2355,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             </div>
           </div>
           
-          {/* Items */}
+          {/* Items — محرّر Odoo-style (DocLineEditor) مع الحفاظ على الربط بالمخزون */}
           <div style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <label style={{fontSize:FS,color:T.text,fontWeight:700}}>البنود المطلوبة <span style={{color:T.err}}>*</span></label>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {getCategories(data).map(cat=>{
-                  const itemTypeKey=cat.legacy||cat.id;
-                  const color=cat.legacy==="fabric"?T.accent:cat.legacy==="accessory"?"#8B5CF6":"#F59E0B";
-                  return<Btn key={cat.id} small onClick={()=>addPoItem(itemTypeKey)} style={{background:color+"12",color:color,border:"1px solid "+color+"30"}}>{"+ "+(cat.emoji||"📦")+" "+cat.name}</Btn>;
-                })}
-              </div>
+            <label style={{fontSize:FS,color:T.text,fontWeight:700,display:"block",marginBottom:8}}>البنود المطلوبة <span style={{color:T.err}}>*</span></label>
+            <DocLineEditor items={poEditorItems} setItems={setPoEditorItems} productOptions={poProductOptions} resolveProduct={resolveProductPO} isMob={isMob} accent="#8B5CF6" />
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,padding:"8px 12px",borderRadius:8,background:"#8B5CF608"}}>
+              <span style={{fontWeight:700,color:T.textSec}}>الإجمالي</span>
+              <span style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2((po.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0)))}</span>
             </div>
-            
-            {(po.items||[]).length===0?<div style={{padding:24,textAlign:"center",color:T.textMut,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>
-              <div style={{fontSize:32,marginBottom:6}}>📋</div>
-              <div style={{fontSize:FS-1}}>لا توجد بنود</div>
-            </div>:<div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-                <thead><tr>
-                  <th style={{...TH,fontSize:FS-3}}>النوع</th>
-                  <th style={{...TH,fontSize:FS-3,minWidth:180}}>الصنف</th>
-                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:90}}>الكمية</th>
-                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:70}}>الوحدة</th>
-                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:100}}>السعر</th>
-                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:100}}>الإجمالي</th>
-                  <th style={{...TH,fontSize:FS-3,width:40}}></th>
-                </tr></thead>
-                <tbody>
-                  {(po.items||[]).map((it,idx)=>{
-                    /* V16.31: resolve category from itemType */
-                    let catId=it.itemType;
-                    if(catId==="fabric")catId="core_fabric";
-                    else if(catId==="accessory")catId="core_accessory";
-                    const cat=getCategoryById(data,catId);
-                    const itemsForCat=getItemsForCategory(data,catId);
-                    const options=itemsForCat.map(x=>({value:x.id,label:x.name+(x.type?" — "+x.type:"")+(x.unit?" ("+x.unit+")":"")}));
-                    const badgeColor=cat?.legacy==="fabric"?T.accent:cat?.legacy==="accessory"?"#8B5CF6":"#F59E0B";
-                    return<tr key={it.id} style={{borderBottom:"1px solid "+T.brd}}>
-                      <td style={{...TD,padding:"4px 6px"}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:badgeColor+"15",color:badgeColor,whiteSpace:"nowrap"}}>{(cat?.emoji||"📦")+" "+(cat?.name||it.itemType)}</span></td>
-                      <td style={{...TD,padding:"4px 6px"}}><SearchSel value={it.itemId} onChange={v=>updatePoItem(idx,"itemId",v)} options={options} placeholder="اختر..."/></td>
-                      <td style={{...TD,padding:"4px 6px"}}><Inp type="number" value={it.qty||""} onChange={v=>updatePoItem(idx,"qty",v)} style={{textAlign:"center",padding:"5px 6px"}}/></td>
-                      <td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{it.unit||"—"}</td>
-                      <td style={{...TD,padding:"4px 6px"}}><Inp type="number" value={it.price||""} onChange={v=>updatePoItem(idx,"price",v)} style={{textAlign:"center",padding:"5px 6px"}}/></td>
-                      <td style={{...TD,padding:"4px 6px",textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(Number(it.amount)||0))}</td>
-                      <td style={{...TD,padding:"4px 6px",textAlign:"center"}}><span onClick={()=>removePoItem(idx)} style={{cursor:"pointer",color:T.err,fontSize:14,padding:4}}>🗑</span></td>
-                    </tr>;
-                  })}
-                  <tr style={{background:"#8B5CF608",fontWeight:800}}>
-                    <td style={{...TD,padding:"8px 6px"}} colSpan="5"><span style={{textAlign:"left"}}>الإجمالي</span></td>
-                    <td style={{...TD,padding:"8px 6px",textAlign:"center",fontSize:FS+2,color:"#8B5CF6",fontWeight:800}}>{fmt(r2((po.items||[]).reduce((s,it)=>s+(Number(it.amount)||0),0)))}</td>
-                    <td style={{...TD,padding:"8px 6px"}}></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>}
           </div>
           
           {/* Notes */}
@@ -2444,7 +2434,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <th style={{...TH,textAlign:"center"}}>الإجمالي</th>
               </tr></thead>
               <tbody>
-                {(viewPo.items||[]).map((it,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
+                {(viewPo.items||[]).map((it,i)=>it.isSection?<tr key={i} style={{background:"#EDE9FE"}}>
+                  <td colSpan={5} style={{...TD,fontWeight:800,color:"#8B5CF6"}}>📑 {it.title||""}</td>
+                </tr>:<tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{...TD,fontWeight:700}}><span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦")}</span>{it.itemName}</td>
                   <td style={{...TD,textAlign:"center"}}>{fmt(it.qty)}</td>
                   <td style={{...TD,textAlign:"center",color:T.textSec}}>{it.unit||"—"}</td>
