@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.14.0",
+    date: "2026-06-07",
+    types: ["feature"],
+    title: "🎨 تاب «لون / مقاس» — ماتريكس variants + صورة لكل لون + push شوبيفاي",
+    changes: [
+      { type: "feature", text: "🎨 تاب جديد في تفاصيل الأوردر «لون / مقاس»: ماتريكس صفوفه الألوان وأعمدته المقاسات، الكميات بتتوزّع تلقائياً من كمية كل لون على المقاسات وقابلة للتعديل، + إجمالي لكل صف. وزر «🔄 إعادة توزيع تلقائي»." },
+      { type: "feature", text: "📷 صورة لكل لون في آخر كل صف (رفع/تغيير/حذف) — بتترفع لـ Storage." },
+      { type: "feature", text: "🛒 بترتبط بـ push شوبيفاي مباشرة: الكميات بتترحّل كمخزون لكل variant (stock_matrix)، وصورة كل لون بتظهر للعميل لما يختار اللون (color_images) — من غير أي تعديل في الـ push endpoint (بيقرا الحقول دي تلقائياً)." },
+    ],
+  },
+  {
     version: "V21.13.3",
     date: "2026-06-07",
     types: ["improvement", "feature"],

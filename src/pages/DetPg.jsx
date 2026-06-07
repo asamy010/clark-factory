@@ -29,6 +29,7 @@ import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
 import { StageProgressModal } from "../components/StageProgressModal.jsx";
 import { DefaultModelImg } from "../components/DefaultModelImg.jsx";
 import { ShopifyPushModal } from "../components/ShopifyPushModal.jsx";
+import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,canEditWarehouse,statusCards,goHome,upConfig,user}){
   /* V21.9.59 (Reported Bug — أمين المخزن مش بـ يقدر يسجل استلامات):
@@ -1090,6 +1091,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         const att=(order.attachments||[]).length;
         const TABS=[
           {id:"fabrics",label:"القماش والخامات",icon:"🧵",color:T.accent,badge:activeFabs.length},
+          {id:"colorsize",label:"لون / مقاس",icon:"🎨",color:"#EC4899",badge:new Set(FKEYS.flatMap(k=>(order["colors"+k]||[]).map(c=>typeof c==="string"?c:(c&&c.color)||"").filter(Boolean))).size},
           {id:"accessories",label:"الاكسسوار",icon:"🔘",color:"#0EA5E9",badge:accItems.length},
           {id:"costs",label:"التكاليف",icon:"💰",color:"#F59E0B",badge:(order.extraCosts||[]).length},
           {id:"workshops",label:"التشغيل والورش",icon:"🏭",color:"#8B5CF6",badge:wsCount},
@@ -1415,6 +1417,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {/* ═══════════════════════════════════════════════════════════════
           TAB: المبيعات والمخزن — stock delivery + sales-to-customers
          ═══════════════════════════════════════════════════════════════ */}
+      {activeTab==="colorsize"&&<ColorSizeMatrixTab order={order} data={data} sel={sel} updOrder={updOrder} canEdit={canEdit} isMob={isMob}/>}
       {activeTab==="sales"&&<>
         {(()=>{
           const wds=order.workshopDeliveries||[];
