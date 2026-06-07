@@ -138,7 +138,7 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
       )}
 
       {showForm && (
-        <RfqFormModal data={data} editRfq={editRfq} userName={userName} previewNo={nextRfqNo(data)}
+        <RfqFormModal data={data} editRfq={editRfq} userName={userName} previewNo={nextRfqNo(data)} isMob={isMob}
           onSave={handleSave} onClose={() => { setShowForm(false); setEditRfq(null); }} />
       )}
       {liveActive && !showForm && (

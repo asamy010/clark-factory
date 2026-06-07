@@ -30,7 +30,8 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
     onSend("whatsapp");
     if(phone){
       const digits = String(phone).replace(/[^0-9]/g, "");
-      const lines = (rfq.items || []).map((it, i) => `${i + 1}. ${it.description} — ${it.qty} ${it.unit || ""}`).join("\n");
+      let _n = 0;
+      const lines = (rfq.items || []).map((it) => it.isSection ? `📑 ${it.title || ""}` : `${++_n}. ${it.description || it.modelNo || ""} — ${it.qty} ${it.unit || ""}`).join("\n");
       const text = `طلب عروض أسعار ${rfq.rfqNo}\nالأصناف المطلوب تسعيرها:\n${lines}\n\nبرجاء إفادتنا بالأسعار. شكراً.`;
       const win = window.open("about:blank", "_blank");
       const url = "https://wa.me/" + digits + "?text=" + encodeURIComponent(text);
@@ -39,7 +40,8 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
   };
 
   const printRfq = () => {
-    const rows = (rfq.items || []).map((it, i) => `<tr><td>${i + 1}</td><td>${it.description || ""}</td><td>${it.qty || 0}</td><td>${it.unit || ""}</td><td></td></tr>`).join("");
+    let _pn = 0;
+    const rows = (rfq.items || []).map((it) => it.isSection ? `<tr><td colspan="5" style="background:#FEF3C7;font-weight:800">📑 ${it.title || ""}</td></tr>` : `<tr><td>${++_pn}</td><td>${it.description || it.modelNo || ""}</td><td>${it.qty || 0}</td><td>${it.unit || ""}</td><td></td></tr>`).join("");
     const w = window.open("", "_blank");
     if(!w) return;
     w.document.write(`<html dir="rtl"><head><meta charset="UTF-8"><title>${rfq.rfqNo}</title>
@@ -93,9 +95,13 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
               <th style={{ padding: 8, color: T.textSec, direction: "ltr" }}>سعر متوقع</th>
             </tr></thead>
             <tbody>
-              {(rfq.items || []).map((it, i) => (
+              {(rfq.items || []).map((it, i) => it.isSection ? (
+                <tr key={i} style={{ borderBottom: "1px solid " + T.brd, background: "#D977060c" }}>
+                  <td colSpan={4} style={{ padding: 8, fontWeight: 800, color: "#D97706" }}>📑 {it.title || ""}</td>
+                </tr>
+              ) : (
                 <tr key={i} style={{ borderBottom: "1px solid " + T.brd }}>
-                  <td style={{ padding: 8, color: T.text }}>{it.description}{it.notes ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {it.notes}</span> : ""}</td>
+                  <td style={{ padding: 8, color: T.text }}>{it.description || it.modelNo}{it.notes ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {it.notes}</span> : ""}</td>
                   <td style={{ padding: 8, textAlign: "center", color: T.text }}>{it.qty}</td>
                   <td style={{ padding: 8, textAlign: "center", color: T.textMut }}>{it.unit || "—"}</td>
                   <td style={{ padding: 8, textAlign: "left", color: T.text, direction: "ltr" }}>{Number(it.unitPrice) > 0 ? fmt(Number(it.unitPrice).toFixed(2)) : "—"}</td>

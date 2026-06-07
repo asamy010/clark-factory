@@ -9,26 +9,51 @@ import { FS } from "../../constants/index.js";
 import { fmt, r2 } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
 import { nextRfqNo, validateRfq } from "../../utils/purchase/rfq.js";
+import { DocLineEditor } from "../sales/DocLineEditor.jsx";
 
-const blankItem = () => ({ description: "", qty: 1, unit: "", unitPrice: 0, notes: "" });
+const toEditorItem = (it) => it && it.isSection ? { ...it } : ({
+  sourceType: it.sourceType || "service", sourceId: it.sourceId || "",
+  modelNo: it.modelNo || it.description || "", description: it.description || it.modelNo || "",
+  unit: it.unit || "", qty: it.qty ?? 1, unitPrice: it.unitPrice ?? 0,
+  discountType: it.discountType || "pct", discountValue: it.discountValue || 0, notes: it.notes || "",
+});
 
-export function RfqFormModal({ data, editRfq, userName, onSave, onClose, previewNo }){
+export function RfqFormModal({ data, editRfq, userName, onSave, onClose, previewNo, isMob = false }){
   const isEdit = !!editRfq?.id;
   const suppliers = data.suppliers || [];
+  const fabrics = data.fabrics || [], accessories = data.accessories || [], generalProducts = data.generalProducts || [];
 
   const [supplierId, setSupplierId] = useState(editRfq?.supplierId || "");
   const [supplierNameAdHoc, setSupplierNameAdHoc] = useState(editRfq?.supplierNameAdHoc || "");
   const [date, setDate] = useState(editRfq?.date || new Date().toISOString().split("T")[0]);
   const [validUntil, setValidUntil] = useState(editRfq?.validUntil || "");
-  const [items, setItems] = useState(editRfq?.items?.length ? editRfq.items.map(it => ({ ...it })) : [blankItem()]);
+  const [items, setItems] = useState(editRfq?.items?.length ? editRfq.items.map(toEditorItem) : [toEditorItem({})]);
   const [notes, setNotes] = useState(editRfq?.notes || "");
 
   const supOpts = suppliers.map(s => ({ value: s.id, label: s.name + (s.phone ? " — " + s.phone : "") }));
-  const total = useMemo(() => r2(items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0)), [items]);
 
-  const setItem = (i, k, v) => setItems(arr => arr.map((it, j) => j === i ? { ...it, [k]: v } : it));
-  const addItem = () => setItems(arr => [...arr, blankItem()]);
-  const delItem = (i) => setItems(arr => arr.length > 1 ? arr.filter((_, j) => j !== i) : arr);
+  /* قائمة مصادر الشراء الموحّدة (خامات/إكسسوار/منتج عام) + النص الحر */
+  const productOptions = useMemo(() => [
+    ...fabrics.map(f => ({ value: "fabric:" + f.id, label: "🧵 " + (f.name || "") + (f.unit ? " (" + f.unit + ")" : "") })),
+    ...accessories.map(a => ({ value: "accessory:" + a.id, label: "🧷 " + (a.name || "") + (a.unit ? " (" + a.unit + ")" : "") })),
+    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+  ], [fabrics, accessories, generalProducts]);
+  const resolveProduct = (value, cur) => {
+    const s = String(value); const ci = s.indexOf(":");
+    const sourceType = s.slice(0, ci), sourceId = s.slice(ci + 1);
+    let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice;
+    if(sourceType === "fabric"){ const f = fabrics.find(x => String(x.id) === sourceId); if(f){ modelNo = f.name || ""; unit = f.unit || unit; unitPrice = Number(f.avgCost ?? f.price ?? 0) || unitPrice; } }
+    else if(sourceType === "accessory"){ const a = accessories.find(x => String(x.id) === sourceId); if(a){ modelNo = a.name || ""; unit = a.unit || unit; unitPrice = Number(a.avgCost ?? a.price ?? 0) || unitPrice; } }
+    else if(sourceType === "generalProduct"){ const p = generalProducts.find(x => String(x.id) === sourceId); if(p){ modelNo = p.name || p.modelNo || ""; unit = p.unit || unit; unitPrice = Number(p.price ?? p.cost ?? 0) || unitPrice; } }
+    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice };
+  };
+
+  const total = useMemo(() => r2(items.reduce((s, it) => {
+    if(it.isSection) return s;
+    const qty = Number(it.qty) || 0, up = Number(it.unitPrice) || 0, sub = qty * up, dv = Number(it.discountValue) || 0;
+    const disc = it.discountType === "amount" ? Math.min(Math.max(dv, 0), sub) : sub * (Math.min(Math.max(dv, 0), 100) / 100);
+    return s + (sub - disc);
+  }, 0)), [items]);
 
   const handleSave = () => {
     const sup = suppliers.find(s => String(s.id) === String(supplierId));
@@ -39,7 +64,9 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
       supplierName: sup?.name || "",
       supplierPhone: sup?.phone || "",
       supplierNameAdHoc: supplierId ? "" : supplierNameAdHoc.trim(),
-      items: items.filter(it => String(it.description || "").trim() || Number(it.qty) > 0),
+      items: items
+        .map(it => it.isSection ? it : ({ ...it, description: it.modelNo || it.description || "" }))
+        .filter(it => it.isSection ? String(it.title || "").trim() : (String(it.modelNo || it.description || "").trim() || Number(it.qty) > 0)),
       notes: notes.trim(),
       requestedBy: userName || "",
     };
@@ -52,7 +79,7 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "min(820px,100%)", maxHeight: "92vh", overflowY: "auto", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "min(980px,100%)", maxHeight: "92vh", overflowY: "auto", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid " + T.brd, position: "sticky", top: 0, background: T.cardSolid, zIndex: 2 }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{isEdit ? "✏️ تعديل طلب — " + (editRfq.rfqNo || "") : "💬 طلب عروض أسعار جديد"}</div>
@@ -76,24 +103,10 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
             <div><label style={lbl}>مهلة الرد (صالح حتى)</label><Inp type="date" value={validUntil} onChange={setValidUntil} /></div>
           </div>
 
-          {/* البنود */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: FS - 1, fontWeight: 800, color: T.text }}>الأصناف المطلوب تسعيرها</span>
-            <Btn small onClick={addItem} style={{ background: "#D9770612", color: "#D97706", border: "1px solid #D9770630" }}>+ بند</Btn>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-            {items.map((it, i) => (
-              <div key={i} style={{ border: "1px solid " + T.brd, borderRadius: 10, padding: 10, background: T.bg }}>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 0.7fr 0.7fr 0.9fr auto", gap: 6, alignItems: "end" }}>
-                  <div><label style={lbl}>الصنف / الوصف</label><Inp value={it.description} onChange={v => setItem(i, "description", v)} placeholder="اسم الصنف" /></div>
-                  <div><label style={lbl}>الكمية</label><Inp type="number" value={it.qty} onChange={v => setItem(i, "qty", v)} /></div>
-                  <div><label style={lbl}>الوحدة</label><Inp value={it.unit} onChange={v => setItem(i, "unit", v)} placeholder="متر/قطعة" /></div>
-                  <div><label style={lbl}>سعر متوقع</label><Inp type="number" value={it.unitPrice} onChange={v => setItem(i, "unitPrice", v)} /></div>
-                  <Btn small ghost onClick={() => delItem(i)} style={{ color: T.err }}>🗑</Btn>
-                </div>
-                <div style={{ marginTop: 6 }}><Inp value={it.notes} onChange={v => setItem(i, "notes", v)} placeholder="ملاحظات البند (اختياري)" /></div>
-              </div>
-            ))}
+          {/* البنود — محرّر Odoo-style */}
+          <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, marginBottom: 6 }}>الأصناف المطلوب تسعيرها</div>
+          <div style={{ marginBottom: 14 }}>
+            <DocLineEditor items={items} setItems={setItems} productOptions={productOptions} resolveProduct={resolveProduct} isMob={isMob} accent="#D97706" />
           </div>
 
           <div><label style={lbl}>ملاحظات الطلب</label><Inp value={notes} onChange={setNotes} placeholder="شروط/مواصفات إضافية..." /></div>

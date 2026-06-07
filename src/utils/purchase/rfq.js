@@ -49,10 +49,15 @@ export function reserveRfqNo(d){
 
 /* ── Totals (تقديرية — أسعار المورد المتوقعة) ── */
 export function recalcRfqLine(item){
+  if(item && item.isSection) return { ...item, isSection: true, qty: 0, unitPrice: 0, discountValue: 0, lineTotal: 0 };
   const qty = Number(item.qty) || 0;
   const unitPrice = Number(item.unitPrice) || 0;
-  const lineTotal = r2(qty * unitPrice);
-  return { ...item, qty, unitPrice, lineTotal };
+  const sub = qty * unitPrice;
+  const dType = item.discountType === "amount" ? "amount" : "pct";
+  const dVal = Number(item.discountValue) || 0;
+  const disc = dType === "amount" ? Math.min(Math.max(dVal, 0), sub) : sub * (Math.min(Math.max(dVal, 0), 100) / 100);
+  const lineTotal = r2(sub - disc);
+  return { ...item, qty, unitPrice, discountType: dType, discountValue: dVal, lineTotal };
 }
 export function recalcRfqTotals(rfq){
   const items = (rfq.items || []).map(recalcRfqLine);
@@ -68,11 +73,13 @@ export function validateRfq(q){
   if(!hasSupplier) errors.push("اختر مورد أو اكتب اسم مورد");
   if(!q.date || !/^\d{4}-\d{2}-\d{2}$/.test(q.date)) errors.push("تاريخ الطلب غير صالح");
   const items = Array.isArray(q.items) ? q.items : [];
-  if(items.length === 0) errors.push("أضف بند واحد على الأقل");
+  const realItems = items.filter(it => !(it && it.isSection));
+  if(realItems.length === 0) errors.push("أضف بند واحد على الأقل");
   items.forEach((it, i) => {
+    if(it && it.isSection){ if(!String(it.title || "").trim()) errors.push(`القسم ${i + 1}: محتاج عنوان`); return; }
     if(!(Number(it.qty) > 0)) errors.push(`البند ${i + 1}: الكمية لازم تكون أكبر من صفر`);
     if(Number(it.unitPrice) < 0) errors.push(`البند ${i + 1}: السعر غير صالح`);
-    if(!String(it.description || "").trim()) errors.push(`البند ${i + 1}: محتاج وصف الصنف`);
+    if(!String(it.modelNo || it.description || "").trim()) errors.push(`البند ${i + 1}: محتاج وصف الصنف`);
   });
   return { ok: errors.length === 0, errors };
 }
@@ -193,15 +200,25 @@ export function convertRfqToPurchaseOrderMutator(d, rfqId, userName){
   const maxNum = existing.reduce((m, r) => { const n = Number((r.poNo || "").split("-").pop()) || 0; return n > m ? n : m; }, 0);
   const poNo = prefix + year + "-" + String(maxNum + 1).padStart(3, "0");
 
-  const items = (q.items || []).map(it => ({
-    itemType: "", itemId: "",
-    itemName: it.description || "",
-    qty: Number(it.qty) || 0,
-    unit: it.unit || "",
-    price: Number(it.unitPrice) || 0,
-    amount: r2((Number(it.qty) || 0) * (Number(it.unitPrice) || 0)),
-    notes: it.notes || "",
-  }));
+  /* بنحمّل الربط بالمخزون (itemType/itemId) للأمر عشان الاستلام يزوّد المخزون صح.
+     الخصم بيتبني داخل السعر الصافي (PO مفيهوش حقل خصم). الأقسام بتتشال. */
+  const items = (q.items || []).filter(it => !(it && it.isSection)).map(it => {
+    const qty = Number(it.qty) || 0, up = Number(it.unitPrice) || 0;
+    const sub = qty * up;
+    const dVal = Number(it.discountValue) || 0;
+    const disc = it.discountType === "amount" ? Math.min(Math.max(dVal, 0), sub) : sub * (Math.min(Math.max(dVal, 0), 100) / 100);
+    const net = r2(sub - disc);
+    return {
+      itemType: (it.sourceType && it.sourceType !== "service") ? it.sourceType : "",
+      itemId: it.sourceId || "",
+      itemName: it.modelNo || it.description || "",
+      qty,
+      unit: it.unit || "",
+      price: qty > 0 ? r2(net / qty) : net,
+      amount: net,
+      notes: it.notes || "",
+    };
+  });
   const totalAmount = r2(items.reduce((s, it) => s + (it.amount || 0), 0));
 
   const poId = "po_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
