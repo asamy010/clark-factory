@@ -12,8 +12,8 @@
    stock_matrix للمخزون و color_images لصور الـ variants. (CLAUDE.md §4/§5)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo, useEffect, useRef, useState } from "react";
-import { Btn, Card, Inp } from "../ui.jsx";
+import { useMemo, useEffect, useState } from "react";
+import { Btn, Card, Inp, Sel } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS, FKEYS } from "../../constants/index.js";
 import { getSizesFromSet } from "../../utils/format.js";
@@ -37,25 +37,42 @@ function distribute(total, sizesArr, uniqueSizes){
 }
 
 export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob }){
-  const autoPersistRef = useRef(false);
-
-  /* الألوان — مجمّعة من كل الأقمشة، مدمجة بالاسم */
-  const colors = useMemo(() => {
-    const map = new Map();
+  /* الخامات اللي ليها ألوان — كل خامة لوحدها (مش مدمجة) */
+  const fabricsWithColors = useMemo(() => {
+    const out = [];
     FKEYS.forEach(k => {
       const arr = order["colors" + k];
       if(!Array.isArray(arr)) return;
+      const objs = []; const seen = new Set();
       arr.forEach(c => {
         const nm = String((typeof c === "string" ? c : (c?.color || c?.n || c?.name || "")) || "").trim();
-        if(!nm) return;
-        const qty = typeof c === "object" ? (Number(c.qty) || 0) : 0;
-        const hex = typeof c === "object" ? (c.colorHex || "") : "";
-        if(map.has(nm)){ const e = map.get(nm); e.qty += qty; if(!e.colorHex && hex) e.colorHex = hex; }
-        else map.set(nm, { color: nm, colorHex: hex, qty });
+        if(!nm || seen.has(nm.toLowerCase())) return;
+        seen.add(nm.toLowerCase());
+        objs.push({ color: nm, colorHex: (typeof c === "object" ? (c.colorHex || "") : ""), qty: (typeof c === "object" ? (Number(c.qty) || 0) : 0) });
       });
+      if(objs.length > 0) out.push({ key: k, colors: objs });
     });
-    return [...map.values()];
+    return out;
   }, [order]);
+
+  /* مصدر الألوان (خامة واحدة) — نفس اللي الـ push بيستخدمه (color_source_fabric).
+     مش بنجمع كل الخامات عشان الإجمالي يبقى صح ومطابق لشوبيفاي. */
+  const [colorSource, setColorSource] = useState(order.shopify_meta?.color_source_fabric || (fabricsWithColors[0]?.key) || "A");
+  /* لو المصدر الحالي مالوش ألوان، حوّل لأول خامة ليها ألوان */
+  useEffect(() => {
+    if(fabricsWithColors.length > 0 && !fabricsWithColors.some(f => f.key === colorSource)) setColorSource(fabricsWithColors[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabricsWithColors.length]);
+  /* خزّن المصدر في الأوردر عشان الـ push يقراه */
+  useEffect(() => {
+    if(!canEdit) return;
+    if(!fabricsWithColors.some(f => f.key === colorSource)) return;
+    if(order.shopify_meta?.color_source_fabric === colorSource) return;
+    updOrder(sel, o => { if(!o.shopify_meta) o.shopify_meta = {}; o.shopify_meta.color_source_fabric = colorSource; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorSource]);
+
+  const colors = useMemo(() => (fabricsWithColors.find(f => f.key === colorSource)?.colors) || [], [fabricsWithColors, colorSource]);
 
   const sizeInfo = getSizesFromSet(order, data) || {};
   const sizesArr = Array.isArray(sizeInfo.sizes) ? sizeInfo.sizes : [];
@@ -89,17 +106,21 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
     return m;
   }, [colors, stored, uniqueSizes.join("|"), sizesArr.join("|")]);
 
-  /* حفظ التوزيع التلقائي مرة واحدة لو الماتريكس فاضية (عشان الـ push يلاقي بيانات) */
+  /* حفظ التوزيع التلقائي لأي لون (من المصدر الحالي) لسه مش متخزّن — عشان الـ
+     push يلاقي بيانات، ويشتغل صح كمان لو غيّرت مصدر الألوان. */
   useEffect(() => {
-    if(!canEdit || autoPersistRef.current) return;
-    if(stored && Object.keys(stored).length > 0) return;
+    if(!canEdit) return;
     if(colors.length === 0 || uniqueSizes.length === 0) return;
-    autoPersistRef.current = true;
-    const m = {};
-    colors.forEach(c => { m[c.color] = distribute(c.qty, sizesArr, uniqueSizes); });
-    updOrder(sel, o => { if(!o.shopify_meta) o.shopify_meta = {}; o.shopify_meta.stock_matrix = m; });
+    const cur = order.shopify_meta?.stock_matrix || {};
+    const missing = colors.filter(c => !cur[c.color] || typeof cur[c.color] !== "object");
+    if(missing.length === 0) return;
+    updOrder(sel, o => {
+      if(!o.shopify_meta) o.shopify_meta = {};
+      if(!o.shopify_meta.stock_matrix) o.shopify_meta.stock_matrix = {};
+      missing.forEach(c => { o.shopify_meta.stock_matrix[c.color] = distribute(c.qty, sizesArr, uniqueSizes); });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors.length, uniqueSizes.length]);
+  }, [colorSource, colors.length, uniqueSizes.length]);
 
   const setCell = (color, size, val) => {
     const n = Math.max(0, Math.floor(Number(val) || 0));
@@ -145,10 +166,10 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
     showToast("✓ اتحذفت صورة " + color);
   };
 
-  if(colors.length === 0 || uniqueSizes.length === 0){
+  if(fabricsWithColors.length === 0 || uniqueSizes.length === 0){
     return <Card title="🎨 لون / مقاس">
       <div style={{ padding: 28, textAlign: "center", color: T.textMut, lineHeight: 1.8 }}>
-        {colors.length === 0 ? "⚠️ مفيش ألوان — حدّد ألوان القماش في تاب «القماش والخامات» أولاً." : "⚠️ مفيش مقاسات — اختر مجموعة مقاسات (Size Set) للأوردر أولاً."}
+        {fabricsWithColors.length === 0 ? "⚠️ مفيش خامات بألوان — حدّد ألوان القماش في تاب «القماش والخامات» أولاً." : "⚠️ مفيش مقاسات — اختر مجموعة مقاسات (Size Set) للأوردر أولاً."}
       </div>
     </Card>;
   }
@@ -160,6 +181,20 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
   return (
     <>
     <Card title={"🎨 لون / مقاس — ماتريكس الـ variants (" + colors.length + " لون × " + uniqueSizes.length + " مقاس)"}>
+      {/* مصدر الألوان — خامة واحدة (نفس الـ push). مش بنجمع كل الخامات. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", borderRadius: 10, background: "#EC489908", border: "1px solid #EC489925", marginBottom: 10 }}>
+        <label style={{ fontSize: FS - 1, fontWeight: 800, color: "#EC4899", whiteSpace: "nowrap" }}>🎨 مصدر الألوان</label>
+        <div style={{ minWidth: 220, flex: 1 }}>
+          {canEdit ? (
+            <Sel value={colorSource} onChange={setColorSource}>
+              {fabricsWithColors.map(f => (
+                <option key={f.key} value={f.key}>{"خامة " + f.key + " — " + f.colors.length + " لون: " + f.colors.slice(0, 3).map(c => c.color).join("، ") + (f.colors.length > 3 ? "…" : "")}</option>
+              ))}
+            </Sel>
+          ) : <span style={{ fontWeight: 700, color: T.text }}>{"خامة " + colorSource}</span>}
+        </div>
+        <span style={{ fontSize: FS - 2, color: T.textMut }}>الألوان والإجمالي من الخامة دي بس</span>
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: FS - 1, color: T.textSec }}>الكميات بتتوزّع تلقائياً وتقدر تعدّلها. بتترحّل لشوبيفاي كمخزون لكل variant، وصورة كل لون بتظهر لما العميل يختاره.</div>
         {canEdit && <Btn small onClick={redistribute} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489935", fontWeight: 700 }}>🔄 إعادة توزيع تلقائي</Btn>}

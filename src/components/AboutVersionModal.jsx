@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.14.2",
+    date: "2026-06-07",
+    types: ["fix", "feature"],
+    title: "🎨 لون / مقاس — اختيار مصدر الألوان (خامة واحدة) زي push شوبيفاي",
+    changes: [
+      { type: "fix", text: "🩹 إصلاح الإجمالي الغلط: التاب كان بيجمع ألوان كل الخامات. دلوقتي بيستخدم خامة واحدة كمصدر للألوان (نفس color_source_fabric بتاع الـ push) فالإجمالي صح ومطابق لشوبيفاي." },
+      { type: "feature", text: "🎨 dropdown «مصدر الألوان» في التاب (زي بوب شوبيفاي): يعرض الخامات اللي ليها ألوان، وتختار منها مصدر الألوان — والاختيار بيتخزّن ويستخدمه الـ push تلقائياً." },
+    ],
+  },
+  {
     version: "V21.14.1",
     date: "2026-06-07",
     types: ["feature", "improvement"],
