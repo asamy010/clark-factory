@@ -61,6 +61,9 @@ export const SPLIT_FIELDS_V2199 = ["shopifyPendingOrders"];
 export const SPLIT_FIELDS_V21100 = ["salesQuotations"];
 /* V21.10.1 — Sales Orders (أوامر البيع، Phase 12b). Daily-split from day 1. */
 export const SPLIT_FIELDS_V21101 = ["salesOrders"];
+/* V21.12.1 — Purchase RFQs (طلب عروض أسعار). Fresh feature — daily-split from
+   day 1 per CLAUDE.md §2. No legacy data; flag stamped once on app open. */
+export const SPLIT_FIELDS_V21120 = ["purchaseRfqs"];
 
 export const SPLIT_FLAG_V1674 = "_splitDaysV1674Done";
 export const SPLIT_FLAG_V1949 = "_splitDaysV1949Done";
@@ -73,6 +76,7 @@ export const SPLIT_FLAG_V2198 = "_splitDaysV2198Done";
 export const SPLIT_FLAG_V2199 = "_splitDaysV2199Done";
 export const SPLIT_FLAG_V21100 = "_splitDaysV21100Done";
 export const SPLIT_FLAG_V21101 = "_splitDaysV21101Done";
+export const SPLIT_FLAG_V21120 = "_splitDaysV21120Done";
 
 /* الـcollections اللي مقسّمة من factory/config — field name → collection name */
 export const SPLIT_COLLECTIONS = {
@@ -112,6 +116,8 @@ export const SPLIT_COLLECTIONS = {
   salesQuotations: "salesQuotationsDays",
   /* V21.10.1 — Sales Orders (Phase 12b). Day key = order.date. */
   salesOrders: "salesOrdersDays",
+  /* V21.12.1 — Purchase RFQs (طلب عروض أسعار). Day key = rfq.date. */
+  purchaseRfqs: "purchaseRfqsDays",
 };
 
 /* مفاتيح الـfields اللي مقسّمة (للحلقات السريعة) */
@@ -503,6 +509,9 @@ export function stripSplitArrays(configObj) {
   }
   if (configObj[SPLIT_FLAG_V21101]) {
     for (const field of SPLIT_FIELDS_V21101) delete stripped[field];
+  }
+  if (configObj[SPLIT_FLAG_V21120]) {
+    for (const field of SPLIT_FIELDS_V21120) delete stripped[field];
   }
   return stripped;
 }

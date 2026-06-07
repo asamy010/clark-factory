@@ -43,8 +43,8 @@ const FIRESTORE_DOC_WARN_BYTES = 838860; /* ~80% of 1 MiB Firestore limit */
 import { createComprehensiveBackup, deleteComprehensiveBackup } from "./utils/comprehensiveBackup.js";
 import {
   syncAllSplitChanges, stripSplitArrays, SPLIT_COLLECTIONS, SPLIT_FIELDS,
-  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199, SPLIT_FIELDS_V21100, SPLIT_FIELDS_V21101,
-  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199, SPLIT_FLAG_V21100, SPLIT_FLAG_V21101,
+  SPLIT_FIELDS_V1949, SPLIT_FIELDS_V1950, SPLIT_FIELDS_V1952, SPLIT_FIELDS_V1953, SPLIT_FIELDS_V2195, SPLIT_FIELDS_V2197, SPLIT_FIELDS_V2198, SPLIT_FIELDS_V2199, SPLIT_FIELDS_V21100, SPLIT_FIELDS_V21101, SPLIT_FIELDS_V21120,
+  SPLIT_FLAG_V1674, SPLIT_FLAG_V1949, SPLIT_FLAG_V1950, SPLIT_FLAG_V1952, SPLIT_FLAG_V1953, SPLIT_FLAG_V2195, SPLIT_FLAG_V2197, SPLIT_FLAG_V2198, SPLIT_FLAG_V2199, SPLIT_FLAG_V21100, SPLIT_FLAG_V21101, SPLIT_FLAG_V21120,
   _deepEqual,/* V19.65: order-independent equality for listener pending-cleanup */
   /* V19.51 — sales-doc + tasks-doc split namespaces */
   SALES_SPLIT_COLLECTIONS, SALES_SPLIT_FIELDS, SALES_SPLIT_FIELDS_V1951, SALES_SPLIT_FLAG_V1951,
@@ -463,6 +463,11 @@ export default function App(){
     }
     if(configDoc[SPLIT_FLAG_V21101]){
       for(const f of SPLIT_FIELDS_V21101){
+        merged[f]=splitData[f]||[];
+      }
+    }
+    if(configDoc[SPLIT_FLAG_V21120]){
+      for(const f of SPLIT_FIELDS_V21120){
         merged[f]=splitData[f]||[];
       }
     }
@@ -2835,6 +2840,31 @@ export default function App(){
       }catch(e){
         console.warn("[V21.10.1] salesOrders flag stamp failed:",e?.message||e);
         splitDaysV21101MigrationRef.current=false;
+      }
+    })();
+  },[user,configDoc,splitLoaded]);
+  /* V21.12.1 — purchaseRfqs brand-new field (طلب عروض أسعار). Stamp flag once. */
+  const splitDaysV21120MigrationRef=useRef(false);
+  useEffect(()=>{
+    if(!user||splitDaysV21120MigrationRef.current)return;
+    if(!configDoc)return;
+    if(configDoc._splitDaysV21120Done)return;
+    if(!splitLoaded)return;
+    splitDaysV21120MigrationRef.current=true;
+    (async()=>{
+      try{
+        await runTransaction(db,async(tx)=>{
+          const ref=doc(db,"factory","config");
+          const snap=await tx.get(ref);
+          if(!snap.exists())return;
+          const fresh=snap.data();
+          if(fresh._splitDaysV21120Done)return;
+          tx.set(ref,{...fresh,_splitDaysV21120Done:true});
+        });
+        console.log("[V21.12.1] purchaseRfqs split flag stamped.");
+      }catch(e){
+        console.warn("[V21.12.1] purchaseRfqs flag stamp failed:",e?.message||e);
+        splitDaysV21120MigrationRef.current=false;
       }
     })();
   },[user,configDoc,splitLoaded]);

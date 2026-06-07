@@ -17,6 +17,7 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 
+const PurchaseRfqPg      = lazy(() => import("./purchase/PurchaseRfqPg.jsx").then(m => ({ default: m.PurchaseRfqPg })));
 const PurchasePg         = lazy(() => import("./PurchasePg.jsx").then(m => ({ default: m.PurchasePg })));
 const PurchaseInvoicesPg = lazy(() => import("./PurchaseInvoicesPg.jsx").then(m => ({ default: m.PurchaseInvoicesPg })));
 const DebitNotesPg       = lazy(() => import("./DebitNotesPg.jsx").then(m => ({ default: m.DebitNotesPg })));
@@ -47,9 +48,11 @@ export function PurchaseHubPg(props){
   const canPurch = canViewTab("purchase");        // أوامر/استلام/موردون/مخزن/أصناف
   const canInv   = canViewTab("purchaseInvoices");
   const canDN    = canViewTab("debitNotes");
+  const canRfq   = canViewTab("purchaseRfq");
 
   const tabs = useMemo(() => [
     { id: "overview",   label: "📊 نظرة عامة",        show: true },
+    { id: "rfq",        label: "💬 طلب عروض أسعار",   show: canRfq,   cnt: (data.purchaseRfqs || []).length },
     { id: "orders",     label: "📋 أوامر الشراء",     show: canPurch, cnt: (data.purchaseOrders || []).length },
     { id: "receipts",   label: "📥 الاستلام",         show: canPurch, cnt: (data.purchaseReceipts || []).length },
     { id: "invoices",   label: "📤 فواتير المشتريات", show: canInv,   cnt: (data.purchaseInvoices || []).length },
@@ -57,7 +60,7 @@ export function PurchaseHubPg(props){
     { id: "suppliers",  label: "👥 الموردون",         show: canPurch, cnt: (data.suppliers || []).length },
     { id: "stock",      label: "📦 المخزن",           show: canPurch },
     { id: "categories", label: "🏷️ الأصناف",          show: canPurch, cnt: (data.itemCategories || []).length },
-  ].filter(t => t.show), [data.purchaseOrders, data.purchaseReceipts, data.purchaseInvoices, data.purchaseDebitNotes, data.suppliers, data.itemCategories, canViewTab]);
+  ].filter(t => t.show), [data.purchaseRfqs, data.purchaseOrders, data.purchaseReceipts, data.purchaseInvoices, data.purchaseDebitNotes, data.suppliers, data.itemCategories, canViewTab]);
 
   const allowed = (id) => tabs.some(t => t.id === id);
   const firstId = tabs[0]?.id || "overview";
@@ -111,6 +114,7 @@ export function PurchaseHubPg(props){
 
       <Suspense fallback={<Loading />}>
         {active === "overview" && <Overview ov={ov} isMob={isMob} go={(id) => allowed(id) && setActive(id)} allowed={allowed} />}
+        {active === "rfq"        && canRfq && <PurchaseRfqPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("purchaseRfq")} />}
         {active === "invoices"   && canInv && <PurchaseInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={props.user} />}
         {active === "debitNotes" && canDN  && <DebitNotesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={props.user} />}
         {/* أقسام PurchasePg تشارك instance واحد (hubView={active}) — مفيش remount عند التبديل */}
@@ -152,6 +156,7 @@ function Overview({ ov, isMob, go, allowed }){
 
       <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "8px 0 10px" }}>📂 الأقسام</div>
       <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
+        {card("rfq", "💬", "#FEF3C7", "#D97706", "طلب عروض أسعار", "اطلب أسعار + قارن + حوّل لأمر", "")}
         {card("orders", "📋", "#FEF3C7", "#D97706", "أوامر الشراء", "إنشاء + تحويل لاستلام", ov.poCount + " أمر")}
         {card("receipts", "📥", "#DBEAFE", "#2563EB", "الاستلام", "استلام البضاعة + الدفع", "")}
         {card("invoices", "📤", "#FEF3C7", "#D97706", "فواتير المشتريات", "ترحيل + دفع", ov.postedCount + " مرحّلة")}

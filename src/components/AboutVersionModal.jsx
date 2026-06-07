@@ -25,6 +25,18 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.12.1",
+    date: "2026-06-07",
+    types: ["feature", "architectural"],
+    title: "💬 طلب عروض أسعار (RFQ) — دورة المشتريات 2/3",
+    changes: [
+      { type: "feature", text: "💬 مستند جديد «طلب عروض أسعار» (نظير عروض أسعار المبيعات على جهة الموردين): إنشاء طلب بأصناف + إرساله للمورد (واتساب/طباعة) + تتبّع الحالة (مسودة/مُرسل/وصل العرض/محوّل/مرفوض/منتهي) + تنبيه قرب انتهاء مهلة الرد." },
+      { type: "feature", text: "➡️ تحويل الطلب لأمر شراء بضغطة (بينشئ purchaseOrder بالأصناف والأسعار + بيربطه بالطلب). التاب موجود في هَب المشتريات (💬 طلب عروض أسعار)." },
+      { type: "architectural", text: "🗄️ collection جديد purchaseRfqs مع daily-split (purchaseRfqsDays) — مسجّل بالكامل (splitCollections + hydration + flag-stamp + firestore.rules + صلاحيات لكل الأدوار + counter). نفس نمط عروض أسعار المبيعات المثبت (V21.10.0)." },
+      { type: "fix", text: "⚠️ مهم: لازم نشر firestore.rules يدوياً على Firebase Console عشان طلبات عروض الأسعار تظهر (Vercel مابينشرش الـ rules). قبل النشر هتشوف بانر تنبيه في التشخيص — ده طبيعي." },
+    ],
+  },
+  {
     version: "V21.12.0",
     date: "2026-06-07",
     types: ["feature", "architectural"],

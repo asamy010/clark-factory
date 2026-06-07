@@ -267,6 +267,12 @@ service cloud.firestore {
       allow write: if isSalesScope();
     }
 
+    /* V21.12.1 — Purchase RFQs (طلب عروض أسعار) daily split */
+    match /purchaseRfqsDays/{day} {
+      allow read:  if isPurchaseScope();
+      allow write: if isPurchaseScope();
+    }
+
     match /purchaseInvoicesDays/{day} {
       allow read:  if isPurchaseScope();
       allow write: if isPurchaseScope();
