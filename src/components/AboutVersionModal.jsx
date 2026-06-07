@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.13.1",
+    date: "2026-06-07",
+    types: ["improvement"],
+    title: "🏭 popup التشغيل — تسميات أوضح",
+    changes: [
+      { type: "improvement", text: "في popup التشغيل: «تسليم» بقت «تسليم ورش» و«استلام» بقت «استلام مصنع» (في الملخّص وفي صفوف الورش)." },
+    ],
+  },
+  {
     version: "V21.13.0",
     date: "2026-06-07",
     types: ["improvement", "fix"],

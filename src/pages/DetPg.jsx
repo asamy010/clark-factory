@@ -725,8 +725,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </div>
           <div style={{padding:20}}>
             <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.accent+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📤 تسليم</div><div style={{fontSize:FS+3,fontWeight:900,color:T.accent}}>{totDel}</div></div>
-              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.ok+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📥 استلام</div><div style={{fontSize:FS+3,fontWeight:900,color:T.ok}}>{totRcv}</div></div>
+              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.accent+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📤 تسليم ورش</div><div style={{fontSize:FS+3,fontWeight:900,color:T.accent}}>{totDel}</div></div>
+              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.ok+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📥 استلام مصنع</div><div style={{fontSize:FS+3,fontWeight:900,color:T.ok}}>{totRcv}</div></div>
               <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:(totBal>0?T.warn:T.ok)+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>⏳ رصيد</div><div style={{fontSize:FS+3,fontWeight:900,color:totBal>0?T.warn:T.ok}}>{totBal}</div></div>
             </div>
             {rows.length===0?<div style={{textAlign:"center",padding:24,color:T.textMut}}>لا توجد حركات تشغيل</div>:
@@ -738,8 +738,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                     <span style={{fontSize:FS-3,fontWeight:700,color:T.textMut}}>{g.piece}</span>
                   </div>
                   <div style={{display:"flex",gap:4,fontSize:FS-2,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>
-                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.accent+"10",color:T.accent,textAlign:"center"}} title="تسليم">📤 {g.del}</span>
-                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.ok+"10",color:T.ok,textAlign:"center"}} title="استلام">📥 {g.rcv}</span>
+                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.accent+"10",color:T.accent,textAlign:"center"}} title="تسليم ورش">📤 {g.del}</span>
+                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.ok+"10",color:T.ok,textAlign:"center"}} title="استلام مصنع">📥 {g.rcv}</span>
                     <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:c+"15",color:c,textAlign:"center"}} title="رصيد عند الورشة">{g.bal>0?"⏳ "+g.bal:"✓ 0"}</span>
                   </div>
                 </div>;
