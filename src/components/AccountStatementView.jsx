@@ -4,7 +4,7 @@
    مشترك بين هَب المبيعات (عملاء) + هَب المشتريات (موردين) + جهات الاتصال.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, SearchSel } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
@@ -60,9 +60,9 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const doPrint = () => {
     if(!result || !party) return;
     const rowsHtml = [];
-    if(openingOn && (result.openingBalance || fromDate)) rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td>رصيد افتتاحي</td><td></td><td></td><td></td><td style="font-weight:700">${fmt(result.openingBalance.toFixed(2))}</td></tr>`);
+    if(openingOn && (result.openingBalance || fromDate)) rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td>رصيد افتتاحي</td><td></td><td></td><td style="font-weight:700">${fmt(result.openingBalance.toFixed(2))}</td></tr>`);
     result.rows.forEach(r => {
-      rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.ref || ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
+      rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
     });
     const html = `
       <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
@@ -72,11 +72,11 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:${accent};color:#fff">
-          <th style="padding:6px;border:1px solid #cbd5e1">التاريخ</th><th style="padding:6px;border:1px solid #cbd5e1">البيان</th><th style="padding:6px;border:1px solid #cbd5e1">المرجع</th>
+          <th style="padding:6px;border:1px solid #cbd5e1">التاريخ</th><th style="padding:6px;border:1px solid #cbd5e1">البيان</th>
           <th style="padding:6px;border:1px solid #cbd5e1">مدين</th><th style="padding:6px;border:1px solid #cbd5e1">دائن</th><th style="padding:6px;border:1px solid #cbd5e1">الرصيد</th>
         </tr></thead>
         <tbody>${rowsHtml.join("")}</tbody>
-        <tfoot><tr style="background:#eff6ff;font-weight:800"><td colspan="3" style="padding:6px;border:1px solid #cbd5e1;text-align:left">الإجمالي</td>
+        <tfoot><tr style="background:#eff6ff;font-weight:800"><td colspan="2" style="padding:6px;border:1px solid #cbd5e1;text-align:left">الإجمالي</td>
           <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.debit.toFixed(2))}</td><td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.credit.toFixed(2))}</td>
           <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.closing.toFixed(2))}</td></tr></tfoot>
       </table>
@@ -108,7 +108,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const LINK_LABEL = {
     sales_invoice: "↗️ افتح الفاتورة", purchase_invoice: "↗️ افتح الفاتورة",
     credit_note: "↗️ افتح الإشعار الدائن", debit_note: "↗️ افتح الإشعار المدين",
-    receipt: "↗️ افتح الاستلام", delivery: "↗️ افتح صفحة التسليم", return: "↗️ افتح صفحة التسليم",
+    receipt: "↗️ افتح الاستلام",
   };
   const openSource = (row) => {
     if(!row) return;
@@ -123,6 +123,71 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       else if(row.type === "debit_note") window.dispatchEvent(new CustomEvent("notif-deeplink", { detail: { type: "debitNote", debitNoteId: row.refId } }));
     }, 350);
     setDrill(null);
+  };
+
+  /* جمّد التمرير في الخلفية طول ما الـ popup مفتوح */
+  useEffect(() => {
+    if(!drill) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [drill]);
+
+  /* إجماليات تفاصيل التسليم/الفاتورة (للـ popup) */
+  const drillTotals = useMemo(() => {
+    if(!drill || !drill.detail) return null;
+    if(drill.detail.kind === "session"){
+      const lines = drill.detail.lines || [];
+      return {
+        kind: "session", count: new Set(lines.map(l => l.modelNo)).size,
+        qty: lines.reduce((s, l) => s + (Number(l.qty) || 0), 0),
+        gross: r2(lines.reduce((s, l) => s + (Number(l.gross) || 0), 0)),
+        net: r2(lines.reduce((s, l) => s + (Number(l.net) || 0), 0)),
+      };
+    }
+    const items = drill.detail.items || [];
+    return {
+      kind: "invoice", count: items.length,
+      qty: items.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      total: r2(items.reduce((s, it) => s + (Number(it.lineTotal != null ? it.lineTotal : (Number(it.qty) || 0) * (Number(it.unitPrice != null ? it.unitPrice : it.price) || 0))), 0)),
+    };
+  }, [drill]);
+
+  /* طباعة/PDF لتفاصيل الحركة المعروضة في الـ popup (بالتاريخ وكل التفاصيل) */
+  const printDrill = () => {
+    if(!drill || !party) return;
+    const head = (cols) => `<tr style="background:${accent};color:#fff">${cols.map(c => `<th style="padding:6px;border:1px solid #cbd5e1">${c}</th>`).join("")}</tr>`;
+    let body = "", foot = "";
+    if(drill.detail.kind === "session"){
+      body = (drill.detail.lines || []).map(l => `<tr><td style="border:1px solid #e2e8f0;padding:5px;text-align:right">${l.modelNo}${l.modelDesc ? " — " + l.modelDesc : ""}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(l.qty)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(l.price)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(l.gross)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${l.dPct}%</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(l.net)}</td></tr>`).join("");
+      foot = `<tfoot><tr style="background:#eff6ff;font-weight:800"><td style="padding:6px;border:1px solid #cbd5e1">الإجمالي (${drillTotals.count} موديل)</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(drillTotals.qty)}</td><td style="border:1px solid #cbd5e1"></td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(drillTotals.gross)}</td><td style="border:1px solid #cbd5e1"></td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(drillTotals.net)}</td></tr></tfoot>`;
+      var thead = head(["الموديل", "الكمية", "السعر", "قبل الخصم", "خصم %", "بعد الخصم"]);
+    } else {
+      body = (drill.detail.items || []).map(it => { const up = Number(it.unitPrice != null ? it.unitPrice : it.price) || 0; const lt = Number(it.lineTotal != null ? it.lineTotal : (Number(it.qty) || 0) * up); return `<tr><td style="border:1px solid #e2e8f0;padding:5px;text-align:right">${it.name || it.modelNo || "—"}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(Number(it.qty) || 0)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(up)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(lt)}</td></tr>`; }).join("");
+      foot = `<tfoot><tr style="background:#eff6ff;font-weight:800"><td style="padding:6px;border:1px solid #cbd5e1">الإجمالي (${drillTotals.count} صنف)</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(drillTotals.qty)}</td><td style="border:1px solid #cbd5e1"></td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(drillTotals.total)}</td></tr></tfoot>`;
+      var thead = head(["الصنف", "الكمية", "السعر", "الإجمالي"]);
+    }
+    const h = `
+      <h2 style="color:${accent};margin:0 0 4px">${drill.desc}</h2>
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px">${party.name}${party.phone ? " · " + party.phone : ""} · التاريخ: ${drill.date || "—"}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px"><thead>${thead}</thead><tbody>${body}</tbody>${foot}</table>`;
+    printPage(drill.desc + " — " + party.name, h, { factoryName: data.factoryName, logo: data.logo });
+  };
+
+  const whatsappDrill = () => {
+    if(!drill || !party || !party.phone){ showToast("⛔ مفيش رقم تليفون للجهة"); return; }
+    let txt = "📄 " + drill.desc + "\n" + party.name + " · التاريخ: " + (drill.date || "—") + "\n━━━━━━━━━━\n";
+    if(drill.detail.kind === "session"){
+      (drill.detail.lines || []).forEach(l => { txt += "• " + l.modelNo + " — " + fmt(l.qty) + " قطعة × " + fmt(l.price) + " = " + fmt(l.gross) + (l.dPct ? " (خصم " + l.dPct + "% → " + fmt(l.net) + ")" : "") + "\n"; });
+      txt += "━━━━━━━━━━\n📦 الكمية: *" + fmt(drillTotals.qty) + "* · موديلات: *" + drillTotals.count + "*\n💰 قبل الخصم: *" + fmt(drillTotals.gross) + "* · بعد الخصم: *" + fmt(drillTotals.net) + "*";
+    } else {
+      (drill.detail.items || []).forEach(it => { const up = Number(it.unitPrice != null ? it.unitPrice : it.price) || 0; const lt = Number(it.lineTotal != null ? it.lineTotal : (Number(it.qty) || 0) * up); txt += "• " + (it.name || it.modelNo || "—") + " — " + fmt(Number(it.qty) || 0) + " × " + fmt(up) + " = " + fmt(lt) + "\n"; });
+      txt += "━━━━━━━━━━\n📦 الكمية: *" + fmt(drillTotals.qty) + "* · أصناف: *" + drillTotals.count + "*\n💰 الإجمالي: *" + fmt(drillTotals.total) + "*";
+    }
+    const digits = String(party.phone).replace(/[^0-9]/g, "");
+    const win = window.open("about:blank", "_blank");
+    const url = "https://wa.me/" + digits + "?text=" + encodeURIComponent(txt);
+    if(win) win.location.href = url; else window.location.href = url;
   };
 
   const th = { padding: "8px 6px", fontSize: FS - 2, fontWeight: 800, color: "#fff", textAlign: "center", whiteSpace: "nowrap" };
@@ -245,7 +310,9 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 14, width: "100%", maxWidth: 640, padding: isMob ? 14 : 20, border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", margin: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent }}>{drill.desc}</div>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Btn small onClick={printDrill} style={{ background: T.accentBg, color: T.accent }}>🖨 طباعة / PDF</Btn>
+                {party && party.phone && <Btn small onClick={whatsappDrill} style={{ background: "#25D36612", color: "#1DA851", border: "1px solid #25D36640" }}>📤 واتساب</Btn>}
                 {LINK_LABEL[drill.type] && <Btn small onClick={() => openSource(drill)} style={{ background: T.accentBg, color: T.accent }}>{LINK_LABEL[drill.type]}</Btn>}
                 <Btn small ghost onClick={() => setDrill(null)}>✕</Btn>
               </div>
@@ -266,6 +333,14 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                       </tr>
                     ))}
                   </tbody>
+                  {drillTotals && <tfoot><tr style={{ background: T.accentBg }}>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 800, color: accent }}>الإجمالي ({drillTotals.count} موديل)</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{fmt(drillTotals.qty)}</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, fontWeight: 800 }}>{fmt(drillTotals.gross)}</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, fontWeight: 900, color: accent }}>{fmt(drillTotals.net)}</td>
+                  </tr></tfoot>}
                 </table>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
@@ -283,6 +358,12 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                     ))}
                     {(drill.detail.items || []).length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: T.textMut, padding: 18 }}>لا توجد بنود</td></tr>}
                   </tbody>
+                  {drillTotals && drillTotals.kind === "invoice" && (drill.detail.items || []).length > 0 && <tfoot><tr style={{ background: T.accentBg }}>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 800, color: accent }}>الإجمالي ({drillTotals.count} صنف)</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{fmt(drillTotals.qty)}</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, fontWeight: 900, color: accent }}>{fmt(drillTotals.total)}</td>
+                  </tr></tfoot>}
                 </table>
               )}
             </div>
