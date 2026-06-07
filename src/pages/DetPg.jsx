@@ -756,15 +756,12 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
 
-  /* V18.88: Extra cost categories — added "تشغيل من القص للتعبئة" as the first category */
+  /* V21.13.3: تبسيط التصنيفات — 5 فقط في صف واحد، الافتراضي «تشغيل من القص للتعبئة» */
   const EXTRA_COST_CATEGORIES=[
     {name:"تشغيل من القص للتعبئة",icon:"🏭"},
     {name:"هالك",icon:"🔴"},
     {name:"نقل",icon:"🚚"},
     {name:"تغليف",icon:"📦"},
-    {name:"كوي",icon:"🧺"},
-    {name:"عمولة",icon:"💼"},
-    {name:"إصلاح",icon:"🔧"},
     {name:"أخرى",icon:"➕"}
   ];
   const getCategoryIcon=(name)=>{const c=EXTRA_COST_CATEGORIES.find(x=>x.name===name);return c?c.icon:"➕"};
@@ -1587,6 +1584,10 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               "اي بند اضافي يطلع فوق في الجدول والاجمالي يظهر تحت اخر صف". */}
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
+          {/* V21.13.3: تكلفة تشغيل الورش — تلقائي من الاستلامات (سعر القطعة × المستلم).
+              نفس أساس الإجمالي (projected = مستلم + معلّق) عشان الجدول يطابق الإجمالي.
+              داخلة أصلاً في t.costAllProjected — فدي عرض فقط، مش بتتجمع تاني. */}
+          {(t.wsCostAllProjected||0)>0&&<tr><td style={TD}>🏭 تكلفة التشغيل للورش</td><td style={TDB}>{fmt(r2(t.wsCostAllProjected))+" ج.م"}</td><td style={TDB}>{r2(t.wsCostPerProjected)+" ج.م"}</td></tr>}
           {order.settlement&&<tr style={{background:T.err+"08"}}><td style={{...TD,fontWeight:800,color:T.err}}>{"🔴 هالك تسوية ("+order.settlement.qty+" قطعة)"}</td><td style={{...TD,fontWeight:800,color:T.err}}>{fmt(r2(order.settlement.cost))+" ج.م"}</td><td style={{...TD,fontWeight:700,color:T.err}}>{order.settlement.reason}</td></tr>}
           {/* V15.10 + V18.97: Extra costs rows — show both total + per-piece, with badge indicating costType */}
           {extraCosts.map((x,i)=>{const isPerPiece=x.costType==="perPiece";const xTotal=ecTotal(x);const xPer=ecPer(x);
@@ -1618,7 +1619,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         </tbody></table>
         {/* V15.10: Add extra cost button */}
         {canEdit&&!order.closed&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed "+T.brd,display:"flex",justifyContent:"flex-end"}}>
-          <Btn small onClick={()=>setExtraCostPopup({category:"هالك",reason:"",amount:"",costType:"total",date:cairoDateStr(),notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية / هالك</Btn>
+          <Btn small onClick={()=>setExtraCostPopup({category:"تشغيل من القص للتعبئة",reason:"",amount:"",costType:"perPiece",date:cairoDateStr(),notes:""})} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B35",fontWeight:700}}>➕ تكلفة إضافية</Btn>
         </div>}
         </>;})()}
       </Card>
@@ -1886,7 +1887,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:20,width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",border:"2px solid #F59E0B",boxShadow:"0 25px 70px rgba(0,0,0,0.45)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:12,borderBottom:"2px solid #F59E0B25"}}>
             <div style={{fontSize:FS+3,fontWeight:900,color:"#F59E0B",display:"flex",alignItems:"center",gap:8}}>
-              <span>💰</span><span>{isEdit?"تعديل تكلفة إضافية":"تكلفة إضافية / هالك"}</span>
+              <span>💰</span><span>{isEdit?"تعديل تكلفة إضافية":"تكلفة إضافية"+(ec.category?" / "+ec.category:"")}</span>
             </div>
             <span onClick={()=>setExtraCostPopup(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
           </div>
@@ -1899,7 +1900,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           {/* Category cards */}
           <div style={{marginBottom:14}}>
             <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:6}}>التصنيف</label>
-            <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(4,1fr)",gap:6}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
               {EXTRA_COST_CATEGORIES.map(c=>{const isSel=ec.category===c.name;
                 return<div key={c.name} onClick={()=>setExtraCostPopup(p=>({...p,category:c.name}))} style={{cursor:"pointer",padding:"8px 6px",borderRadius:10,border:"2px solid "+(isSel?"#F59E0B":T.brd),background:isSel?"#F59E0B15":T.bg,textAlign:"center",transition:"all 0.15s"}}>
                   <div style={{fontSize:18,marginBottom:2}}>{c.icon}</div>
