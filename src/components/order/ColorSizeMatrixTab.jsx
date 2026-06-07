@@ -12,7 +12,7 @@
    stock_matrix للمخزون و color_images لصور الـ variants. (CLAUDE.md §4/§5)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo, useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { Btn, Card, Inp } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS, FKEYS } from "../../constants/index.js";
@@ -63,6 +63,20 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
 
   const stored = order.shopify_meta?.stock_matrix;
   const colorImages = order.shopify_meta?.color_images || {};
+
+  /* ── lightbox عارض صور الألوان (سهم تنقّل + اسم اللون على الصورة) ── */
+  const imaged = colors.filter(c => colorImages[c.color]?.url).map(c => ({ color: c.color, url: colorImages[c.color].url }));
+  const [viewer, setViewer] = useState(null); /* index في imaged */
+  const viewerColor = (viewer != null && imaged[viewer]) ? imaged[viewer] : null;
+  const openViewer = (color) => { const idx = imaged.findIndex(x => x.color === color); if(idx >= 0) setViewer(idx); };
+  const navViewer = (dir) => setViewer(v => (v == null || imaged.length === 0) ? v : (v + dir + imaged.length) % imaged.length);
+  useEffect(() => {
+    if(viewer == null) return;
+    const h = (e) => { if(e.key === "Escape") setViewer(null); else if(e.key === "ArrowRight") navViewer(-1); else if(e.key === "ArrowLeft") navViewer(1); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewer, imaged.length]);
 
   /* الماتريكس الفعّالة: التوزيع التلقائي كأساس + قيم المستخدم المخزّنة فوقه */
   const effective = useMemo(() => {
@@ -144,6 +158,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
   const grandTotal = colors.reduce((s, c) => s + uniqueSizes.reduce((ss, sz) => ss + (Number(effective[c.color]?.[sz]) || 0), 0), 0);
 
   return (
+    <>
     <Card title={"🎨 لون / مقاس — ماتريكس الـ variants (" + colors.length + " لون × " + uniqueSizes.length + " مقاس)"}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: FS - 1, color: T.textSec }}>الكميات بتتوزّع تلقائياً وتقدر تعدّلها. بتترحّل لشوبيفاي كمخزون لكل variant، وصورة كل لون بتظهر لما العميل يختاره.</div>
@@ -179,7 +194,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
                 <td style={td}>
                   {img?.url
                     ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                        <img src={img.url} alt={c.color} style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid " + T.brd }} />
+                        <img src={img.url} alt={c.color} onClick={() => openViewer(c.color)} title="اضغط لعرض الصورة كاملة" style={{ width: 46, height: 62, objectFit: "cover", borderRadius: 6, border: "1px solid " + T.brd, cursor: "pointer" }} />
                         {canEdit && <div style={{ display: "flex", gap: 4 }}>
                           <label style={{ cursor: "pointer", fontSize: FS - 3, color: T.accent, fontWeight: 700 }}>تغيير<input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { uploadColorImage(c.color, e.target.files?.[0]); e.target.value = ""; }} /></label>
                           <span onClick={() => removeColorImage(c.color)} style={{ cursor: "pointer", fontSize: FS - 3, color: T.err, fontWeight: 700 }}>حذف</span>
@@ -201,5 +216,22 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
         </table>
       </div>
     </Card>
+
+    {/* ── Lightbox: صورة اللون كاملة بالطول + أسهم تنقّل + اسم اللون على الصورة ── */}
+    {viewerColor && (
+      <div onClick={() => setViewer(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10002, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div style={{ position: "absolute", top: 14, insetInlineEnd: 18, display: "flex", gap: 14, alignItems: "center", zIndex: 3 }}>
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: FS }}>{(viewer + 1) + " / " + imaged.length}</span>
+          <span onClick={() => setViewer(null)} style={{ cursor: "pointer", color: "#fff", fontSize: 26, fontWeight: 700, lineHeight: 1 }}>✕</span>
+        </div>
+        {imaged.length > 1 && <div onClick={e => { e.stopPropagation(); navViewer(1); }} style={{ position: "absolute", insetInlineStart: 10, top: "50%", transform: "translateY(-50%)", cursor: "pointer", fontSize: 32, color: "#fff", background: "rgba(255,255,255,0.14)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>‹</div>}
+        {imaged.length > 1 && <div onClick={e => { e.stopPropagation(); navViewer(-1); }} style={{ position: "absolute", insetInlineEnd: 10, top: "50%", transform: "translateY(-50%)", cursor: "pointer", fontSize: 32, color: "#fff", background: "rgba(255,255,255,0.14)", borderRadius: "50%", width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>›</div>}
+        <div onClick={e => e.stopPropagation()} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "94vw", maxHeight: "90vh" }}>
+          <div style={{ position: "absolute", top: 12, insetInlineStart: "50%", transform: "translateX(-50%)", background: "#EC4899", color: "#fff", padding: "5px 18px", borderRadius: 20, fontWeight: 800, fontSize: FS + 1, zIndex: 2, boxShadow: "0 2px 10px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>🎨 {viewerColor.color}</div>
+          <img src={viewerColor.url} alt={viewerColor.color} style={{ maxHeight: "90vh", maxWidth: "94vw", objectFit: "contain", borderRadius: 12, boxShadow: "0 10px 50px rgba(0,0,0,0.6)" }} />
+        </div>
+      </div>
+    )}
+    </>
   );
 }

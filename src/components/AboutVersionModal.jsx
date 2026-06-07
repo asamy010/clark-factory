@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.14.1",
+    date: "2026-06-07",
+    types: ["feature", "improvement"],
+    title: "🖼️ صور الألوان — عارض كامل بالطول + تنقّل بالأسهم",
+    changes: [
+      { type: "feature", text: "🖼️ اضغط على صورة أي لون → عارض (lightbox) يفتح الصورة كاملة بالطول (بدون قص) + أسهم ‹ › للتنقّل بين كل صور الألوان + اسم اللون مكتوب على الصورة + عدّاد (1/4) + إغلاق بالكيبورد (Esc/أسهم)." },
+      { type: "improvement", text: "📐 thumbnail صورة اللون بقى بالطول (portrait) أوضح في الماتريكس." },
+    ],
+  },
+  {
     version: "V21.14.0",
     date: "2026-06-07",
     types: ["feature"],
