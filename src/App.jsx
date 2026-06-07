@@ -5620,6 +5620,15 @@ export default function App(){
   const getHrSubPerm=(subKey)=>getHrSubPermFromRegistry(userRole,subKey,config);
   const canEditTab=(tabKey)=>canEditPermFromRegistry(userRole,tabKey,config);
   const canViewTab=(tabKey)=>canViewPermFromRegistry(userRole,tabKey,config);
+  /* V21.14.3: المفاتيح المجمّعة (هَب المبيعات/المشتريات) مش مفاتيح صلاحيات حقيقية.
+     canViewPage بيتعامل معاها = يقدر يشوف لو أي قسم جوّاها مسموح. كان السبب في
+     الصفحة البيضاء للمحاسبين: canViewTab("sales")/("purchases") بترجّع hide
+     لغير الـ admin → الـ content div كله مايترندرش. */
+  const canViewPage=(t)=>{
+    if(t==="sales")     return ["custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"].some(k=>canViewTab(k));
+    if(t==="purchases") return ["purchase","purchaseInvoices","debitNotes"].some(k=>canViewTab(k));
+    return canViewTab(t);
+  };
   const statusCards=config.statusCards||DEFAULT_STATUSES;
 
   /* V19.48: Removed the prevStatuses → statusNotif effect. The pill it fed
@@ -7103,7 +7112,7 @@ export default function App(){
       {/* PAGES with back button */}
       {/* V16.1: All lazy pages wrapped in ChunkErrorBoundary + Suspense.
          DashPg stays eager (always first screen), rest load on-demand. */}
-      {tab!=="home"&&canViewTab(tab)&&<div>
+      {tab!=="home"&&canViewPage(tab)&&<div>
         {tab==="dashboard"&&<DashPg data={data} goD={goD} isMob={isMob} isTab={isTab} season={season} statusCards={statusCards} upConfig={upConfig} user={user} setCardPopup={setCardPopup} setWsAccPopup={setWsAccPopup}/>}
         <ChunkErrorBoundary>
         <Suspense fallback={<PageLoader/>}>
