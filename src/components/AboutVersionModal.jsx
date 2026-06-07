@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.13.0",
+    date: "2026-06-07",
+    types: ["improvement", "fix"],
+    title: "✂️ التصنيع — إعادة تسمية + بطاقة ملخّصة + إصلاح سكرول التابات",
+    changes: [
+      { type: "improvement", text: "✏️ «أوامر القص» اتسمّت «التصنيع» في الشاشة الرئيسية (والتنقّل والعنوان)." },
+      { type: "improvement", text: "🏭 بطاقة الأوردر بقت ملخّصة: شِلنا صفوف حركات الورش (تسليم/استلام/رصيد) واستبدلناها بزر «التشغيل» بيعرض popup بكل تفاصيل الورش (نفس الشكل) + ملخّص أعلى (إجمالي تسليم/استلام/رصيد). البطاقة بقت أصغر وأوضح." },
+      { type: "fix", text: "🩹 إصلاح السكرول العمودي غير الضروري في تابات تفاصيل الأوردر (overflow-x:auto كان بيجبر overflow-y:auto) — بقى overflow-y:hidden." },
+    ],
+  },
+  {
     version: "V21.12.2",
     date: "2026-06-07",
     types: ["feature"],

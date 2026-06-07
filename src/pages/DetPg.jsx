@@ -119,6 +119,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   /* V15.10: Extra cost popup state — tracks form fields for adding/editing additional costs */
   const[extraCostPopup,setExtraCostPopup]=useState(null);/* {editId?, category, customReason, amount, date, notes} */
   const[stageProgressOrder,setStageProgressOrder]=useState(null);/* V19.0: order to show in stage-progress modal */
+  const[wsOpOrder,setWsOpOrder]=useState(null);/* V21.13: order to show in التشغيل (workshops) popup من البطاقة */
   const[showNew,setShowNew]=useState(false);
   /* V16.37: mobile-only overflow menu — collapses secondary actions into a list */
   const[showActionsMenu,setShowActionsMenu]=useState(false);
@@ -261,7 +262,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
          ═══════════════════════════════════════════════════════════════ */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
         <div>
-          <h2 style={{fontSize:isMob?FS+3:FS+6,fontWeight:900,margin:0,color:T.text,letterSpacing:"-0.5px"}}>أوامر القص</h2>
+          <h2 style={{fontSize:isMob?FS+3:FS+6,fontWeight:900,margin:0,color:T.text,letterSpacing:"-0.5px"}}>التصنيع</h2>
           <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>إدارة أوامر الإنتاج والتسليم</div>
         </div>
         {canEdit&&<Btn primary onClick={()=>setShowNew(true)} style={{display:"flex",alignItems:"center",gap:6}}>
@@ -558,34 +559,17 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 </div>
               </div>
 
-              {/* ── Row 4: Workshop chips — preserved exactly as before ── */}
+              {/* ── Row 4: زر «التشغيل» — ملخّص + popup بكل تفاصيل الورش (V21.13) ── */}
               {wds.length>0&&(()=>{
                 const grp={};
-                wds.forEach(wd=>{
-                  const ws=wd.wsName;const pc=wd.garmentType||"عام";
-                  const k=ws+"|"+pc;
-                  if(!grp[k])grp[k]={ws,piece:pc,del:0,rcv:0};
-                  grp[k].del+=Number(wd.qty)||0;
-                  (wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0});
-                });
-                const rows=Object.values(grp).map(g=>({...g,bal:g.del-g.rcv}))
-                  .sort((a,b)=>b.bal-a.bal);
-                return<div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {rows.slice(0,3).map((g,i)=>{
-                    const c=g.bal>0?T.warn:T.ok;
-                    return<div key={i} style={{padding:"5px 8px",borderRadius:6,background:c+"08",border:"1px solid "+c+"22",display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
-                        <span style={{fontSize:FS-3,fontWeight:800,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>🏭 {g.ws}</span>
-                        <span style={{fontSize:FS-3,fontWeight:700,color:T.textMut,whiteSpace:"nowrap"}}>{g.piece}</span>
-                      </div>
-                      <div style={{display:"flex",gap:4,fontSize:FS-3,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>
-                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:T.accent+"10",color:T.accent,textAlign:"center"}} title="تسليم">📤 {g.del}</span>
-                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:T.ok+"10",color:T.ok,textAlign:"center"}} title="استلام">📥 {g.rcv}</span>
-                        <span style={{flex:1,padding:"2px 5px",borderRadius:4,background:c+"15",color:c,textAlign:"center"}} title="رصيد عند الورشة">{g.bal>0?"⏳ "+g.bal:"✓ 0"}</span>
-                      </div>
-                    </div>;
-                  })}
-                  {rows.length>3&&<span style={{fontSize:FS-3,padding:"3px 8px",borderRadius:5,background:T.bg,color:T.textMut,fontWeight:700,textAlign:"center"}}>+{rows.length-3} أخرى</span>}
+                wds.forEach(wd=>{const ws=wd.wsName;const pc=wd.garmentType||"عام";const k=ws+"|"+pc;if(!grp[k])grp[k]={ws,piece:pc,del:0,rcv:0};grp[k].del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0})});
+                const rows=Object.values(grp).map(g=>({...g,bal:g.del-g.rcv}));
+                const openBal=rows.reduce((s,g)=>s+Math.max(0,g.bal),0);
+                const wsCount=new Set(rows.map(g=>g.ws)).size;
+                const c=openBal>0?T.warn:T.ok;
+                return<div onClick={e=>{e.stopPropagation();setWsOpOrder(o)}} title="عرض تفاصيل التشغيل والورش" style={{padding:"7px 10px",borderRadius:8,background:c+"08",border:"1px solid "+c+"22",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",gap:6,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=c+"15"} onMouseLeave={e=>e.currentTarget.style.background=c+"08"}>
+                  <span style={{fontSize:FS-2,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:5}}>🏭 التشغيل <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>({wsCount} ورشة)</span></span>
+                  <span style={{fontSize:FS-3,fontWeight:800,color:c}}>{openBal>0?"⏳ "+openBal+" عند الورش":"✓ مكتمل"} ▸</span>
                 </div>;
               })()}
 
@@ -723,6 +707,48 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         the card" (actually: the detail page rendered + the modal opened).
         Fix: mount the modal here in the list-view branch too. */}
     {pushModalOrder&&<ShopifyPushModal order={pushModalOrder} data={data} user={user} isMob={isMob} onClose={()=>setPushModalOrder(null)}/>}
+    {/* V21.13: التشغيل والورش — popup بكل تفاصيل الورش (تسليم/استلام/رصيد) من البطاقة */}
+    {wsOpOrder&&(()=>{
+      const wds=wsOpOrder.workshopDeliveries||[];
+      const grp={};
+      wds.forEach(wd=>{const ws=wd.wsName;const pc=wd.garmentType||"عام";const k=ws+"|"+pc;if(!grp[k])grp[k]={ws,piece:pc,del:0,rcv:0};grp[k].del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0})});
+      const rows=Object.values(grp).map(g=>({...g,bal:g.del-g.rcv})).sort((a,b)=>b.bal-a.bal);
+      const totDel=rows.reduce((s,g)=>s+g.del,0),totRcv=rows.reduce((s,g)=>s+g.rcv,0),totBal=totDel-totRcv;
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setWsOpOrder(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"min(560px,100%)",maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",borderBottom:"1px solid "+T.brd,position:"sticky",top:0,background:T.cardSolid}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🏭 التشغيل والورش</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{wsOpOrder.modelNo||""}{wsOpOrder.modelName?" — "+wsOpOrder.modelName:""}</div>
+            </div>
+            <Btn ghost small onClick={()=>setWsOpOrder(null)}>✕</Btn>
+          </div>
+          <div style={{padding:20}}>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.accent+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📤 تسليم</div><div style={{fontSize:FS+3,fontWeight:900,color:T.accent}}>{totDel}</div></div>
+              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:T.ok+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>📥 استلام</div><div style={{fontSize:FS+3,fontWeight:900,color:T.ok}}>{totRcv}</div></div>
+              <div style={{flex:1,padding:"8px 6px",borderRadius:8,background:(totBal>0?T.warn:T.ok)+"10",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>⏳ رصيد</div><div style={{fontSize:FS+3,fontWeight:900,color:totBal>0?T.warn:T.ok}}>{totBal}</div></div>
+            </div>
+            {rows.length===0?<div style={{textAlign:"center",padding:24,color:T.textMut}}>لا توجد حركات تشغيل</div>:
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {rows.map((g,i)=>{const c=g.bal>0?T.warn:T.ok;
+                return<div key={i} style={{padding:"7px 10px",borderRadius:8,background:c+"08",border:"1px solid "+c+"22",display:"flex",flexDirection:"column",gap:4}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                    <span style={{fontSize:FS-1,fontWeight:800,color:T.text}}>🏭 {g.ws}</span>
+                    <span style={{fontSize:FS-3,fontWeight:700,color:T.textMut}}>{g.piece}</span>
+                  </div>
+                  <div style={{display:"flex",gap:4,fontSize:FS-2,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>
+                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.accent+"10",color:T.accent,textAlign:"center"}} title="تسليم">📤 {g.del}</span>
+                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:T.ok+"10",color:T.ok,textAlign:"center"}} title="استلام">📥 {g.rcv}</span>
+                    <span style={{flex:1,padding:"3px 6px",borderRadius:5,background:c+"15",color:c,textAlign:"center"}} title="رصيد عند الورشة">{g.bal>0?"⏳ "+g.bal:"✓ 0"}</span>
+                  </div>
+                </div>;
+              })}
+            </div>}
+          </div>
+        </div>
+      </div>;
+    })()}
     </div>
   }
   if(editing)return<OrdForm data={data} initial={order} onSave={o=>{replaceOrder(sel,o);setEditing(false);showToast("✓ تم حفظ التعديلات");highlightRow(sel)}} onCancel={()=>setEditing(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
@@ -886,7 +912,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           .det-top-row > .det-kpis-cell .metric-card{padding:8px 10px}
         }
         .det-meta-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:${T.bg};border:1px solid ${T.brd};font-size:${FS-1}px;font-weight:600;color:${T.textSec};white-space:nowrap}
-        .det-tab-bar{display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid ${T.brd};padding:0 4px;margin-bottom:16px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+        .det-tab-bar{display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;border-bottom:2px solid ${T.brd};padding:0 4px;margin-bottom:16px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
         .det-tab-bar::-webkit-scrollbar{height:4px}
         .det-tab-bar::-webkit-scrollbar-thumb{background:${T.brd};border-radius:2px}
         .det-tab-pill{cursor:pointer;padding:10px 16px;border-radius:10px 10px 0 0;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:all 0.15s;border-bottom:3px solid transparent;color:${T.textSec};margin-bottom:-2px;user-select:none}

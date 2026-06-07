@@ -84,7 +84,7 @@ export const TAB_SUBVIEWS = {
      في الفاكتوري daily) → ثم business → ثم admin. */
   more: [
     /* ─── إنتاج (formerly inventory tab) ─── */
-    { id: "details",    label: "أوامر القص",      tabKey: "details",    icon: "✂️" },
+    { id: "details",    label: "التصنيع",      tabKey: "details",    icon: "✂️" },
     { id: "warehouse",  label: "المخازن",         tabKey: "warehouse",  icon: "📦" },
     { id: "external",   label: "تشغيل خارجي",     tabKey: "external",   icon: "🏗️" },
     { id: "pieces",     label: "تتبع القطع",      tabKey: "pieces",     icon: "🔍" },
