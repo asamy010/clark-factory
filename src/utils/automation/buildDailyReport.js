@@ -102,133 +102,68 @@ function _purchasesSection(data, date) {
    group by category. The report shows EVERY category that had movement today
    instead of fixed cash/transfer/checks columns. */
 function _treasurySection(data, date) {
-  /* V21.9.148: Restructured to show in/out + current balance PER ACCOUNT
-     (per user request: "ترتيب في الرسالة للخزن يوضح وارد ومنصرف كل خزنة لوحدها").
-
-     Previous structure grouped today's movements by *category* (مرتبات/مبيعات/etc.)
-     which was useful for a P&L view but obscured which account the cash flowed through.
-     New structure leads with per-account breakdown — owner sees at a glance how each
-     cash drawer / bank account moved today + its current standing. Category totals
-     stay as an aggregate footer for quick P&L glance. */
+  /* V21.18.1 (طلب Ahmed): كل خزينة/بنك/محفظة لوحده — حركات اليوم بالفئة +
+     صافي اليوم + رصيد الإقفال لكل حساب. (موحّد مع api/_buildDailyReport.js). */
   const lines = [];
-  const todayTx = _dayItems(data.treasury, date);
-
-  /* 1. Aggregate per-account: today's in/out + count */
-  const acctToday = {};/* {account: {in, out, inCount, outCount}} */
-  /* 2. Cumulative balance per account (all-time) */
-  const balByAcct = {};
-  /* 3. Category-level rollup for the footer */
-  const inByCategory = {}; const outByCategory = {};
-  let totalIn = 0, totalOut = 0;
-
-  /* Pass 1 — today's movements (per-account + per-category) */
-  todayTx.forEach(t => {
-    const amt = Number(t.amount) || 0;
-    if (amt <= 0) return;
-    const acct = (t.account || "").trim() || "غير محدد";
-    const cat = (t.category || "").trim() ||
-      (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
-    if (!acctToday[acct]) acctToday[acct] = { in: 0, out: 0, inCount: 0, outCount: 0 };
-    if (t.type === "in") {
-      acctToday[acct].in += amt;
-      acctToday[acct].inCount++;
-      totalIn += amt;
-      if (!inByCategory[cat]) inByCategory[cat] = { total: 0, count: 0 };
-      inByCategory[cat].total += amt; inByCategory[cat].count++;
-    } else if (t.type === "out") {
-      acctToday[acct].out += amt;
-      acctToday[acct].outCount++;
-      totalOut += amt;
-      if (!outByCategory[cat]) outByCategory[cat] = { total: 0, count: 0 };
-      outByCategory[cat].total += amt; outByCategory[cat].count++;
-    }
-  });
-
-  /* Pass 2 — cumulative balance per account (all time, from data.treasury) */
-  (data.treasury || []).forEach(t => {
-    const acct = (t.account || "").trim() || "غير محدد";
-    if (!balByAcct[acct]) balByAcct[acct] = 0;
-    if (t.type === "in") balByAcct[acct] += Number(t.amount) || 0;
-    else if (t.type === "out") balByAcct[acct] -= Number(t.amount) || 0;
-  });
-
-  /* Build message */
   lines.push("💵 *الخزنة*");
 
-  /* Union of accounts: any account that has activity today OR has a non-zero balance */
-  const accountSet = new Set([...Object.keys(acctToday), ...Object.keys(balByAcct)]);
-  /* Sort accounts by current balance descending (highest-balance account first) */
-  const accountsSorted = Array.from(accountSet).sort((a, b) =>
-    (balByAcct[b] || 0) - (balByAcct[a] || 0));
+  const accMeta = {};
+  (data.treasuryAccounts || []).forEach(a => {
+    const nm = (typeof a === "string" ? a : (a && a.name)) || "";
+    if(nm) accMeta[nm] = { type: (a && a.type) || "cash" };
+  });
 
-  if (accountsSorted.length === 0) {
+  const acc = {};
+  const ensure = (nm) => { if(!acc[nm]) acc[nm] = { inCat: {}, outCat: {}, totalIn: 0, totalOut: 0, closing: 0 }; return acc[nm]; };
+  (data.treasury || []).forEach(t => {
+    if(!t) return;
+    const nm = (t.account || "").trim() || "غير محدد";
+    const a = ensure(nm);
+    const amt = Number(t.amount) || 0;
+    const txDate = String(t.date || t.createdAt || "").slice(0, 10);
+    if(txDate && txDate <= date){
+      if(t.type === "in") a.closing += amt;
+      else if(t.type === "out") a.closing -= amt;
+    }
+    if(txDate === date && amt > 0){
+      const cat = (t.category || "").trim() || (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
+      if(t.type === "in"){ a.totalIn += amt; (a.inCat[cat] = a.inCat[cat] || { total: 0, count: 0 }); a.inCat[cat].total += amt; a.inCat[cat].count++; }
+      else if(t.type === "out"){ a.totalOut += amt; (a.outCat[cat] = a.outCat[cat] || { total: 0, count: 0 }); a.outCat[cat].total += amt; a.outCat[cat].count++; }
+    }
+  });
+
+  const TYPE_ICON = { cash: "💵", bank: "🏦", wallet: "📱" };
+  const TYPE_LABEL = { cash: "خزينة", bank: "بنك", wallet: "محفظة" };
+  const TYPE_ORDER = { cash: 0, bank: 1, wallet: 2 };
+
+  const names = Object.keys(acc).sort((x, y) => {
+    const tx = (accMeta[x] && accMeta[x].type) || "cash", ty = (accMeta[y] && accMeta[y].type) || "cash";
+    if(TYPE_ORDER[tx] !== TYPE_ORDER[ty]) return (TYPE_ORDER[tx] ?? 9) - (TYPE_ORDER[ty] ?? 9);
+    return acc[y].closing - acc[x].closing;
+  });
+
+  if(names.length === 0){ lines.push(""); lines.push("• لا توجد حسابات خزينة"); return lines.join("\n"); }
+
+  let grandClosing = 0;
+  const catLines = (obj) => Object.entries(obj).sort((p, q) => q[1].total - p[1].total)
+    .map(([cat, v]) => `      ◦ ${cat}: ${_money(v.total)}${v.count > 1 ? ` (${v.count} عمليات)` : ""}`);
+
+  names.forEach(nm => {
+    const a = acc[nm];
+    grandClosing += a.closing;
+    const type = (accMeta[nm] && accMeta[nm].type) || "cash";
     lines.push("");
-    lines.push("• لا توجد حركات أو أرصدة");
-  } else {
-    /* Per-account block: header + ⬇وارد / ⬆منصرف / 💰 الرصيد */
-    accountsSorted.forEach(acct => {
-      const today = acctToday[acct] || { in: 0, out: 0, inCount: 0, outCount: 0 };
-      const bal = balByAcct[acct] || 0;
-      /* Skip zero-balance accounts that had no activity today (keeps the report tidy) */
-      if (today.in === 0 && today.out === 0 && Math.abs(bal) < 1) return;
+    lines.push(`${TYPE_ICON[type] || "💵"} *${nm}* — ${TYPE_LABEL[type] || "خزينة"}`);
+    if(a.totalIn > 0){ lines.push(`   • محصّلات اليوم: ${_money(a.totalIn)}`); catLines(a.inCat).forEach(l => lines.push(l)); }
+    if(a.totalOut > 0){ lines.push(`   • مدفوعات اليوم: ${_money(a.totalOut)}`); catLines(a.outCat).forEach(l => lines.push(l)); }
+    if(a.totalIn > 0 || a.totalOut > 0){
+      const net = a.totalIn - a.totalOut;
+      lines.push(`   • صافي اليوم: ${net > 0 ? "▲" : net < 0 ? "▼" : "—"} ${_money(Math.abs(net))}`);
+    } else { lines.push("   • لا حركة اليوم"); }
+    lines.push(`   • *رصيد الإقفال: ${_money(a.closing)}*`);
+  });
 
-      lines.push("");
-      lines.push(`📦 *${acct}*`);
-      if (today.in > 0) {
-        const cnt = today.inCount > 1 ? ` (${today.inCount} عمليات)` : "";
-        lines.push(`   ⬇ وارد: ${_money(today.in)}${cnt}`);
-      } else {
-        lines.push(`   ⬇ وارد: —`);
-      }
-      if (today.out > 0) {
-        const cnt = today.outCount > 1 ? ` (${today.outCount} عمليات)` : "";
-        lines.push(`   ⬆ منصرف: ${_money(today.out)}${cnt}`);
-      } else {
-        lines.push(`   ⬆ منصرف: —`);
-      }
-      lines.push(`   💰 الرصيد الحالي: ${_money(bal)}`);
-    });
-
-    /* Aggregate footer — totals across all accounts */
-    lines.push("");
-    lines.push("━━━━━━━━━━━━━━━━");
-    lines.push(`• *إجمالي محصّلات اليوم:* ${_money(totalIn)}`);
-    lines.push(`• *إجمالي مدفوعات اليوم:* ${_money(totalOut)}`);
-    const net = totalIn - totalOut;
-    if (totalIn > 0 || totalOut > 0) {
-      const arrow = net > 0 ? "▲" : net < 0 ? "▼" : "—";
-      lines.push(`• *صافي اليوم:* ${arrow} ${_money(Math.abs(net))}`);
-    }
-    const totalBal = Object.values(balByAcct).reduce((s, v) => s + v, 0);
-    if (accountsSorted.length > 1) {
-      lines.push(`• *إجمالي الأرصدة:* ${_money(totalBal)}`);
-    }
-
-    /* Optional sub-section: today's movements grouped by category — kept for P&L
-       insight (e.g. "كم اتصرف على المرتبات اليوم"). Only shown if there's activity. */
-    if (totalIn > 0 || totalOut > 0) {
-      lines.push("");
-      lines.push("📊 *تصنيف حركات اليوم:*");
-      if (Object.keys(inByCategory).length > 0) {
-        lines.push("   ⬇ *وارد:*");
-        Object.entries(inByCategory)
-          .sort((a, b) => b[1].total - a[1].total)
-          .forEach(([cat, v]) => {
-            const cnt = v.count > 1 ? ` (${v.count})` : "";
-            lines.push(`      ◦ ${cat}: ${_money(v.total)}${cnt}`);
-          });
-      }
-      if (Object.keys(outByCategory).length > 0) {
-        lines.push("   ⬆ *منصرف:*");
-        Object.entries(outByCategory)
-          .sort((a, b) => b[1].total - a[1].total)
-          .forEach(([cat, v]) => {
-            const cnt = v.count > 1 ? ` (${v.count})` : "";
-            lines.push(`      ◦ ${cat}: ${_money(v.total)}${cnt}`);
-          });
-      }
-    }
-  }
+  if(names.length > 1){ lines.push(""); lines.push(`• *إجمالي أرصدة الإقفال: ${_money(grandClosing)}*`); }
   return lines.join("\n");
 }
 
