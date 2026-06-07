@@ -72,12 +72,14 @@ export function Sel({value,onChange,children}){
   return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
-export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus,sx}){
+export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus,sx,allowCustom,onCustom}){
   const[q,setQ]=useState("");const[focused,setFocused]=useState(false);const[hi,setHi]=useState(0);
   const[rect,setRect]=useState(null);
   const ref=useRef(null);
   const selected=options.find(o=>o.value===value);
   const limit=maxResults||5;
+  /* V21.17.1: free-text entry (opt-in). تكتب نص مش في القايمة → onCustom. */
+  const _custom=(allowCustom&&q.trim()&&!options.some(o=>o.label.toLowerCase()===q.trim().toLowerCase()))?q.trim():"";
   /* V18.52: when showAllOnFocus is true and input is empty, show all options
      (clamped to limit). Otherwise legacy behavior: show results only when typing.
      V19.80.3: dropdown rendered in a body-level portal with position:fixed so
@@ -112,10 +114,10 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
   },[focused]);
   const onKey=(e)=>{
     if(e.key==="Escape"){setFocused(false);return}
+    if(e.key==="Enter"){e.preventDefault();const o=filtered[hi];if(o){onChange(o.value);setQ("");setFocused(false)}else if(_custom&&onCustom){onCustom(_custom);setQ("");setFocused(false)}return}
     if(!showResults||filtered.length===0)return;
     if(e.key==="ArrowDown"){e.preventDefault();setHi(p=>Math.min(p+1,filtered.length-1))}
     else if(e.key==="ArrowUp"){e.preventDefault();setHi(p=>Math.max(p-1,0))}
-    else if(e.key==="Enter"){e.preventDefault();const o=filtered[hi];if(o){onChange(o.value);setQ("");setFocused(false)}}
   };
   return<div ref={ref} style={{position:"relative",zIndex:focused?999:1}}>
     <input value={focused?q:(selected?selected.label:"")}
@@ -136,10 +138,11 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
          CONTACT_LINK_TARGET_NOT_FOUND error because entityId was never set.
          1000000 layers above the standard 100000 modal layer. */
       <div className="searchsel-portal" style={{position:"fixed",top:rect.top+2,left:rect.left,width:rect.width,zIndex:1000000,borderRadius:8,border:"1px solid "+T.brd,overflow:"hidden",background:T.cardSolid,boxShadow:"0 12px 32px rgba(0,0,0,0.22)",maxHeight:280,overflowY:"auto"}}>
-        {filtered.length>0?filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
+        {filtered.map((o,i)=><div key={o.value} onMouseDown={e=>{e.preventDefault();onChange(o.value);setQ("");setFocused(false)}}
           onMouseEnter={()=>setHi(i)}
-          style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)
-        :<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
+          style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:o.value===value?T.accent:T.text,fontWeight:o.value===value?700:400,background:i===hi?T.accent+"15":(o.value===value?T.accent+"08":T.cardSolid),borderBottom:"1px solid "+T.brd+"30"}}>{o.label}</div>)}
+        {_custom&&<div onMouseDown={e=>{e.preventDefault();onCustom(_custom);setQ("");setFocused(false)}} style={{padding:"8px 12px",cursor:"pointer",fontSize:FS,color:T.accent,fontWeight:700,background:filtered.length===0?T.accent+"10":T.cardSolid,borderTop:filtered.length>0?"1px solid "+T.brd:"none"}}>➕ استخدام «{_custom}»</div>}
+        {filtered.length===0&&!_custom&&<div style={{padding:"8px 12px",textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد نتائج</div>}
       </div>,
       document.body
     )}

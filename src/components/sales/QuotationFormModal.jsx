@@ -73,6 +73,18 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
     return { modelNo, description, unitPrice, unit };
   };
 
+  /* قائمة منتجات موحّدة (كل المصادر) — للبحث الواحد في DocLineEditor */
+  const productOptions = useMemo(() => [
+    ...orders.map(o => ({ value: "order:" + o.id, label: "📋 " + (o.modelNo || "") + (o.modelDesc ? " — " + o.modelDesc : "") })),
+    ...inventoryItems.map(i => ({ value: "inventoryItem:" + i.id, label: "📦 " + (i.name || "") + (i.unit ? " (" + i.unit + ")" : "") })),
+    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+  ], [orders, inventoryItems, generalProducts]);
+  const resolveProduct = (value, cur) => {
+    const s = String(value); const ci = s.indexOf(":");
+    const sourceType = s.slice(0, ci); const sourceId = s.slice(ci + 1);
+    return { sourceType, sourceId, ...resolveSource(sourceType, sourceId, cur) };
+  };
+
   const sourceOptions = (sourceType) => {
     if(sourceType === "order") return orders.map(o => ({ value: o.id, label: (o.modelNo || "") + (o.modelDesc ? " — " + o.modelDesc : "") }));
     if(sourceType === "inventoryItem") return inventoryItems.map(i => ({ value: i.id, label: i.name + (i.unit ? " (" + i.unit + ")" : "") }));
@@ -98,7 +110,7 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
 
   return (
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 720, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 980, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
           <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{isOrder ? (isEdit ? "✏️ تعديل أمر بيع" : "📑 أمر بيع جديد") : (isEdit ? "✏️ تعديل عرض — " + (editQuote.quoteNo || "") : "📋 عرض سعر جديد")}</div>
           <Btn ghost small onClick={onClose}>✕</Btn>
@@ -125,7 +137,7 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
 
           {/* البنود — محرّر Odoo-style (DocLineEditor) */}
           <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 8 }}>📦 البنود</div>
-          <DocLineEditor items={items} setItems={setItems} sourceLabels={SOURCE_LABELS} sourceOptions={sourceOptions} resolveSource={resolveSource} isMob={isMob} accent="#0EA5E9" />
+          <DocLineEditor items={items} setItems={setItems} productOptions={productOptions} resolveProduct={resolveProduct} isMob={isMob} accent="#0EA5E9" />
 
           {/* خصم الرأس + ملاحظات + إجماليات */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
