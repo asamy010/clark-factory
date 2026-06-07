@@ -24,6 +24,7 @@ const QuotationsPg     = lazy(() => import("./sales/QuotationsPg.jsx").then(m =>
 const SalesOrdersPg    = lazy(() => import("./sales/SalesOrdersPg.jsx").then(m => ({ default: m.SalesOrdersPg })));
 const SalesInvoicesPg  = lazy(() => import("./SalesInvoicesPg.jsx").then(m => ({ default: m.SalesInvoicesPg })));
 const CreditNotesPg    = lazy(() => import("./CreditNotesPg.jsx").then(m => ({ default: m.CreditNotesPg })));
+const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
 
 /* map: مفتاح الـ tab الخارجي → id التاب جوّه الهَب */
 function mapTabToId(tab){
@@ -58,6 +59,7 @@ export function SalesHubPg(props){
     { id: "orders",      label: "📑 أوامر البيع",          show: canDoc("salesOrders"),     cnt: (data.salesOrders || []).length },
     { id: "invoices",    label: "📤 فواتير البيع",         show: canDoc("salesInvoices"),   cnt: (data.salesInvoices || []).length },
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
+    { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
     { id: "quickActions",label: "⚡ إجراءات سريعة",         show: canOps },
     { id: "deliveryLog", label: "📦 سجل التسليمات",         show: canOps },
     { id: "returnsLog",  label: "↩️ سجل المرتجعات",         show: canOps },
@@ -144,6 +146,7 @@ export function SalesHubPg(props){
         {active === "orders"     && canDoc("salesOrders")     && <SalesOrdersPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
+        {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} />}
         {/* أقسام التسليمات تشارك instance واحد (hubView={active}) — التبديل بينها
             ما يعملش remount ولا يضيّع الحالة. */}
         {["quickActions","deliveryLog","returnsLog","audits","stale"].includes(active) && canOps

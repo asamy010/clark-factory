@@ -21,6 +21,7 @@ const PurchaseRfqPg      = lazy(() => import("./purchase/PurchaseRfqPg.jsx").the
 const PurchasePg         = lazy(() => import("./PurchasePg.jsx").then(m => ({ default: m.PurchasePg })));
 const PurchaseInvoicesPg = lazy(() => import("./PurchaseInvoicesPg.jsx").then(m => ({ default: m.PurchaseInvoicesPg })));
 const DebitNotesPg       = lazy(() => import("./DebitNotesPg.jsx").then(m => ({ default: m.DebitNotesPg })));
+const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
 
 /* map: مفتاح الـ tab الخارجي → id التاب جوّه الهَب */
 function mapTabToId(tab){
@@ -57,6 +58,7 @@ export function PurchaseHubPg(props){
     { id: "receipts",   label: "📥 الاستلام",         show: canPurch, cnt: (data.purchaseReceipts || []).length },
     { id: "invoices",   label: "📤 فواتير المشتريات", show: canInv,   cnt: (data.purchaseInvoices || []).length },
     { id: "debitNotes", label: "↪️ إشعارات مدينة",    show: canDN,    cnt: (data.purchaseDebitNotes || []).length },
+    { id: "ledger",     label: "📊 كشف محاسبي",       show: canInv || canPurch },
     { id: "suppliers",  label: "👥 الموردون",         show: canPurch, cnt: (data.suppliers || []).length },
     { id: "stock",      label: "📦 المخزن",           show: canPurch },
     { id: "categories", label: "🏷️ الأصناف",          show: canPurch, cnt: (data.itemCategories || []).length },
@@ -125,6 +127,7 @@ export function PurchaseHubPg(props){
         {active === "rfq"        && canRfq && <PurchaseRfqPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("purchaseRfq")} />}
         {active === "invoices"   && canInv && <PurchaseInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={props.user} />}
         {active === "debitNotes" && canDN  && <DebitNotesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={props.user} />}
+        {active === "ledger"     && <AccountStatementView data={data} partyType="supplier" isMob={isMob} />}
         {/* أقسام PurchasePg تشارك instance واحد (hubView={active}) — مفيش remount عند التبديل */}
         {PURCH_VIEWS.includes(active) && canPurch
           && <PurchasePg data={data} upConfig={props.upConfig} isMob={isMob} isTab={props.isTab} canEdit={canEditTab("purchase")} user={props.user} userRole={props.userRole} hubView={active} />}
