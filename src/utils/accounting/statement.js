@@ -20,7 +20,7 @@
    كل عملية حسابية بـ r2() لتفادي float drift (الـ balance خلاف مالي).
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { r2 } from "../format.js";
+import { r2, fmt } from "../format.js";
 
 /* تصنيف نوع الحركة لفلتر النوع (فواتير/مرتجعات/دفعات) */
 const TYPE_GROUP = {
@@ -67,44 +67,64 @@ function gatherCustomerPayments(data, custId){
 function gatherCustomerEntries(data, custId, mode){
   const entries = [];
   if(mode === "accounting"){
+    /* صف واحد لكل فاتورة بالصافي (الخصم داخل السطر مش سطر لوحده) */
     (data.salesInvoices || []).forEach(inv => {
       if(inv.customerId !== custId || inv.type === "purchase") return;
       if(inv.status === "void") return;
       const draft = inv.status !== "posted";
-      const sub = r2(Number(inv.subtotal) || Number(inv.total) || 0);
-      const disc = r2(Number(inv.discount) || 0);
+      const subtotal = r2(Number(inv.subtotal) || Number(inv.total) || 0);
+      const total = r2(inv.total != null ? Number(inv.total) : subtotal);
+      const disc = r2(Number(inv.discount) || (subtotal - total));
       entries.push({ date: inv.date, createdAt: inv.createdAt, type: "sales_invoice", ref: inv.invoiceNo, refId: inv.id,
-        desc: "فاتورة مبيعات " + (inv.invoiceNo || "") + " — " + ((inv.items || []).length) + " بند", debit: sub, credit: 0, draft, order: 0, raw: inv });
-      if(disc > 0) entries.push({ date: inv.date, createdAt: inv.createdAt, type: "sales_invoice_disc", ref: inv.invoiceNo, refId: inv.id,
-        desc: "خصم فاتورة " + (inv.invoiceNo || ""), debit: 0, credit: disc, draft, order: 1, raw: inv });
+        desc: "مبيعات — فاتورة " + (inv.invoiceNo || ""),
+        sub: (inv.items || []).length + " بند" + (disc > 0 ? " · قبل الخصم " + fmt(subtotal) + " · بعد الخصم " + fmt(total) : ""),
+        debit: total, credit: 0, draft, raw: inv });
     });
     (data.salesCreditNotes || []).forEach(cn => {
       if(cn.customerId !== custId || cn.status === "void") return;
       entries.push({ date: cn.date, createdAt: cn.createdAt, type: "credit_note", ref: cn.creditNoteNo, refId: cn.id,
-        desc: "مرتجع مبيعات " + (cn.creditNoteNo || "") + (cn.linkedInvoiceNo ? " (فاتورة " + cn.linkedInvoiceNo + ")" : ""), debit: 0, credit: r2(Number(cn.total) || 0), draft: cn.status !== "posted", raw: cn });
+        desc: "مرتجع — إشعار دائن " + (cn.creditNoteNo || ""),
+        sub: cn.linkedInvoiceNo ? "فاتورة " + cn.linkedInvoiceNo : "",
+        debit: 0, credit: r2(Number(cn.total) || 0), draft: cn.status !== "posted", raw: cn });
     });
   } else {
-    /* operational — تسليمات/مرتجعات فعلية بالخصم */
+    /* operational — تجميع بالـ session زي سجل بورتال العميل / CustDeliverPg buildSessionInvoices:
+       صف واحد لكل تسليم (مش لكل موديل)، بالصافي مباشرة + خصم per-delivery (discPct→cust.discount→10) */
     const cust = (data.customers || []).find(c => c.id === custId);
-    const cdisc = Number(cust?.discount) || 0;
-    (data.orders || []).forEach(o => {
-      const sp = Number(o.sellPrice) || 0;
-      (o.customerDeliveries || []).forEach(d => {
-        if(d.custId !== custId) return;
-        const gross = r2((Number(d.qty) || 0) * (Number(d.price) || sp));
-        const disc = (d.discPct != null ? Number(d.discPct) : cdisc) || 0;
-        entries.push({ date: d.date, createdAt: d.createdAt, type: "delivery", ref: o.modelNo, refId: o.id,
-          desc: "تسليم — " + (o.modelNo || "") + " (" + (Number(d.qty) || 0) + " قطعة)", debit: gross, credit: 0, order: 0, raw: { ...d, _order: o } });
-        if(disc > 0) entries.push({ date: d.date, createdAt: d.createdAt, type: "delivery_disc", ref: o.modelNo, refId: o.id,
-          desc: "خصم تسليم " + (o.modelNo || "") + " (" + disc + "%)", debit: 0, credit: r2(gross * disc / 100), order: 1, raw: { ...d, _order: o } });
+    const pickDiscPct = (e) => {
+      if(e && e.discPct != null){ const n = Number(e.discPct); if(!isNaN(n)) return n; }
+      if(cust && cust.discount != null){ const n = Number(cust.discount); if(!isNaN(n)) return n; }
+      return 10;
+    };
+    const buildGroups = (kind) => {
+      const groups = {};
+      (data.orders || []).forEach(o => {
+        const sp = Number(o.sellPrice) || 0;
+        const list = (kind === "sale" ? (o.customerDeliveries || []) : (o.customerReturns || [])).filter(e => e.custId === custId);
+        list.forEach(e => {
+          const qty = Number(e.qty) || 0; if(qty <= 0) return;
+          const sid = e.sessionId || e.sessId || ("بدون جلسة — " + (e.date || "؟"));
+          if(!groups[sid]) groups[sid] = { sessionId: sid, date: e.date || "", qty: 0, value: 0, valueAfterDisc: 0 };
+          const price = Number(e.price) || sp; const gross = qty * price; const dPct = pickDiscPct(e);
+          groups[sid].qty += qty; groups[sid].value += gross; groups[sid].valueAfterDisc += Math.round(gross * (1 - dPct / 100));
+          if(e.date && (!groups[sid].date || e.date < groups[sid].date)) groups[sid].date = e.date;
+        });
       });
-      (o.customerReturns || []).forEach(rt => {
-        if(rt.custId !== custId) return;
-        const gross = r2((Number(rt.qty) || 0) * sp);
-        const disc = (rt.discPct != null ? Number(rt.discPct) : cdisc) || 0;
-        entries.push({ date: rt.date, createdAt: rt.createdAt, type: "return", ref: o.modelNo, refId: o.id,
-          desc: "مرتجع — " + (o.modelNo || "") + " (" + (Number(rt.qty) || 0) + " قطعة)", debit: 0, credit: r2(gross * (1 - disc / 100)), raw: { ...rt, _order: o } });
-      });
+      const arr = Object.values(groups).sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+      arr.forEach((g, i) => { g.invoiceNo = i + 1; }); /* رقم التسليم — #1 = الأقدم (للتراكمي) */
+      return arr;
+    };
+    buildGroups("sale").forEach(g => {
+      entries.push({ date: g.date, type: "delivery", ref: "#" + g.invoiceNo, refId: g.sessionId, order: g.invoiceNo,
+        desc: "مبيعات — تسليم #" + g.invoiceNo,
+        sub: fmt(g.qty) + " قطعة · قبل الخصم " + fmt(r2(g.value)) + " · بعد الخصم " + fmt(r2(g.valueAfterDisc)),
+        debit: r2(g.valueAfterDisc), credit: 0, raw: g });
+    });
+    buildGroups("return").forEach(g => {
+      entries.push({ date: g.date, type: "return", ref: "#" + g.invoiceNo, refId: g.sessionId, order: g.invoiceNo,
+        desc: "مرتجع — #" + g.invoiceNo,
+        sub: fmt(g.qty) + " قطعة · قبل الخصم " + fmt(r2(g.value)) + " · بعد الخصم " + fmt(r2(g.valueAfterDisc)),
+        debit: 0, credit: r2(g.valueAfterDisc), raw: g });
     });
   }
   return entries.concat(gatherCustomerPayments(data, custId));
@@ -116,17 +136,20 @@ function gatherSupplierEntries(data, supId, mode){
     (data.purchaseInvoices || []).forEach(inv => {
       if(inv.supplierId !== supId || inv.status === "void") return;
       const draft = inv.status !== "posted";
-      const sub = r2(Number(inv.subtotal) || Number(inv.total) || 0);
-      const disc = r2(Number(inv.discount) || 0);
+      const subtotal = r2(Number(inv.subtotal) || Number(inv.total) || 0);
+      const total = r2(inv.total != null ? Number(inv.total) : subtotal);
+      const disc = r2(Number(inv.discount) || (subtotal - total));
       entries.push({ date: inv.date, createdAt: inv.createdAt, type: "purchase_invoice", ref: inv.invoiceNo, refId: inv.id,
-        desc: "فاتورة مشتريات " + (inv.invoiceNo || "") + " — " + ((inv.items || []).length) + " بند", debit: sub, credit: 0, draft, order: 0, raw: inv });
-      if(disc > 0) entries.push({ date: inv.date, createdAt: inv.createdAt, type: "purchase_invoice_disc", ref: inv.invoiceNo, refId: inv.id,
-        desc: "خصم فاتورة " + (inv.invoiceNo || ""), debit: 0, credit: disc, draft, order: 1, raw: inv });
+        desc: "مشتريات — فاتورة " + (inv.invoiceNo || ""),
+        sub: (inv.items || []).length + " بند" + (disc > 0 ? " · قبل الخصم " + fmt(subtotal) + " · بعد الخصم " + fmt(total) : ""),
+        debit: total, credit: 0, draft, raw: inv });
     });
     (data.purchaseDebitNotes || []).forEach(dn => {
       if(dn.supplierId !== supId || dn.status === "void") return;
       entries.push({ date: dn.date, createdAt: dn.createdAt, type: "debit_note", ref: dn.debitNoteNo, refId: dn.id,
-        desc: "مرتجع مشتريات " + (dn.debitNoteNo || "") + (dn.linkedInvoiceNo ? " (فاتورة " + dn.linkedInvoiceNo + ")" : ""), debit: 0, credit: r2(Number(dn.total) || 0), draft: dn.status !== "posted", raw: dn });
+        desc: "مرتجع مشتريات — إشعار مدين " + (dn.debitNoteNo || ""),
+        sub: dn.linkedInvoiceNo ? "فاتورة " + dn.linkedInvoiceNo : "",
+        debit: 0, credit: r2(Number(dn.total) || 0), draft: dn.status !== "posted", raw: dn });
     });
     /* كل دفعات المورد (في المحاسبي الفواتير ماتحملش paidAmount) */
     (data.supplierPayments || []).forEach(p => {
@@ -139,7 +162,7 @@ function gatherSupplierEntries(data, supId, mode){
     (data.purchaseReceipts || []).forEach(rc => {
       if(rc.supplierId !== supId) return;
       entries.push({ date: rc.date, createdAt: rc.createdAt, type: "receipt", ref: rc.receiptNo, refId: rc.id,
-        desc: "استلام " + (rc.receiptNo || "") + " — " + ((rc.items || []).length) + " بند", debit: r2(Number(rc.totalAmount) || 0), credit: 0, raw: rc });
+        desc: "مشتريات — استلام " + (rc.receiptNo || ""), sub: (rc.items || []).length + " بند", debit: r2(Number(rc.totalAmount) || 0), credit: 0, raw: rc });
       const paid = r2(Number(rc.paidAmount) || 0);
       if(paid > 0) entries.push({ date: rc.date, createdAt: rc.createdAt, type: "receipt_paid", ref: rc.receiptNo, refId: rc.id,
         desc: "مدفوع عند الاستلام " + (rc.receiptNo || ""), debit: 0, credit: paid, order: 1, raw: rc });
@@ -243,7 +266,7 @@ export function statementToAOA(result, party){
     head,
   ];
   if(result.openingBalance) rows.push(["", "رصيد افتتاحي", "", "", "", result.openingBalance]);
-  result.rows.forEach(r => rows.push([r.date || "", r.desc || "", r.ref || "", r.debit || "", r.credit || "", r.draft ? "(مسودة)" : (r.balance ?? "")]));
+  result.rows.forEach(r => rows.push([r.date || "", (r.desc || "") + (r.sub ? " — " + r.sub : ""), r.ref || "", r.debit || "", r.credit || "", r.draft ? "(مسودة)" : (r.balance ?? "")]));
   rows.push([]);
   rows.push(["", "الإجمالي", "", result.totals.debit, result.totals.credit, result.totals.closing]);
   return rows;

@@ -51,7 +51,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     const rowsHtml = [];
     if(openingOn && (result.openingBalance || fromDate)) rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td>رصيد افتتاحي</td><td></td><td></td><td></td><td style="font-weight:700">${fmt(result.openingBalance.toFixed(2))}</td></tr>`);
     result.rows.forEach(r => {
-      rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td>${r.desc || ""}</td><td>${r.ref || ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
+      rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.ref || ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
     });
     const html = `
       <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
@@ -171,7 +171,10 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                 ) : result.rows.map((r, i) => (
                   <tr key={i} style={{ opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
                     <td style={{ ...td, fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.date || ""}</td>
-                    <td style={{ ...td, textAlign: "right" }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</td>
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <div style={{ fontWeight: 600 }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</div>
+                      {r.sub && <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>{r.sub}</div>}
+                    </td>
                     <td style={{ ...td, color: accent, fontWeight: 700 }}>{r.ref || ""}</td>
                     <td style={{ ...td, color: r.debit ? T.text : T.textMut }}>{r.debit ? fmt(r.debit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, color: r.credit ? T.ok : T.textMut }}>{r.credit ? fmt(r.credit.toFixed(2)) : "—"}</td>
