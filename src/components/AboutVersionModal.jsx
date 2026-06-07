@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.16.3",
+    date: "2026-06-07",
+    types: ["fix"],
+    title: "🐞 إصلاح: كارت التقرير مش بيفتح",
+    changes: [
+      { type: "fix", text: "🔧 ضغط كارت التقرير في تاب «تقارير» مكنش بيفتح — السبب أن مكوّن Card مابيمرّرش onClick. اتستبدل بـ div قابل للضغط (مع دعم لوحة المفاتيح)." },
+    ],
+  },
+  {
     version: "V21.16.2",
     date: "2026-06-07",
     types: ["fix", "improvement"],
