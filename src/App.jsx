@@ -101,6 +101,8 @@ const SalesHubPg = lazyNamed(() => import("./pages/SalesHubPg.jsx"), "SalesHubPg
 const DebitNotesPg = lazyNamed(() => import("./pages/DebitNotesPg.jsx"), "DebitNotesPg");
 const PurchasePg = lazyNamed(() => import("./pages/PurchasePg.jsx"), "PurchasePg");
 const PurchaseInvoicesPg = lazyNamed(() => import("./pages/PurchaseInvoicesPg.jsx"), "PurchaseInvoicesPg");
+/* V21.12.0: Purchase Hub — توحيد المشتريات (تايل واحد «مشتريات» + تابات). */
+const PurchaseHubPg = lazyNamed(() => import("./pages/PurchaseHubPg.jsx"), "PurchaseHubPg");
 const TreasuryPg = lazyNamed(() => import("./pages/TreasuryPg.jsx"), "TreasuryPg");
 const HRPg = lazyNamed(() => import("./pages/HRPg.jsx"), "HRPg");
 /* V19.48: Bulk messaging / campaigns engine */
@@ -6624,7 +6626,9 @@ export default function App(){
         /* V21.11.0: تايل «مبيعات» (key="sales") يظهر لو المستخدم يقدر يشوف أي
            قسم بيع — لأن "sales" مفتاح مجمّع مش في سجل الصلاحيات. */
         const SALES_TAB_KEYS=["custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"];
-        const visibleTabs=TABS.filter(t=>t.key==="sales"?SALES_TAB_KEYS.some(k=>canViewTab(k)):canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
+        /* V21.12.0: تايل «مشتريات» (key="purchases") يظهر لو يقدر يشوف أي قسم شراء. */
+        const PURCH_TAB_KEYS=["purchase","purchaseInvoices","debitNotes"];
+        const visibleTabs=TABS.filter(t=>t.key==="sales"?SALES_TAB_KEYS.some(k=>canViewTab(k)):t.key==="purchases"?PURCH_TAB_KEYS.some(k=>canViewTab(k)):canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
 
         return<div>
           <style>{`
@@ -7089,10 +7093,12 @@ export default function App(){
           && <SalesHubPg tab={tab} data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} user={user} season={season} canViewTab={canViewTab} canEditTab={canEditTab}/>}
         {/* V21.9.115: Contacts page — unified directory. canEdit gated like custDeliver (sales-side). */}
         {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}
-        {tab==="purchase"&&<PurchasePg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("purchase")} user={user} userRole={userRole}/>}
-        {tab==="purchaseInvoices"&&canViewTab("purchaseInvoices")&&<PurchaseInvoicesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={user}/>}
-        {/* V19.48: Debit notes (purchase returns) */}
-        {tab==="debitNotes"&&canViewTab("debitNotes")&&<DebitNotesPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={user}/>}
+        {/* V21.12.0: Purchase Hub — تايل «مشتريات» واحد بيجمع أوامر الشراء +
+            الاستلام + الفواتير + إشعارات مدينة + الموردون + المخزن. الهَب بيـ map
+            المفاتيح القديمة (purchase/purchaseInvoices/debitNotes) للتاب الصح،
+            فالروابط القديمة شغّالة. الصلاحيات محفوظة لكل تاب بـ canViewTab. */}
+        {["purchases","purchase","purchaseInvoices","debitNotes"].includes(tab)
+          && <PurchaseHubPg tab={tab} data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} user={user} userRole={userRole} canViewTab={canViewTab} canEditTab={canEditTab}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {/* V19.81.0: Pieces lookup — scan QR → see lifecycle.
             V19.86.0: also receives upSales + updOrder so SellTab can create

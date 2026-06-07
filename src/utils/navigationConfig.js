@@ -168,6 +168,7 @@ export const FAB_ACTIONS = [
 export function bottomTabFromTabKey(tabKey) {
   if (!tabKey || tabKey === "home") return "home";
   if (tabKey === "sales") return "sales"; // V21.11.0: مفتاح الهَب المجمّع
+  if (tabKey === "purchases") return "finance"; // V21.12.0: هَب المشتريات
   for (const bottomId of Object.keys(TAB_SUBVIEWS)) {
     const subviews = TAB_SUBVIEWS[bottomId];
     if (subviews.some(sv => sv.tabKey === tabKey)) return bottomId;

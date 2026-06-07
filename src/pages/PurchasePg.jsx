@@ -25,7 +25,7 @@ import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
 
-export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
+export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubView}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const today=new Date().toISOString().split("T")[0];
   const[subTab,setSubTab]=useState("receipts");
@@ -876,8 +876,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
   
   /* ──────── RENDER ──────── */
   return<div>
-    {/* Header + status bar */}
-    <div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
+    {/* Header + status bar — V21.12.0: داخل هَب المشتريات بنعرضه على تاب المخزن
+       فقط (للأزرار تفعيل/رصيد ابتدائي)؛ الهَب بيوفّر العنوان. hubView=null=قديم. */}
+    {(!hubView||hubView==="stock")&&<div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:FS+4,fontWeight:800,color:T.text}}>🛍️ المشتريات والمخزن</span>
         <span style={{padding:"3px 10px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:stockEnabled?T.ok+"15":T.textMut+"15",color:stockEnabled?T.ok:T.textMut,border:"1px solid "+(stockEnabled?T.ok+"40":T.textMut+"30")}}>{stockEnabled?"● المخزن مُفعَّل":"○ المخزن غير مُفعَّل"}</span>
@@ -889,10 +890,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
           <Btn small ghost onClick={deactivateStockModule} style={{color:T.err}}>إيقاف</Btn>
         </>}
       </div>}
-    </div>
+    </div>}
 
-    {/* Sub-tabs navigation */}
-    <div style={{display:"flex",gap:4,marginBottom:12,borderBottom:"2px solid "+T.brd,flexWrap:"wrap"}}>
+    {/* Sub-tabs navigation — مخفي داخل الهَب (الهَب بيوفّر التابات) */}
+    {!hubView&&<div style={{display:"flex",gap:4,marginBottom:12,borderBottom:"2px solid "+T.brd,flexWrap:"wrap"}}>
       {[
         {key:"stock",label:"📦 المخزن",count:fabrics.length+accessories.length+(data.inventoryItems||[]).length},
         {key:"categories",label:"🏷️ الأصناف",count:(data.itemCategories||[]).length},
@@ -904,10 +905,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
         <span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:10,background:active?T.accent+"15":T.bg,color:active?T.accent:T.textMut}}>{st.count}</span>
         {st.disabled&&<span style={{fontSize:FS-3,color:T.textMut}} title="قريباً">🔒</span>}
       </div>})}
-    </div>
+    </div>}
 
     {/* ════ SUB-TAB: STOCK ════ */}
-    {subTab==="stock"&&<>
+    {(hubView?hubView==="stock":subTab==="stock")&&<>
       {/* Stats cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
         <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
@@ -1161,7 +1162,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     </>}
 
     {/* ════ SUB-TAB: RECEIPTS ════ */}
-    {subTab==="receipts"&&<>
+    {(hubView?hubView==="receipts":subTab==="receipts")&&<>
       {/* Receipts stats */}
       {(()=>{const stats={count:purchaseReceipts.length,total:0,paid:0,unpaid:0,thisMonth:0};
         const thisMonth=today.slice(0,7);
@@ -1271,7 +1272,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     </>}
     
     {/* ════ SUB-TAB: ORDERS (PO) ════ */}
-    {subTab==="orders"&&<>
+    {(hubView?hubView==="orders":subTab==="orders")&&<>
       {/* Reports summary */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
         <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>
@@ -1426,7 +1427,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     </>}
     
     {/* ════ V16.31: SUB-TAB: CATEGORIES (الأصناف) ════ */}
-    {subTab==="categories"&&(()=>{
+    {(hubView?hubView==="categories":subTab==="categories")&&(()=>{
       const cats=getCategories(data);
       return<>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
@@ -1663,7 +1664,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole}){
     })()}
 
     {/* ════ SUB-TAB: SUPPLIERS ════ */}
-    {subTab==="suppliers"&&<>
+    {(hubView?hubView==="suppliers":subTab==="suppliers")&&<>
       {/* Supplier totals cards */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
         <div style={{padding:12,borderRadius:10,background:T.accent+"06",border:"1px solid "+T.accent+"20"}}>

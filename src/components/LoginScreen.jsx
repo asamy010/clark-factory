@@ -48,10 +48,10 @@ export const TABS=[
      (custDeliver + عروض/أوامر/فواتير/إشعارات). بيفتح SalesHubPg. المفاتيح
      القديمة لسه شغّالة كـ deep-links بتفتح الهَب على القسم الصح. */
   {key:"sales",label:"مبيعات",icon:"🛒",color:"#059669",bg:"#ECFDF5",svg:<><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></>},
-  {key:"purchase",label:"مشتريات",icon:"🛍️",color:"#D97706",bg:"#FEF3C7",svg:<><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>},
-  {key:"purchaseInvoices",label:"فواتير المشتريات",icon:"📥",color:"#F59E0B",bg:"#FEF3C7",svg:<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></>},
-  /* V19.41: Debit notes (purchase returns) */
-  {key:"debitNotes",label:"إشعارات مدينة",icon:"↪️",color:"#3B82F6",bg:"#DBEAFE",svg:<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M15 14l2 2-2 2"/><path d="M17 16h-6a3 3 0 0 1-3-3v-1"/></>},
+  /* V21.12.0: تايل واحد «مشتريات» (key="purchases") بدل الـ3 تايلات
+     (purchase + فواتير المشتريات + إشعارات مدينة). بيفتح PurchaseHubPg.
+     المفاتيح القديمة لسه شغّالة كـ deep-links بتفتح الهَب على التاب الصح. */
+  {key:"purchases",label:"مشتريات",icon:"🛍️",color:"#D97706",bg:"#FEF3C7",svg:<><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>},
   {key:"warehouse",label:"المخازن",icon:"📦",color:"#0D9488",bg:"#CCFBF1",svg:<><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35a2 2 0 0 1 1.26-1.86l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z"/><path d="M6 18V10"/><path d="M18 18V10"/><path d="M6 14h12"/></>},
   /* V19.81.0: Pieces lookup — scan a piece QR to see its full lifecycle (sold/returned/re-sold).
      Sits next to المخازن because it's a warehouse-floor tool. */
