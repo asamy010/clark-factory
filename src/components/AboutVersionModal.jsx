@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.13.2",
+    date: "2026-06-07",
+    types: ["improvement"],
+    title: "📦 تسليم مخزن جاهز — محاذاة الأعمدة + إعادة تسمية عمود",
+    changes: [
+      { type: "improvement", text: "في جدول «تسليم مخزن جاهز»: محاذاة بيانات الأعمدة مع عناوينها (الكل متوسّط ومتطابق)، وتغيير عمود «الحالة» إلى «المستلم»." },
+    ],
+  },
+  {
     version: "V21.13.1",
     date: "2026-06-07",
     types: ["improvement"],
