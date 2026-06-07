@@ -26,6 +26,7 @@ const SalesInvoicesPg  = lazy(() => import("./SalesInvoicesPg.jsx").then(m => ({
 const CreditNotesPg    = lazy(() => import("./CreditNotesPg.jsx").then(m => ({ default: m.CreditNotesPg })));
 const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
 const InventoryValuationReport = lazy(() => import("../components/reports/InventoryValuationReport.jsx").then(m => ({ default: m.InventoryValuationReport })));
+const ReportsHub = lazy(() => import("../components/reports/ReportsHub.jsx").then(m => ({ default: m.ReportsHub })));
 
 /* map: مفتاح الـ tab الخارجي → id التاب جوّه الهَب */
 function mapTabToId(tab){
@@ -149,7 +150,9 @@ export function SalesHubPg(props){
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} />}
-        {active === "reports"    && <InventoryValuationReport data={data} kind="finished" isMob={isMob} />}
+        {active === "reports"    && <ReportsHub isMob={isMob} reports={[
+          { id: "inv-finished", icon: "📦", title: "تقييم المخزون — المنتجات الجاهزة", desc: "قيمة المخزون الجاهز (السيري المتاح) بالبيع والتكلفة والربح المتوقع", color: "#0EA5E9", render: () => <InventoryValuationReport data={data} kind="finished" isMob={isMob} /> },
+        ]} />}
         {/* أقسام التسليمات تشارك instance واحد (hubView={active}) — التبديل بينها
             ما يعملش remount ولا يضيّع الحالة. */}
         {["quickActions","deliveryLog","returnsLog","audits","stale"].includes(active) && canOps

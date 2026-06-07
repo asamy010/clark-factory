@@ -15,7 +15,7 @@ import { Btn, Card, Inp } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, r2 } from "../../utils/format.js";
-import { getConfirmedStock, calcOrder } from "../../utils/orders.js";
+import { getConfirmedStock, getConfirmedSeriesStock, calcOrder } from "../../utils/orders.js";
 import { showToast } from "../../utils/popups.js";
 import { printPage } from "../../utils/print.js";
 import { exportExcel } from "../../utils/print-extras.js";
@@ -29,9 +29,16 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
     if(kind !== "finished") return { rows: [], tot: {} };
     const rows = [];
     (data.orders || []).forEach(o => {
-      const stockDel = getConfirmedStock(o);
-      const custDel = (o.customerDeliveries || []).reduce((s, d) => s + (Number(d.qty) || 0), 0);
-      const qty = Math.max(0, stockDel - custDel);
+      /* الرصيد الفعلي للمخزن الجاهز — مطابق لـ «الموديلات المتاحة» (CustDeliverPg
+         stockModels + popup): net = تسليمات − مرتجعات ، avail = الإجمالي ،
+         availSeries = السيري المتاح للبيع. */
+      const sd = getConfirmedStock(o); if(sd <= 0) return;
+      const cd = (o.customerDeliveries || []).reduce((s, d) => s + (Number(d.qty) || 0), 0);
+      const ret = (o.customerReturns || []).reduce((s, r) => s + (Number(r.qty) || 0), 0);
+      const net = cd - ret;
+      const avail = sd - net;
+      if(avail <= 0) return; /* مطابق لفلتر popup (m.avail > 0) */
+      const qty = Math.max(0, getConfirmedSeriesStock(o) - net); /* السيري المتاح = الرصيد الصح */
       if(qty <= 0) return;
       const sell = Number(o.sellPrice) || 0;
       let cost = 0; try { cost = Number(calcOrder(o).costPer) || 0; } catch(_) {}
@@ -130,7 +137,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
       {kind === "finished" ? (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
           <KPI label="عدد الموديلات" value={finished.rows.length} color={T.textSec} suffix="موديل" />
-          <KPI label="إجمالي القطع" value={finished.tot.qty} color="#6366F1" suffix="قطعة" />
+          <KPI label="السيري المتاح" value={finished.tot.qty} color="#6366F1" suffix="قطعة" />
           <KPI label="قيمة البيع (المتوقعة)" value={finished.tot.sellVal} color="#0EA5E9" />
           <KPI label="قيمة التكلفة" value={finished.tot.costVal} color="#D97706" />
           <KPI label="الربح المتوقع" value={finished.tot.profit} color="#10B981" />
@@ -179,6 +186,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
               </tr></tfoot>}
             </table>
           </div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 8 }}>* الكمية = الرصيد السيري المتاح للبيع (= المنتَج − المبيعات + المرتجعات) — مطابق لـ «الموديلات المتاحة». الكسر غير محسوب لأنه غير قابل للبيع.</div>
         </Card>
       ) : (
         <>

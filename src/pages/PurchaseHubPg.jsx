@@ -23,6 +23,7 @@ const PurchaseInvoicesPg = lazy(() => import("./PurchaseInvoicesPg.jsx").then(m 
 const DebitNotesPg       = lazy(() => import("./DebitNotesPg.jsx").then(m => ({ default: m.DebitNotesPg })));
 const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
 const InventoryValuationReport = lazy(() => import("../components/reports/InventoryValuationReport.jsx").then(m => ({ default: m.InventoryValuationReport })));
+const ReportsHub = lazy(() => import("../components/reports/ReportsHub.jsx").then(m => ({ default: m.ReportsHub })));
 
 /* map: مفتاح الـ tab الخارجي → id التاب جوّه الهَب */
 function mapTabToId(tab){
@@ -130,7 +131,9 @@ export function PurchaseHubPg(props){
         {active === "invoices"   && canInv && <PurchaseInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={props.user} />}
         {active === "debitNotes" && canDN  && <DebitNotesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="supplier" isMob={isMob} />}
-        {active === "reports"    && <InventoryValuationReport data={data} kind="materials" isMob={isMob} />}
+        {active === "reports"    && <ReportsHub isMob={isMob} reports={[
+          { id: "inv-materials", icon: "🧵", title: "تقييم المخزون — الخامات والإكسسوار", desc: "قيمة أرصدة الخامات والإكسسوار بالتكلفة (متوسط التكلفة ‖ السعر)", color: "#D97706", render: () => <InventoryValuationReport data={data} kind="materials" isMob={isMob} /> },
+        ]} />}
         {/* أقسام PurchasePg تشارك instance واحد (hubView={active}) — مفيش remount عند التبديل */}
         {PURCH_VIEWS.includes(active) && canPurch
           && <PurchasePg data={data} upConfig={props.upConfig} isMob={isMob} isTab={props.isTab} canEdit={canEditTab("purchase")} user={props.user} userRole={props.userRole} hubView={active} />}
