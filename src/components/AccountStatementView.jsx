@@ -94,6 +94,27 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     if(win) win.location.href = url; else window.location.href = url;
   };
 
+  /* cross-link: افتح المستند المصدر في صفحته (نفس آلية CLARK goto-tab + deep-link) */
+  const LINK_LABEL = {
+    sales_invoice: "↗️ افتح الفاتورة", purchase_invoice: "↗️ افتح الفاتورة",
+    credit_note: "↗️ افتح الإشعار الدائن", debit_note: "↗️ افتح الإشعار المدين",
+    receipt: "↗️ افتح الاستلام", delivery: "↗️ افتح صفحة التسليم", return: "↗️ افتح صفحة التسليم",
+  };
+  const openSource = (row) => {
+    if(!row) return;
+    const TAB = { sales_invoice: "salesInvoices", credit_note: "creditNotes", purchase_invoice: "purchaseInvoices", debit_note: "debitNotes", receipt: "purchase", delivery: "custDeliver", return: "custDeliver" };
+    const tab = TAB[row.type];
+    if(!tab){ showToast("⚠️ لا يوجد مستند مرتبط لفتحه"); return; }
+    if(row.type === "sales_invoice"){ try { window.__clarkOpenSalesDoc = { kind: "invoice", id: row.refId }; } catch(_){} }
+    window.dispatchEvent(new CustomEvent("goto-tab", { detail: tab }));
+    setTimeout(() => {
+      if(row.type === "sales_invoice") window.dispatchEvent(new CustomEvent("clark-open-sales-doc", { detail: { kind: "invoice", id: row.refId } }));
+      else if(row.type === "purchase_invoice") window.dispatchEvent(new CustomEvent("notif-deeplink", { detail: { type: "invoice", subType: "purchase", invoiceId: row.refId } }));
+      else if(row.type === "debit_note") window.dispatchEvent(new CustomEvent("notif-deeplink", { detail: { type: "debitNote", debitNoteId: row.refId } }));
+    }, 350);
+    setDrill(null);
+  };
+
   const th = { padding: "8px 6px", fontSize: FS - 2, fontWeight: 800, color: "#fff", textAlign: "center", whiteSpace: "nowrap" };
   const td = { padding: "6px", fontSize: FS - 1, borderBottom: "1px solid " + T.brd, textAlign: "center" };
   const chk = (k, lbl) => (
@@ -202,7 +223,10 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 14, width: "100%", maxWidth: 640, padding: isMob ? 14 : 20, border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", margin: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent }}>{drill.desc}</div>
-              <Btn small ghost onClick={() => setDrill(null)}>✕</Btn>
+              <div style={{ display: "flex", gap: 6 }}>
+                {LINK_LABEL[drill.type] && <Btn small onClick={() => openSource(drill)} style={{ background: T.accentBg, color: T.accent }}>{LINK_LABEL[drill.type]}</Btn>}
+                <Btn small ghost onClick={() => setDrill(null)}>✕</Btn>
+              </div>
             </div>
             <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>{drill.date || ""}{drill.sub ? " · " + drill.sub : ""}</div>
             <div style={{ overflowX: "auto" }}>

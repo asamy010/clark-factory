@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.15.3",
+    date: "2026-06-07",
+    types: ["feature"],
+    title: "🔗 كشف الحساب — cross-links للمستند الأصلي",
+    changes: [
+      { type: "feature", text: "🔗 من نافذة تفاصيل الحركة (drill-down) زر «↗️ افتح المستند» ينقلك للمستند الأصلي في صفحته: فاتورة مبيعات/مشتريات (تفتح الفاتورة نفسها)، إشعار دائن/مدين، الاستلام، أو صفحة التسليم — باستخدام آلية CLARK القياسية (goto-tab + deep-link)." },
+    ],
+  },
+  {
     version: "V21.15.2",
     date: "2026-06-07",
     types: ["feature"],
