@@ -18,6 +18,7 @@
 
 import { useMemo, useState } from "react";
 import { Btn, Inp, Sel, SearchSel, Card } from "../components/ui.jsx";
+import { AccountStatementView } from "../components/AccountStatementView.jsx";
 import { T } from "../theme.js";
 import { FS, WS_TYPES } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -846,6 +847,8 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
   const [showSettle, setShowSettle] = useState(false);
   /* V21.9.121: add-type modal state */
   const [showAddType, setShowAddType] = useState(false);
+  /* V21.15.2: detailed account-statement overlay — null | {partyType, partyId} */
+  const [showStatement, setShowStatement] = useState(null);
   /* V21.9.120: settlement history for this contact (sorted recent-first). */
   const settlements = useMemo(
     () => contact.linkedFrom === "contact" ? getContactSettlements(contact.contactId, data) : [],
@@ -1030,6 +1033,11 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
                     <> · مدفوع: −{fmt(ledger.customer.payCash + ledger.customer.payCheck + ledger.customer.payOther)}</>
                   )}
                 </div>
+                {linkedIds.customer && (
+                  <div style={{marginTop: 6, paddingInlineStart: 26}}>
+                    <Btn small ghost onClick={() => setShowStatement({ partyType: "customer", partyId: linkedIds.customer })}>📊 كشف حساب تفصيلي</Btn>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1050,6 +1058,11 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
                 <div style={{fontSize: FS-3, color: T.textMut, marginTop: 4, lineHeight: 1.6, paddingInlineStart: 26}}>
                   مشتريات: {fmt(ledger.supplier.totalInvoiced)} · مدفوع: −{fmt(ledger.supplier.totalPaid)}
                 </div>
+                {linkedIds.supplier && (
+                  <div style={{marginTop: 6, paddingInlineStart: 26}}>
+                    <Btn small ghost onClick={() => setShowStatement({ partyType: "supplier", partyId: linkedIds.supplier })}>📊 كشف حساب تفصيلي</Btn>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1292,6 +1305,26 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
         }}
         onCancel={() => setShowAddType(false)}
       />
+    )}
+    {/* V21.15.2: detailed account-statement overlay (مدين/دائن/رصيد تراكمي) */}
+    {showStatement && (
+      <div style={{
+        position:"fixed", inset:0, zIndex:100001,
+        background:"rgba(15,23,42,0.6)",
+        display:"flex", alignItems:"flex-start", justifyContent:"center",
+        padding:isMob?6:20, direction:"rtl", fontFamily:"'Cairo',sans-serif", overflowY:"auto",
+      }} onClick={(e) => { if(e.target === e.currentTarget) setShowStatement(null); }}>
+        <div onClick={(e) => e.stopPropagation()} style={{
+          background: T.cardSolid, borderRadius: 16, width:"100%", maxWidth: 1000,
+          padding: isMob?14:22, boxShadow:"0 20px 60px rgba(0,0,0,0.35)",
+          border:"1px solid "+T.brd, margin:"auto",
+        }}>
+          <div style={{display:"flex", justifyContent:"flex-end", marginBottom:8}}>
+            <Btn small ghost onClick={() => setShowStatement(null)}>✕ إغلاق</Btn>
+          </div>
+          <AccountStatementView data={data} partyType={showStatement.partyType} isMob={isMob} fixedPartyId={showStatement.partyId} />
+        </div>
+      </div>
     )}
     </>
   );

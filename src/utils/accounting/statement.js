@@ -78,7 +78,7 @@ function gatherCustomerEntries(data, custId, mode){
       entries.push({ date: inv.date, createdAt: inv.createdAt, type: "sales_invoice", ref: inv.invoiceNo, refId: inv.id,
         desc: "مبيعات — فاتورة " + (inv.invoiceNo || ""),
         sub: (inv.items || []).length + " بند" + (disc > 0 ? " · قبل الخصم " + fmt(subtotal) + " · بعد الخصم " + fmt(total) : ""),
-        debit: total, credit: 0, draft, raw: inv });
+        debit: total, credit: 0, draft, detail: { kind: "invoice", items: inv.items || [] }, raw: inv });
     });
     (data.salesCreditNotes || []).forEach(cn => {
       if(cn.customerId !== custId || cn.status === "void") return;
@@ -104,9 +104,10 @@ function gatherCustomerEntries(data, custId, mode){
         list.forEach(e => {
           const qty = Number(e.qty) || 0; if(qty <= 0) return;
           const sid = e.sessionId || e.sessId || ("بدون جلسة — " + (e.date || "؟"));
-          if(!groups[sid]) groups[sid] = { sessionId: sid, date: e.date || "", qty: 0, value: 0, valueAfterDisc: 0 };
+          if(!groups[sid]) groups[sid] = { sessionId: sid, date: e.date || "", qty: 0, value: 0, valueAfterDisc: 0, lines: [] };
           const price = Number(e.price) || sp; const gross = qty * price; const dPct = pickDiscPct(e);
           groups[sid].qty += qty; groups[sid].value += gross; groups[sid].valueAfterDisc += Math.round(gross * (1 - dPct / 100));
+          groups[sid].lines.push({ modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "", qty, price: r2(price), gross: r2(gross), dPct, net: Math.round(gross * (1 - dPct / 100)) });
           if(e.date && (!groups[sid].date || e.date < groups[sid].date)) groups[sid].date = e.date;
         });
       });
@@ -118,13 +119,13 @@ function gatherCustomerEntries(data, custId, mode){
       entries.push({ date: g.date, type: "delivery", ref: "#" + g.invoiceNo, refId: g.sessionId, order: g.invoiceNo,
         desc: "مبيعات — تسليم #" + g.invoiceNo,
         sub: fmt(g.qty) + " قطعة · قبل الخصم " + fmt(r2(g.value)) + " · بعد الخصم " + fmt(r2(g.valueAfterDisc)),
-        debit: r2(g.valueAfterDisc), credit: 0, raw: g });
+        debit: r2(g.valueAfterDisc), credit: 0, detail: { kind: "session", lines: g.lines }, raw: g });
     });
     buildGroups("return").forEach(g => {
       entries.push({ date: g.date, type: "return", ref: "#" + g.invoiceNo, refId: g.sessionId, order: g.invoiceNo,
         desc: "مرتجع — #" + g.invoiceNo,
         sub: fmt(g.qty) + " قطعة · قبل الخصم " + fmt(r2(g.value)) + " · بعد الخصم " + fmt(r2(g.valueAfterDisc)),
-        debit: 0, credit: r2(g.valueAfterDisc), raw: g });
+        debit: 0, credit: r2(g.valueAfterDisc), detail: { kind: "session", lines: g.lines }, raw: g });
     });
   }
   return entries.concat(gatherCustomerPayments(data, custId));
@@ -142,7 +143,7 @@ function gatherSupplierEntries(data, supId, mode){
       entries.push({ date: inv.date, createdAt: inv.createdAt, type: "purchase_invoice", ref: inv.invoiceNo, refId: inv.id,
         desc: "مشتريات — فاتورة " + (inv.invoiceNo || ""),
         sub: (inv.items || []).length + " بند" + (disc > 0 ? " · قبل الخصم " + fmt(subtotal) + " · بعد الخصم " + fmt(total) : ""),
-        debit: total, credit: 0, draft, raw: inv });
+        debit: total, credit: 0, draft, detail: { kind: "invoice", items: inv.items || [] }, raw: inv });
     });
     (data.purchaseDebitNotes || []).forEach(dn => {
       if(dn.supplierId !== supId || dn.status === "void") return;
@@ -162,7 +163,7 @@ function gatherSupplierEntries(data, supId, mode){
     (data.purchaseReceipts || []).forEach(rc => {
       if(rc.supplierId !== supId) return;
       entries.push({ date: rc.date, createdAt: rc.createdAt, type: "receipt", ref: rc.receiptNo, refId: rc.id,
-        desc: "مشتريات — استلام " + (rc.receiptNo || ""), sub: (rc.items || []).length + " بند", debit: r2(Number(rc.totalAmount) || 0), credit: 0, raw: rc });
+        desc: "مشتريات — استلام " + (rc.receiptNo || ""), sub: (rc.items || []).length + " بند", debit: r2(Number(rc.totalAmount) || 0), credit: 0, detail: { kind: "invoice", items: rc.items || [] }, raw: rc });
       const paid = r2(Number(rc.paidAmount) || 0);
       if(paid > 0) entries.push({ date: rc.date, createdAt: rc.createdAt, type: "receipt_paid", ref: rc.receiptNo, refId: rc.id,
         desc: "مدفوع عند الاستلام " + (rc.receiptNo || ""), debit: 0, credit: paid, order: 1, raw: rc });

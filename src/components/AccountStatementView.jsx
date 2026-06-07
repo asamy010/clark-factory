@@ -35,6 +35,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const [invNo, setInvNo] = useState("");
   const [tf, setTf] = useState({ invoices: true, returns: true, payments: true });
   const [openingOn, setOpeningOn] = useState(true);
+  const [drill, setDrill] = useState(null); /* row being drilled into */
 
   const party = parties.find(p => String(p.id) === String(partyId)) || (fixedPartyId != null ? parties.find(p => String(p.id) === String(fixedPartyId)) : null);
   const partyOpts = parties.filter(p => !p.archived).map(p => ({ value: p.id, label: p.name + (p.phone ? " — " + p.phone : "") }));
@@ -175,7 +176,9 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                       <div style={{ fontWeight: 600 }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</div>
                       {r.sub && <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>{r.sub}</div>}
                     </td>
-                    <td style={{ ...td, color: accent, fontWeight: 700 }}>{r.ref || ""}</td>
+                    <td style={td}>{r.detail ? (
+                      <span onClick={() => setDrill(r)} title="عرض التفاصيل" style={{ color: accent, fontWeight: 700, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}>{r.ref || "🔍"}</span>
+                    ) : <span style={{ color: accent, fontWeight: 700 }}>{r.ref || ""}</span>}</td>
                     <td style={{ ...td, color: r.debit ? T.text : T.textMut }}>{r.debit ? fmt(r.debit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, color: r.credit ? T.ok : T.textMut }}>{r.credit ? fmt(r.credit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, fontWeight: 800 }}>{r.draft ? "—" : fmt((r.balance || 0).toFixed(2))}</td>
@@ -191,6 +194,54 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
             </table>
           </div>
         </Card>
+      )}
+
+      {/* drill-down: تفاصيل التسليم/الفاتورة */}
+      {drill && (
+        <div onClick={() => setDrill(null)} style={{ position: "fixed", inset: 0, zIndex: 100002, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMob ? 8 : 24, overflowY: "auto", direction: "rtl" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 14, width: "100%", maxWidth: 640, padding: isMob ? 14 : 20, border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", margin: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent }}>{drill.desc}</div>
+              <Btn small ghost onClick={() => setDrill(null)}>✕</Btn>
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>{drill.date || ""}{drill.sub ? " · " + drill.sub : ""}</div>
+            <div style={{ overflowX: "auto" }}>
+              {drill.detail.kind === "session" ? (
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+                  <thead><tr style={{ background: accent }}>
+                    <th style={th}>الموديل</th><th style={th}>الكمية</th><th style={th}>السعر</th><th style={th}>قبل الخصم</th><th style={th}>خصم %</th><th style={th}>بعد الخصم</th>
+                  </tr></thead>
+                  <tbody>
+                    {(drill.detail.lines || []).map((ln, i) => (
+                      <tr key={i}>
+                        <td style={{ ...td, textAlign: "right" }}>{ln.modelNo}{ln.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {ln.modelDesc}</span> : ""}</td>
+                        <td style={td}>{fmt(ln.qty)}</td><td style={td}>{fmt(ln.price)}</td><td style={td}>{fmt(ln.gross)}</td>
+                        <td style={td}>{ln.dPct}%</td><td style={{ ...td, fontWeight: 700 }}>{fmt(ln.net)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+                  <thead><tr style={{ background: accent }}>
+                    <th style={th}>الصنف</th><th style={th}>الكمية</th><th style={th}>السعر</th><th style={th}>الإجمالي</th>
+                  </tr></thead>
+                  <tbody>
+                    {(drill.detail.items || []).map((it, i) => (
+                      <tr key={i}>
+                        <td style={{ ...td, textAlign: "right" }}>{it.name || it.modelNo || it.desc || "—"}</td>
+                        <td style={td}>{fmt(Number(it.qty) || 0)}</td>
+                        <td style={td}>{fmt(Number(it.unitPrice != null ? it.unitPrice : it.price) || 0)}</td>
+                        <td style={{ ...td, fontWeight: 700 }}>{fmt(Number(it.lineTotal != null ? it.lineTotal : (Number(it.qty) || 0) * (Number(it.unitPrice != null ? it.unitPrice : it.price) || 0)))}</td>
+                      </tr>
+                    ))}
+                    {(drill.detail.items || []).length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: T.textMut, padding: 18 }}>لا توجد بنود</td></tr>}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
