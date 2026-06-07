@@ -76,7 +76,13 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
           {phone && row("التليفون", phone)}
           {row("التاريخ", rfq.date)}
           {rfq.validUntil && row("مهلة الرد", rfq.validUntil)}
-          {isConverted && row("أمر الشراء", rfq.convertedToPoNo)}
+          {isConverted && (
+            <div onClick={() => { try { window.dispatchEvent(new CustomEvent("clark-open-purchase-tab", { detail: "orders" })); } catch(e) {} onClose(); }}
+              style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid " + T.brd, fontSize: FS - 1, cursor: "pointer" }}>
+              <span style={{ color: T.textSec }}>أمر الشراء</span>
+              <span style={{ color: "#10B981", fontWeight: 700 }}>{rfq.convertedToPoNo} ↗</span>
+            </div>
+          )}
 
           <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, margin: "14px 0 6px" }}>الأصناف ({(rfq.items || []).length})</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 1 }}>

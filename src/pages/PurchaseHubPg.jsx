@@ -74,6 +74,14 @@ export function PurchaseHubPg(props){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs.length]);
 
+  /* V21.12.2: cross-links — تبديل التاب من جوّه المستندات (PO ↔ RFQ ...) */
+  useEffect(() => {
+    const h = (e) => { const id = e?.detail; if(id && allowed(id)) setActive(id); };
+    window.addEventListener("clark-open-purchase-tab", h);
+    return () => window.removeEventListener("clark-open-purchase-tab", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.length]);
+
   /* حسابات لوحة النظرة العامة */
   const ov = useMemo(() => {
     const invoices = data.purchaseInvoices || [], receipts = data.purchaseReceipts || [];

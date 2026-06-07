@@ -24,6 +24,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
+import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts } from "../utils/purchase/purchaseOrders.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubView}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -691,6 +692,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       id:rcptId,receiptNo,
       supplierId:rcpt.supplierId,supplierName:supplier?.name||"",
       date:rcpt.date||today,
+      _poId:rcpt._poId||"", /* V21.12.2: ربط الاستلام بأمر الشراء (لحساب حالة الأمر) */
       items:validItems.map(it=>({
         itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,
         qty:Number(it.qty)||0,unit:it.unit||"",
@@ -1323,6 +1325,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <th style={TH}>رقم الأمر</th>
                 <th style={TH}>التاريخ</th>
                 <th style={TH}>المورد</th>
+                <th style={{...TH,textAlign:"center"}}>الحالة</th>
                 <th style={{...TH,textAlign:"center"}}>البنود</th>
                 <th style={{...TH,textAlign:"center"}}>الإجمالي</th>
                 <th style={{...TH,textAlign:"center"}}>الإجراءات</th>
@@ -1332,6 +1335,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                   <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.poNo}</td>
                   <td style={{...TD}}>{p.date}</td>
                   <td style={{...TD,fontWeight:600}}>{p.supplierName||"—"}</td>
+                  <td style={{...TD,textAlign:"center"}}>{(()=>{const st=computePoStatus(p,purchaseReceipts);const m=PO_STATUS_META[st];return<span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:800,background:m.bg,color:m.color}}>{m.label}</span>})()}</td>
                   <td style={{...TD,textAlign:"center"}}>{(p.items||[]).length}</td>
                   <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(p.totalAmount))}</td>
                   <td style={{...TD,textAlign:"center"}} onClick={e=>e.stopPropagation()}>
@@ -2392,8 +2396,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:700,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
-            <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6"}}>📋 {viewPo.poNo}</div>
+            <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>📋 {viewPo.poNo}
+              {(()=>{const st=computePoStatus(viewPo,purchaseReceipts);const m=PO_STATUS_META[st];return<span style={{padding:"2px 10px",borderRadius:7,fontSize:FS-2,fontWeight:800,background:m.bg,color:m.color}}>{m.label}</span>})()}
+            </div>
             <div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>{viewPo.date} — {viewPo.supplierName||"—"}</div>
+            {viewPo._fromRfqNo&&<div onClick={()=>{try{window.dispatchEvent(new CustomEvent("clark-open-purchase-tab",{detail:"rfq"}))}catch(e){}setViewPo(null)}} style={{fontSize:FS-2,color:"#D97706",marginTop:2,cursor:"pointer",fontWeight:600}}>💬 من طلب عروض أسعار: <b>{viewPo._fromRfqNo}</b> ↗</div>}
           </div>
           <div style={{display:"flex",gap:6}}>
             {canEdit&&<>
@@ -2416,6 +2423,15 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           </div>
         </div>
         
+        {/* V21.12.2: تقدّم الاستلام + الاستلامات المرتبطة */}
+        {(()=>{const pr=poProgress(viewPo,purchaseReceipts);const pct=pr.ordered>0?Math.min(100,Math.round(pr.received/pr.ordered*100)):0;
+          return<div style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,color:T.textSec,marginBottom:4}}><span>📦 تقدّم الاستلام</span><span style={{fontWeight:800,color:T.text}}>{fmt(pr.received)} / {fmt(pr.ordered)} ({pct}%)</span></div>
+            <div style={{height:8,background:T.bg,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?T.ok:pct>0?T.warn:T.brd,borderRadius:4}}/></div>
+            {pr.linked.length>0&&<div style={{marginTop:8,fontSize:FS-2,color:T.textSec}}>📥 استلامات مرتبطة: <b style={{color:T.ok}}>{pr.linked.map(r=>r.receiptNo).join("، ")}</b></div>}
+          </div>;
+        })()}
+
         <div style={{marginBottom:14}}>
           <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:6}}>البنود المطلوبة</div>
           <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:8}}>
@@ -2443,6 +2459,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         {viewPo.notes&&<div style={{padding:10,background:"#F59E0B08",borderRadius:8,fontSize:FS-1,color:T.textSec,marginBottom:12}}>📝 {viewPo.notes}</div>}
         
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
+          {canEdit&&(viewPo.status==="cancelled"
+            ? <Btn small onClick={()=>{upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="";});setViewPo(v=>({...v,status:""}));showToast("✓ تم إعادة تنشيط الأمر");}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>↩️ إعادة تنشيط</Btn>
+            : <Btn small onClick={async()=>{if(!await ask("إلغاء أمر الشراء","تعليم الأمر كملغي؟ (مايتأثرش المخزون)",{danger:true,confirmText:"إلغاء الأمر"}))return;upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="cancelled";});setViewPo(v=>({...v,status:"cancelled"}));showToast("✓ تم إلغاء الأمر");}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🚫 إلغاء الأمر</Btn>
+          )}
           <Btn ghost onClick={()=>setViewPo(null)}>إغلاق</Btn>
         </div>
       </div>
