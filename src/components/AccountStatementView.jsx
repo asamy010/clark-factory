@@ -8,7 +8,7 @@ import { useState, useMemo } from "react";
 import { Btn, Card, Inp, SearchSel } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { fmt } from "../utils/format.js";
+import { fmt, r2 } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
 import { printPage } from "../utils/print.js";
@@ -44,6 +44,16 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     ? buildAccountStatement(data, { partyId: party.id, partyType, mode, fromDate, toDate, invoiceNoFilter: invNo, typeFilters: tf, includeOpening: openingOn })
     : null,
     [data, party, partyType, mode, fromDate, toDate, invNo, tf, openingOn]);
+
+  /* تسوية: مقارنة الرصيد الإجمالي (بدون فلاتر) بين الوضعين — لسرعة القرار.
+     الفرق غالباً = تسليمات/استلامات فعلية لسه ماترحّلتش لفواتير محاسبية. */
+  const recon = useMemo(() => {
+    if(!party) return null;
+    const acc = buildAccountStatement(data, { partyId: party.id, partyType, mode: "accounting" }).totals.closing;
+    const op = buildAccountStatement(data, { partyId: party.id, partyType, mode: "operational" }).totals.closing;
+    const diff = r2(op - acc);
+    return { acc, op, diff, match: Math.abs(diff) < 1 };
+  }, [data, party, partyType]);
 
   const resetFilters = () => { setFromDate(""); setToDate(""); setInvNo(""); setTf({ invoices: true, returns: true, payments: true }); setOpeningOn(true); };
 
@@ -133,6 +143,18 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
             <div key={m} onClick={() => setMode(m)} style={{ padding: "5px 14px", borderRadius: 7, fontSize: FS - 1, fontWeight: 700, cursor: "pointer", background: mode === m ? accent : "transparent", color: mode === m ? "#fff" : T.textSec }}>{l}</div>
           ))}
         </div>
+        {/* مؤشر التسوية تشغيلي ↔ محاسبي (لسرعة القرار) */}
+        {recon && (recon.match ? (
+          <div title={"تشغيلي: " + fmt(recon.op.toFixed(2)) + " · محاسبي: " + fmt(recon.acc.toFixed(2))}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 8, fontSize: FS - 2, fontWeight: 700, background: T.ok + "15", color: T.ok, border: "1px solid " + T.ok + "40" }}>
+            ✓ التشغيلي = المحاسبي
+          </div>
+        ) : (
+          <div title={"تشغيلي: " + fmt(recon.op.toFixed(2)) + " · محاسبي: " + fmt(recon.acc.toFixed(2)) + " · الفرق غالباً تسليمات لم تُرحّل لفواتير"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 8, fontSize: FS - 2, fontWeight: 800, background: T.err + "15", color: T.err, border: "1px solid " + T.err + "55" }}>
+            ⚠️ التشغيلي ≠ المحاسبي — فرق {fmt(Math.abs(recon.diff).toFixed(2))}
+          </div>
+        ))}
       </div>
 
       {/* الفلاتر */}
