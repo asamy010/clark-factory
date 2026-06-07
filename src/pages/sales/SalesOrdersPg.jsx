@@ -186,6 +186,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           userName={userName}
           onSave={handleCreateDirect}
           onClose={() => setShowForm(false)}
+          isMob={isMob}
         />
       )}
       {activeSO && !showForm && (

@@ -61,8 +61,10 @@ export function reserveQuotationNo(d){
 
 /* ── Totals ── */
 
-/* احسب إجماليات بند واحد (immutable — بيرجّع نسخة معدّلة). */
+/* احسب إجماليات بند واحد (immutable — بيرجّع نسخة معدّلة).
+   الأقسام (isSection) سطور عناوين بدون قيمة — بترجع بأصفار. */
 export function recalcLine(item){
+  if(item && item.isSection) return { ...item, isSection: true, qty: 0, unitPrice: 0, discountValue: 0, lineSubtotal: 0, lineDiscount: 0, lineTotal: 0 };
   const qty = Number(item.qty) || 0;
   const unitPrice = Number(item.unitPrice) || 0;
   const lineSubtotal = r2(qty * unitPrice);
@@ -97,8 +99,13 @@ export function validateQuotation(q){
   if(!hasCustomer) errors.push("اختر عميل أو اكتب اسم عميل");
   if(!q.date || !/^\d{4}-\d{2}-\d{2}$/.test(q.date)) errors.push("تاريخ العرض غير صالح");
   const items = Array.isArray(q.items) ? q.items : [];
-  if(items.length === 0) errors.push("أضف بند واحد على الأقل");
+  const realItems = items.filter(it => !(it && it.isSection));
+  if(realItems.length === 0) errors.push("أضف بند واحد على الأقل");
   items.forEach((it, i) => {
+    if(it && it.isSection){
+      if(!String(it.title || "").trim()) errors.push(`القسم ${i + 1}: محتاج عنوان`);
+      return;
+    }
     if(!(Number(it.qty) > 0)) errors.push(`البند ${i + 1}: الكمية لازم تكون أكبر من صفر`);
     if(Number(it.unitPrice) < 0) errors.push(`البند ${i + 1}: السعر غير صالح`);
     if(!String(it.modelNo || it.description || "").trim()) errors.push(`البند ${i + 1}: محتاج وصف أو موديل`);

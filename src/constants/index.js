@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.16.4";
+export const APP_VERSION = "V21.17.0";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders

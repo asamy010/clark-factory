@@ -11,6 +11,7 @@ import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { showToast } from "../../utils/popups.js";
 import { recalcQuotationTotals, validateQuotation, nextQuotationNo } from "../../utils/sales/quotations.js";
+import { DocLineEditor } from "./DocLineEditor.jsx";
 
 const SOURCE_LABELS = {
   order: "📋 أوردر",
@@ -20,7 +21,7 @@ const SOURCE_LABELS = {
 };
 
 const emptyItem = () => ({
-  sourceType: "service", sourceId: "", modelNo: "", description: "",
+  sourceType: "service", sourceId: "", modelNo: "", description: "", unit: "",
   qty: 1, unitPrice: 0, discountType: "pct", discountValue: 0,
 });
 
@@ -30,7 +31,7 @@ function _addDays(iso, n){
   return new Date(t + n * 86400000).toISOString().split("T")[0];
 }
 
-export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, userName, onSave, onClose, mode = "quote", previewNo }){
+export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, userName, onSave, onClose, mode = "quote", previewNo, isMob = false }){
   const isOrder = mode === "order";
   const customers = useMemo(() => (data.customers || []).filter(c => !c.archived), [data.customers]);
   const orders = data.orders || [];
@@ -56,24 +57,20 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
     [items, discountPct]
   );
 
-  const setItem = (idx, patch) => setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
-  const addItem = () => setItems(prev => [...prev, emptyItem()]);
-  const removeItem = (idx) => setItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
-
-  /* when source picked → autofill name + price */
-  const pickSource = (idx, sourceType, sourceId) => {
-    let modelNo = "", description = "", unitPrice = items[idx].unitPrice;
+  /* عند اختيار مصدر → autofill الاسم + السعر + الوحدة (يُستهلك من DocLineEditor) */
+  const resolveSource = (sourceType, sourceId, cur) => {
+    let modelNo = "", description = "", unitPrice = cur?.unitPrice, unit = cur?.unit || "";
     if(sourceType === "order"){
       const o = orders.find(x => x.id === sourceId);
-      if(o){ modelNo = o.modelNo || ""; description = o.modelDesc || ""; unitPrice = Number(o.sellPrice) || unitPrice; }
+      if(o){ modelNo = o.modelNo || ""; description = o.modelDesc || ""; unitPrice = Number(o.sellPrice) || unitPrice; if(!unit) unit = "قطعة"; }
     } else if(sourceType === "inventoryItem"){
       const it = inventoryItems.find(x => x.id === sourceId);
-      if(it){ modelNo = it.name || ""; description = it.type || ""; unitPrice = Number(it.price ?? it.sellPrice ?? 0) || unitPrice; }
+      if(it){ modelNo = it.name || ""; description = it.type || ""; unitPrice = Number(it.price ?? it.sellPrice ?? 0) || unitPrice; unit = it.unit || unit; }
     } else if(sourceType === "generalProduct"){
       const p = generalProducts.find(x => x.id === sourceId);
-      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; unitPrice = Number(p.price ?? p.sellPrice ?? 0) || unitPrice; }
+      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; unitPrice = Number(p.price ?? p.sellPrice ?? 0) || unitPrice; unit = p.unit || unit; }
     }
-    setItem(idx, { sourceId, modelNo, description, unitPrice });
+    return { modelNo, description, unitPrice, unit };
   };
 
   const sourceOptions = (sourceType) => {
@@ -126,49 +123,9 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
             {!isOrder && <div><label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>صالح حتى</label><Inp type="date" value={validUntil} onChange={setValidUntil} /></div>}
           </div>
 
-          {/* البنود */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: FS, color: T.text }}>📦 البنود</div>
-            <Btn ghost small onClick={addItem}>+ بند</Btn>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map((it, idx) => (
-              <div key={idx} style={{ border: "1px solid " + T.brd, borderRadius: 10, padding: 10, background: T.bg }}>
-                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr auto", gap: 8, alignItems: "end" }}>
-                  <div>
-                    <label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>المصدر</label>
-                    <Sel value={it.sourceType} onChange={v => setItem(idx, { sourceType: v, sourceId: "", modelNo: v === "service" ? it.modelNo : "", description: "" })}>
-                      {Object.entries(SOURCE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                    </Sel>
-                  </div>
-                  <div>
-                    {it.sourceType === "service" ? (
-                      <>
-                        <label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>الوصف</label>
-                        <Inp value={it.description || it.modelNo} onChange={v => setItem(idx, { description: v, modelNo: v })} placeholder="وصف الخدمة/البند..." />
-                      </>
-                    ) : (
-                      <>
-                        <label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>اختر {SOURCE_LABELS[it.sourceType]}</label>
-                        <SearchSel value={it.sourceId} onChange={v => pickSource(idx, it.sourceType, v)} options={sourceOptions(it.sourceType)} placeholder="ابحث..." showAllOnFocus maxResults={10} />
-                      </>
-                    )}
-                  </div>
-                  <Btn ghost small onClick={() => removeItem(idx)} style={{ color: T.err }}>🗑</Btn>
-                </div>
-                {it.sourceType !== "service" && (it.modelNo || it.description) && (
-                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>{it.modelNo}{it.description ? " — " + it.description : ""}</div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 8, marginTop: 8, alignItems: "end" }}>
-                  <div><label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>كمية</label><Inp type="number" value={it.qty} onChange={v => setItem(idx, { qty: v })} /></div>
-                  <div><label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>سعر الوحدة</label><Inp type="number" value={it.unitPrice} onChange={v => setItem(idx, { unitPrice: v })} /></div>
-                  <div><label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>نوع الخصم</label><Sel value={it.discountType} onChange={v => setItem(idx, { discountType: v })}><option value="pct">%</option><option value="amount">مبلغ</option></Sel></div>
-                  <div><label style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>قيمة الخصم</label><Inp type="number" value={it.discountValue} onChange={v => setItem(idx, { discountValue: v })} /></div>
-                  <div style={{ fontWeight: 800, color: T.text, fontSize: FS, paddingBottom: 6, whiteSpace: "nowrap" }}>{fmt(recalcLineTotal(it))}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* البنود — محرّر Odoo-style (DocLineEditor) */}
+          <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 8 }}>📦 البنود</div>
+          <DocLineEditor items={items} setItems={setItems} sourceLabels={SOURCE_LABELS} sourceOptions={sourceOptions} resolveSource={resolveSource} isMob={isMob} accent="#0EA5E9" />
 
           {/* خصم الرأس + ملاحظات + إجماليات */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
@@ -194,15 +151,6 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
       </div>
     </div>
   );
-}
-
-/* inline line-total preview (mirrors recalcLine without importing — qty*price-discount) */
-function recalcLineTotal(it){
-  const qty = Number(it.qty) || 0, up = Number(it.unitPrice) || 0;
-  const sub = qty * up;
-  const dv = Number(it.discountValue) || 0;
-  const disc = it.discountType === "amount" ? Math.min(Math.max(dv, 0), sub) : sub * (Math.min(Math.max(dv, 0), 100) / 100);
-  return Math.round((sub - disc) * 100) / 100;
 }
 
 function Row({ label, value, color, big }){

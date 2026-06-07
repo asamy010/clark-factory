@@ -56,9 +56,13 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onCrea
                 <th style={{ textAlign: "left", padding: "8px 10px" }}>الإجمالي</th>
               </tr></thead>
               <tbody>
-                {(so.items || []).map((it, i) => (
+                {(so.items || []).map((it, i) => it.isSection ? (
+                  <tr key={i} style={{ borderTop: "1px solid " + T.brd, background: "#0EA5E90c" }}>
+                    <td colSpan={4} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
+                  </tr>
+                ) : (
                   <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
-                    <td style={{ padding: "8px 10px", color: T.text }}>{it.modelNo || it.description || "—"}{it.sourceType === "inventoryItem" ? <span style={{ color: "#0EA5E9", fontSize: FS - 4 }}> 📦</span> : null}</td>
+                    <td style={{ padding: "8px 10px", color: T.text }}>{it.modelNo || it.description || "—"}{it.unit ? <span style={{ color: T.textMut, fontSize: FS - 4 }}> / {it.unit}</span> : null}{it.sourceType === "inventoryItem" ? <span style={{ color: "#0EA5E9", fontSize: FS - 4 }}> 📦</span> : null}</td>
                     <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.qty}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", color: T.textSec }}>{fmt(it.unitPrice)}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: T.text }}>{fmt(it.lineTotal)}</td>

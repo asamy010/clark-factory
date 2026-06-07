@@ -205,6 +205,7 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
           userName={userName}
           onSave={handleSave}
           onClose={() => { setShowForm(false); setEditQuote(null); }}
+          isMob={isMob}
         />
       )}
       {activeQuote && !showForm && (

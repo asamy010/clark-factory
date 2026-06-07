@@ -22,10 +22,13 @@ const STATUS_META = {
 
 function buildQuoteHTML(q, config){
   const brand = (config && config.factoryName) || "CLARK";
-  const rows = (q.items || []).map((it, i) => `
+  let _n = 0;
+  const rows = (q.items || []).map((it) => it.isSection ? `
+    <tr><td colspan="6" style="background:#F1F5F9;font-weight:800;color:#0369A1">📑 ${escapeHtml(it.title || "")}</td></tr>`
+    : `
     <tr>
-      <td style="text-align:center">${i + 1}</td>
-      <td>${escapeHtml((it.modelNo || "") + (it.description ? " — " + it.description : ""))}</td>
+      <td style="text-align:center">${++_n}</td>
+      <td>${escapeHtml((it.modelNo || "") + (it.description ? " — " + it.description : "") + (it.unit ? " (" + it.unit + ")" : ""))}</td>
       <td style="text-align:center">${it.qty}</td>
       <td style="text-align:left">${fmt(it.unitPrice)}</td>
       <td style="text-align:left">${it.lineDiscount ? "− " + fmt(it.lineDiscount) : "—"}</td>
@@ -101,7 +104,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
       "التاريخ: " + (quote.date || ""),
       "صالح حتى: " + (quote.validUntil || "—"),
       "",
-      ...(quote.items || []).map(it => "• " + (it.modelNo || it.description || "") + " × " + it.qty + " = " + fmt(it.lineTotal)),
+      ...(quote.items || []).map(it => it.isSection ? "📑 " + (it.title || "") : ("• " + (it.modelNo || it.description || "") + (it.unit ? " (" + it.unit + ")" : "") + " × " + it.qty + " = " + fmt(it.lineTotal))),
       "",
       "الإجمالي: " + fmt(quote.total),
     ];
@@ -142,9 +145,13 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
                 <th style={{ textAlign: "left", padding: "8px 10px" }}>الإجمالي</th>
               </tr></thead>
               <tbody>
-                {(quote.items || []).map((it, i) => (
+                {(quote.items || []).map((it, i) => it.isSection ? (
+                  <tr key={i} style={{ borderTop: "1px solid " + T.brd, background: "#0EA5E90c" }}>
+                    <td colSpan={4} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
+                  </tr>
+                ) : (
                   <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
-                    <td style={{ padding: "8px 10px", color: T.text }}>{(it.modelNo || it.description || "—")}{it.lineDiscount ? <span style={{ color: T.err, fontSize: FS - 4 }}> (خصم {fmt(it.lineDiscount)})</span> : null}</td>
+                    <td style={{ padding: "8px 10px", color: T.text }}>{(it.modelNo || it.description || "—")}{it.unit ? <span style={{ color: T.textMut, fontSize: FS - 4 }}> / {it.unit}</span> : null}{it.lineDiscount ? <span style={{ color: T.err, fontSize: FS - 4 }}> (خصم {fmt(it.lineDiscount)})</span> : null}</td>
                     <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.qty}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", color: T.textSec }}>{fmt(it.unitPrice)}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: T.text }}>{fmt(it.lineTotal)}</td>
