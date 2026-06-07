@@ -1,0 +1,224 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   CLARK · InventoryValuationReport (V21.16.0 — Phase 14a)
+   تقرير تقييم المخزون — قراءة فقط (view-only، صفر mutation).
+
+   kind="finished"  → المنتجات الجاهزة (هَب المبيعات): الكمية × سعر البيع
+                      (قيمة بيع) + الكمية × التكلفة المحسوبة (قيمة تكلفة) + الربح.
+                      الكمية = رصيد المخزن الجاهز = getConfirmedStock(o) −
+                      تسليمات العملاء (نفس معادلة orders.js:808-810).
+   kind="materials" → الخامات + الإكسسوار (هَب المشتريات): الرصيد ×
+                      (avgCost‖price) = قيمة التكلفة. (مواد خام بلا سعر بيع.)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+import { useMemo, useState } from "react";
+import { Btn, Card, Inp } from "../ui.jsx";
+import { T } from "../../theme.js";
+import { FS } from "../../constants/index.js";
+import { fmt, r2 } from "../../utils/format.js";
+import { getConfirmedStock, calcOrder } from "../../utils/orders.js";
+import { showToast } from "../../utils/popups.js";
+import { printPage } from "../../utils/print.js";
+import { exportExcel } from "../../utils/print-extras.js";
+
+export function InventoryValuationReport({ data, kind = "finished", isMob }){
+  const [q, setQ] = useState("");
+  const accent = kind === "finished" ? "#0EA5E9" : "#D97706";
+
+  /* ── المنتجات الجاهزة ── */
+  const finished = useMemo(() => {
+    if(kind !== "finished") return { rows: [], tot: {} };
+    const rows = [];
+    (data.orders || []).forEach(o => {
+      const stockDel = getConfirmedStock(o);
+      const custDel = (o.customerDeliveries || []).reduce((s, d) => s + (Number(d.qty) || 0), 0);
+      const qty = Math.max(0, stockDel - custDel);
+      if(qty <= 0) return;
+      const sell = Number(o.sellPrice) || 0;
+      let cost = 0; try { cost = Number(calcOrder(o).costPer) || 0; } catch(_) {}
+      rows.push({ id: o.id, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "", qty,
+        sell: r2(sell), cost: r2(cost), sellVal: r2(qty * sell), costVal: r2(qty * cost), profit: r2(qty * (sell - cost)) });
+    });
+    rows.sort((a, b) => b.sellVal - a.sellVal);
+    const tot = rows.reduce((t, r) => ({ qty: t.qty + r.qty, sellVal: r2(t.sellVal + r.sellVal), costVal: r2(t.costVal + r.costVal), profit: r2(t.profit + r.profit) }), { qty: 0, sellVal: 0, costVal: 0, profit: 0 });
+    return { rows, tot };
+  }, [kind, data.orders]);
+
+  /* ── الخامات + الإكسسوار ── */
+  const materials = useMemo(() => {
+    if(kind !== "materials") return [];
+    const mk = (arr, label, icon) => {
+      const rows = (arr || []).map(x => {
+        const qty = Number(x.stock) || 0;
+        const unitCost = Number(x.avgCost) || Number(x.price) || 0;
+        return { id: x.id, name: x.name || "—", qty, unit: x.unit || "", unitCost: r2(unitCost), value: r2(qty * unitCost) };
+      }).filter(r => r.qty !== 0);
+      rows.sort((a, b) => b.value - a.value);
+      return { label, icon, rows, total: r2(rows.reduce((s, r) => s + r.value, 0)), count: rows.length, qtyNeg: rows.some(r => r.qty < 0) };
+    };
+    return [mk(data.fabrics, "الخامات", "🧵"), mk(data.accessories, "الإكسسوار", "🧷")];
+  }, [kind, data.fabrics, data.accessories]);
+
+  const matchesQ = (s) => !q.trim() || String(s || "").toLowerCase().includes(q.trim().toLowerCase());
+  const fRows = finished.rows.filter(r => matchesQ(r.modelNo) || matchesQ(r.modelDesc));
+  const matFiltered = materials.map(sec => ({ ...sec, vRows: sec.rows.filter(r => matchesQ(r.name)) }));
+  const matGrand = r2(materials.reduce((s, sec) => s + sec.total, 0));
+
+  /* ── طباعة + Excel ── */
+  const doPrint = () => {
+    let h = `<h2 style="color:${accent};text-align:center">📈 تقييم المخزون — ${kind === "finished" ? "المنتجات الجاهزة" : "الخامات والإكسسوار"}</h2>`;
+    h += `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:10px">${new Date().toLocaleDateString("en-GB")}</div>`;
+    const tbl = (head, body, foot) => `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px"><thead><tr style="background:${accent};color:#fff">${head.map(x => `<th style="padding:6px;border:1px solid #cbd5e1">${x}</th>`).join("")}</tr></thead><tbody>${body}</tbody>${foot || ""}</table>`;
+    if(kind === "finished"){
+      const body = fRows.map(r => `<tr><td style="border:1px solid #e2e8f0;padding:5px">${r.modelNo}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.qty)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.sell)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.cost)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.sellVal)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.costVal)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.profit)}</td></tr>`).join("");
+      const foot = `<tfoot><tr style="background:#eff6ff;font-weight:800"><td style="padding:6px;border:1px solid #cbd5e1">الإجمالي (${fRows.length})</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(finished.tot.qty)}</td><td colspan="2" style="border:1px solid #cbd5e1"></td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(finished.tot.sellVal)}</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(finished.tot.costVal)}</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(finished.tot.profit)}</td></tr></tfoot>`;
+      h += tbl(["الموديل", "الكمية", "سعر البيع", "التكلفة", "قيمة البيع", "قيمة التكلفة", "الربح المتوقع"], body, foot);
+    } else {
+      matFiltered.forEach(sec => {
+        h += `<h3 style="color:${accent}">${sec.icon} ${sec.label}</h3>`;
+        const body = sec.vRows.map(r => `<tr><td style="border:1px solid #e2e8f0;padding:5px">${r.name}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.qty)} ${r.unit}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.unitCost)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.value)}</td></tr>`).join("");
+        const foot = `<tfoot><tr style="background:#fff7ed;font-weight:800"><td colspan="3" style="padding:6px;border:1px solid #cbd5e1">إجمالي ${sec.label} (${sec.vRows.length})</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(sec.total)}</td></tr></tfoot>`;
+        h += tbl(["الصنف", "الرصيد", "متوسط التكلفة", "القيمة"], body, foot);
+      });
+      h += `<h3 style="text-align:left;color:${accent}">الإجمالي الكلي: ${fmt(matGrand)} ج.م</h3>`;
+    }
+    printPage("تقييم المخزون", h, { factoryName: data.factoryName, logo: data.logo });
+  };
+
+  const doExcel = async () => {
+    try {
+      const aoa = [];
+      if(kind === "finished"){
+        aoa.push(["تقييم المخزون — المنتجات الجاهزة"], []);
+        aoa.push(["الموديل", "الكمية", "سعر البيع", "التكلفة", "قيمة البيع", "قيمة التكلفة", "الربح المتوقع"]);
+        fRows.forEach(r => aoa.push([r.modelNo, r.qty, r.sell, r.cost, r.sellVal, r.costVal, r.profit]));
+        aoa.push(["الإجمالي", finished.tot.qty, "", "", finished.tot.sellVal, finished.tot.costVal, finished.tot.profit]);
+      } else {
+        aoa.push(["تقييم المخزون — الخامات والإكسسوار"], []);
+        matFiltered.forEach(sec => {
+          aoa.push([sec.label]);
+          aoa.push(["الصنف", "الرصيد", "الوحدة", "متوسط التكلفة", "القيمة"]);
+          sec.vRows.forEach(r => aoa.push([r.name, r.qty, r.unit, r.unitCost, r.value]));
+          aoa.push(["إجمالي " + sec.label, "", "", "", sec.total], []);
+        });
+        aoa.push(["الإجمالي الكلي", "", "", "", matGrand]);
+      }
+      await exportExcel(aoa, "تقييم-المخزون-" + (kind === "finished" ? "جاهز" : "خامات"));
+    } catch(e){ showToast("⛔ تعذّر التصدير: " + (e?.message || e)); }
+  };
+
+  const th = { padding: "8px 6px", fontSize: FS - 2, fontWeight: 800, color: "#fff", textAlign: "center", whiteSpace: "nowrap" };
+  const td = { padding: "6px", fontSize: FS - 1, borderBottom: "1px solid " + T.brd, textAlign: "center" };
+
+  const KPI = ({ label, value, color, suffix }) => (
+    <div style={{ flex: 1, minWidth: 140, padding: "10px 14px", background: (color || accent) + "10", borderRadius: 10, border: "1px solid " + (color || accent) + "30" }}>
+      <div style={{ fontSize: FS - 3, color: T.textSec, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: FS + 4, fontWeight: 900, color: color || accent }}>{fmt(value)}<span style={{ fontSize: FS - 3, marginInlineStart: 4 }}>{suffix || "ج.م"}</span></div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontSize: FS + 2, fontWeight: 800, color: accent }}>📈 تقييم المخزون — {kind === "finished" ? "المنتجات الجاهزة" : "الخامات والإكسسوار"}</div>
+        <div style={{ marginInlineStart: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Btn small onClick={doPrint} style={{ background: T.accentBg, color: T.accent }}>🖨 طباعة</Btn>
+          <Btn small onClick={doExcel} style={{ background: "#10B98112", color: "#059669", border: "1px solid #10B98130" }}>📊 Excel</Btn>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      {kind === "finished" ? (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <KPI label="عدد الموديلات" value={finished.rows.length} color={T.textSec} suffix="موديل" />
+          <KPI label="إجمالي القطع" value={finished.tot.qty} color="#6366F1" suffix="قطعة" />
+          <KPI label="قيمة البيع (المتوقعة)" value={finished.tot.sellVal} color="#0EA5E9" />
+          <KPI label="قيمة التكلفة" value={finished.tot.costVal} color="#D97706" />
+          <KPI label="الربح المتوقع" value={finished.tot.profit} color="#10B981" />
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+          <KPI label="قيمة الخامات" value={materials[0]?.total || 0} color="#D97706" />
+          <KPI label="قيمة الإكسسوار" value={materials[1]?.total || 0} color="#8B5CF6" />
+          <KPI label="إجمالي قيمة المواد" value={matGrand} color="#0EA5E9" />
+        </div>
+      )}
+
+      <div style={{ marginBottom: 10, maxWidth: 320 }}>
+        <Inp value={q} onChange={setQ} placeholder={kind === "finished" ? "بحث بالموديل..." : "بحث بالصنف..."} />
+      </div>
+
+      {kind === "finished" ? (
+        <Card>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+              <thead><tr style={{ background: accent }}>
+                <th style={{ ...th, textAlign: "right" }}>الموديل</th><th style={th}>الكمية</th><th style={th}>سعر البيع</th><th style={th}>التكلفة</th>
+                <th style={th}>قيمة البيع</th><th style={th}>قيمة التكلفة</th><th style={th}>الربح المتوقع</th>
+              </tr></thead>
+              <tbody>
+                {fRows.length === 0 ? (
+                  <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: T.textMut, padding: 24 }}>لا يوجد مخزون جاهز</td></tr>
+                ) : fRows.map(r => (
+                  <tr key={r.id}>
+                    <td style={{ ...td, textAlign: "right" }}>{r.modelNo}{r.modelDesc && <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {r.modelDesc}</span>}</td>
+                    <td style={{ ...td, fontWeight: 700 }}>{fmt(r.qty)}</td>
+                    <td style={td}>{fmt(r.sell)}</td><td style={td}>{fmt(r.cost)}</td>
+                    <td style={{ ...td, color: "#0EA5E9", fontWeight: 700 }}>{fmt(r.sellVal)}</td>
+                    <td style={{ ...td, color: "#D97706" }}>{fmt(r.costVal)}</td>
+                    <td style={{ ...td, color: r.profit >= 0 ? T.ok : T.err, fontWeight: 700 }}>{fmt(r.profit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {fRows.length > 0 && <tfoot><tr style={{ background: T.accentBg }}>
+                <td style={{ ...td, textAlign: "right", fontWeight: 800, color: accent }}>الإجمالي ({fRows.length})</td>
+                <td style={{ ...td, fontWeight: 800 }}>{fmt(finished.tot.qty)}</td>
+                <td colSpan={2} style={td}></td>
+                <td style={{ ...td, fontWeight: 900, color: "#0EA5E9" }}>{fmt(finished.tot.sellVal)}</td>
+                <td style={{ ...td, fontWeight: 800, color: "#D97706" }}>{fmt(finished.tot.costVal)}</td>
+                <td style={{ ...td, fontWeight: 900, color: T.ok }}>{fmt(finished.tot.profit)}</td>
+              </tr></tfoot>}
+            </table>
+          </div>
+        </Card>
+      ) : (
+        <>
+          {matFiltered.map((sec, si) => (
+            <Card key={si} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent, marginBottom: 8 }}>{sec.icon} {sec.label} <span style={{ fontSize: FS - 2, color: T.textMut, fontWeight: 600 }}>({sec.vRows.length})</span></div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+                  <thead><tr style={{ background: accent }}>
+                    <th style={{ ...th, textAlign: "right" }}>الصنف</th><th style={th}>الرصيد</th><th style={th}>متوسط التكلفة</th><th style={th}>القيمة</th>
+                  </tr></thead>
+                  <tbody>
+                    {sec.vRows.length === 0 ? (
+                      <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: T.textMut, padding: 18 }}>لا يوجد رصيد</td></tr>
+                    ) : sec.vRows.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ ...td, textAlign: "right" }}>{r.name}</td>
+                        <td style={{ ...td, fontWeight: 700, color: r.qty < 0 ? T.err : T.text }}>{fmt(r.qty)} <span style={{ fontSize: FS - 3, color: T.textMut }}>{r.unit}</span></td>
+                        <td style={td}>{fmt(r.unitCost)}</td>
+                        <td style={{ ...td, fontWeight: 700, color: "#D97706" }}>{fmt(r.value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {sec.vRows.length > 0 && <tfoot><tr style={{ background: T.accentBg }}>
+                    <td colSpan={3} style={{ ...td, textAlign: "right", fontWeight: 800, color: accent }}>إجمالي {sec.label}</td>
+                    <td style={{ ...td, fontWeight: 900, color: "#D97706" }}>{fmt(sec.total)}</td>
+                  </tr></tfoot>}
+                </table>
+              </div>
+            </Card>
+          ))}
+          <Card style={{ background: accent + "10", border: "1px solid " + accent + "30" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent }}>💰 الإجمالي الكلي لقيمة المواد</div>
+              <div style={{ fontSize: FS + 5, fontWeight: 900, color: accent }}>{fmt(matGrand)} <span style={{ fontSize: FS - 2 }}>ج.م</span></div>
+            </div>
+            <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6 }}>* المواد الخام تُقيّم بالتكلفة (متوسط التكلفة ‖ السعر) — لا يوجد سعر بيع لها.</div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
