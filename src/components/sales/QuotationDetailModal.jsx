@@ -81,7 +81,9 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
   const ds = displayStatus(quote);
   const meta = STATUS_META[ds] || STATUS_META.draft;
   const canMutate = canEdit && quote.status !== "converted";
-  const canDelete = canEdit && ["draft", "rejected", "expired"].includes(ds);
+  /* V21.20.1: السماح بحذف العرض في أي حالة (حتى المتحوّل) — الحذف بيفكّ ربط
+     أمر البيع تلقائياً، وبعدها يبقى الأمر قابل للحذف. */
+  const canDelete = canEdit;
   /* V21.10.2: SO is "orphaned" if the quote points to one that no longer exists
      (partial write). Allow re-conversion in that case. */
   const soExists = !!(quote.convertedToSalesOrderId && (data?.salesOrders || []).some(s => s && s.id === quote.convertedToSalesOrderId));

@@ -386,3 +386,43 @@ export function cancelSalesOrderMutator(d, soId, userName, reason){
 
   return { ok: true };
 }
+
+/* V21.20.1: حذف أمر بيع نهائياً — بفاليديشن (مفيش فاتورة + مفيش عرض سعر مرتبط)
+   + عكس خصم المخزون من stockDeductions[]. يُمرّر داخل upConfig. {ok,error?} */
+export function deleteSalesOrderMutator(d, soId, userName){
+  if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
+  const so = d.salesOrders.find(x => x && x.id === soId);
+  if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  /* (1) ممنوع لو ليه فاتورة */
+  if(so.salesInvoiceId){
+    const inv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void");
+    if(inv) return { ok: false, error: "أمر البيع ليه فاتورة (" + (so.salesInvoiceNo || inv.invoiceNo || "") + ") — الغِ الفاتورة الأول" };
+  }
+  /* (2) ممنوع لو لسه متصل بعرض سعر موجود */
+  if(so.fromQuotationId){
+    const q = (d.salesQuotations || []).find(x => x && x.id === so.fromQuotationId);
+    if(q) return { ok: false, error: "أمر البيع متصل بعرض سعر (" + (so.fromQuotationNo || q.quoteNo || "") + ") — احذف عرض السعر الأول" };
+  }
+  const nowIso = new Date().toISOString();
+  const today = nowIso.split("T")[0];
+  /* عكس خصم المخزون (نفس آلية الإلغاء) */
+  if(so.stockDeducted && Array.isArray(so.stockDeductions) && so.stockDeductions.length > 0){
+    if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+    for(const ded of so.stockDeductions){
+      applyStockDelta(d, ded.categoryId, ded.itemId, +ded.qty, ded.unitCost || null);
+      d.stockMovements.push({ id: _mid(), type: "in", itemType: ded.categoryId, itemId: ded.itemId, itemName: ded.itemName || "",
+        qty: +ded.qty, unit: ded.unit || "", price: ded.unitCost || 0, date: today,
+        sourceType: "sales_order_delete", sourceId: so.id, notes: "حذف أمر بيع " + (so.orderNo || "") + " — استرجاع مخزون", createdBy: userName || "", createdAt: nowIso });
+    }
+  }
+  if(Array.isArray(so.orderMovements) && so.orderMovements.length > 0){
+    if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+    for(const om of so.orderMovements){
+      d.stockMovements.push({ id: _mid(), type: "in", itemType: "order", itemId: om.orderId, itemName: om.modelNo || om.orderId,
+        qty: +(Number(om.qty) || 0), unit: "قطعة", price: 0, date: today,
+        sourceType: "sales_order_delete", sourceId: so.id, notes: "حذف حجز موديل — " + (so.orderNo || ""), createdBy: userName || "", createdAt: nowIso });
+    }
+  }
+  d.salesOrders = d.salesOrders.filter(x => x && x.id !== soId);
+  return { ok: true };
+}

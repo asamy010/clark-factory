@@ -215,6 +215,13 @@ export function sendQuotationMutator(d, id, channel, userName){
 /* احذف عرض (نهائياً). يُسمح فقط للمسودات/المرفوضة/المنتهية في الـ UI. */
 export function deleteQuotationMutator(d, id){
   if(!Array.isArray(d.salesQuotations)) return false;
+  /* V21.20.1: لو العرض متحوّل لأمر بيع، فُكّ ربط الأمر (عشان ما يفضلش يشير
+     لعرض محذوف، ويبقى الأمر قابل للحذف بعد كده). */
+  const q = d.salesQuotations.find(x => x && x.id === id);
+  if(q && q.convertedToSalesOrderId && Array.isArray(d.salesOrders)){
+    const so = d.salesOrders.find(x => x && x.id === q.convertedToSalesOrderId);
+    if(so){ so.fromQuotationId = ""; so.fromQuotationNo = ""; }
+  }
   const before = d.salesQuotations.length;
   d.salesQuotations = d.salesQuotations.filter(x => x && x.id !== id);
   return d.salesQuotations.length < before;

@@ -18,7 +18,7 @@ const STATUS_META = {
   cancelled:         { label: "ملغي",         color: "#EF4444", bg: "#EF444415" },
 };
 
-export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onCreateInvoice, onClose }){
+export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDelete, onCreateInvoice, onClose }){
   if(!so) return null;
   const meta = STATUS_META[so.status] || STATUS_META.confirmed;
   const canCancel = canEdit && so.status !== "cancelled" && so.status !== "invoiced";
@@ -110,6 +110,7 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onCrea
 
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {canCancel && <Btn ghost small onClick={onCancelOrder} style={{ color: T.err }}>✗ إلغاء الأمر (استرجاع مخزون)</Btn>}
+          {canEdit && onDelete && <Btn ghost small onClick={onDelete} style={{ color: T.err }}>🗑 حذف الأمر</Btn>}
           {canInvoice
             ? <Btn small onClick={() => onCreateInvoice && onCreateInvoice(so)} style={{ background: "#8B5CF6", color: "#fff" }}>🧾 {invMissing ? "إعادة إنشاء فاتورة" : "إنشاء فاتورة"}</Btn>
             : invExists

@@ -10,7 +10,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
-import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
+import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
 import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
@@ -124,6 +124,15 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     else showToast("⛔ " + (res?.error || "تعذّر الإلغاء"));
   };
 
+  const handleDelete = async (so) => {
+    const ok = await ask("حذف أمر البيع", "حذف " + (so.orderNo || "الأمر") + " نهائياً؟" + (so.stockDeducted ? " (هيتم استرجاع المخزون المخصوم)" : ""), { danger: true, confirmText: "حذف" });
+    if(!ok) return;
+    let res = { ok: true };
+    upConfig(d => { res = deleteSalesOrderMutator(d, so.id, userName); });
+    if(res && res.ok){ setActiveSO(null); showToast("✓ تم حذف أمر البيع" + (so.stockDeducted ? " واسترجاع المخزون" : "")); }
+    else showToast("⛔ " + (res?.error || "تعذّر الحذف"));
+  };
+
   return (
     <div style={{ padding: isMob ? 12 : 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
@@ -195,6 +204,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           data={data}
           canEdit={canEdit}
           onCancelOrder={() => handleCancel(activeSO)}
+          onDelete={() => handleDelete(activeSO)}
           onCreateInvoice={() => handleCreateInvoice(activeSO)}
           onClose={() => setActiveSO(null)}
         />

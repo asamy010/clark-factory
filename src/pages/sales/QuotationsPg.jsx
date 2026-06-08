@@ -128,7 +128,7 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
   };
 
   const handleDelete = async (q) => {
-    const ok = await ask("حذف العرض", "متأكد تحذف " + (q.quoteNo || "العرض") + " نهائياً؟", { danger: true, confirmText: "حذف" });
+    const ok = await ask("حذف العرض", "متأكد تحذف " + (q.quoteNo || "العرض") + " نهائياً؟" + (q.convertedToSalesOrderId ? "\n\n⚠️ العرض متحوّل لأمر بيع " + (q.convertedToSalesOrderNo || "") + " — الحذف هيفكّ ربطه بالأمر (الأمر نفسه مش هيتحذف)." : ""), { danger: true, confirmText: "حذف" });
     if(!ok) return;
     upConfig(d => deleteQuotationMutator(d, q.id));
     setActiveQuote(null);
