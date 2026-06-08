@@ -24,6 +24,7 @@ import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
    queue inspection, activity log, and pause/resume controls. */
 import { bridge as waBridge } from "../utils/whatsappBridge.js";
+import { DocSizeCheckCard } from "./DocSizeCheckCard.jsx";
 
 export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   const [busy, setBusy] = useState(false);
@@ -973,6 +974,9 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
 
   return (
     <>
+      {/* V21.18.3: فحص أحجام الملفات السريع (حد 1 ميجا) */}
+      <DocSizeCheckCard isMob={isMob} />
+
       {/* V21.9.35: Bridge Status Card — live visibility for WhatsApp bridge.
           Surfaces waReady, queue state, daily cap, recent activity. The most
           actionable signal for "messages don't send" bugs. */}
