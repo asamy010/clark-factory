@@ -2596,7 +2596,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>})()}
     {/* ══ Sales Dashboard + Stale Alerts ══ */}
-    {(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);
+    {(!hubView||hubView==="overview")&&(()=>{const totalStock=stockModels.reduce((s,m)=>s+m.stockQty,0);const totalSold=stockModels.reduce((s,m)=>s+m.custDel,0);
       /* V19.70.22: filter avail > 0 to match the popup's totalAvail. Previously this
          summed ALL stockModels including over-sold ones (avail < 0) which made the
          dashboard tile show a smaller number than the popup's "الإجمالي" — the user
