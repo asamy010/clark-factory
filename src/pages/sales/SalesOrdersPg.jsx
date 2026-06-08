@@ -179,6 +179,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
                     <span style={{ fontWeight: 800, color: T.text, fontSize: FS }}>{o.orderNo}</span>
                     <span style={{ fontSize: FS - 4, fontWeight: 700, color: meta.color, background: meta.bg, padding: "1px 8px", borderRadius: 20 }}>{meta.label}</span>
                     {o.fromQuotationNo && <span style={{ fontSize: FS - 4, color: T.textMut }}>← {o.fromQuotationNo}</span>}
+                    {o.sourceDistributionId && <span style={{ fontSize: FS - 4, fontWeight: 700, color: "#059669", background: "#10B98112", padding: "1px 8px", borderRadius: 20 }} title="متولّد من توزيعة (مرآة مقفولة)">🧾 {o.distributionNo || "توزيعة"}</span>}
                   </div>
                   <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {o.customerName || o.customerNameAdHoc || "—"} · {o.date}

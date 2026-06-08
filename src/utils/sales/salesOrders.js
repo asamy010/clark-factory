@@ -212,6 +212,98 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
   return { ok: true, salesOrder: so };
 }
 
+/* ── Generate mirror Sales Orders from a delivery session (V21.21.1) ──
+   «أمر البيع = البيع»: عند تأكيد توزيعة بنولّد أمر بيع لكل عميل في الجلسة،
+   بنفس بنود التسليم المؤكّد (orders[].customerDeliveries بالـ sessionId).
+
+   ⚠️ قرار Ahmed: التوزيعة هي مصدر الحقيقة للرصيد + المخزون. الأمر المتولّد
+   هنا = «مرآة مستندية مقفولة» (isDistributionMirror) — بيظهر في سجل أوامر
+   البيع وينفع يتفوتر، لكنه لا يخصم مخزون ولا يُحتسب تاني في الكشف التشغيلي
+   (كود V21.21.0 بيتخطّى أي SO له sourceDistributionId — التوزيعة بتتحسب).
+
+   Idempotent (upsert): المفتاح sourceDistributionId = `${sessionId}:${custId}`.
+   إعادة التأكيد بتزامن المرآة مع التوزيعة الحالية. لو المرآة متفوترة أو ملغية
+   مابنلمسهاش (قفل). بيرجّع { ok, created, updated, skipped }. */
+export function generateSalesOrdersFromSessionMutator(d, sessionId, userName){
+  if(!sessionId) return { ok: false, error: "رقم التوزيعة مفقود" };
+  const orders = Array.isArray(d.orders) ? d.orders : [];
+  const customers = Array.isArray(d.customers) ? d.customers : [];
+  if(!Array.isArray(d.salesOrders)) d.salesOrders = [];
+  const nowIso = new Date().toISOString();
+  const sess = (d.custDeliverySessions || []).find(s => s && s.id === sessionId) || null;
+  const distLabel = "توزيعة " + (sess?.date || "") + " · " + String(sessionId).slice(-5);
+
+  /* اجمع بنود التسليم المؤكّد per-customer لهذه الجلسة (بند لكل سطر تسليم —
+     عشان الإجمالي يطابق المدين التشغيلي بالظبط، بما فيه الخصم per-line). */
+  const byCust = {}; /* custId → { lines:[], date } */
+  orders.forEach(o => {
+    const sp = Number(o.sellPrice) || 0;
+    (o.customerDeliveries || []).forEach(e => {
+      if(!e || e.sessionId !== sessionId) return;
+      const qty = Number(e.qty) || 0; if(qty <= 0) return;
+      const custId = e.custId; if(!custId) return;
+      const cust = customers.find(c => c.id === custId);
+      let disc = 10;
+      if(e.discPct != null && !isNaN(Number(e.discPct))) disc = Number(e.discPct);
+      else if(cust && cust.discount != null && !isNaN(Number(cust.discount))) disc = Number(cust.discount);
+      if(!byCust[custId]) byCust[custId] = { lines: [], date: e.date || (sess?.date) || nowIso.split("T")[0] };
+      byCust[custId].lines.push({
+        sourceType: "order", sourceId: o.id, modelNo: o.modelNo || "—", description: o.modelDesc || "",
+        qty, unitPrice: Number(e.price) || sp, discountType: "pct", discountValue: disc,
+      });
+      if(e.date && e.date < byCust[custId].date) byCust[custId].date = e.date;
+    });
+  });
+
+  let created = 0, updated = 0, skipped = 0;
+  for(const custId of Object.keys(byCust)){
+    const grp = byCust[custId];
+    const cust = customers.find(c => c.id === custId);
+    const srcKey = sessionId + ":" + custId;
+    const totals = recalcQuotationTotals({ items: grp.lines, discountPct: 0 });
+    const existing = d.salesOrders.find(s => s && s.sourceDistributionId === srcKey);
+    if(existing){
+      /* قفل: مرآة متفوترة أو ملغية مابنزامنهاش */
+      if(existing.status === "cancelled"){ skipped++; continue; }
+      if(existing.salesInvoiceId){
+        const inv = (d.salesInvoices || []).find(i => i && i.id === existing.salesInvoiceId && i.status !== "void");
+        if(inv){ skipped++; continue; }
+      }
+      existing.items = totals.items;
+      existing.subtotal = totals.subtotal; existing.discountPct = 0;
+      existing.totalDiscount = totals.totalDiscount; existing.total = totals.total;
+      existing.customerName = cust?.name || existing.customerName;
+      existing.customerPhone = cust?.phone || existing.customerPhone;
+      existing.date = grp.date || existing.date;
+      existing.updatedAt = nowIso; existing.updatedBy = userName || "";
+      if(!Array.isArray(existing.statusHistory)) existing.statusHistory = [];
+      existing.statusHistory.push({ from: existing.status, to: existing.status, at: nowIso, by: userName || "", note: "مزامنة من التوزيعة" });
+      updated++;
+      continue;
+    }
+    const orderNo = reserveSalesOrderNo(d);
+    const so = {
+      id: _gid(), orderNo, date: grp.date,
+      customerId: custId, customerName: cust?.name || "", customerPhone: cust?.phone || "", customerNameAdHoc: "",
+      items: totals.items,
+      subtotal: totals.subtotal, discountPct: 0, totalDiscount: totals.totalDiscount, total: totals.total,
+      status: "delivered",
+      /* mirror flags — التوزيعة مصدر الحقيقة، ده مستند فقط (مش بيُحتسب في V21.21.0) */
+      isDistributionMirror: true, sourceDistributionId: srcKey, sourceSessionId: sessionId, distributionNo: distLabel,
+      fromQuotationId: "", fromQuotationNo: "", salesInvoiceId: "", salesInvoiceNo: "",
+      stockDeducted: false, stockDeductions: [], orderMovements: [], stockMovementIds: [],
+      stockDeductedAt: "", stockDeductedBy: "",
+      cancelReason: "", cancelledAt: "", cancelledBy: "",
+      statusHistory: [{ from: "", to: "delivered", at: nowIso, by: userName || "", note: "متولّد من " + distLabel }],
+      notes: "", salesPerson: userName || "", createdAt: nowIso, createdBy: userName || "",
+    };
+    d.salesOrders.unshift(so);
+    created++;
+  }
+  if(created === 0 && updated === 0 && skipped === 0) return { ok: false, error: "مفيش تسليمات مؤكّدة في التوزيعة دي" };
+  return { ok: true, created, updated, skipped };
+}
+
 /* ── Create Sales Order DIRECTLY (standalone, not from a quotation) ──
    V21.10.8 (#2). نفس منطق التحويل بس من غير عرض مصدر. بيرجّع {ok,error?,salesOrder?}. */
 export function createSalesOrderDirectMutator(d, payload, userName, opts = {}){
@@ -262,6 +354,7 @@ export function editSalesOrderMutator(d, soId, payload, userName, opts = {}){
   if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
   const so = d.salesOrders.find(x => x && x.id === soId);
   if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  if(so.sourceDistributionId || so.isDistributionMirror) return { ok: false, error: "أمر متولّد من توزيعة (مرآة مقفولة) — عدّل على التوزيعة نفسها وأعد التأكيد" };
   if(so.status === "cancelled") return { ok: false, error: "أمر البيع ملغي — لا يمكن تعديله" };
   if(so.salesInvoiceId){
     const inv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void");

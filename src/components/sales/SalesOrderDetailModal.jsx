@@ -30,7 +30,8 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
   const invExists = !!(so.salesInvoiceId && (data?.salesInvoices || []).some(i => i && i.id === so.salesInvoiceId));
   const invMissing = !!so.salesInvoiceId && !invExists;
   const canInvoice = canEdit && so.status !== "cancelled" && !invExists;
-  const canEditOrder = canEdit && so.status !== "cancelled" && !invExists; /* مايتعدّلش لو ملغي أو مفوتر */
+  const isMirror = !!so.sourceDistributionId; /* V21.21.1: مرآة توزيعة — مقفولة للتعديل */
+  const canEditOrder = canEdit && so.status !== "cancelled" && !invExists && !isMirror; /* مايتعدّلش لو ملغي أو مفوتر أو مرآة توزيعة */
   const [sendWa, setSendWa] = useState(false);
 
   return (<>
@@ -45,6 +46,7 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
         </div>
 
         <div style={{ padding: 18 }}>
+          {isMirror && <div style={{ background: "#10B98110", border: "1px solid #10B98130", color: "#047857", borderRadius: 10, padding: "8px 12px", fontSize: FS - 2, marginBottom: 12, fontWeight: 600 }}>🧾 أمر متولّد من {so.distributionNo || "توزيعة"} (مرآة مقفولة). التوزيعة هي مصدر الرصيد والمخزون — للتعديل عدّل التوزيعة وأعد التأكيد.</div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: FS - 1, marginBottom: 14 }}>
             <div><span style={{ color: T.textMut }}>العميل: </span><b style={{ color: T.text }}>{so.customerName || so.customerNameAdHoc || "—"}</b></div>
             <div><span style={{ color: T.textMut }}>الهاتف: </span><span style={{ color: T.text }}>{so.customerPhone || "—"}</span></div>

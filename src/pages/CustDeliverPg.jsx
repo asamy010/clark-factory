@@ -29,6 +29,7 @@ import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
+import { generateSalesOrdersFromSessionMutator } from "../utils/sales/salesOrders.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 /* V21.9.105: Universal Tagging — Slice 4b Customer integration. TagPicker
    for edit form, TagFilter + TagChips for list view. Manager+Admin only
@@ -496,7 +497,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
   /* V21.20.5: كميات أوامر البيع المحجوزة لكل موديل («أمر البيع = بيع» يخصم المتاح). */
-  const soReservedByOrder=useMemo(()=>{const m={};(data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled")return;(so.items||[]).forEach(it=>{if(it&&it.sourceType==="order"&&it.sourceId){m[it.sourceId]=(m[it.sourceId]||0)+(Number(it.qty)||0)}})});return m},[data.salesOrders]);
+  const soReservedByOrder=useMemo(()=>{const m={};(data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled")return;if(so.sourceDistributionId)return;/* V21.21.1: مرآة توزيعة — التوزيعة بتخصم بالفعل */(so.items||[]).forEach(it=>{if(it&&it.sourceType==="order"&&it.sourceId){m[it.sourceId]=(m[it.sourceId]||0)+(Number(it.qty)||0)}})});return m},[data.salesOrders]);
   const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=(cd-ret)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:net,avail:sd-net,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders,soReservedByOrder]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
@@ -783,6 +784,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V15.32: Get merged quantity for a grouped model + customer (sums across sub-orders) */
   const getGroupQtyForPrint=(group,custId,grid)=>{
     return group.orderIds.reduce((s,oid)=>s+(Number(grid[oid+"_"+custId])||0),0);
+  };
+
+  /* V21.21.1: «تأكيد البيع» — يولّد أمر بيع (مرآة مقفولة) لكل عميل في التوزيعة.
+     التوزيعة تفضل مصدر الرصيد والمخزون؛ الأمر مستند عرض/فوترة فقط. idempotent. */
+  const confirmSessionSalesOrders=async(sessId)=>{
+    const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
+    const yes=await ask("تأكيد البيع وإنشاء أوامر بيع","هنولّد أمر بيع لكل عميل في التوزيعة دي (مرآة مستندية — التوزيعة تفضل مصدر الرصيد والمخزون، فمفيش حساب مزدوج). إعادة التأكيد بتزامن الأوامر غير المفوترة مع التوزيعة. تكمل؟");
+    if(!yes)return;
+    let res;await upSales(d=>{res=generateSalesOrdersFromSessionMutator(d,sessId,userName)});
+    if(res&&res.ok){const parts=[];if(res.created)parts.push("اتعمل "+res.created+" أمر بيع");if(res.updated)parts.push("اتزامن "+res.updated);if(res.skipped)parts.push("متخطّي "+res.skipped+" (مقفول)");showToast("✅ "+(parts.join(" · ")||"تم"));}
+    else showToast("⛔ "+((res&&res.error)||"فشل توليد أوامر البيع"));
   };
 
   const printSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
@@ -3710,6 +3722,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                 <select value={st} onChange={e=>updateSessStatus(s.id,e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",fontWeight:700,background:T.bg,color:stColor,cursor:"pointer"}}>{SESS_STATUSES.map(ss=><option key={ss} value={ss}>{ss}</option>)}</select>
+                {(()=>{const hasSales=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===s.id));return hasSales?<Btn small onClick={()=>confirmSessionSalesOrders(s.id)} style={{background:"#10B98115",color:"#059669",border:"1px solid #10B98140"}} title="تأكيد البيع — توليد أوامر بيع من التوزيعة">🧾</Btn>:null})()}
                 <Btn small onClick={()=>printSession(s.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
                 {canEdit&&<DelBtn onConfirm={()=>delSession(s.id)} blocked={(()=>{const hs=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===s.id));return hs?"بها حركات بيع":null})()}/>}
               </div>

@@ -107,6 +107,7 @@ export function buildCustomerSummary(custId, data) {
   let salesOrdersNet = 0;
   (data.salesOrders || []).forEach(so => {
     if(!so || so.status === "cancelled") return;
+    if(so.sourceDistributionId) return; /* V21.21.1: مرآة توزيعة — التوزيعة محتسبة بالفعل */
     if(String(so.customerId) !== String(custId)) return;
     salesOrdersNet += Number(so.total) || 0;
   });

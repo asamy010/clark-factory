@@ -130,6 +130,8 @@ function gatherCustomerEntries(data, custId, mode){
     /* V21.20.5: أوامر البيع تظهر كبيع تشغيلي (مدين) — «أمر البيع = البيع نفسه». */
     (data.salesOrders || []).forEach(so => {
       if(!so || so.status === "cancelled") return;
+      /* V21.21.1: المرايا المتولّدة من توزيعة لا تُحتسب — التوزيعة نفسها محتسبة فوق */
+      if(so.sourceDistributionId) return;
       if(String(so.customerId) !== String(custId)) return;
       const lines = (so.items || []).filter(it => !(it && it.isSection)).map(it => {
         const q = Number(it.qty) || 0, up = Number(it.unitPrice) || 0;
