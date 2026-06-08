@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.20.2",
+    date: "2026-06-07",
+    types: ["feature"],
+    title: "✏️ تعديل أمر البيع + طباعة PDF (مرحلة 3)",
+    changes: [
+      { type: "feature", text: "✏️ تعديل أمر البيع بالكامل (نفس محرّر البنود): التعديل بيعكس خصم المخزون القديم ويطبّق الجديد ويعيد حساب الإجماليات. ممنوع لو الأمر مفوتر أو ملغي." },
+      { type: "feature", text: "🖨 طباعة / PDF لأمر البيع (زر في تفاصيله) — والعرض السعر عنده طباعة وإرسال أصلاً." },
+    ],
+  },
+  {
     version: "V21.20.1",
     date: "2026-06-07",
     types: ["feature"],

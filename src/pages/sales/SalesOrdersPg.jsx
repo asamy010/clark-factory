@@ -10,7 +10,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
-import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
+import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, editSalesOrderMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
 import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
@@ -34,6 +34,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   const [search, setSearch] = useState("");
   const [activeSO, setActiveSO] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [editSO, setEditSO] = useState(null);
 
   const orders = data.salesOrders || [];
   const customers = data.customers || [];
@@ -75,15 +76,18 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   const handleCreateDirect = (payload) => {
     const ps = data.purchaseSettings || {};
     const opts = { stockEnabled: !!ps.stockEnabled, blockOnInsufficientStock: ps.blockOnInsufficientStock !== false };
+    const isEdit = !!payload.id;
     let res = { ok: true };
-    upConfig(d => { res = createSalesOrderDirectMutator(d, payload, userName, opts); });
+    upConfig(d => { res = isEdit ? editSalesOrderMutator(d, payload.id, payload, userName, opts) : createSalesOrderDirectMutator(d, payload, userName, opts); });
     if(res && res.ok){
-      setShowForm(false);
-      showToast("✓ اتعمل أمر البيع " + (res.salesOrder?.orderNo || "") + (opts.stockEnabled && res.salesOrder?.stockDeducted ? " وخصم المخزون" : ""));
+      setShowForm(false); setEditSO(null);
+      if(isEdit && activeSO && res.salesOrder) setActiveSO(res.salesOrder);
+      showToast((isEdit ? "✓ اتعدّل أمر البيع " : "✓ اتعمل أمر البيع ") + (res.salesOrder?.orderNo || "") + (!isEdit && opts.stockEnabled && res.salesOrder?.stockDeducted ? " وخصم المخزون" : ""));
     } else {
-      showToast("⛔ " + (res?.error || "تعذّر إنشاء الأمر"));
+      showToast("⛔ " + (res?.error || "تعذّر الحفظ"));
     }
   };
+  const handleEdit = (so) => { setEditSO(so); setActiveSO(null); setShowForm(true); };
 
   const handleCreateInvoice = async (so) => {
     const autoPostOn = (data.invoiceSettings || {}).autoPostOnSalesInvoiceCreate === true;
@@ -191,10 +195,11 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
         <QuotationFormModal
           data={data}
           mode="order"
+          editQuote={editSO}
           previewNo={nextSalesOrderNo(data)}
           userName={userName}
           onSave={handleCreateDirect}
-          onClose={() => setShowForm(false)}
+          onClose={() => { setShowForm(false); setEditSO(null); }}
           isMob={isMob}
         />
       )}
@@ -205,6 +210,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           canEdit={canEdit}
           onCancelOrder={() => handleCancel(activeSO)}
           onDelete={() => handleDelete(activeSO)}
+          onEdit={() => handleEdit(activeSO)}
           onCreateInvoice={() => handleCreateInvoice(activeSO)}
           onClose={() => setActiveSO(null)}
         />

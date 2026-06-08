@@ -255,6 +255,72 @@ export function createSalesOrderDirectMutator(d, payload, userName, opts = {}){
   return { ok: true, salesOrder: so };
 }
 
+/* V21.20.2: تعديل أمر بيع موجود — يعكس الخصم القديم، يتحقق من المخزون
+   (محتسباً عكس الخصم القديم)، ثم يطبّق الخصم الجديد ويعيد حساب الإجماليات.
+   ممنوع لو الأمر ملغي أو مفوتر. يحافظ على id/orderNo/الحالة/الروابط. */
+export function editSalesOrderMutator(d, soId, payload, userName, opts = {}){
+  if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
+  const so = d.salesOrders.find(x => x && x.id === soId);
+  if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  if(so.status === "cancelled") return { ok: false, error: "أمر البيع ملغي — لا يمكن تعديله" };
+  if(so.salesInvoiceId){
+    const inv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void");
+    if(inv) return { ok: false, error: "أمر البيع مفوتر (" + (so.salesInvoiceNo || inv.invoiceNo || "") + ") — الغِ الفاتورة قبل التعديل" };
+  }
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if(items.filter(it => !(it && it.isSection)).length === 0) return { ok: false, error: "أضف بند واحد على الأقل" };
+  const hasCustomer = (payload.customerId && String(payload.customerId).trim()) || (payload.customerNameAdHoc && payload.customerNameAdHoc.trim());
+  if(!hasCustomer) return { ok: false, error: "اختر عميل أو اكتب اسم عميل" };
+
+  /* فحص المخزون — محتسباً عكس الخصم القديم (قبل أي تعديل على d) */
+  if(opts.stockEnabled && opts.blockOnInsufficientStock){
+    const oldByItem = {};
+    (so.stockDeductions || []).forEach(ded => { oldByItem[ded.itemId] = (oldByItem[ded.itemId] || 0) + (Number(ded.qty) || 0); });
+    const needs = _aggregateInventoryNeeds(items);
+    const short = [];
+    for(const [itemId, need] of needs){
+      const it = (d.inventoryItems || []).find(x => x.id === itemId);
+      const have = (Number(it?.stock) || 0) + (oldByItem[itemId] || 0);
+      if(have < need) short.push({ name: it?.name || itemId, need, have });
+    }
+    if(short.length > 0) return { ok: false, error: "مخزون غير كافٍ: " + short.map(s => `${s.name} (متاح ${s.have} / مطلوب ${s.need})`).join("، ") };
+  }
+
+  const nowIso = new Date().toISOString();
+  const today = nowIso.split("T")[0];
+  /* عكس الخصم القديم */
+  if(so.stockDeducted && Array.isArray(so.stockDeductions) && so.stockDeductions.length > 0){
+    if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+    for(const ded of so.stockDeductions){
+      applyStockDelta(d, ded.categoryId, ded.itemId, +ded.qty, ded.unitCost || null);
+      d.stockMovements.push({ id: _mid(), type: "in", itemType: ded.categoryId, itemId: ded.itemId, itemName: ded.itemName || "",
+        qty: +ded.qty, unit: ded.unit || "", price: ded.unitCost || 0, date: today,
+        sourceType: "sales_order_edit", sourceId: so.id, notes: "تعديل أمر بيع " + (so.orderNo || "") + " — عكس الخصم القديم", createdBy: userName || "", createdAt: nowIso });
+    }
+  }
+  so.stockDeductions = []; so.orderMovements = []; so.stockMovementIds = []; so.stockDeducted = false;
+
+  /* تحديث الحقول + إعادة الحساب */
+  const totals = recalcQuotationTotals({ items, discountPct: payload.discountPct || 0 });
+  so.date = payload.date || so.date;
+  so.customerId = payload.customerId || "";
+  so.customerName = payload.customerName || "";
+  so.customerPhone = payload.customerPhone || "";
+  so.customerNameAdHoc = payload.customerId ? "" : (payload.customerNameAdHoc || "");
+  so.items = totals.items;
+  so.subtotal = totals.subtotal; so.discountPct = totals.discountPct;
+  so.totalDiscount = totals.totalDiscount; so.total = totals.total;
+  so.notes = payload.notes != null ? payload.notes : so.notes;
+  so.salesPerson = payload.salesPerson != null ? payload.salesPerson : so.salesPerson;
+  so.updatedAt = nowIso; so.updatedBy = userName || "";
+  if(!Array.isArray(so.statusHistory)) so.statusHistory = [];
+  so.statusHistory.push({ from: so.status, to: so.status, at: nowIso, by: userName || "", note: "تعديل أمر البيع" });
+
+  /* تطبيق الخصم الجديد */
+  _applySalesOrderStock(d, so, totals.items, opts, userName, nowIso);
+  return { ok: true, salesOrder: so };
+}
+
 /* ── Create Sales Invoice from Sales Order (Slice 3 / Phase 12c) ── */
 /* بيعمل فاتورة مبيعات DRAFT من أمر البيع باستخدام نظام الفواتير الموجود
    (salesInvoices → salesInvoicesDays + counter INV). بيربط الفاتورة بأمر
