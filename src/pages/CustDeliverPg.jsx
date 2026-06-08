@@ -77,6 +77,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V14.59: Receipt report — after confirmation, show the summary */
   const[lastReceiptReport,setLastReceiptReport]=useState(null);/* {items:[{orderId,modelNo,desc,confirmedQty,pendingQty,diff}], total, confirmedBy, at} */
   const[showReceiptLog,setShowReceiptLog]=useState(false);
+  /* V21.19.0: مودال «المنتجات» — كل المنتج الجاهز + كمية متاحة + تعديل سعر البيع */
+  const[productsPrice,setProductsPrice]=useState(false);
+  const[ppSearch,setPpSearch]=useState("");
+  const[ppEdits,setPpEdits]=useState({});/* {orderId: priceStr} */
   /* V21.9.189: default new-customer discount is 10% (was 0% before). Existing
      customers keep whatever they have stored — only freshly-created customers
      pick up the new default. The edit form below still preserves c.discount
@@ -1209,8 +1213,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       .sales-group-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
     `}</style>
     {/* V21.11.1: hubView يتحكم في الأقسام لما الصفحة جوّه هَب المبيعات.
-       null = سلوك قديم (كله ظاهر، شاشة كاملة) — backward compatible. */}
-    {(!hubView||hubView==="quickActions")&&(()=>{
+       null = سلوك قديم (كله ظاهر، شاشة كاملة) — backward compatible.
+       V21.19.0: توزيع المجموعات على تابات الهَب —
+         quickActions = إجراءات أساسية + أدوات أخرى
+         overview     = العملاء (+ إحصائيات التسليم)
+         reports      = التقارير والتحليل
+         warehouse    = المخزن والجرد (+ المنتجات) */}
+    {(!hubView||["quickActions","overview","reports","warehouse"].includes(hubView))&&(()=>{
       /* ═══ SVG ICONS — professional inline icons ═══ */
       const ICON=(path,size=26,strokeWidth=2)=><svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" style={{display:"block"}}>{path}</svg>;
       const I={
@@ -1283,8 +1292,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
       /* ═══ Count visible secondary items per group to maintain consistent layout ═══ */
       return<div style={{marginBottom:18}}>
-        {/* ── PRIMARY ACTIONS ── */}
-        {canEdit&&<>
+        {/* ── PRIMARY ACTIONS (quickActions فقط) ── */}
+        {canEdit&&(!hubView||hubView==="quickActions")&&<>
           <div className="sales-group-title">⚡ إجراءات سريعة</div>
           <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:isMob?8:12,marginBottom:18}}>
             {primaryBtn(I.scan,"بيع سريع","مسح QR وتسجيل البيع","#10B981","#059669",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
@@ -1322,9 +1331,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             gap: 8,
           };
           const showOtherTools = (stockModels.length > 0 || canEdit || oList.length > 0);
-          return <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12,marginBottom:8}}>
-            {/* GROUP 1: CUSTOMERS */}
-            <div style={cardStyle}>
+          return <div style={{display:"grid",gridTemplateColumns:(!hubView&&!isMob)?"repeat(2,1fr)":"1fr",gap:12,marginBottom:8}}>
+            {/* GROUP 1: CUSTOMERS → تاب نظرة عامة */}
+            {(!hubView||hubView==="overview")&&<div style={cardStyle}>
               <div style={titleStyle}>👥 العملاء</div>
               <div style={btnsGrid}>
                 {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>setShowCustList(true),customers.length||null)}
@@ -1332,9 +1341,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {secBtn(I.receipt,"عرض سعر","#8B5CF6",()=>{setShowAllSessQuote(false);setQuoteCust("pickSess")})}
                 {secBtn(I.truck||I.fileText,"إذن تسليم","#0EA5E9",()=>{setShowAllSessDeliver(false);setDeliverNote("pickSess")})}
               </div>
-            </div>
-            {/* GROUP 2: REPORTS & ANALYSIS */}
-            <div style={cardStyle}>
+            </div>}
+            {/* GROUP 2: REPORTS & ANALYSIS → تاب تقارير */}
+            {(!hubView||hubView==="reports")&&<div style={cardStyle}>
               <div style={titleStyle}>📊 التقارير والتحليل</div>
               <div style={btnsGrid}>
                 {secBtn(I.chart,"تقرير مبيعات","#8B5CF6",()=>{setRptType("all");setRptCust("");setRptModel("");setReportRange({from:"",to:""});setShowReport(true)})}
@@ -1343,11 +1352,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {secBtn(I.history,"سجل البيع","#059669",()=>{setCustSalesLog("all");setLogCustF("");setLogModelF("");setLogDateF("");setLogTypeFilter("");setLogLimit(50)})}
                 {secBtn(I.activity,"خط الانتاج","#059669",printProductionLine)}
               </div>
-            </div>
-            {/* GROUP 3: WAREHOUSE & INVENTORY */}
-            <div style={cardStyle}>
+            </div>}
+            {/* GROUP 3: WAREHOUSE & INVENTORY → تاب المخزن والجرد */}
+            {(!hubView||hubView==="warehouse")&&<div style={cardStyle}>
               <div style={titleStyle}>📦 المخزن والجرد</div>
               <div style={btnsGrid}>
+                {secBtn(I.tag,"المنتجات","#10B981",()=>{setProductsPrice(true);setPpSearch("");setPpEdits({})})}
                 {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
                 {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(cairoDateStr());setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
                 {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
@@ -1355,9 +1365,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
                 {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
               </div>
-            </div>
-            {/* GROUP 4: OTHER TOOLS */}
-            {showOtherTools && <div style={cardStyle}>
+            </div>}
+            {/* GROUP 4: OTHER TOOLS → تاب إجراءات سريعة */}
+            {(!hubView||hubView==="quickActions")&&showOtherTools && <div style={cardStyle}>
               <div style={titleStyle}>🔧 أدوات أخرى</div>
               <div style={btnsGrid}>
                 {stockModels.length>0&&secBtn(I.tag,"ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
@@ -5663,6 +5673,76 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 </tbody>
               </table>
             </div>}
+        </div>
+      </div>;
+    })()}
+
+    {/* ══ V21.19.0: PRODUCTS + SELL-PRICE EDITOR ══
+        كل المنتج الجاهز بالكمية المتاحة + سعر البيع (قابل للتعديل). الحفظ
+        يكتب order.sellPrice → بيظهر تلقائياً في المبيعات وتقييم المخزون. */}
+    {productsPrice&&(()=>{
+      const q=ppSearch.trim().toLowerCase();
+      const rows=stockModels
+        .filter(m=>(m.avail>0)||(Number(m.sellPrice)||0)>0)
+        .filter(m=>!q||((m.modelNo||"")+" "+(m.modelDesc||"")).toLowerCase().includes(q))
+        .sort((a,b)=>b.avail-a.avail);
+      const savePrice=(m)=>{
+        const raw=ppEdits[m.id];
+        const v=Number(raw);
+        if(raw===undefined||isNaN(v)||v<0){showToast("⛔ سعر غير صالح");return}
+        updOrder(m.id,o=>{o.sellPrice=v});
+        setPpEdits(p=>{const n={...p};delete n[m.id];return n});
+        showToast("✓ تم تسجيل سعر بيع "+(m.modelNo||""));
+      };
+      const TH={padding:"8px 10px",fontSize:FS-2,fontWeight:800,color:T.textSec,borderBottom:"2px solid "+T.brd,textAlign:"right",whiteSpace:"nowrap"};
+      const TD={padding:"6px 10px",fontSize:FS-1,borderBottom:"1px solid "+T.brd};
+      return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:isMob?8:24,overflowY:"auto"}} onClick={e=>{if(e.target===e.currentTarget){setProductsPrice(false);}}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"100%",maxWidth:820,margin:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{position:"sticky",top:0,background:T.cardSolid,padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:2,borderRadius:"16px 16px 0 0"}}>
+            <div>
+              <div style={{fontSize:FS+2,fontWeight:800,color:"#10B981"}}>🏷️ المنتجات وأسعار البيع</div>
+              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>السعر اللي تسجّله هنا بيظهر تلقائياً في المبيعات وتقييم المخزون</div>
+            </div>
+            <Btn ghost small onClick={()=>setProductsPrice(false)}>✕</Btn>
+          </div>
+          <div style={{padding:isMob?12:18}}>
+            <div style={{marginBottom:10,maxWidth:340}}><Inp value={ppSearch} onChange={setPpSearch} placeholder="🔎 ابحث بالموديل أو الوصف..."/></div>
+            <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+                <thead><tr style={{background:T.bg}}>
+                  <th style={TH}>الموديل</th>
+                  <th style={{...TH,textAlign:"center",width:90}}>المتاح</th>
+                  <th style={{...TH,textAlign:"center",width:140}}>سعر البيع</th>
+                  <th style={{...TH,textAlign:"center",width:80}}></th>
+                </tr></thead>
+                <tbody>
+                  {rows.length===0?<tr><td colSpan={4} style={{...TD,textAlign:"center",color:T.textMut,padding:24}}>لا توجد منتجات</td></tr>
+                  :rows.map(m=>{
+                    const cur=ppEdits[m.id]!==undefined?ppEdits[m.id]:String(Number(m.sellPrice)||0);
+                    const changed=ppEdits[m.id]!==undefined&&Number(ppEdits[m.id])!==(Number(m.sellPrice)||0);
+                    return<tr key={m.id}>
+                      <td style={TD}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {m.image?<img src={m.image} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>:null}
+                          <div><div style={{fontWeight:700,color:T.text}}>{m.modelNo||"—"}</div>{m.modelDesc?<div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div>:null}</div>
+                        </div>
+                      </td>
+                      <td style={{...TD,textAlign:"center",fontWeight:700,color:m.avail>0?T.text:T.textMut}}>{fmt(m.avail||0)}</td>
+                      <td style={{...TD,textAlign:"center"}}>
+                        <input type="number" value={cur} disabled={!canEdit} onChange={e=>setPpEdits(p=>({...p,[m.id]:e.target.value}))}
+                          onKeyDown={e=>{if(e.key==="Enter"&&changed)savePrice(m)}}
+                          style={{width:110,padding:"6px 8px",border:"2px solid "+(changed?"#10B981":T.brd),borderRadius:8,fontSize:FS,fontFamily:"inherit",textAlign:"center",background:T.cardSolid,color:T.text,outline:"none"}}/>
+                      </td>
+                      <td style={{...TD,textAlign:"center"}}>
+                        {canEdit?<Btn small onClick={()=>savePrice(m)} disabled={!changed} style={{background:changed?"#10B981":T.bg,color:changed?"#fff":T.textMut,border:"none",padding:"5px 10px"}}>💾 حفظ</Btn>:<span style={{fontSize:FS-3,color:T.textMut}}>—</span>}
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:FS-3,color:T.textMut,marginTop:8}}>* «المتاح» = الرصيد المتاح في المخزن (سيري + كسر). السعر بيتطبّق على الموديل كله.</div>
+          </div>
         </div>
       </div>;
     })()}

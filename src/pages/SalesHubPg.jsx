@@ -63,6 +63,7 @@ export function SalesHubPg(props){
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
     { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
     { id: "reports",     label: "📈 تقارير",                show: canOps || canDoc("salesInvoices") },
+    { id: "warehouse",   label: "📦 المخزن والجرد",         show: canOps },
     { id: "quickActions",label: "⚡ إجراءات سريعة",         show: canOps },
     { id: "deliveryLog", label: "📦 سجل التسليمات",         show: canOps },
     { id: "returnsLog",  label: "↩️ سجل المرتجعات",         show: canOps },
@@ -150,12 +151,15 @@ export function SalesHubPg(props){
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} />}
-        {active === "reports"    && <ReportsHub isMob={isMob} reports={[
-          { id: "inv-finished", icon: "📦", title: "تقييم المخزون — المنتجات الجاهزة", desc: "قيمة المخزون الجاهز (السيري المتاح) بالبيع والتكلفة والربح المتوقع", color: "#0EA5E9", render: () => <InventoryValuationReport data={data} kind="finished" isMob={isMob} /> },
-        ]} />}
-        {/* أقسام التسليمات تشارك instance واحد (hubView={active}) — التبديل بينها
+        {active === "reports"    && <>
+          {canOps && <CustDeliverPg {...props} hubView="reports" canEdit={canEditTab("custDeliver")} />}
+          <ReportsHub isMob={isMob} reports={[
+            { id: "inv-finished", icon: "📦", title: "تقييم المخزون — المنتجات الجاهزة", desc: "قيمة المخزون الجاهز (السيري المتاح) بالبيع والتكلفة والربح المتوقع", color: "#0EA5E9", render: () => <InventoryValuationReport data={data} kind="finished" isMob={isMob} /> },
+          ]} />
+        </>}
+        {/* أقسام التسليمات/المخزن تشارك instance واحد (hubView={active}) — التبديل بينها
             ما يعملش remount ولا يضيّع الحالة. */}
-        {["quickActions","deliveryLog","returnsLog","audits","stale"].includes(active) && canOps
+        {["quickActions","warehouse","deliveryLog","returnsLog","audits","stale"].includes(active) && canOps
           && <CustDeliverPg {...props} hubView={active} canEdit={canEditTab("custDeliver")} />}
       </Suspense>
     </div>
