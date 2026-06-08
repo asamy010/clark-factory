@@ -13,8 +13,9 @@ import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
 import { showToast, ask, tell } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
-import { openPrintWindow } from "../utils/print.js";
+import { openPrintWindow, printPage } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
+import { htmlToPdfBase64 } from "../utils/htmlToPdf.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
@@ -535,6 +536,14 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[filterTo,setFilterTo]=useState("");
   const[filterSearch,setFilterSearch]=useState("");const filterSearchDeb=useDebounced(filterSearch,250);
   const[limit,setLimit]=useState(50);
+  /* V21.21.2: «تقارير» tab — تقرير الخزنة الشامل (فترة + نوع + فئة + بحث، إجماليات
+     ديناميكية، طباعة/PDF/واتساب، لكل خزنة أو جميع الخزن). */
+  const[rpAcc,setRpAcc]=useState("__all__");/* "__all__" = جميع الخزن، أو اسم حساب */
+  const[rpFrom,setRpFrom]=useState("");const[rpTo,setRpTo]=useState("");
+  const[rpType,setRpType]=useState("all");/* all | in | out */
+  const[rpCat,setRpCat]=useState("__all__");
+  const[rpSearch,setRpSearch]=useState("");const rpSearchDeb=useDebounced(rpSearch,250);
+  const[rpWaPhone,setRpWaPhone]=useState("");const[rpSending,setRpSending]=useState(false);
   /* View */
   const subAccId=(rawAccounts.length>0?rawAccounts:["MAIN CASH","SUB CASH"]).find(a=>{const n=typeof a==="string"?a:a.name||a.id;return n.toUpperCase().includes("SUB")})||"SUB CASH";
   const subAccKey="acc_"+(typeof subAccId==="string"?subAccId:subAccId.id||subAccId.name||"SUB CASH");
@@ -2907,6 +2916,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"transfers",l:"🔄 التحويلات"+transferBadge});
         baseTabs.push({k:"checks",l:"📝 الشيكات"});
         baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
+        baseTabs.push({k:"reports",l:"📈 تقارير"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
         baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
         /* V21.9.218: «محافظ إلكترونية» يفضل مميّز وأنا جوّه أي محفظة (acc_ view لحساب نوعه wallet). */
@@ -2940,7 +2950,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         totals via printDaily anyway. The action toolbar (date + print + PDF + WA)
         is collapsed to an inline icon row, and merged into the account summary
         card when view is `acc_`. */}
-    {!["transfers","checks","analysis","accounts","recurring","wallets"].includes(view) && !view.startsWith("acc_") && (()=>{
+    {!["transfers","checks","analysis","accounts","recurring","wallets","reports"].includes(view) && !view.startsWith("acc_") && (()=>{
       /* Journal-view-only toolbar (date + actions). For acc_xxx views the toolbar
          lives inside the account summary card to save vertical space. */
       const currentAccName=null;const scopeLabel="الكل";
@@ -4996,6 +5006,119 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     </div>}
 
     {/* ══ ANALYSIS VIEW ══ */}
+    {/* V21.21.2: تاب «تقارير» — التقرير الأول: تقرير الخزنة الشامل (هيتضاف تقارير تانية لاحقاً) */}
+    {view==="reports"&&(()=>{
+      const scopeAcc=(t)=> rpAcc==="__all__" ? true : (String(t.account||"").trim()===rpAcc);
+      const dOf=(t)=>String(t.date||t.createdAt||"").slice(0,10);
+      const catOf=(t)=>(String(t.category||"").trim())||(t.type==="in"?"إيراد عام":t.type==="out"?"مصروف عام":"غير مصنف");
+      const allCats=Array.from(new Set(txns.filter(scopeAcc).map(catOf))).sort();
+      /* رصيد افتتاحي قبل بداية الفترة (لنفس النطاق) = صافي كل الحركات السابقة */
+      const opening=rpFrom?r2(txns.filter(t=>scopeAcc(t)&&dOf(t)<rpFrom).reduce((s,t)=>s+(t.type==="in"?1:t.type==="out"?-1:0)*(Number(t.amount)||0),0)):0;
+      let rows=txns.filter(t=>{
+        if(!t||!scopeAcc(t))return false;
+        const d=dOf(t); if(rpFrom&&d<rpFrom)return false; if(rpTo&&d>rpTo)return false;
+        if(rpType!=="all"&&t.type!==rpType)return false;
+        if(rpCat!=="__all__"&&catOf(t)!==rpCat)return false;
+        if(rpSearchDeb){const q=rpSearchDeb.toLowerCase();const hay=((t.desc||"")+" "+(t.notes||"")+" "+(t.category||"")+" "+(t.account||"")).toLowerCase();if(!hay.includes(q))return false;}
+        return true;
+      });
+      rows.sort((a,b)=>String(dOf(a)+(a.createdAt||"")).localeCompare(String(dOf(b)+(b.createdAt||""))));
+      const totalIn=r2(rows.filter(t=>t.type==="in").reduce((s,t)=>s+(Number(t.amount)||0),0));
+      const totalOut=r2(rows.filter(t=>t.type==="out").reduce((s,t)=>s+(Number(t.amount)||0),0));
+      const net=r2(totalIn-totalOut); const closing=r2(opening+net);
+      const scopeLabel=rpAcc==="__all__"?"جميع الخزن":rpAcc;
+      const periodLabel=(rpFrom||"البداية")+" ← "+(rpTo||"النهاية");
+      const typeLabel=rpType==="in"?"وارد فقط":rpType==="out"?"منصرف فقط":"الكل";
+      let run=opening;
+      const rowData=rows.map(t=>{const amt=Number(t.amount)||0; if(t.type==="in")run=r2(run+amt); else if(t.type==="out")run=r2(run-amt); return{t,run};});
+      const buildHTML=()=>{
+        let h='<h2 style="text-align:center">📈 تقرير الخزنة الشامل</h2>';
+        h+='<table style="width:100%;border-collapse:collapse;margin-bottom:10px;font-size:13px"><tbody>';
+        h+='<tr><td style="padding:4px;border:1px solid #ddd;font-weight:700;background:#f7f7f7">الخزنة</td><td style="padding:4px;border:1px solid #ddd">'+_esc(scopeLabel)+'</td><td style="padding:4px;border:1px solid #ddd;font-weight:700;background:#f7f7f7">الفترة</td><td style="padding:4px;border:1px solid #ddd">'+_esc(periodLabel)+'</td></tr>';
+        h+='<tr><td style="padding:4px;border:1px solid #ddd;font-weight:700;background:#f7f7f7">نوع الحركة</td><td style="padding:4px;border:1px solid #ddd">'+typeLabel+'</td><td style="padding:4px;border:1px solid #ddd;font-weight:700;background:#f7f7f7">الفئة</td><td style="padding:4px;border:1px solid #ddd">'+(rpCat==="__all__"?"الكل":_esc(rpCat))+'</td></tr></tbody></table>';
+        h+='<table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:13px"><tbody>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd">الرصيد الافتتاحي</td><td style="padding:6px;border:1px solid #ddd;text-align:left">'+fmt(opening)+'</td></tr>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd;color:#16a34a">إجمالي الوارد</td><td style="padding:6px;border:1px solid #ddd;text-align:left;color:#16a34a">'+fmt(totalIn)+'</td></tr>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd;color:#dc2626">إجمالي المنصرف</td><td style="padding:6px;border:1px solid #ddd;text-align:left;color:#dc2626">'+fmt(totalOut)+'</td></tr>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd;font-weight:700">صافي الفترة</td><td style="padding:6px;border:1px solid #ddd;text-align:left;font-weight:700">'+fmt(net)+'</td></tr>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd;font-weight:800;background:#f0f9ff">الرصيد الختامي</td><td style="padding:6px;border:1px solid #ddd;text-align:left;font-weight:800;background:#f0f9ff">'+fmt(closing)+'</td></tr>';
+        h+='<tr><td style="padding:6px;border:1px solid #ddd">عدد الحركات</td><td style="padding:6px;border:1px solid #ddd;text-align:left">'+rows.length+'</td></tr></tbody></table>';
+        h+='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#1e293b;color:#fff"><th style="padding:5px;border:1px solid #ddd">#</th><th style="padding:5px;border:1px solid #ddd">التاريخ</th><th style="padding:5px;border:1px solid #ddd">البيان</th><th style="padding:5px;border:1px solid #ddd">الفئة</th>'+(rpAcc==="__all__"?'<th style="padding:5px;border:1px solid #ddd">الخزنة</th>':'')+'<th style="padding:5px;border:1px solid #ddd">وارد</th><th style="padding:5px;border:1px solid #ddd">منصرف</th><th style="padding:5px;border:1px solid #ddd">الرصيد</th></tr></thead><tbody>';
+        rowData.forEach((rd,i)=>{const t=rd.t; h+='<tr><td style="padding:4px;border:1px solid #eee;text-align:center">'+(i+1)+'</td><td style="padding:4px;border:1px solid #eee">'+_esc(dOf(t))+'</td><td style="padding:4px;border:1px solid #eee">'+_esc(t.desc||"—")+'</td><td style="padding:4px;border:1px solid #eee">'+_esc((t.category||"").trim()||"—")+'</td>'+(rpAcc==="__all__"?'<td style="padding:4px;border:1px solid #eee">'+_esc((t.account||"").trim()||"—")+'</td>':'')+'<td style="padding:4px;border:1px solid #eee;text-align:left;color:#16a34a">'+(t.type==="in"?fmt(Number(t.amount)||0):"")+'</td><td style="padding:4px;border:1px solid #eee;text-align:left;color:#dc2626">'+(t.type==="out"?fmt(Number(t.amount)||0):"")+'</td><td style="padding:4px;border:1px solid #eee;text-align:left">'+fmt(rd.run)+'</td></tr>';});
+        h+='</tbody></table>';
+        return h;
+      };
+      const doPrint=()=>{if(rows.length===0){showToast("⚠️ لا توجد حركات في النطاق المختار");return;} printPage("تقرير الخزنة — "+scopeLabel,buildHTML(),{factoryName:data.factoryName,logo:data.logo});};
+      const doWhatsApp=async()=>{
+        if(rows.length===0){showToast("⚠️ لا توجد حركات للإرسال");return;}
+        const digits=String(rpWaPhone||"").replace(/[^0-9]/g,"");
+        const summaryTxt="📈 تقرير الخزنة — "+scopeLabel+"\nالفترة: "+periodLabel+"\nنوع: "+typeLabel+(rpCat==="__all__"?"":" · فئة: "+rpCat)+"\n────────\nالرصيد الافتتاحي: "+fmt(opening)+"\nالوارد: "+fmt(totalIn)+"\nالمنصرف: "+fmt(totalOut)+"\nالصافي: "+fmt(net)+"\nالرصيد الختامي: "+fmt(closing)+"\nعدد الحركات: "+rows.length;
+        const bridge=data.campaignBridge||{};
+        if(!bridge.url||!digits){ if(!digits){showToast("⚠️ اكتب رقم واتساب أو اضبط الـ Bridge في الإعدادات");return;} openWA("https://wa.me/"+digits+"?text="+encodeURIComponent(summaryTxt)); return; }
+        setRpSending(true);
+        try{
+          let media=null;
+          try{const b64=await htmlToPdfBase64(buildHTML(),{fontFamily:"Cairo, sans-serif"}); if(b64)media=[{base64:b64,mime:"application/pdf",name:"treasury-report.pdf"}];}catch(e){console.warn("[treasury report] pdf failed",e);}
+          const headers={"Content-Type":"application/json"}; if(bridge.token)headers["Authorization"]="Bearer "+bridge.token;
+          const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),20000);
+          const resp=await fetch(bridge.url.replace(/\/$/,"")+"/send",{method:"POST",headers,body:JSON.stringify({messages:[{phone:digits,message:summaryTxt,media}]}),signal:ctrl.signal});
+          clearTimeout(to);
+          const j=await resp.json().catch(()=>({}));
+          if(resp.ok&&j&&j.ok!==false)showToast("✅ اتبعت عبر واتساب"+(media?" (PDF + نص)":" (نص فقط)"));
+          else showToast("⛔ فشل الإرسال عبر الـ Bridge");
+        }catch(e){showToast("⛔ خطأ الإرسال: "+(e.message||e));}
+        setRpSending(false);
+      };
+      return<div>
+        <Card title="📈 تقرير الخزنة الشامل">
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:8,marginBottom:12}}>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الخزنة</label><Sel value={rpAcc} onChange={setRpAcc}><option value="__all__">🏦 جميع الخزن</option>{accountsData.map(a=><option key={a.id} value={a.name}>{a.name}</option>)}</Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>من تاريخ</label><Inp type="date" value={rpFrom} onChange={setRpFrom}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>إلى تاريخ</label><Inp type="date" value={rpTo} onChange={setRpTo}/></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع الحركة</label><Sel value={rpType} onChange={setRpType}><option value="all">الكل</option><option value="in">وارد فقط</option><option value="out">منصرف فقط</option></Sel></div>
+            <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الفئة</label><Sel value={rpCat} onChange={setRpCat}><option value="__all__">كل الفئات</option>{allCats.map(c=><option key={c} value={c}>{c}</option>)}</Sel></div>
+            <div style={{gridColumn:isMob?"1 / -1":"span 3"}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بحث (بيان/ملاحظات/فئة)</label><Inp value={rpSearch} onChange={setRpSearch} placeholder="ابحث..."/></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:8,marginBottom:12}}>
+            {[{l:"الرصيد الافتتاحي",v:opening,c:T.textSec},{l:"الوارد",v:totalIn,c:"#16a34a"},{l:"المنصرف",v:totalOut,c:"#dc2626"},{l:"الصافي",v:net,c:net>=0?"#16a34a":"#dc2626"},{l:"الرصيد الختامي",v:closing,c:T.accent}].map((k,i)=>
+              <div key={i} style={{padding:"10px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:600}}>{k.l}</div><div style={{fontSize:FS+1,fontWeight:800,color:k.c}}>{fmt(k.v)}</div></div>)}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+            <Btn onClick={doPrint} style={{background:T.accent,color:"#fff"}}>🖨 طباعة / PDF</Btn>
+            <Inp value={rpWaPhone} onChange={setRpWaPhone} placeholder="رقم واتساب (اختياري)" style={{maxWidth:170}}/>
+            <Btn onClick={doWhatsApp} disabled={rpSending} style={{background:"#25D366",color:"#fff"}}>{rpSending?"⏳ جاري الإرسال...":"📲 واتساب (PDF)"}</Btn>
+            <span style={{fontSize:FS-2,color:T.textMut}}>{rows.length} حركة</span>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+              <thead><tr style={{background:T.bg}}>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"right"}}>#</th>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"right"}}>التاريخ</th>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"right"}}>البيان</th>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"right"}}>الفئة</th>
+                {rpAcc==="__all__"&&<th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"right"}}>الخزنة</th>}
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"left"}}>وارد</th>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"left"}}>منصرف</th>
+                <th style={{padding:"6px",borderBottom:"2px solid "+T.brd,textAlign:"left"}}>الرصيد</th></tr></thead>
+              <tbody>
+                {rowData.length===0?<tr><td colSpan={rpAcc==="__all__"?8:7} style={{padding:20,textAlign:"center",color:T.textMut}}>لا توجد حركات في النطاق المختار</td></tr>:
+                rowData.slice(0,500).map((rd,i)=>{const t=rd.t;return<tr key={t.id||i} style={{borderBottom:"1px solid "+T.brd}}>
+                  <td style={{padding:"6px",color:T.textMut}}>{i+1}</td>
+                  <td style={{padding:"6px",whiteSpace:"nowrap"}}>{dOf(t)}</td>
+                  <td style={{padding:"6px"}}>{t.desc||"—"}</td>
+                  <td style={{padding:"6px",color:T.textSec}}>{(t.category||"").trim()||"—"}</td>
+                  {rpAcc==="__all__"&&<td style={{padding:"6px",color:T.textSec}}>{(t.account||"").trim()||"—"}</td>}
+                  <td style={{padding:"6px",textAlign:"left",color:"#16a34a",fontWeight:600}}>{t.type==="in"?fmt(Number(t.amount)||0):""}</td>
+                  <td style={{padding:"6px",textAlign:"left",color:"#dc2626",fontWeight:600}}>{t.type==="out"?fmt(Number(t.amount)||0):""}</td>
+                  <td style={{padding:"6px",textAlign:"left",fontWeight:700}}>{fmt(rd.run)}</td></tr>;})}
+              </tbody>
+            </table>
+            {rowData.length>500&&<div style={{padding:8,textAlign:"center",color:T.textMut,fontSize:FS-2}}>أول 500 حركة معروضة — الطباعة/PDF بتشمل الكل ({rowData.length})</div>}
+          </div>
+        </Card>
+      </div>;
+    })()}
+
     {view==="analysis"&&<div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16}}>
         {/* OUT Analysis */}

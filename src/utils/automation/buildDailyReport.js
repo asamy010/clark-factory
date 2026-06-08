@@ -56,6 +56,21 @@ function _salesSection(data, date) {
       byCustomer[cName].value += value;
     });
   });
+  /* V21.21.2: أوامر البيع المباشرة (مش متولّدة من توزيعة) — كانت مش بتتعد،
+     فبيع تم عبر «أوامر البيع» بدل التوزيعة كان بيظهر صفر في التقرير. المرايا
+     (sourceDistributionId) بنتخطّاها لأن التوزيعة نفسها محتسبة فوق. */
+  (data.salesOrders || []).forEach(so => {
+    if (!so || so.status === "cancelled" || so.sourceDistributionId) return;
+    if (String(so.date || "").slice(0, 10) !== date) return;
+    const value = Number(so.total) || 0;
+    const qty = (so.items || []).filter(it => !(it && it.isSection)).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+    salesQty += qty;
+    salesValue += value;
+    const cName = so.customerName || so.customerNameAdHoc || "—";
+    if (!byCustomer[cName]) byCustomer[cName] = { qty: 0, value: 0 };
+    byCustomer[cName].qty += qty;
+    byCustomer[cName].value += value;
+  });
   /* Sales invoices count for the day (preferred) */
   const todayInvs = _dayItems(data.salesInvoices, date)
     .filter(i => i.status === "posted" || i.status === "draft");
@@ -323,6 +338,11 @@ function _comparisonSection(data, date) {
         const price = Number(del.price) || Number(o.sellPrice) || 0;
         v += (Number(del.qty) || 0) * price;
       });
+    });
+    /* V21.21.2: أوامر بيع مباشرة (غير المرايا/الملغي) */
+    (data.salesOrders || []).forEach(so => {
+      if (!so || so.status === "cancelled" || so.sourceDistributionId) return;
+      if (String(so.date || "").slice(0, 10) === d) v += Number(so.total) || 0;
     });
     return v;
   };
