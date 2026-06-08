@@ -127,7 +127,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{quote.quoteNo}</div>
-            <span style={{ fontSize: FS - 3, fontWeight: 700, color: meta.color, background: meta.bg, padding: "2px 10px", borderRadius: 20 }}>{meta.label}</span>
+            <span style={{ fontSize: FS - 3, fontWeight: 700, color: meta.color, background: meta.bg, padding: "2px 10px", borderRadius: 20 }}>{ds === "converted" && quote.convertedToSalesOrderNo ? quote.convertedToSalesOrderNo : meta.label}</span>
           </div>
           <Btn ghost small onClick={onClose}>✕</Btn>
         </div>
@@ -146,20 +146,24 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
               <thead><tr style={{ background: T.bg }}>
                 <th style={{ textAlign: "right", padding: "8px 10px" }}>البند</th>
+                <th style={{ textAlign: "center", padding: "8px 6px" }}>الوحدة</th>
                 <th style={{ textAlign: "center", padding: "8px 6px" }}>كمية</th>
                 <th style={{ textAlign: "left", padding: "8px 10px" }}>السعر</th>
+                <th style={{ textAlign: "center", padding: "8px 6px" }}>خصم %</th>
                 <th style={{ textAlign: "left", padding: "8px 10px" }}>الإجمالي</th>
               </tr></thead>
               <tbody>
                 {(quote.items || []).map((it, i) => it.isSection ? (
                   <tr key={i} style={{ borderTop: "1px solid " + T.brd, background: "#0EA5E90c" }}>
-                    <td colSpan={4} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
+                    <td colSpan={6} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
                   </tr>
                 ) : (
                   <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
-                    <td style={{ padding: "8px 10px", color: T.text }}>{(it.modelNo || it.description || "—")}{it.unit ? <span style={{ color: T.textMut, fontSize: FS - 4 }}> / {it.unit}</span> : null}{it.lineDiscount ? <span style={{ color: T.err, fontSize: FS - 4 }}> (خصم {fmt(it.lineDiscount)})</span> : null}</td>
+                    <td style={{ padding: "8px 10px", color: T.text }}>{(it.modelNo || it.description || "—")}</td>
+                    <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.unit || "—"}</td>
                     <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.qty}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", color: T.textSec }}>{fmt(it.unitPrice)}</td>
+                    <td style={{ textAlign: "center", padding: "8px 6px", color: it.discountValue ? T.err : T.textMut }}>{it.discountValue ? (it.discountType === "amount" ? "−" + fmt(it.discountValue) : it.discountValue + "%") : "—"}</td>
                     <td style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: T.text }}>{fmt(it.lineTotal)}</td>
                   </tr>
                 ))}

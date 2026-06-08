@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.20.4",
+    date: "2026-06-07",
+    types: ["improvement"],
+    title: "🧾 تفاصيل عرض السعر — أعمدة كاملة + حالة «أمر بيع»",
+    changes: [
+      { type: "improvement", text: "🧾 نافذة عرض السعر بقت تعرض نفس أعمدة المحرّر: البند · الوحدة · الكمية · السعر · خصم % · الإجمالي." },
+      { type: "improvement", text: "🔄 لما العرض يتحوّل لأمر بيع، الشارة بتعرض رقم أمر البيع (اللي بيبدأ بـ«أمر بيع») بدل كلمة «متحوّل»." },
+    ],
+  },
+  {
     version: "V21.20.3",
     date: "2026-06-07",
     types: ["feature"],
