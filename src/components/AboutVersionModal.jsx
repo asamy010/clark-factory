@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.20.3",
+    date: "2026-06-07",
+    types: ["feature"],
+    title: "📤 إرسال عرض السعر/أمر البيع واتساب (PDF + نص) — مرحلة 4",
+    changes: [
+      { type: "feature", text: "📤 زر «إرسال» في عرض السعر وأمر البيع: اختر عميل أو اكتب رقم يدوي → يبعت ملف PDF + رسالة نص منسّقة عبر واتساب بريدج (البريدج يدعم المرفقات). + زر طباعة/PDF للمتصفح." },
+    ],
+  },
+  {
     version: "V21.20.2",
     date: "2026-06-07",
     types: ["feature"],

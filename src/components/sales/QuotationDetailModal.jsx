@@ -4,7 +4,9 @@
    (فاضية دلوقتي — تتفعّل في Slice 2). زرار "حوّل لأمر بيع" معطّل لحد Slice 2.
    ═══════════════════════════════════════════════════════════════════════ */
 
+import { useState } from "react";
 import { Btn } from "../ui.jsx";
+import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
@@ -90,6 +92,8 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
   const isOrphan = !!quote.convertedToSalesOrderId && !soExists;
   const canConvert = canEdit && quote.status !== "rejected" && !soExists;
 
+  const [sendWa, setSendWa] = useState(false);
+
   const handlePrint = () => {
     /* فتح النافذة synchronously (popup-safety §7) — ده click مباشر فـ آمن */
     const win = window.open("", "_blank");
@@ -117,7 +121,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
     if(win) onSend && onSend("whatsapp");
   };
 
-  return (
+  return (<>
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
@@ -200,6 +204,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Btn ghost small onClick={handlePrint}>🖨 طباعة</Btn>
           <Btn ghost small onClick={handleWhatsApp}>📱 واتساب</Btn>
+          <Btn ghost small onClick={() => setSendWa(true)} style={{ color: "#1DA851" }}>📤 إرسال PDF</Btn>
           {canMutate && <Btn ghost small onClick={() => onEdit(quote)}>✏️ تعديل</Btn>}
           {canMutate && ds !== "accepted" && <Btn ghost small onClick={() => onStatus("accepted")} style={{ color: "#10B981" }}>✓ مقبول</Btn>}
           {canMutate && ds !== "rejected" && <Btn ghost small onClick={() => onStatus("rejected")} style={{ color: T.err }}>✗ مرفوض</Btn>}
@@ -212,6 +217,8 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
         </div>
       </div>
     </div>
+    {sendWa && <SendDocWhatsApp data={data} doc={quote} kind="quote" onClose={() => setSendWa(false)} />}
+    </>
   );
 }
 

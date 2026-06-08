@@ -4,41 +4,15 @@
    (مع استرجاع مخزون) + طباعة. زرار "إنشاء فاتورة" معطّل لحد Slice 3.
    ═══════════════════════════════════════════════════════════════════════ */
 
+import { useState } from "react";
 import { Btn } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { openSalesDoc } from "../../utils/sales/navDoc.js";
 import { printPage } from "../../utils/print.js";
-
-/* V21.20.2: طباعة أمر البيع / عرض السعر (HTML → PDF عبر نافذة الطباعة) */
-export function buildSalesDocHTML(doc, data, kind){
-  const title = kind === "quote" ? "عرض سعر" : "أمر بيع";
-  const accent = kind === "quote" ? "#0EA5E9" : "#0EA5E9";
-  let n = 0;
-  const rows = (doc.items || []).map(it => it.isSection
-    ? `<tr><td colspan="5" style="background:#F1F5F9;font-weight:800;color:#0369A1">📑 ${it.title || ""}</td></tr>`
-    : `<tr><td style="text-align:center">${++n}</td><td>${(it.modelNo || it.description || "")}${it.unit ? " (" + it.unit + ")" : ""}</td><td style="text-align:center">${it.qty}</td><td style="text-align:left">${fmt(it.unitPrice)}</td><td style="text-align:left"><b>${fmt(it.lineTotal)}</b></td></tr>`
-  ).join("");
-  return `
-    <h2 style="color:${accent};margin:0 0 4px">${title} — ${doc.orderNo || doc.quoteNo || ""}</h2>
-    <div style="font-size:12px;color:#64748b;margin-bottom:10px">
-      العميل: ${doc.customerName || doc.customerNameAdHoc || "—"}${doc.customerPhone ? " · " + doc.customerPhone : ""} · التاريخ: ${doc.date || ""}${doc.validUntil ? " · صالح حتى: " + doc.validUntil : ""}
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:${accent};color:#fff">
-        <th style="padding:6px;border:1px solid #cbd5e1">#</th><th style="padding:6px;border:1px solid #cbd5e1">البند</th><th style="padding:6px;border:1px solid #cbd5e1">كمية</th><th style="padding:6px;border:1px solid #cbd5e1">السعر</th><th style="padding:6px;border:1px solid #cbd5e1">الإجمالي</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="margin-top:12px;width:300px;margin-inline-start:auto;font-size:13px">
-      <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(doc.subtotal || 0)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصومات</span><b>− ${fmt(doc.totalDiscount || 0)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #1E293B;font-size:16px;font-weight:800"><span>الإجمالي</span><span>${fmt(doc.total || 0)} ج.م</span></div>
-    </div>
-    ${doc.notes ? '<p style="margin-top:10px;font-size:12px"><b>ملاحظات:</b> ' + doc.notes + "</p>" : ""}
-    <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع العميل: ____________</div><div>توقيع المصنع: ____________</div></div>`;
-}
+import { buildSalesDocHTML } from "../../utils/sales/docPrint.js";
+import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 
 const STATUS_META = {
   confirmed:         { label: "مؤكّد",        color: "#0EA5E9", bg: "#0EA5E915" },
@@ -57,8 +31,9 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
   const invMissing = !!so.salesInvoiceId && !invExists;
   const canInvoice = canEdit && so.status !== "cancelled" && !invExists;
   const canEditOrder = canEdit && so.status !== "cancelled" && !invExists; /* مايتعدّلش لو ملغي أو مفوتر */
+  const [sendWa, setSendWa] = useState(false);
 
-  return (
+  return (<>
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
@@ -141,6 +116,7 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
 
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Btn ghost small onClick={() => printPage("أمر بيع — " + (so.orderNo || ""), buildSalesDocHTML(so, data, "order"), { factoryName: data.factoryName, logo: data.logo })}>🖨 طباعة / PDF</Btn>
+          <Btn ghost small onClick={() => setSendWa(true)} style={{ color: "#1DA851" }}>📤 إرسال واتساب</Btn>
           {canEditOrder && onEdit && <Btn ghost small onClick={onEdit} style={{ color: T.accent }}>✏️ تعديل</Btn>}
           {canCancel && <Btn ghost small onClick={onCancelOrder} style={{ color: T.err }}>✗ إلغاء الأمر (استرجاع مخزون)</Btn>}
           {canEdit && onDelete && <Btn ghost small onClick={onDelete} style={{ color: T.err }}>🗑 حذف الأمر</Btn>}
@@ -152,6 +128,8 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
         </div>
       </div>
     </div>
+    {sendWa && <SendDocWhatsApp data={data} doc={so} kind="order" onClose={() => setSendWa(false)} />}
+    </>
   );
 }
 
