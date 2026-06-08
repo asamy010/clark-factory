@@ -236,12 +236,16 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
     bucketWeekly(purchases.filter(p => p.status !== "void"), p => p.date, p => p.total),
     [purchases]);
 
-  /* ── Receivable checks ── */
+  /* ── Receivable checks ──
+     V21.18.2: محاذاة الحالات مع قيم CLARK الفعلية: "معلق" (في الخزنة/المحفظة) ·
+     "محصل" (محصّل) · "مرتد" (مرتجع) · "ملغي". القديم كان بيدوّر على
+     "cleared"/"في الخزنة" فما كانش بيطابق → أصفار رغم وجود بيانات. */
   const recvChecks = useMemo(() => {
     const all = checks.filter(c => c.type === "receivable");
-    const pending = all.filter(c => !c.status || c.status === "pending" || c.status === "في الخزنة");
-    const cleared = all.filter(c => c.status === "cleared" || c.status === "تم تحصيله" || c.status === "تم الصرف");
-    const bounced = all.filter(c => c.status === "bounced" || c.status === "مرتجع");
+    const isCancelled = c => c.status === "ملغي";
+    const pending = all.filter(c => !isCancelled(c) && (!c.status || c.status === "معلق" || c.status === "open" || c.status === "pending"));
+    const cleared = all.filter(c => c.status === "محصل");
+    const bounced = all.filter(c => c.status === "مرتد");
     const pendingTotal = pending.reduce((s, c) => s + (Number(c.amount) || 0), 0);
     const clearedTotal = cleared.reduce((s, c) => s + (Number(c.amount) || 0), 0);
     return { all, pending, cleared, bounced, pendingTotal, clearedTotal };
@@ -254,8 +258,9 @@ export function DashboardTab({ data, config, T, FS, isMob, setActive, gotoTopTab
   /* ── Payable checks ── */
   const payChecks = useMemo(() => {
     const all = checks.filter(c => c.type === "payable");
-    const pending = all.filter(c => !c.status || c.status === "pending" || c.status === "في الخزنة");
-    const cleared = all.filter(c => c.status === "cleared" || c.status === "تم تحصيله" || c.status === "تم الصرف");
+    const isCancelled = c => c.status === "ملغي";
+    const pending = all.filter(c => !isCancelled(c) && (!c.status || c.status === "معلق" || c.status === "open" || c.status === "pending" || c.status === "مُظهّر"));
+    const cleared = all.filter(c => c.status === "مدفوع");
     const pendingTotal = pending.reduce((s, c) => s + (Number(c.amount) || 0), 0);
     const clearedTotal = cleared.reduce((s, c) => s + (Number(c.amount) || 0), 0);
     return { all, pending, cleared, pendingTotal, clearedTotal };
