@@ -61,6 +61,7 @@ import { PrintTemplatesEditor } from "../components/PrintTemplatesEditor.jsx";
 import { CollectionHealthBar } from "../components/CollectionHealthBar.jsx";
 /* V21.9.3: smart diagnostics panel — moved from ShopifyIntegrationPg */
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel.jsx";
+import { DocNumberingSettings } from "../components/DocNumberingSettings.jsx";
 /* V21.9.103: Universal Tag Registry CRUD (Slice 3 of Universal Tagging).
    Manager+Admin only (data-safety §0.1 decision). Other roles see a
    read-only notice. */
@@ -4501,6 +4502,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     {activeTab==="business" && <>
     {/* Sales Settings — draft pattern */}
     <SalesSettingsCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Inp={Inp} Btn={Btn} Sel={Sel} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,salesSettings:d}))}/>
+    {/* V21.20.0: ترقيم المستندات */}
+    <DocNumberingSettings data={config} upConfig={upConfig} isMob={isMob}/>
     {/* V18.33: WhatsApp summary controls */}
     <WhatsappSummaryCard config={config} upConfig={upConfig} T={T} FS={FS} isMob={isMob} showToast={showToast} Btn={Btn} Card={Card} setDirty={(d)=>setDirtyCards(p=>({...p,whatsappSummary:d}))}/>
 

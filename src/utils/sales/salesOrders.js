@@ -36,8 +36,9 @@
 import { applyStockDelta } from "../categories.js";
 import { reserveInvoiceNo } from "../invoices.js";
 import { recalcQuotationTotals } from "./quotations.js";
+import { previewDocNo, reserveDocNo } from "../docNumbering.js";
 
-const SO_PREFIX = "أمر"; /* عربي حسب قرار Ahmed (V21.10.0) */
+const SO_PREFIX = "أمر"; /* legacy fallback */
 
 export const SO_STATUSES = ["confirmed", "partial_delivered", "delivered", "invoiced", "cancelled"];
 
@@ -46,18 +47,10 @@ function _mid(){ return "mv_" + Date.now().toString(36) + "_" + Math.random().to
 
 /* ── Counter ── */
 export function nextSalesOrderNo(data){
-  const year = new Date().getFullYear();
-  const yearMap = (data?.invoiceCounters || {}).salesOrder || {};
-  const next = (yearMap[year] || 0) + 1;
-  return `${SO_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+  return previewDocNo(data, "salesOrder");
 }
-export function reserveSalesOrderNo(d){
-  if(!d.invoiceCounters) d.invoiceCounters = {};
-  if(!d.invoiceCounters.salesOrder) d.invoiceCounters.salesOrder = {};
-  const year = new Date().getFullYear();
-  const next = (d.invoiceCounters.salesOrder[year] || 0) + 1;
-  d.invoiceCounters.salesOrder[year] = next;
-  return `${SO_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+export function reserveSalesOrderNo(d, dateStr){
+  return reserveDocNo(d, "salesOrder", dateStr);
 }
 
 /* ── Stock helpers ── */

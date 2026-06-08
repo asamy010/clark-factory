@@ -2,6 +2,7 @@
    Pre-V19.66 every consolidation accumulated 0.0000000001-class rounding error
    into AR balances and reports. */
 import { r2 } from "./format.js";
+import { previewDocNo, reserveDocNo } from "./docNumbering.js";
 
 /* ═══════════════════════════════════════════════════════════════════════
    CLARK · Invoices Utility (V18.65 → V19.66 hardened)
@@ -45,26 +46,14 @@ const PURCHASE_PREFIX = "PINV";
 /* Generate the next invoice number for the given type and year.
    Format: PREFIX-YYYY-NNNN (e.g. INV-2026-0042). */
 export function nextInvoiceNo(data, type){
-  const year = new Date().getFullYear();
-  const counters = data.invoiceCounters || {};
-  const typeKey = type === "purchase" ? "purchase" : "sales";
-  const yearMap = counters[typeKey] || {};
-  const next = (yearMap[year] || 0) + 1;
-  const prefix = type === "purchase" ? PURCHASE_PREFIX : SALES_PREFIX;
-  return `${prefix}-${year}-${String(next).padStart(4, "0")}`;
+  return previewDocNo(data, type === "purchase" ? "purchaseInvoice" : "salesInvoice");
 }
 
 /* Reserve the next invoice number — increments the counter atomically.
-   Pass into upConfig as the mutator for safety. */
+   Pass into upConfig as the mutator for safety.
+   V21.20.0: موحّد عبر docNumbering (صيغة قابلة للإعداد، تسلسل شهري). */
 export function reserveInvoiceNo(d, type){
-  if(!d.invoiceCounters) d.invoiceCounters = {};
-  const typeKey = type === "purchase" ? "purchase" : "sales";
-  if(!d.invoiceCounters[typeKey]) d.invoiceCounters[typeKey] = {};
-  const year = new Date().getFullYear();
-  const next = (d.invoiceCounters[typeKey][year] || 0) + 1;
-  d.invoiceCounters[typeKey][year] = next;
-  const prefix = type === "purchase" ? PURCHASE_PREFIX : SALES_PREFIX;
-  return `${prefix}-${year}-${String(next).padStart(4, "0")}`;
+  return reserveDocNo(d, type === "purchase" ? "purchaseInvoice" : "salesInvoice");
 }
 
 /* ═══ SALES INVOICES ═══ */

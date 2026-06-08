@@ -33,30 +33,22 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { r2 } from "../format.js";
+import { previewDocNo, reserveDocNo } from "../docNumbering.js";
 
-const QUOTE_PREFIX = "عرض"; /* عربي حسب قرار Ahmed (V21.10.0) */
+const QUOTE_PREFIX = "عرض"; /* legacy fallback */
 
 export const QUOTE_STATUSES = ["draft", "sent", "accepted", "rejected", "converted", "expired"];
 
-/* ── Counter ── */
+/* ── Counter (V21.20.0: موحّد عبر docNumbering — صيغة قابلة للإعداد) ── */
 
 /* توليد رقم العرض الجاي (read-only preview، مش بيـ increment). */
 export function nextQuotationNo(data){
-  const year = new Date().getFullYear();
-  const yearMap = (data?.invoiceCounters || {}).quotation || {};
-  const next = (yearMap[year] || 0) + 1;
-  return `${QUOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+  return previewDocNo(data, "quotation");
 }
 
-/* حجز رقم العرض — بيـ increment العدّاد atomically. يُمرّر داخل upConfig.
-   نفس نمط reserveInvoiceNo (invoices.js) عشان نحترم الـ concurrency. */
-export function reserveQuotationNo(d){
-  if(!d.invoiceCounters) d.invoiceCounters = {};
-  if(!d.invoiceCounters.quotation) d.invoiceCounters.quotation = {};
-  const year = new Date().getFullYear();
-  const next = (d.invoiceCounters.quotation[year] || 0) + 1;
-  d.invoiceCounters.quotation[year] = next;
-  return `${QUOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
+/* حجز رقم العرض — بيـ increment العدّاد atomically. يُمرّر داخل upConfig. */
+export function reserveQuotationNo(d, dateStr){
+  return reserveDocNo(d, "quotation", dateStr);
 }
 
 /* ── Totals ── */
@@ -162,7 +154,7 @@ export function saveQuotationMutator(d, payload, userName){
   }
 
   /* عرض جديد */
-  const quoteNo = reserveQuotationNo(d);
+  const quoteNo = reserveQuotationNo(d, payload.date);
   const fresh = recalcQuotationTotals({
     id: "qt_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
     quoteNo,
