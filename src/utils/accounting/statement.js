@@ -127,6 +127,20 @@ function gatherCustomerEntries(data, custId, mode){
         sub: fmt(g.qty) + " قطعة · قبل الخصم " + fmt(r2(g.value)) + " · بعد الخصم " + fmt(r2(g.valueAfterDisc)),
         debit: 0, credit: r2(g.valueAfterDisc), detail: { kind: "session", lines: g.lines }, raw: g });
     });
+    /* V21.20.5: أوامر البيع تظهر كبيع تشغيلي (مدين) — «أمر البيع = البيع نفسه». */
+    (data.salesOrders || []).forEach(so => {
+      if(!so || so.status === "cancelled") return;
+      if(String(so.customerId) !== String(custId)) return;
+      const lines = (so.items || []).filter(it => !(it && it.isSection)).map(it => {
+        const q = Number(it.qty) || 0, up = Number(it.unitPrice) || 0;
+        return { modelNo: it.modelNo || it.itemName || it.description || "—", modelDesc: "", qty: q, price: r2(up), gross: r2(q * up), dPct: Number(it.discountValue) || 0, net: r2(Number(it.lineTotal) || 0) };
+      });
+      const qty = lines.reduce((s, l) => s + l.qty, 0);
+      entries.push({ date: so.date, type: "delivery", ref: so.orderNo, refId: so.id,
+        desc: "أمر بيع — " + (so.orderNo || ""),
+        sub: fmt(qty) + " قطعة · الإجمالي " + fmt(r2(so.total || 0)),
+        debit: r2(so.total || 0), credit: 0, detail: { kind: "session", lines }, raw: so });
+    });
   }
   return entries.concat(gatherCustomerPayments(data, custId));
 }

@@ -101,10 +101,20 @@ export function buildCustomerSummary(custId, data) {
     c.partyId === custId
   ).forEach(c => { payCheck += Number(c.amount) || 0; });
 
-  const balance = salesNet - returnsNet - payCash - payCheck - payOther;
+  /* V21.20.5: أوامر البيع كبيع تشغيلي («أمر البيع = البيع»). صافي الأمر (so.total)
+     يضاف للرصيد التشغيلي. (لو العميل بيتسلّم عبر سجل التوزيعات بدل الأوامر،
+     مايبقاش عنده أوامر بيع فمفيش تكرار.) */
+  let salesOrdersNet = 0;
+  (data.salesOrders || []).forEach(so => {
+    if(!so || so.status === "cancelled") return;
+    if(String(so.customerId) !== String(custId)) return;
+    salesOrdersNet += Number(so.total) || 0;
+  });
+
+  const balance = salesNet + salesOrdersNet - returnsNet - payCash - payCheck - payOther;
 
   return {
-    salesGross, discPct, discAmt, salesNet,
+    salesGross, discPct, discAmt, salesNet, salesOrdersNet,
     payCash, payCheck, payOther,
     returnsGross, returnsNet,
     balance,

@@ -495,7 +495,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
-  const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:cd-ret,avail:sd-(cd-ret),rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders]);
+  /* V21.20.5: كميات أوامر البيع المحجوزة لكل موديل («أمر البيع = بيع» يخصم المتاح). */
+  const soReservedByOrder=useMemo(()=>{const m={};(data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled")return;(so.items||[]).forEach(it=>{if(it&&it.sourceType==="order"&&it.sourceId){m[it.sourceId]=(m[it.sourceId]||0)+(Number(it.qty)||0)}})});return m},[data.salesOrders]);
+  const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=(cd-ret)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:net,avail:sd-net,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders,soReservedByOrder]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());

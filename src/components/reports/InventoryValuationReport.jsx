@@ -28,6 +28,9 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
   /* ── المنتجات الجاهزة (سيري + كسر كصفوف منفصلة) ── */
   const finished = useMemo(() => {
     if(kind !== "finished") return { rows: [] };
+    /* V21.20.5: كميات أوامر البيع المحجوزة («أمر البيع = بيع») تُطرح من المتاح */
+    const soReserved = {};
+    (data.salesOrders || []).forEach(so => { if(!so || so.status === "cancelled") return; (so.items || []).forEach(it => { if(it && it.sourceType === "order" && it.sourceId) soReserved[it.sourceId] = (soReserved[it.sourceId] || 0) + (Number(it.qty) || 0); }); });
     const rows = [];
     (data.orders || []).forEach(o => {
       /* الرصيد الفعلي للمخزن الجاهز — مطابق لـ «الموديلات المتاحة» (CustDeliverPg
@@ -36,7 +39,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
       const sd = getConfirmedStock(o); if(sd <= 0) return;
       const cd = (o.customerDeliveries || []).reduce((s, d) => s + (Number(d.qty) || 0), 0);
       const ret = (o.customerReturns || []).reduce((s, r) => s + (Number(r.qty) || 0), 0);
-      const net = cd - ret;
+      const net = cd - ret + (soReserved[o.id] || 0);
       const avail = sd - net;
       if(avail <= 0) return; /* مطابق لفلتر popup (m.avail > 0) */
       const availSeries = Math.max(0, getConfirmedSeriesStock(o) - net);
