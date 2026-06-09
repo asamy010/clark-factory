@@ -58,6 +58,9 @@ function gatherCustomerPayments(data, custId){
     if(!t || !t.id || t.type !== "in") return;
     if(t.custId !== custId) return;
     if(known.has(t.id)) return;
+    /* V21.21.14: استبعاد حركات الشيكات — الشيك متعدّ بالفعل من data.checks فوق
+       (وإلا الشيك المحصّل يتعدّ مرتين: data.checks + حركة check_collect). */
+    if(t.sourceType === "check_collect" || t.sourceType === "check_pay") return;
     out.push({ date: t.date, createdAt: t.createdAt, type: "treasury", ref: t.id, refId: t.id,
       desc: "دفعة (خزنة)", debit: 0, credit: r2(Number(t.amount) || 0), raw: t });
   });
@@ -190,6 +193,19 @@ function gatherSupplierEntries(data, supId, mode){
         desc: "دفعة للمورد " + (p.method ? "(" + p.method + ")" : ""), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
     });
   }
+  /* V21.21.14: شيكات الدفع للمورد (دفعة مورد) — تظهر في الوضعين زي شيكات العميل،
+     معلّقة كانت أو مدفوعة. dedup ضد دفعات المورد بالـ checkId (شيك مرتبط بدفعة
+     مورد مثلاً من الاستلام بيتعدّ كدفعة، فمابنكرّروش هنا). */
+  const supPayCheckIds = new Set((data.supplierPayments || []).filter(p => p && p.supplierId === supId && p.checkId).map(p => p.checkId));
+  (data.checks || []).forEach(c => {
+    if(!c || c.type !== "payable") return;
+    if(c.partyId !== supId) return;
+    if(c.status === "ملغي" || c.status === "مرتد") return;
+    if((c.category || "دفعة مورد") !== "دفعة مورد") return;
+    if(supPayCheckIds.has(c.id)) return;
+    entries.push({ date: c.date || c.dueDate || "", createdAt: c.createdAt, type: "check", ref: c.checkNo || c.id, refId: c.id,
+      desc: "شيك دفع" + (c.checkNo ? " " + c.checkNo : ""), debit: 0, credit: r2(Number(c.amount) || 0), raw: c });
+  });
   /* دفعات خزنة يتيمة (out) للمورد — مشتركة بين الوضعين (مع احترام tombstones) */
   const known = new Set((data.supplierPayments || []).map(p => p.treasuryTxId).filter(Boolean));
   const tombstones = new Set(data._deletedSupplierPayTreasuryIds || []);
@@ -198,6 +214,8 @@ function gatherSupplierEntries(data, supId, mode){
     if(t.supplierId !== supId) return;
     if(known.has(t.id) || tombstones.has(t.id)) return;
     if(t.sourceType === "check_bounce") return;
+    /* V21.21.14: استبعاد حركات الشيكات — الشيك متعدّ بالفعل من data.checks فوق. */
+    if(t.sourceType === "check_collect" || t.sourceType === "check_pay") return;
     entries.push({ date: t.date, createdAt: t.createdAt, type: "treasury", ref: t.id, refId: t.id,
       desc: "دفعة للمورد (خزنة)", debit: 0, credit: r2(Number(t.amount) || 0), raw: t });
   });
