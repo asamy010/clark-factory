@@ -33,3 +33,22 @@ export function computePoStatus(po, receipts){
   if(received < ordered) return "partial";
   return "completed";
 }
+
+/* V21.21.7: تقدّم الاستلام لكل بند (matching عبر receipt line._poLineId === po line.id).
+   بيرجّع map: poLineId → { ordered, received, remaining }. الاستلامات القديمة
+   اللي مفيهاش _poLineId مابتتحسبش هنا per-line (لكن بتتحسب في poProgress الإجمالي). */
+export function poLineProgress(po, receipts){
+  const linked = poLinkedReceipts(po, receipts);
+  const recByLine = {};
+  linked.forEach(r => (r.items || []).forEach(it => {
+    const k = it && it._poLineId;
+    if(k) recByLine[k] = (recByLine[k] || 0) + (Number(it.qty) || 0);
+  }));
+  const lines = {};
+  (po?.items || []).filter(it => it && !it.isSection).forEach(it => {
+    const ordered = Number(it.qty) || 0;
+    const received = recByLine[it.id] || 0;
+    lines[it.id] = { ordered, received, remaining: Math.max(0, ordered - received) };
+  });
+  return lines;
+}

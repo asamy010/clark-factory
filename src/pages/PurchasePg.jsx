@@ -25,7 +25,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
-import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts } from "../utils/purchase/purchaseOrders.js";
+import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts, poLineProgress } from "../utils/purchase/purchaseOrders.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubView}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -550,13 +550,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     showToast("✓ تم حذف "+p.poNo);
   };
   
-  /* Convert PO to a new receipt (pre-fills the receipt form) */
+  /* Convert PO to a new receipt (pre-fills the receipt form).
+     V21.21.7: الكمية الافتراضية = المتبقي لكل بند (مش الكمية الكاملة)، مع
+     ربط كل سطر بسطر أمر الشراء (_poLineId) عشان تتبّع الاستلام الجزئي. */
   const convertPoToReceipt=(p)=>{
+    const prog=poLineProgress(p,purchaseReceipts);
     setRcpt({
       supplierId:p.supplierId,supplierName:p.supplierName,date:today,
-      items:(p.items||[]).filter(it=>!it.isSection).map(it=>({id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it.qty,unit:it.unit,price:it.price,amount:it.amount,notes:it.notes||"",_fromPo:p.id})),
+      items:(p.items||[]).filter(it=>!it.isSection).map(it=>{
+        const lp=prog[it.id]||{ordered:Number(it.qty)||0,received:0,remaining:Number(it.qty)||0};
+        return {id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:lp.remaining,unit:it.unit,price:it.price,amount:r2(lp.remaining*(Number(it.price)||0)),notes:it.notes||"",_fromPo:p.id,_poLineId:it.id,_orderedQty:lp.ordered,_receivedBefore:lp.received};
+      }),
       paymentMethod:"credit",treasuryAccount:"",paidAmount:0,notes:"من أمر الشراء "+p.poNo,
-      checkBank:"",checkNo:"",checkDueDate:"",_poId:p.id
+      checkBank:"",checkNo:"",checkDueDate:"",_poId:p.id,_poNo:p.poNo
     });
     setViewPo(null);
     setSubTab("receipts");
@@ -777,7 +783,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,
         qty:Number(it.qty)||0,unit:it.unit||"",
         price:Number(it.price)||0,amount:Number(it.amount)||0,
-        notes:it.notes||""
+        notes:it.notes||"",
+        ...(it._poLineId?{_poLineId:it._poLineId}:{}),...(it._fromPo?{_fromPo:it._fromPo}:{}) /* V21.21.7: تتبّع الاستلام الجزئي لكل بند */
       })),
       totalAmount:r2(totalAmount),paidAmount:r2(paidAmt),
       paymentMethod:rcpt.paymentMethod,paymentStatus,
@@ -2075,6 +2082,29 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             </div>
           </div>
           
+          {/* V21.21.7: منتقي أمر الشراء — لما تختار مورد، تظهر أوامره غير المكتملة لتحميل بنودها */}
+          {rcpt._poId ? (
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:T.accent+"0D",border:"1px solid "+T.accent+"40",marginBottom:14,flexWrap:"wrap"}}>
+              <span style={{fontSize:FS-1,fontWeight:700,color:T.accent}}>📋 مرتبط بأمر الشراء {rcpt._poNo||""}</span>
+              <span style={{fontSize:FS-3,color:T.textSec}}>الكميات الافتراضية = المتبقي · عدّلها حسب المستلم فعلياً</span>
+              <button onClick={()=>setRcpt(p=>({...p,_poId:undefined,_poNo:undefined,items:(p.items||[]).map(it=>({...it,_poLineId:undefined,_orderedQty:undefined,_receivedBefore:undefined}))}))} style={{marginInlineStart:"auto",background:T.bg,color:T.textSec,border:"1px solid "+T.brd,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:FS-2}}>فكّ الربط (استلام يدوي)</button>
+            </div>
+          ) : rcpt.supplierId ? (()=>{
+            const supPos=(data.purchaseOrders||[]).filter(po=>String(po.supplierId)===String(rcpt.supplierId)&&!["completed","cancelled"].includes(computePoStatus(po,purchaseReceipts)));
+            if(supPos.length===0) return <div style={{padding:"8px 12px",borderRadius:10,background:T.bg,border:"1px dashed "+T.brd,marginBottom:14,fontSize:FS-2,color:T.textMut}}>لا توجد أوامر شراء غير مكتملة لهذا المورد — أضف البنود يدوياً بالأسفل.</div>;
+            return <div style={{padding:"10px 14px",borderRadius:10,background:"#FEF3C708",border:"1px solid #F59E0B30",marginBottom:14}}>
+              <div style={{fontSize:FS-1,fontWeight:700,color:"#D97706",marginBottom:8}}>📋 اختر أمر شراء لاستلامه ({supPos.length})</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {supPos.map(po=>{const st=computePoStatus(po,purchaseReceipts);const pr=poProgress(po,purchaseReceipts);const meta=PO_STATUS_META[st]||PO_STATUS_META.open;return (
+                  <button key={po.id} onClick={()=>convertPoToReceipt(po)} style={{textAlign:"right",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,padding:"8px 12px",cursor:"pointer",fontFamily:"inherit",minWidth:170}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="#D97706"} onMouseLeave={e=>e.currentTarget.style.borderColor=T.brd}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}><span style={{fontWeight:800,color:"#8B5CF6"}}>{po.poNo}</span><span style={{fontSize:FS-3,fontWeight:700,color:meta.color,background:meta.bg,padding:"1px 7px",borderRadius:20}}>{meta.label}</span></div>
+                    <div style={{fontSize:FS-3,color:T.textSec,marginTop:3}}>{po.date} · مستلم {fmt(pr.received)}/{fmt(pr.ordered)} · المتبقي {fmt(Math.max(0,pr.ordered-pr.received))}</div>
+                  </button>);})}
+              </div>
+            </div>;
+          })() : null}
+
           {/* Items section */}
           <div style={{marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -2097,7 +2127,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <thead><tr>
                   <th style={{...TH,fontSize:FS-3}}>النوع</th>
                   <th style={{...TH,fontSize:FS-3,minWidth:180}}>الصنف</th>
-                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:90}}>الكمية</th>
+                  {rcpt._poId&&<th style={{...TH,fontSize:FS-3,textAlign:"center",width:70}}>المطلوب</th>}
+                  {rcpt._poId&&<th style={{...TH,fontSize:FS-3,textAlign:"center",width:80}}>مستلم سابقاً</th>}
+                  {rcpt._poId&&<th style={{...TH,fontSize:FS-3,textAlign:"center",width:70}}>المتبقي</th>}
+                  <th style={{...TH,fontSize:FS-3,textAlign:"center",width:90}}>{rcpt._poId?"المستلم الآن":"الكمية"}</th>
                   <th style={{...TH,fontSize:FS-3,textAlign:"center",width:70}}>الوحدة</th>
                   <th style={{...TH,fontSize:FS-3,textAlign:"center",width:100}}>السعر</th>
                   <th style={{...TH,fontSize:FS-3,textAlign:"center",width:100}}>الإجمالي</th>
@@ -2120,8 +2153,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                       <td style={{...TD,padding:"4px 6px"}}>
                         <SearchSel value={it.itemId} onChange={v=>updateRcptItem(idx,"itemId",v)} options={options} placeholder="اختر..."/>
                       </td>
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textSec,fontWeight:700}}>{it._poLineId?fmt(Number(it._orderedQty)||0):"—"}</td>}
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut}}>{it._poLineId?fmt(Number(it._receivedBefore)||0):"—"}</td>}
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{it._poLineId?fmt(Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))):"—"}</td>}
                       <td style={{...TD,padding:"4px 6px"}}>
                         <Inp type="number" value={it.qty||""} onChange={v=>updateRcptItem(idx,"qty",v)} style={{textAlign:"center",padding:"5px 6px"}}/>
+                        {it._poLineId&&(Number(it.qty)||0)>Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))&&<div style={{fontSize:FS-4,color:T.err,fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>⚠️ تجاوز المتبقي</div>}
                       </td>
                       <td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{it.unit||"—"}</td>
                       <td style={{...TD,padding:"4px 6px"}}>
@@ -2135,7 +2172,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                   })}
                   {/* Total row */}
                   <tr style={{background:T.accent+"06",fontWeight:800}}>
-                    <td style={{...TD,padding:"8px 6px"}} colSpan="5"><span style={{textAlign:"left"}}>الإجمالي</span></td>
+                    <td style={{...TD,padding:"8px 6px"}} colSpan={rcpt._poId?8:5}><span style={{textAlign:"left"}}>الإجمالي</span></td>
                     <td style={{...TD,padding:"8px 6px",textAlign:"center",fontSize:FS+2,color:T.accent,fontWeight:800}}>{fmt(r2((rcpt.items||[]).reduce((s,it)=>s+(Number(it.amount)||0),0)))}</td>
                     <td style={{...TD,padding:"8px 6px"}}></td>
                   </tr>
