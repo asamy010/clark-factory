@@ -6,11 +6,11 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo, useEffect } from "react";
-import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
+import { Btn, Card, Inp, Sel, BlockingOverlay } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
-import { ask, showToast } from "../utils/popups.js";
+import { ask, showToast, tell } from "../utils/popups.js";
 import {
   postInvoiceMutator, voidInvoiceMutator, deleteDraftInvoiceMutator,
   getInvoiceStats, buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
@@ -125,6 +125,25 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
     upConfig(d => { deleteDraftInvoiceMutator(d, inv.id, "purchase"); });
     showToast("✓ تم الحذف");
     setActiveInvoice(null);
+  };
+  /* V21.21.5: حذف مجمّع للمسودات المحددة */
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const bulkDelete = async () => {
+    const ids = [...selectedIds]; if(ids.length === 0) return;
+    if(!await ask("حذف مجمّع", "متأكد تحذف " + ids.length + " مسودة فاتورة نهائياً؟ مش هينفع تتراجع.", { danger: true, confirmText: "حذف الكل" })) return;
+    setBulkBusy(true); let deleted = 0; const blocked = [];
+    try {
+      await upConfig(d => {
+        for(const id of ids){
+          const inv = (d.purchaseInvoices || []).find(x => x && x.id === id);
+          const ok = deleteDraftInvoiceMutator(d, id, "purchase");
+          if(ok) deleted++; else blocked.push((inv?.invoiceNo || id) + ": مش مسودة");
+        }
+      });
+    } finally { setBulkBusy(false); }
+    setSelectedIds(new Set());
+    if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " مسودة");
+    else await tell("نتيجة الحذف المجمّع", "✓ اتحذف: " + deleted + "\n⛔ اتمنع: " + blocked.length + " (مرحّلة — استخدم الإلغاء)\n\n" + blocked.slice(0, 12).join("\n"), { type: "warning" });
   };
 
   /* V18.49: receipts without invoices */
@@ -245,6 +264,10 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
           draftItems={filtered.filter(i => i.status === "draft")}
           isMob={isMob}
         />
+        {selectedIds.size > 0 && <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 2px",flexWrap:"wrap"}}>
+          <button onClick={bulkDelete} style={{background:"#EF4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontFamily:"inherit",fontSize:FS-1}}>🗑 حذف المسودات المحددة ({selectedIds.size})</button>
+          <button onClick={()=>setSelectedIds(new Set())} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontSize:FS-1}}>إلغاء التحديد</button>
+        </div>}
         {filtered.slice(0, showN).map(inv => {
           const meta = STATUS_META[inv.status] || STATUS_META.draft;
           const isDraft = inv.status === "draft";
@@ -299,5 +322,6 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       itemLabel="فاتورة"
       isMob={isMob}
     />
+    <BlockingOverlay show={bulkBusy} text="جاري حذف المسودات..." sub="من فضلك انتظر — لا تغلق الصفحة" />
   </div>;
 }

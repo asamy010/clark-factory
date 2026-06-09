@@ -10,7 +10,7 @@ import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, r2, normalizePhone, dayName } from "../utils/format.js";
 import { ask, tell, showToast, denyAction } from "../utils/popups.js";
 import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
-import { Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
+import { Btn, Inp, Sel, SearchSel, Card, useDebounced, BlockingOverlay } from "../components/ui.jsx";
 /* V21.9.106: Universal Tagging — Slice 5 Supplier integration. Same pattern
    as Slice 4b (Customer). Tag IDs stored on supplier.tags; inline create
    gated on canEdit (sales/purchase accountants share the same pragmatic gate). */
@@ -32,6 +32,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const today=new Date().toISOString().split("T")[0];
   const[subTab,setSubTab]=useState("receipts");
   const[rcptN,setRcptN]=useState(50);const[poN,setPoN]=useState(50);/* V21.21.4: pagination — 50 + «عرض المزيد» */
+  const[poSel,setPoSel]=useState(()=>new Set());const[bulkBusy,setBulkBusy]=useState(false);/* V21.21.5: حذف مجمّع لأوامر الشراء */
   /* V16.31: categories management popups */
   const[catEditPopup,setCatEditPopup]=useState(null);/* null | {id?,name,emoji} for create/edit */
   const[catTypesPopup,setCatTypesPopup]=useState(null);/* null | {categoryId} */
@@ -493,6 +494,28 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     showToast((isEdit?"✅ تم تعديل ":"✅ تم إنشاء ")+poNo);
   };
   
+  /* V21.21.5: حذف مجمّع لأوامر الشراء (نفس قواعد deletePo: منع لو فيه استلام + إرجاع الـ RFQ) */
+  const bulkDeletePo=async()=>{
+    if(!canEdit){await denyAction("حذف أوامر الشراء");return;}
+    const ids=[...poSel];if(ids.length===0)return;
+    if(!await ask("حذف مجمّع","متأكد تحذف "+ids.length+" أمر شراء نهائياً؟ مش هينفع تتراجع.",{danger:true,confirmText:"حذف الكل"}))return;
+    setBulkBusy(true);let deleted=0;const blocked=[];
+    try{
+      await upConfig(d=>{
+        for(const id of ids){
+          const p=(d.purchaseOrders||[]).find(x=>x&&x.id===id);if(!p)continue;
+          const linked=(d.purchaseReceipts||[]).filter(r=>r&&r._poId===id);
+          if(linked.length>0){blocked.push((p.poNo||id)+": له استلام مرتبط");continue;}
+          d.purchaseOrders=(d.purchaseOrders||[]).filter(x=>x.id!==id);
+          if(p._fromRfqId&&Array.isArray(d.purchaseRfqs)){const q=d.purchaseRfqs.find(x=>x&&x.id===p._fromRfqId);if(q&&q.status==="converted"){q.status="sent";q.convertedToPoId="";q.convertedToPoNo="";if(!Array.isArray(q.statusHistory))q.statusHistory=[];q.statusHistory.push({from:"converted",to:"sent",at:new Date().toISOString(),by:userName||"",note:"حذف أمر الشراء "+(p.poNo||"")});}}
+          deleted++;
+        }
+      });
+    }finally{setBulkBusy(false);}
+    setPoSel(new Set());
+    if(blocked.length===0)showToast("✓ اتحذف "+deleted+" أمر شراء");
+    else await tell("نتيجة الحذف المجمّع","✓ اتحذف: "+deleted+"\n⛔ اتمنع: "+blocked.length+" (بسبب التسلسل المستندي)\n\n"+blocked.slice(0,12).join("\n"),{type:"warning"});
+  };
   const deletePo=async(p)=>{
     if(!canEdit){await denyAction("حذف أمر الشراء");return;}
     /* V21.21.4: السلسلة المستندية — أمر الشراء «وسط» السلسلة (RFQ ← أمر شراء ←
@@ -1384,9 +1407,20 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             <div>{pos.length===0?"لا توجد أوامر شراء — اضغط \"أمر شراء جديد\"":"لا توجد نتائج"}</div>
           </div>;
           
+          const poVisIds=filtered.slice(0,poN).map(p=>p.id);
+          const poAllSel=poVisIds.length>0&&poVisIds.every(id=>poSel.has(id));
+          const togglePoAll=()=>setPoSel(s=>{const n=new Set(s);if(poAllSel)poVisIds.forEach(id=>n.delete(id));else poVisIds.forEach(id=>n.add(id));return n;});
           return<div style={{overflowX:"auto"}}>
+            {canEdit&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 2px",marginBottom:6,flexWrap:"wrap"}}>
+              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:FS-2,color:T.textSec,fontWeight:600}}><input type="checkbox" checked={poAllSel} onChange={togglePoAll} style={{width:16,height:16,cursor:"pointer"}}/>تحديد الكل المعروض</label>
+              {poSel.size>0&&<>
+                <button onClick={bulkDeletePo} style={{background:"#EF4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:700,fontFamily:"inherit",fontSize:FS-1}}>🗑 حذف المحدد ({poSel.size})</button>
+                <button onClick={()=>setPoSel(new Set())} style={{background:T.bg,color:T.textSec,border:"1px solid "+T.brd,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontSize:FS-1}}>إلغاء التحديد</button>
+              </>}
+            </div>}
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
               <thead><tr>
+                {canEdit&&<th style={{...TH,width:30}}></th>}
                 <th style={TH}>رقم الأمر</th>
                 <th style={TH}>التاريخ</th>
                 <th style={TH}>المورد</th>
@@ -1396,7 +1430,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <th style={{...TH,textAlign:"center"}}>الإجراءات</th>
               </tr></thead>
               <tbody>
-                {filtered.slice(0,poN).map(p=><tr key={p.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setViewPo(p)}>
+                {filtered.slice(0,poN).map(p=><tr key={p.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",background:poSel.has(p.id)?T.accent+"0D":undefined}} onClick={()=>setViewPo(p)}>
+                  {canEdit&&<td style={{...TD,textAlign:"center"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={poSel.has(p.id)} onChange={()=>setPoSel(s=>{const n=new Set(s);n.has(p.id)?n.delete(p.id):n.add(p.id);return n;})} style={{width:16,height:16,cursor:"pointer"}}/></td>}
                   <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.poNo}</td>
                   <td style={{...TD}}>{p.date}</td>
                   <td style={{...TD,fontWeight:600}}>{p.supplierName||"—"}</td>
@@ -2564,6 +2599,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       </div>
     </div>}
 
+    <BlockingOverlay show={bulkBusy} text="جاري حذف أوامر الشراء..." sub="من فضلك انتظر — لا تغلق الصفحة"/>
   </div>;
 }
 

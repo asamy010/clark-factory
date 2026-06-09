@@ -4,11 +4,11 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo } from "react";
-import { Btn, Card, Inp, Sel } from "../../components/ui.jsx";
+import { Btn, Card, Inp, Sel, BlockingOverlay } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
-import { ask, showToast } from "../../utils/popups.js";
+import { ask, showToast, tell } from "../../utils/popups.js";
 import {
   saveRfqMutator, setRfqStatusMutator, sendRfqMutator, deleteRfqMutator,
   convertRfqToPurchaseOrderMutator, displayStatus, nextRfqNo,
@@ -93,6 +93,30 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
   );
 
   const [showN, setShowN] = useState(50);/* V21.21.4: pagination — 50 + «عرض المزيد» */
+  /* V21.21.5: تحديد متعدد + حذف مجمّع */
+  const [sel, setSel] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const visibleIds = filtered.slice(0, showN).map(r => r.id);
+  const allVisSelected = visibleIds.length > 0 && visibleIds.every(id => sel.has(id));
+  const toggleSel = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllVis = () => setSel(s => { const n = new Set(s); if(allVisSelected) visibleIds.forEach(id => n.delete(id)); else visibleIds.forEach(id => n.add(id)); return n; });
+  const bulkDelete = async () => {
+    const ids = [...sel]; if(ids.length === 0) return;
+    if(!await ask("حذف مجمّع", "متأكد تحذف " + ids.length + " طلب نهائياً؟ مش هينفع تتراجع.", { danger: true, confirmText: "حذف الكل" })) return;
+    setBusy(true); let deleted = 0; const blocked = [];
+    try {
+      await upConfig(d => {
+        for(const id of ids){
+          const q = (d.purchaseRfqs || []).find(x => x && x.id === id);
+          const res = deleteRfqMutator(d, id);
+          if(res && res.ok) deleted++; else blocked.push((q?.rfqNo || id) + ": " + ((res && res.error) || "تعذّر"));
+        }
+      });
+    } finally { setBusy(false); }
+    setSel(new Set());
+    if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " طلب");
+    else await tell("نتيجة الحذف المجمّع", "✓ اتحذف: " + deleted + "\n⛔ اتمنع: " + blocked.length + " (بسبب التسلسل المستندي)\n\n" + blocked.slice(0, 12).join("\n") + (blocked.length > 12 ? "\n…" : ""), { type: "warning" });
+  };
 
   return (
     <div style={{ padding: isMob ? 4 : 0 }}>
@@ -118,10 +142,20 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
         <Card><div style={{ textAlign: "center", padding: 30, color: T.textMut }}>لا توجد طلبات{q || statusF ? " مطابقة" : " — اضغط «+ طلب جديد»"}</div></Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {canEdit && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 4px", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>
+              <input type="checkbox" checked={allVisSelected} onChange={toggleAllVis} style={{ width: 16, height: 16, cursor: "pointer" }} />تحديد الكل المعروض
+            </label>
+            {sel.size > 0 && <>
+              <button onClick={bulkDelete} style={{ background: "#EF4444", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontFamily: "inherit", fontSize: FS - 1 }}>🗑 حذف المحدد ({sel.size})</button>
+              <button onClick={() => setSel(new Set())} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: FS - 1 }}>إلغاء التحديد</button>
+            </>}
+          </div>}
           {filtered.slice(0, showN).map(r => {
             const ds = displayStatus(r, today); const meta = STATUS_META[ds] || STATUS_META.draft;
             return (
-              <div key={r.id} onClick={() => setActiveRfq(r)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: T.cardSolid, border: "1px solid " + T.brd, cursor: "pointer", flexWrap: "wrap" }}>
+              <div key={r.id} onClick={() => setActiveRfq(r)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: sel.has(r.id) ? T.accent + "0D" : T.cardSolid, border: "1px solid " + (sel.has(r.id) ? T.accent + "66" : T.brd), cursor: "pointer", flexWrap: "wrap" }}>
+                {canEdit && <input type="checkbox" checked={sel.has(r.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSel(r.id)} style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0 }} />}
                 <div style={{ minWidth: 110 }}>
                   <div style={{ fontWeight: 800, color: "#D97706", fontFamily: "monospace" }}>{r.rfqNo}</div>
                   <div style={{ fontSize: FS - 3, color: T.textMut, fontFamily: "monospace" }}>{r.date}</div>
@@ -152,6 +186,7 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
           onEdit={() => { setEditRfq(liveActive); setShowForm(true); }}
           onStatus={handleStatus} onSend={handleSend} onConvert={handleConvert} onDelete={handleDelete} />
       )}
+      <BlockingOverlay show={busy} text="جاري حذف الطلبات..." sub="من فضلك انتظر — لا تغلق الصفحة" />
     </div>
   );
 }

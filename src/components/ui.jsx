@@ -23,6 +23,17 @@ export function Spinner({size,color,inline}){
   return<span style={style} aria-label="loading"/>;
 }
 
+/* V21.21.5: full-screen blocking overlay — يقفل الشاشة أثناء عمليات مجمّعة
+   (حذف مجمّع مثلاً) فمايقدرش المستخدم يعمل أي إجراء حتى انتهائها. */
+export function BlockingOverlay({show,text,sub}){
+  if(!show) return null;
+  return <div style={{position:"fixed",inset:0,zIndex:100000,background:"rgba(0,0,0,0.6)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+    <Spinner size="large" color="#fff"/>
+    <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{text||"جاري المعالجة..."}</div>
+    {sub&&<div style={{color:"rgba(255,255,255,0.8)",fontWeight:600,fontSize:13}}>{sub}</div>}
+  </div>;
+}
+
 export function LoadingBtn({loading,loadingText,children,onClick,disabled,primary,small,ghost,danger,style:sx,...rest}){
   /* Wraps standard button but shows spinner + text swap when loading */
   const isDisabled=disabled||loading;

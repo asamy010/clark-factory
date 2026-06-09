@@ -5,11 +5,11 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo, useEffect } from "react";
-import { Btn, Card, Inp, SearchSel } from "../../components/ui.jsx";
+import { Btn, Card, Inp, SearchSel, BlockingOverlay } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
-import { ask, showToast } from "../../utils/popups.js";
+import { ask, showToast, tell } from "../../utils/popups.js";
 import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, editSalesOrderMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
 import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
@@ -138,6 +138,30 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   };
 
   const [showN, setShowN] = useState(50);/* V21.21.3: pagination — 50 + «عرض المزيد» */
+  /* V21.21.5: تحديد متعدد + حذف مجمّع */
+  const [sel, setSel] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const visibleIds = filtered.slice(0, showN).map(o => o.id);
+  const allVisSelected = visibleIds.length > 0 && visibleIds.every(id => sel.has(id));
+  const toggleSel = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllVis = () => setSel(s => { const n = new Set(s); if(allVisSelected) visibleIds.forEach(id => n.delete(id)); else visibleIds.forEach(id => n.add(id)); return n; });
+  const bulkDelete = async () => {
+    const ids = [...sel]; if(ids.length === 0) return;
+    if(!await ask("حذف مجمّع", "متأكد تحذف " + ids.length + " أمر بيع نهائياً؟ مش هينفع تتراجع.", { danger: true, confirmText: "حذف الكل" })) return;
+    setBusy(true); let deleted = 0; const blocked = [];
+    try {
+      await upConfig(d => {
+        for(const id of ids){
+          const o = (d.salesOrders || []).find(x => x && x.id === id);
+          const res = deleteSalesOrderMutator(d, id, userName);
+          if(res && res.ok) deleted++; else blocked.push((o?.orderNo || id) + ": " + ((res && res.error) || "تعذّر"));
+        }
+      });
+    } finally { setBusy(false); }
+    setSel(new Set());
+    if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " أمر بيع");
+    else await tell("نتيجة الحذف المجمّع", "✓ اتحذف: " + deleted + "\n⛔ اتمنع: " + blocked.length + " (بسبب التسلسل المستندي)\n\n" + blocked.slice(0, 12).join("\n") + (blocked.length > 12 ? "\n…" : ""), { type: "warning" });
+  };
 
   return (
     <div style={{ padding: isMob ? 12 : 20 }}>
@@ -172,10 +196,20 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {canEdit && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 4px", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: FS - 2, color: T.textSec, fontWeight: 600 }}>
+              <input type="checkbox" checked={allVisSelected} onChange={toggleAllVis} style={{ width: 16, height: 16, cursor: "pointer" }} />تحديد الكل المعروض
+            </label>
+            {sel.size > 0 && <>
+              <button onClick={bulkDelete} style={{ background: "#EF4444", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontFamily: "inherit", fontSize: FS - 1 }}>🗑 حذف المحدد ({sel.size})</button>
+              <button onClick={() => setSel(new Set())} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: FS - 1 }}>إلغاء التحديد</button>
+            </>}
+          </div>}
           {filtered.slice(0, showN).map(o => {
             const meta = STATUS_META[o.status] || STATUS_META.confirmed;
             return (
-              <div key={o.id} onClick={() => setActiveSO(o)} style={{ cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: T.cardSolid, border: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div key={o.id} onClick={() => setActiveSO(o)} style={{ cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: sel.has(o.id) ? T.accent + "0D" : T.cardSolid, border: "1px solid " + (sel.has(o.id) ? T.accent + "66" : T.brd), display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                {canEdit && <input type="checkbox" checked={sel.has(o.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSel(o.id)} style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0 }} />}
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 800, color: T.text, fontSize: FS }}>{o.orderNo}</span>
@@ -222,6 +256,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           onClose={() => setActiveSO(null)}
         />
       )}
+      <BlockingOverlay show={busy} text="جاري حذف أوامر البيع..." sub="من فضلك انتظر — لا تغلق الصفحة" />
     </div>
   );
 }
