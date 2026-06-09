@@ -2918,7 +2918,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"recurring",l:"🔁 المتكررة"});
         baseTabs.push({k:"reports",l:"📈 تقارير"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
-        baseTabs.push({k:"accounts",l:"🏦 الحسابات"});
+        baseTabs.push({k:"accounts",l:"🏦 دفاتر اليومية"});
         /* V21.9.218: «محافظ إلكترونية» يفضل مميّز وأنا جوّه أي محفظة (acc_ view لحساب نوعه wallet). */
         const _isWalletAccView=view.startsWith("acc_")&&(accountsData.find(a=>a.id===view.slice(4))?.type==="wallet");
         return baseTabs.map(v=>{
@@ -4278,10 +4278,10 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     <option value="_other">✏️ بنك آخر (يدوياً)</option>
                   </Sel>
                   {!banksList.includes(chkBank)&&chkBank!==""&&<Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك" style={{marginTop:4}}/>}
-                  {chkBank===""&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 أضف البنوك من تاب 🏦 الحسابات → قائمة البنوك</div>}
+                  {chkBank===""&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 أضف البنوك من تاب 🏦 دفاتر اليومية → قائمة البنوك</div>}
                 </>:<>
                   <Inp value={chkBank} onChange={setChkBank} placeholder="اسم البنك"/>
-                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 سجل البنوك من تاب 🏦 الحسابات → قائمة البنوك ليتم اقتراحها تلقائياً</div>
+                  <div style={{fontSize:FS-3,color:T.textMut,marginTop:3}}>💡 سجل البنوك من تاب 🏦 دفاتر اليومية → قائمة البنوك ليتم اقتراحها تلقائياً</div>
                 </>}
               </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم الشيك</label><Inp value={chkNumber} onChange={setChkNumber} placeholder="رقم"/></div>
@@ -4619,7 +4619,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     <span style={{fontSize:FS-1,color:T.ok,fontWeight:700}}>← إيداع هنا</span>
                   </div>)}
                 </div>
-                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 دفاتر اليومية</div>}
               </div>
             </div>;
           })()}
@@ -4655,7 +4655,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     </div>;
                   })}
                 </div>
-                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 الحسابات</div>}
+                {accountsData.length===0&&<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حسابات — أضف حسابات من تاب 🏦 دفاتر اليومية</div>}
               </div>
             </div>;
           })()}
@@ -5332,7 +5332,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       })()}
     </div>}
     {view==="accounts"&&<div>
-      <Card title="🏦 إدارة الحسابات">
+      <Card title="🏦 إدارة دفاتر اليومية">
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12,marginBottom:16}}>
           {accountsData.map(acc=>{const b=accBalances[acc.name]||{in:0,out:0};const bal=b.in-b.out;
             return<div key={acc.id} style={{padding:16,borderRadius:14,background:T.cardSolid,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
