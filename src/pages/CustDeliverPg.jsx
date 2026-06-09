@@ -792,7 +792,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
     const yes=await ask("تأكيد البيع وإنشاء أوامر بيع","هنولّد أمر بيع لكل عميل في التوزيعة دي (مرآة مستندية — التوزيعة تفضل مصدر الرصيد والمخزون، فمفيش حساب مزدوج). إعادة التأكيد بتزامن الأوامر غير المفوترة مع التوزيعة. تكمل؟");
     if(!yes)return;
-    let res;await upSales(d=>{res=generateSalesOrdersFromSessionMutator(d,sessId,userName)});
+    /* V21.21.13: الأوامر في subcollection الموسم + salesOrders في config → بنقرأ
+       من البيانات الحيّة (orders/customers/session) ونكتب عبر upConfig. */
+    let res;await upConfig(d=>{res=generateSalesOrdersFromSessionMutator(d,sessId,userName,{orders,customers,session:sess})});
     if(res&&res.ok){const parts=[];if(res.created)parts.push("اتعمل "+res.created+" أمر بيع");if(res.updated)parts.push("اتزامن "+res.updated);if(res.skipped)parts.push("متخطّي "+res.skipped+" (مقفول)");showToast("✅ "+(parts.join(" · ")||"تم"));}
     else showToast("⛔ "+((res&&res.error)||"فشل توليد أوامر البيع"));
   };

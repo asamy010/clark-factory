@@ -224,13 +224,17 @@ export function convertQuotationToSalesOrderMutator(d, quoteId, userName, opts =
    Idempotent (upsert): المفتاح sourceDistributionId = `${sessionId}:${custId}`.
    إعادة التأكيد بتزامن المرآة مع التوزيعة الحالية. لو المرآة متفوترة أو ملغية
    مابنلمسهاش (قفل). بيرجّع { ok, created, updated, skipped }. */
-export function generateSalesOrdersFromSessionMutator(d, sessionId, userName){
+export function generateSalesOrdersFromSessionMutator(d, sessionId, userName, ctx = {}){
   if(!sessionId) return { ok: false, error: "رقم التوزيعة مفقود" };
-  const orders = Array.isArray(d.orders) ? d.orders : [];
-  const customers = Array.isArray(d.customers) ? d.customers : [];
+  /* V21.21.13 FIX: الأوامر بتتخزّن في subcollection الموسم (مش في d.orders بتاع
+     الـ config/sales doc)، والجلسات في sales doc. فبنقرأ القراءة من البيانات
+     الحيّة (ctx) اللي بتيجي من الكومبوننت، ونكتب salesOrders في d (config عبر
+     upConfig). fallback لـ d للتوافق. */
+  const orders = Array.isArray(ctx.orders) ? ctx.orders : (Array.isArray(d.orders) ? d.orders : []);
+  const customers = Array.isArray(ctx.customers) ? ctx.customers : (Array.isArray(d.customers) ? d.customers : []);
   if(!Array.isArray(d.salesOrders)) d.salesOrders = [];
   const nowIso = new Date().toISOString();
-  const sess = (d.custDeliverySessions || []).find(s => s && s.id === sessionId) || null;
+  const sess = ctx.session || (d.custDeliverySessions || []).find(s => s && s.id === sessionId) || null;
   const distLabel = "توزيعة " + (sess?.date || "") + " · " + String(sessionId).slice(-5);
 
   /* اجمع بنود التسليم المؤكّد per-customer لهذه الجلسة (بند لكل سطر تسليم —
