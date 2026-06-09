@@ -128,12 +128,14 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
   };
 
   const handleDelete = async (q) => {
-    const ok = await ask("حذف العرض", "متأكد تحذف " + (q.quoteNo || "العرض") + " نهائياً؟" + (q.convertedToSalesOrderId ? "\n\n⚠️ العرض متحوّل لأمر بيع " + (q.convertedToSalesOrderNo || "") + " — الحذف هيفكّ ربطه بالأمر (الأمر نفسه مش هيتحذف)." : ""), { danger: true, confirmText: "حذف" });
+    const ok = await ask("حذف العرض", "متأكد تحذف " + (q.quoteNo || "العرض") + " نهائياً؟", { danger: true, confirmText: "حذف" });
     if(!ok) return;
-    upConfig(d => deleteQuotationMutator(d, q.id));
-    setActiveQuote(null);
-    showToast("✓ تم حذف العرض");
+    let res; upConfig(d => { res = deleteQuotationMutator(d, q.id); });
+    if(res && res.ok){ setActiveQuote(null); showToast("✓ تم حذف العرض"); }
+    else showToast("⛔ " + ((res && res.error) || "تعذّر الحذف"));
   };
+
+  const [showN, setShowN] = useState(50);/* V21.21.3: pagination — 50 + «عرض المزيد» */
 
   return (
     <div style={{ padding: isMob ? 12 : 20 }}>
@@ -175,7 +177,7 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(q => {
+          {filtered.slice(0, showN).map(q => {
             const ds = displayStatus(q, today);
             const meta = STATUS_META[ds] || STATUS_META.draft;
             return (
@@ -189,10 +191,14 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
                     {q.customerName || q.customerNameAdHoc || "—"} · {q.date}{q.validUntil ? " · صالح حتى " + q.validUntil : ""}
                   </div>
                 </div>
-                <div style={{ fontWeight: 800, color: T.text, fontSize: FS + 1, whiteSpace: "nowrap" }}>{fmt(q.total)}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontWeight: 800, color: T.text, fontSize: FS + 1, whiteSpace: "nowrap" }}>{fmt(q.total)}</div>
+                  {canEdit && <button onClick={e => { e.stopPropagation(); handleDelete(q); }} title="حذف العرض" style={{ background: "#EF444412", color: "#EF4444", border: "1px solid #EF444433", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: FS }}>🗑</button>}
+                </div>
               </div>
             );
           })}
+          {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{ marginTop: 4, padding: "10px", borderRadius: 10, border: "1px dashed " + T.brd, background: T.bg, color: T.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
         </div>
       )}
 

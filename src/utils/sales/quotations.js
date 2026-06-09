@@ -214,15 +214,16 @@ export function sendQuotationMutator(d, id, channel, userName){
 
 /* احذف عرض (نهائياً). يُسمح فقط للمسودات/المرفوضة/المنتهية في الـ UI. */
 export function deleteQuotationMutator(d, id){
-  if(!Array.isArray(d.salesQuotations)) return false;
-  /* V21.20.1: لو العرض متحوّل لأمر بيع، فُكّ ربط الأمر (عشان ما يفضلش يشير
-     لعرض محذوف، ويبقى الأمر قابل للحذف بعد كده). */
+  if(!Array.isArray(d.salesQuotations)) return { ok: false, error: "لا توجد عروض" };
   const q = d.salesQuotations.find(x => x && x.id === id);
-  if(q && q.convertedToSalesOrderId && Array.isArray(d.salesOrders)){
+  if(!q) return { ok: false, error: "العرض غير موجود" };
+  /* V21.21.3: السلسلة المستندية — عرض السعر «أول» السلسلة، فمينفعش يتحذف طالما
+     فيه أمر بيع متولّد منه لسه موجود. احذف أمر البيع الأول (الحذف عكس التسلسل).
+     لو الأمر اتحذف خلاص (orphan link) نسمح بالحذف. */
+  if(q.convertedToSalesOrderId && Array.isArray(d.salesOrders)){
     const so = d.salesOrders.find(x => x && x.id === q.convertedToSalesOrderId);
-    if(so){ so.fromQuotationId = ""; so.fromQuotationNo = ""; }
+    if(so) return { ok: false, error: "العرض متحوّل لأمر بيع (" + (q.convertedToSalesOrderNo || so.orderNo || "") + ") — احذف أمر البيع الأول" };
   }
-  const before = d.salesQuotations.length;
   d.salesQuotations = d.salesQuotations.filter(x => x && x.id !== id);
-  return d.salesQuotations.length < before;
+  return { ok: true };
 }

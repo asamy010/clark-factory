@@ -557,13 +557,19 @@ export function deleteSalesOrderMutator(d, soId, userName){
     const inv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void");
     if(inv) return { ok: false, error: "أمر البيع ليه فاتورة (" + (so.salesInvoiceNo || inv.invoiceNo || "") + ") — الغِ الفاتورة الأول" };
   }
-  /* (2) ممنوع لو لسه متصل بعرض سعر موجود */
-  if(so.fromQuotationId){
-    const q = (d.salesQuotations || []).find(x => x && x.id === so.fromQuotationId);
-    if(q) return { ok: false, error: "أمر البيع متصل بعرض سعر (" + (so.fromQuotationNo || q.quoteNo || "") + ") — احذف عرض السعر الأول" };
-  }
+  /* (2) السلسلة المستندية (V21.21.3): عرض السعر «قبل» أمر البيع في السلسلة، فمسموح
+     تحذف الأمر والعرض موجود — بنرجّع العرض لحالة «مقبول» ونفُكّ الربط (الحذف
+     عكس التسلسل: فاتورة ← أمر بيع ← عرض سعر). المنع الوحيد هو الفاتورة (فوق). */
   const nowIso = new Date().toISOString();
   const today = nowIso.split("T")[0];
+  if(so.fromQuotationId && Array.isArray(d.salesQuotations)){
+    const q = d.salesQuotations.find(x => x && x.id === so.fromQuotationId);
+    if(q && q.status === "converted"){
+      q.status = "accepted"; q.convertedToSalesOrderId = ""; q.convertedToSalesOrderNo = "";
+      if(!Array.isArray(q.statusHistory)) q.statusHistory = [];
+      q.statusHistory.push({ from: "converted", to: "accepted", at: nowIso, by: userName || "", note: "حذف أمر البيع " + (so.orderNo || "") });
+    }
+  }
   /* عكس خصم المخزون (نفس آلية الإلغاء) */
   if(so.stockDeducted && Array.isArray(so.stockDeductions) && so.stockDeductions.length > 0){
     if(!Array.isArray(d.stockMovements)) d.stockMovements = [];

@@ -137,6 +137,8 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     else showToast("⛔ " + (res?.error || "تعذّر الحذف"));
   };
 
+  const [showN, setShowN] = useState(50);/* V21.21.3: pagination — 50 + «عرض المزيد» */
+
   return (
     <div style={{ padding: isMob ? 12 : 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
@@ -170,7 +172,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(o => {
+          {filtered.slice(0, showN).map(o => {
             const meta = STATUS_META[o.status] || STATUS_META.confirmed;
             return (
               <div key={o.id} onClick={() => setActiveSO(o)} style={{ cursor: "pointer", padding: "12px 14px", borderRadius: 10, background: T.cardSolid, border: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
@@ -185,10 +187,14 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
                     {o.customerName || o.customerNameAdHoc || "—"} · {o.date}
                   </div>
                 </div>
-                <div style={{ fontWeight: 800, color: T.text, fontSize: FS + 1, whiteSpace: "nowrap" }}>{fmt(o.total)}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontWeight: 800, color: T.text, fontSize: FS + 1, whiteSpace: "nowrap" }}>{fmt(o.total)}</div>
+                  {canEdit && <button onClick={e => { e.stopPropagation(); handleDelete(o); }} title="حذف أمر البيع" style={{ background: "#EF444412", color: "#EF4444", border: "1px solid #EF444433", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: FS }}>🗑</button>}
+                </div>
               </div>
             );
           })}
+          {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{ marginTop: 4, padding: "10px", borderRadius: 10, border: "1px dashed " + T.brd, background: T.bg, color: T.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
         </div>
       )}
 

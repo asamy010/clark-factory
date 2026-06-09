@@ -453,6 +453,15 @@ export function deleteDraftInvoiceMutator(d, invoiceId, type){
   if(idx < 0) return false;
   if(d[key][idx].status !== "draft") return false;
   d[key].splice(idx, 1);
+  /* V21.21.3: السلسلة المستندية — لو الفاتورة (مبيعات) متولّدة من أمر بيع، فُكّ
+     الربط ورجّع حالة الأمر عشان يبقى قابل للحذف/التعديل بعد حذف الفاتورة. */
+  if(key === "salesInvoices"){
+    const so = (d.salesOrders || []).find(x => x && x.salesInvoiceId === invoiceId);
+    if(so){
+      so.salesInvoiceId = ""; so.salesInvoiceNo = "";
+      if(so.status === "invoiced") so.status = so.isDistributionMirror ? "delivered" : "confirmed";
+    }
+  }
   return true;
 }
 

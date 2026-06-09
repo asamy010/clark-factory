@@ -44,6 +44,7 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
   const monthStart = today.slice(0,7) + "-01";
   const [from, setFrom]   = useState(monthStart);
   const [to, setTo]       = useState(today);
+  const [showN, setShowN] = useState(50);/* V21.21.3: pagination — 50 + «عرض المزيد» */
   const [status, setStatus] = useState("all");
   const [partyId, setPartyId] = useState("");
   const [search, setSearch]   = useState("");
@@ -311,7 +312,7 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
           draftItems={filtered.filter(i => i.status === "draft")}
           isMob={isMob}
         />
-        {filtered.map(inv => {
+        {filtered.slice(0, showN).map(inv => {
           const meta = STATUS_META[inv.status] || STATUS_META.draft;
           const isDraft = inv.status === "draft";
           return <div key={inv.id} onClick={() => setActiveInvoice(inv)} style={{
@@ -337,8 +338,10 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
               {inv.discount > 0 && <div style={{fontSize:FS-3, color:T.textMut}}>خصم {fmt(inv.discount.toFixed(0))}</div>}
             </div>
             <span style={{padding:"4px 10px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:meta.bg, color:meta.color, border:"1px solid "+meta.color+"30"}}>{meta.label}</span>
+            {isDraft && <button onClick={e => { e.stopPropagation(); handleDelete(inv); }} title="حذف المسودة" style={{background:"#EF444412", color:"#EF4444", border:"1px solid #EF444433", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS}}>🗑</button>}
           </div>;
         })}
+        {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{marginTop:4, padding:"10px", borderRadius:10, border:"1px dashed "+T.brd, background:T.bg, color:T.accent, fontWeight:700, cursor:"pointer", fontFamily:"inherit"}}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
       </div>}
 
     {/* Invoice detail modal */}
