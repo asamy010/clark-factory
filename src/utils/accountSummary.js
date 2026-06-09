@@ -14,6 +14,51 @@
 /* Format a number with thousand separators, no decimals */
 const _fmt = (n) => Math.round(Number(n) || 0).toLocaleString("en-US");
 
+/* V21.21.8: إجماليات نظرة عامة المبيعات (كل الموسم) — نسخة طبق الأصل من حساب
+   CustDeliverPg overview: خصم لكل تسليم (delivery.discPct → customer.discount →
+   10)، شيكات التحصيل (دفعة عميل فقط)، والرصيد = مبيعات − مرتجعات − كاش − شيكات.
+   تُستخدم في أعلى نظرة عامة المبيعات (نفس الأرقام بالظبط). */
+export function computeSalesOverviewTotals(data){
+  const orders = data.orders || [], customers = data.customers || [];
+  const perCust = {};
+  const init = () => ({ sales: 0, salesNet: 0, returns: 0, returnsNet: 0, cash: 0, check: 0 });
+  const eff = (entry, cust) => {
+    if(entry && entry.discPct != null){ const n = Number(entry.discPct); if(!isNaN(n)) return n; }
+    if(cust && cust.discount != null){ const n = Number(cust.discount); if(!isNaN(n)) return n; }
+    return 10;
+  };
+  orders.forEach(o => {
+    const sp = Number(o.sellPrice) || 0;
+    (o.customerDeliveries || []).forEach(d => {
+      const gross = (Number(d.qty) || 0) * (Number(d.price) || sp);
+      if(!perCust[d.custId]) perCust[d.custId] = init();
+      perCust[d.custId].sales += gross;
+      const cust = customers.find(c => c.id === d.custId);
+      perCust[d.custId].salesNet += Math.round(gross * (1 - eff(d, cust) / 100));
+    });
+    (o.customerReturns || []).forEach(r => {
+      const gross = (Number(r.qty) || 0) * sp;
+      if(!perCust[r.custId]) perCust[r.custId] = init();
+      perCust[r.custId].returns += gross;
+      const cust = customers.find(c => c.id === r.custId);
+      perCust[r.custId].returnsNet += Math.round(gross * (1 - eff(r, cust) / 100));
+    });
+  });
+  (data.custPayments || []).forEach(p => {
+    const amt = Number(p.amount) || 0; const m = (p.method || "").toLowerCase();
+    const isCheck = m.includes("شيك") || m.includes("check");
+    if(!perCust[p.custId]) perCust[p.custId] = init();
+    if(isCheck) perCust[p.custId].check += amt; else perCust[p.custId].cash += amt;
+  });
+  (data.checks || []).filter(c => c.type === "receivable" && c.status !== "مرتد" && c.status !== "ملغي" && ((c.category || "دفعة عميل") === "دفعة عميل")).forEach(c => {
+    const amt = Number(c.amount) || 0;
+    if(c.partyId){ if(!perCust[c.partyId]) perCust[c.partyId] = init(); perCust[c.partyId].check += amt; }
+  });
+  let totalSales = 0, totalReturns = 0, totalCashPay = 0, totalCheckPay = 0;
+  Object.keys(perCust).forEach(cid => { const p = perCust[cid]; totalSales += p.salesNet; totalReturns += p.returnsNet; totalCashPay += p.cash; totalCheckPay += p.check; });
+  return { totalSales, totalReturns, totalCashPay, totalCheckPay, totalBalance: totalSales - totalReturns - totalCashPay - totalCheckPay };
+}
+
 /* V21.9.83 (Treasury audit Bug #1): central helper to compute workshop "due".
    The DUE is the cash amount owed to the workshop for received pieces.
    Settlement entries (r.isSettlement===true) are WASTE/dispute markers — they

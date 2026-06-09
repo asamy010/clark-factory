@@ -17,6 +17,7 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 import { invoiceBalance } from "../utils/sales/invoicePayments.js";
+import { computeSalesOverviewTotals } from "../utils/accountSummary.js";
 import { displayStatus } from "../utils/sales/quotations.js";
 
 const CustDeliverPg   = lazy(() => import("./CustDeliverPg.jsx").then(m => ({ default: m.CustDeliverPg })));
@@ -107,9 +108,10 @@ export function SalesHubPg(props){
     const monthSales = posted.filter(i => (i.date || "").startsWith(monthPrefix)).reduce((s, i) => s + (Number(i.total) || 0), 0);
     let unpaidCount = 0, unpaidTotal = 0;
     for(const i of posted){ const b = invoiceBalance(i); if(b > 0.01){ unpaidCount++; unpaidTotal += b; } }
+    const fin = computeSalesOverviewTotals(data); /* V21.21.8: الإجماليات المالية للموسم (نفس أرقام كشف التسليمات) */
     return { openQ, openQVal, expiring, ordCount: confirmed.length, postedCount: posted.length, monthSales,
-      unpaidCount, unpaidTotal, cnMonth: cnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length };
-  }, [data.salesQuotations, data.salesOrders, data.salesInvoices, data.salesCreditNotes]);
+      unpaidCount, unpaidTotal, cnMonth: cnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length, ...fin };
+  }, [data.salesQuotations, data.salesOrders, data.salesInvoices, data.salesCreditNotes, data.orders, data.customers, data.custPayments, data.checks]);
 
   const subBtn = (on) => ({ padding: "8px 13px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, cursor: "pointer",
     color: on ? T.accent : T.textSec, background: on ? T.cardSolid : "transparent",
@@ -169,8 +171,8 @@ export function SalesHubPg(props){
 /* ═══════════ Overview (لوحة النظرة العامة — بدون قمع البيع) ═══════════ */
 function Overview({ ov, isMob, go, allowed }){
   const kpi = (lab, val, sub, accent, danger) => (
-    <div style={{ background: accent ? "linear-gradient(135deg,#0EA5E9,#0284C7)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
-      <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.85)" : T.textSec, fontWeight: 600 }}>{lab}</div>
+    <div style={{ flex: isMob ? "1 1 45%" : "1 1 150px", minWidth: isMob ? 0 : 140, background: accent ? "linear-gradient(135deg,#0EA5E9,#0284C7)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
+      <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.85)" : T.textSec, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lab}</div>
       <div style={{ fontSize: isMob ? 19 : 22, fontWeight: 800, marginTop: 5, color: accent ? "#fff" : (danger ? T.err : T.text) }}>{val}</div>
       {sub && <div style={{ fontSize: FS - 3, marginTop: 3, fontWeight: 700, color: accent ? "rgba(255,255,255,.85)" : T.textMut }}>{sub}</div>}
     </div>
@@ -188,9 +190,16 @@ function Overview({ ov, isMob, go, allowed }){
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+      {/* V21.21.8: صف واحد — مبيعات الشهر + البطاقات المالية الخمسة (بنفس ترتيب كشف
+          التسليمات) + فواتير مرحّلة + عروض مفتوحة. أُزيلت «متبقي تحصيله» (لسه في
+          البانر تحت). flex + تمرير أفقي على الديسكتوب لو ضاق. */}
+      <div style={{ display: "flex", flexWrap: isMob ? "wrap" : "nowrap", gap: 10, marginBottom: 16, overflowX: isMob ? "visible" : "auto", paddingBottom: isMob ? 0 : 4 }}>
         {kpi("💰 مبيعات الشهر", fmt((ov.monthSales || 0).toFixed(0)), "فواتير مرحّلة", true)}
-        {kpi("💸 متبقي تحصيله", fmt((ov.unpaidTotal || 0).toFixed(0)), ov.unpaidCount + " فاتورة", false, true)}
+        {kpi("🛍️ المبيعات", fmt((ov.totalSales || 0).toFixed(0)), "بعد الخصم", false)}
+        {kpi("↩️ مرتجعات", fmt((ov.totalReturns || 0).toFixed(0)), "بعد الخصم", false, true)}
+        {kpi("💵 دفعات كاش", fmt((ov.totalCashPay || 0).toFixed(0)), "تحصيل نقدي", false)}
+        {kpi("📝 دفعات شيكات", fmt((ov.totalCheckPay || 0).toFixed(0)), "شيكات", false)}
+        {kpi("⚖️ رصيد عند العملاء", fmt((ov.totalBalance || 0).toFixed(0)), "بعد الخصم", false, (ov.totalBalance || 0) > 0)}
         {kpi("📤 فواتير مرحّلة", ov.postedCount, "إجمالي", false)}
         {kpi("📋 عروض مفتوحة", ov.openQ, "قيمتها " + fmt((ov.openQVal || 0).toFixed(0)), false)}
       </div>

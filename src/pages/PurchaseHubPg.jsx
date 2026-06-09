@@ -158,7 +158,7 @@ function Overview({ ov, isMob, go, allowed }){
     </div>
   );
   const card = (id, ic, bg, col, title, desc, stat) => allowed(id) ? (
-    <div onClick={() => go(id)} style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 13, padding: 15, cursor: "pointer" }}
+    <div onClick={() => go(id)} style={{ flex: isMob ? "1 1 45%" : "1 1 180px", minWidth: isMob ? 0 : 170, background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 13, padding: 15, cursor: "pointer" }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = T.warn; e.currentTarget.style.boxShadow = "0 6px 18px rgba(245,158,11,.15)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = T.brd; e.currentTarget.style.boxShadow = "none"; }}>
       <div style={{ width: 38, height: 38, borderRadius: 10, background: bg, color: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}>{ic}</div>
@@ -184,7 +184,7 @@ function Overview({ ov, isMob, go, allowed }){
       </div>
 
       <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "8px 0 10px" }}>📂 الأقسام</div>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
+      <div style={{ display: "flex", flexWrap: isMob ? "wrap" : "nowrap", gap: 10, overflowX: isMob ? "visible" : "auto", paddingBottom: isMob ? 0 : 4 }}>
         {card("rfq", "💬", "#FEF3C7", "#D97706", "طلب عروض أسعار", "اطلب أسعار + قارن + حوّل لأمر", "")}
         {card("orders", "📋", "#FEF3C7", "#D97706", "أوامر الشراء", "إنشاء + تحويل لاستلام", ov.poCount + " أمر")}
         {card("receipts", "📥", "#DBEAFE", "#2563EB", "الاستلام", "استلام البضاعة + الدفع", "")}

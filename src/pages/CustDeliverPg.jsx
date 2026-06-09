@@ -1571,31 +1571,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <td class="num">${totalPct===null?"—":totalPct+"%"}</td></tr></tfoot></table>
         </body></html>`;
         w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
-      return<div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(5,1fr)",gap:10,marginBottom:16}}>
-        <div style={{padding:12,borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"15",textAlign:"center"}} title={"الإجمالي قبل الخصم: "+fmt(r2(totalSalesGross))+" — بعد تطبيق الخصم لكل عميل: "+fmt(r2(totalSales))}>
-          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💰 المبيعات</div>
-          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.accent}}>{fmt(r2(totalSales))}</div>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
-        </div>
-        <div style={{padding:12,borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"15",textAlign:"center"}} title={"الإجمالي قبل الخصم: "+fmt(r2(totalReturnsGross))+" — بعد تطبيق الخصم لكل عميل: "+fmt(r2(totalReturns))}>
-          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>↩️ مرتجعات</div>
-          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.err}}>{fmt(r2(totalReturns))}</div>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
-        </div>
-        <div style={{padding:12,borderRadius:10,background:T.ok+"08",border:"1px solid "+T.ok+"15",textAlign:"center"}}>
-          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>💵 دفعات كاش</div>
-          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.ok}}>{fmt(r2(totalCashPay))}</div>
-        </div>
-        <div style={{padding:12,borderRadius:10,background:T.warn+"08",border:"1px solid "+T.warn+"15",textAlign:"center"}}>
-          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>📝 دفعات شيكات</div>
-          <div style={{fontSize:isMob?16:19,fontWeight:800,color:T.warn}}>{fmt(r2(totalCheckPay))}</div>
-        </div>
-        <div onClick={printSalesReport} style={{padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF615",textAlign:"center",cursor:"pointer",position:"relative"}} title={"اضغط لطباعة تقرير تفصيلي بكل العملاء (الأرقام بعد الخصم)"}>
-          <div style={{position:"absolute",top:6,left:8,fontSize:13}}>🖨</div>
-          <div style={{fontSize:FS-1,color:T.textSec,marginBottom:4}}>⚖️ رصيد عند العملاء</div>
-          <div style={{fontSize:isMob?16:19,fontWeight:800,color:totalBalance>0?T.err:"#8B5CF6"}}>{fmt(r2(totalBalance))}</div>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:2,fontWeight:600}}>بعد الخصم</div>
-        </div>
+      {/* V21.21.8: البطاقات الخمسة اتنقلت لأعلى نظرة عامة المبيعات (جنب «مبيعات الشهر»).
+          هنا بقى زر طباعة تقرير المبيعات التفصيلي فقط (نفس الحساب محفوظ أعلاه). */}
+      return<div style={{marginBottom:16}}>
+        <button onClick={printSalesReport} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderRadius:10,background:"#8B5CF60D",border:"1px solid #8B5CF630",color:"#7C3AED",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:FS-1}} title="طباعة تقرير تفصيلي بكل العملاء (الأرقام بعد الخصم)">
+          🖨 طباعة تقرير المبيعات التفصيلي
+        </button>
       </div>})()}
     {/* Active Session Matrix - Popup */}
     {activeSess&&aMods.length===0&&aCusts.length===0&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setActiveSession(null)}>
