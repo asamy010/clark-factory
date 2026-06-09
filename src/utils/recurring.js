@@ -60,28 +60,41 @@ export function getNextDueDate(rule, fromDate){
   if(rule.pattern === "daily"){
     candidate = from;
   } else if(rule.pattern === "weekly"){
-    const targetDow = Number(rule.dayOfWeek) || 0;
+    /* V21.21.11: دعم أيام متعددة (daysOfWeek[]) — أقرب يوم من المجموعة على/بعد from.
+       fallback للـ dayOfWeek المفرد القديم. */
+    const dows = (Array.isArray(rule.daysOfWeek) && rule.daysOfWeek.length
+      ? rule.daysOfWeek : [rule.dayOfWeek]).map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 6);
+    if(dows.length === 0) return null;
     const fromDow = from.getUTCDay();
-    const diff = (targetDow - fromDow + 7) % 7;
-    candidate = _addDays(from, diff);
+    let bestDiff = Infinity;
+    for(const td of dows){ const diff = (((td - fromDow) % 7) + 7) % 7; if(diff < bestDiff) bestDiff = diff; }
+    candidate = _addDays(from, bestDiff);
   } else if(rule.pattern === "monthly"){
     /* V21.9.58 (Automation Audit A1): allow dayOfMonth 1..31. Pre-V21.9.58
        this silently capped to 28 — a "rent due on 31st" rule would always
        fire on the 28th, confusing admins.
        Now: clamp the requested day to the actual length of the target
        month (e.g., 31st in February becomes 28/29 — the LAST day of that
-       month, which is the correct semantic for "end of month" rules). */
-    const requestedDom = Math.min(Math.max(Number(rule.dayOfMonth) || 1, 1), 31);
+       month, which is the correct semantic for "end of month" rules).
+       V21.21.11: دعم أيام متعددة (daysOfMonth[]) — أقرب يوم على/بعد from عبر
+       الشهر الحالي ثم التالي. fallback للـ dayOfMonth المفرد. */
     const lastDayOfMonth = (year, monthIdx) => new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
-    let tYear = from.getUTCFullYear(), tMonth = from.getUTCMonth();
-    let targetDom = Math.min(requestedDom, lastDayOfMonth(tYear, tMonth));
-    candidate = new Date(Date.UTC(tYear, tMonth, targetDom));
-    if(candidate < from){
-      tMonth += 1;
-      if(tMonth > 11){ tMonth = 0; tYear += 1; }
-      targetDom = Math.min(requestedDom, lastDayOfMonth(tYear, tMonth));
-      candidate = new Date(Date.UTC(tYear, tMonth, targetDom));
+    const doms = (Array.isArray(rule.daysOfMonth) && rule.daysOfMonth.length
+      ? rule.daysOfMonth : [rule.dayOfMonth]).map(n => Math.min(Math.max(Number(n) || 1, 1), 31));
+    if(doms.length === 0) return null;
+    let best = null;
+    for(let mAdd = 0; mAdd <= 1 && !best; mAdd++){
+      let tYear = from.getUTCFullYear(), tMonth = from.getUTCMonth() + mAdd;
+      if(tMonth > 11){ tMonth -= 12; tYear += 1; }
+      const last = lastDayOfMonth(tYear, tMonth);
+      const cands = Array.from(new Set(doms.map(d => Math.min(d, last)))).sort((a, b) => a - b);
+      for(const dd of cands){
+        const c = new Date(Date.UTC(tYear, tMonth, dd));
+        if(c >= from){ best = c; break; }
+      }
     }
+    if(!best) return null;
+    candidate = best;
   } else {
     return null;
   }
@@ -194,10 +207,12 @@ export function describeRecurrence(rule){
   if(rule.pattern === "daily") return "يومياً";
   if(rule.pattern === "weekly"){
     const days = ["الأحد","الإثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
-    return "أسبوعياً يوم " + (days[rule.dayOfWeek] || "—");
+    const dows = (Array.isArray(rule.daysOfWeek) && rule.daysOfWeek.length ? rule.daysOfWeek : [rule.dayOfWeek]).map(Number).filter(n => !isNaN(n));
+    return "أسبوعياً: " + (dows.map(d => days[d]).filter(Boolean).join("، ") || "—");
   }
   if(rule.pattern === "monthly"){
-    return "شهرياً يوم " + (rule.dayOfMonth || 1);
+    const doms = (Array.isArray(rule.daysOfMonth) && rule.daysOfMonth.length ? rule.daysOfMonth : [rule.dayOfMonth]).map(Number).filter(n => !isNaN(n));
+    return "شهرياً يوم " + (doms.join("، ") || "1");
   }
   return "";
 }

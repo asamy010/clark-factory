@@ -654,8 +654,10 @@ export default function App(){
   const[remNotifType,setRemNotifType]=useState("notif");/* "notif"|"task" */
   const[remPattern,setRemPattern]=useState("once");/* once|daily|weekly|monthly */
   const[remStart,setRemStart]=useState("");
-  const[remDow,setRemDow]=useState(1);/* 0-6 weekly */
-  const[remDom,setRemDom]=useState(1);/* 1-28 monthly */
+  const[remDow,setRemDow]=useState(1);/* 0-6 weekly (legacy single) */
+  const[remDom,setRemDom]=useState(1);/* 1-28 monthly (legacy single) */
+  const[remDows,setRemDows]=useState([1]);/* V21.21.11: أيام الأسبوع المتعددة */
+  const[remDoms,setRemDoms]=useState([1]);/* V21.21.11: أيام الشهر المتعددة */
   const[remEnd,setRemEnd]=useState("");
   const[remTargetEmails,setRemTargetEmails]=useState([]);/* emails when not "all" */
   const[remAll,setRemAll]=useState(false);/* manager: target everyone */
@@ -7207,7 +7209,7 @@ export default function App(){
         <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:10,overflow:"hidden",border:"1px solid "+T.brd}}>
           <div onClick={()=>{setQuickPopup("task");setQpTo("");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="task"?T.accent:T.bg,color:quickPopup==="task"?"#fff":T.text}}>📌 مهمة</div>
           <div onClick={()=>{setQuickPopup("notif");setQpTo("all");setQpText("")}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="notif"?"#8B5CF6":T.bg,color:quickPopup==="notif"?"#fff":T.text}}>📩 اشعار</div>
-          <div onClick={()=>{setQuickPopup("scheduled");setRemEditId(null);setRemTitle("");setRemNotifType("notif");setRemPattern("once");setRemStart(new Date().toISOString().split("T")[0]);setRemDow(1);setRemDom(1);setRemEnd("");setRemTargetEmails([me.email].filter(Boolean));setRemAll(false)}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="scheduled"?"#0EA5E9":T.bg,color:quickPopup==="scheduled"?"#fff":T.text}}>⏰ مجدول</div>
+          <div onClick={()=>{setQuickPopup("scheduled");setRemEditId(null);setRemTitle("");setRemNotifType("notif");setRemPattern("once");setRemStart(new Date().toISOString().split("T")[0]);setRemDow(1);setRemDom(1);setRemDows([1]);setRemDoms([1]);setRemEnd("");setRemTargetEmails([me.email].filter(Boolean));setRemAll(false)}} style={{flex:1,padding:"8px 0",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS,background:quickPopup==="scheduled"?"#0EA5E9":T.bg,color:quickPopup==="scheduled"?"#fff":T.text}}>⏰ مجدول</div>
         </div>
         {quickPopup==="task"?<div>
           <div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ارسال الى</label><Sel value={qpTo} onChange={setQpTo}><option value="">-- اختر --</option>{targets.map(u=><option key={u.email} value={u.email}>{(u.name||u.email.split("@")[0])+(u.email===me.email?" (أنا)":"")+" — "+(u.role==="admin"?"مدير النظام":u.role==="manager"?"مدير انتاج":u.role==="sales_accountant"?"محاسب مبيعات":u.role==="purchase_accountant"?"محاسب مشتريات":"مشاهد")}</option>)}</Sel></div>
@@ -7221,6 +7223,8 @@ export default function App(){
           const saveRem=()=>{
             if(!remTitle.trim()){showToast("اكتب عنوان التذكير");return}
             if(!remStart){showToast("اختر تاريخ البداية");return}
+            if(remPattern==="weekly"&&remDows.length===0){showToast("اختر يوم واحد على الأقل من أيام الأسبوع");return}
+            if(remPattern==="monthly"&&remDoms.length===0){showToast("اختر يوم واحد على الأقل من أيام الشهر");return}
             let tgts;
             if(isMgr){tgts=remAll?"all":(remTargetEmails.length?[...remTargetEmails]:[me.email])}
             else{tgts=[me.email]}
@@ -7228,8 +7232,8 @@ export default function App(){
               id:remEditId||("rem_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7)),
               title:remTitle.trim(),notifType:remNotifType==="task"?"task":"notif",
               targets:tgts,pattern:remPattern,startDate:remStart,
-              ...(remPattern==="weekly"?{dayOfWeek:Number(remDow)||0}:{}),
-              ...(remPattern==="monthly"?{dayOfMonth:Math.min(28,Math.max(1,Number(remDom)||1))}:{}),
+              ...(remPattern==="weekly"?{daysOfWeek:[...remDows].sort((a,b)=>a-b),dayOfWeek:remDows[0]||0}:{}),
+              ...(remPattern==="monthly"?{daysOfMonth:[...remDoms].map(n=>Math.min(28,Math.max(1,Number(n)||1))).sort((a,b)=>a-b),dayOfMonth:Math.min(28,Math.max(1,Number(remDoms[0])||1))}:{}),
               ...(remEnd?{endDate:remEnd}:{}),
               active:true,createdBy:me.email,createdByName:me.name,createdAt:new Date().toISOString(),
             };
@@ -7246,12 +7250,24 @@ export default function App(){
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>النوع</label><Sel value={remNotifType} onChange={setRemNotifType}><option value="notif">💬 تذكير</option><option value="task">📌 مهمة</option></Sel></div>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>التكرار</label><Sel value={remPattern} onChange={setRemPattern}><option value="once">مرة واحدة</option><option value="daily">يومياً</option><option value="weekly">أسبوعياً</option><option value="monthly">شهرياً</option></Sel></div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:remPattern==="once"?"1fr":"1fr 1fr",gap:8,marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:remPattern==="daily"?"1fr 1fr":"1fr",gap:8,marginBottom:8}}>
             <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{remPattern==="once"?"التاريخ":"تاريخ البداية"}</label><Inp type="date" value={remStart} onChange={setRemStart}/></div>
-            {remPattern==="weekly"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم الأسبوع</label><Sel value={String(remDow)} onChange={v=>setRemDow(Number(v))}>{dows.map((d,i)=><option key={i} value={i}>{d}</option>)}</Sel></div>}
-            {remPattern==="monthly"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>يوم الشهر (1-28)</label><Inp type="number" min="1" max="28" value={remDom} onChange={v=>setRemDom(Math.min(28,Math.max(1,Number(v)||1)))}/></div>}
             {remPattern==="daily"&&<div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ النهاية (اختياري)</label><Inp type="date" value={remEnd} onChange={setRemEnd}/></div>}
           </div>
+          {/* V21.21.11: أيام الأسبوع المتعددة (مثلاً مرتين في الأسبوع) */}
+          {remPattern==="weekly"&&<div style={{marginBottom:8}}>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:6}}>أيام الأسبوع (اختر يوم أو أكثر)</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {dows.map((d,i)=>{const on=remDows.includes(i);return <span key={i} onClick={()=>setRemDows(a=>on?a.filter(x=>x!==i):[...a,i])} style={{cursor:"pointer",padding:"6px 12px",borderRadius:20,fontSize:FS-2,fontWeight:700,background:on?T.accent:T.bg,color:on?"#fff":T.textSec,border:"1px solid "+(on?T.accent:T.brd),userSelect:"none"}}>{d}</span>;})}
+            </div>
+          </div>}
+          {/* V21.21.11: أيام الشهر المتعددة */}
+          {remPattern==="monthly"&&<div style={{marginBottom:8}}>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:6}}>أيام الشهر (اختر يوم أو أكثر — 1 إلى 28)</label>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {Array.from({length:28},(_,k)=>k+1).map(dy=>{const on=remDoms.includes(dy);return <span key={dy} onClick={()=>setRemDoms(a=>on?a.filter(x=>x!==dy):[...a,dy])} style={{cursor:"pointer",width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,fontSize:FS-2,fontWeight:700,background:on?T.accent:T.bg,color:on?"#fff":T.textSec,border:"1px solid "+(on?T.accent:T.brd),userSelect:"none"}}>{dy}</span>;})}
+            </div>
+          </div>}
           {(remPattern==="weekly"||remPattern==="monthly")&&<div style={{marginBottom:8}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>تاريخ النهاية (اختياري)</label><Inp type="date" value={remEnd} onChange={setRemEnd}/></div>}
           <div style={{marginBottom:10,padding:"8px 10px",background:T.bg,borderRadius:8,border:"1px solid "+T.brd}}>
             <div style={{fontSize:FS-3,color:T.textMut,marginBottom:6,fontWeight:700}}>👥 المستلمون</div>
@@ -7342,7 +7358,7 @@ export default function App(){
       const nextDue=(r)=>{if(r.pattern==="once")return(r.startDate&&r.startDate>=todayIso)?r.startDate:(r.startDate||"—");const n=getReminderNextDue(r,todayIso);return n||"—"};
       const togglePause=(id)=>upConfig(d=>{const r=(d.reminderRules||[]).find(x=>x&&x.id===id);if(r)r.active=r.active===false?true:false});
       const delRule=(id)=>{ask("حذف التذكير","متأكد تحذف التذكير ده نهائياً؟",{danger:true,confirmText:"حذف"}).then(ok=>{if(ok)upConfig(d=>{d.reminderRules=(d.reminderRules||[]).filter(x=>x&&x.id!==id)})})};
-      const editRule=(r)=>{setRemEditId(r.id);setRemTitle(r.title||"");setRemNotifType(r.notifType==="task"?"task":"notif");setRemPattern(r.pattern||"once");setRemStart(r.startDate||todayIso);setRemDow(Number(r.dayOfWeek)||0);setRemDom(Number(r.dayOfMonth)||1);setRemEnd(r.endDate||"");if(r.targets==="all"){setRemAll(true);setRemTargetEmails([])}else{setRemAll(false);setRemTargetEmails(Array.isArray(r.targets)?[...r.targets]:[])}setRemMgrOpen(false);setQuickPopup("scheduled")};
+      const editRule=(r)=>{setRemEditId(r.id);setRemTitle(r.title||"");setRemNotifType(r.notifType==="task"?"task":"notif");setRemPattern(r.pattern||"once");setRemStart(r.startDate||todayIso);setRemDow(Number(r.dayOfWeek)||0);setRemDom(Number(r.dayOfMonth)||1);setRemDows(Array.isArray(r.daysOfWeek)&&r.daysOfWeek.length?r.daysOfWeek.map(Number):[Number(r.dayOfWeek)||1]);setRemDoms(Array.isArray(r.daysOfMonth)&&r.daysOfMonth.length?r.daysOfMonth.map(Number):[Number(r.dayOfMonth)||1]);setRemEnd(r.endDate||"");if(r.targets==="all"){setRemAll(true);setRemTargetEmails([])}else{setRemAll(false);setRemTargetEmails(Array.isArray(r.targets)?[...r.targets]:[])}setRemMgrOpen(false);setQuickPopup("scheduled")};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setRemMgrOpen(false)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:18,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>

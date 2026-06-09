@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.21.11",
+    date: "2026-06-09",
+    types: ["feature"],
+    title: "⏰ التذكيرات المجدولة: أيام أسبوع/شهر متعددة",
+    changes: [
+      { type: "feature", text: "⏰ في التذكير المجدول «أسبوعياً»: بقى تختار أكتر من يوم (checkbox-chips لأيام الأسبوع) — يعني تقدر تعمله مرتين أو أكتر في الأسبوع في الأيام اللي تحددها." },
+      { type: "feature", text: "📅 و«شهرياً»: بقى تختار أكتر من يوم في الشهر (1-28) بنفس الطريقة — التذكير بيتكرر في كل الأيام المختارة." },
+      { type: "improvement", text: "محرك التكرار اتظبط ليدعم أيام متعددة (daysOfWeek / daysOfMonth) مع توافق كامل مع التذكيرات القديمة (اليوم المفرد)." },
+    ],
+  },
+  {
     version: "V21.21.10",
     date: "2026-06-09",
     types: ["improvement"],
