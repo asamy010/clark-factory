@@ -99,8 +99,14 @@ export function PurchaseHubPg(props){
     const paidRec = receipts.reduce((s, r) => s + (Number(r.paidAmount) || 0), 0);
     const standalone = pays.filter(p => !p.receiptId).reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const payable = Math.max(0, totRec - paidRec - standalone);
+    /* V21.21.6: بطاقات مالية مطابقة لنظرة عامة المبيعات */
+    const totalBuy = totRec; /* إجمالي قيمة الاستلامات (المشتريات الفعلية) */
+    const totalReturns = dnotes.filter(d => d && d.status !== "void").reduce((s, d) => s + (Number(d.total) || 0), 0);
+    const cashPaid = pays.filter(p => (p.method || "") === "cash").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const checksPaid = pays.filter(p => (p.method || "") === "check").reduce((s, p) => s + (Number(p.amount) || 0), 0);
     return { monthBuy, postedCount: posted.length, poCount: orders.length,
-      dnMonth: dnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length, payable };
+      dnMonth: dnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length, payable,
+      totalBuy, totalReturns, cashPaid, checksPaid };
   }, [data.purchaseInvoices, data.purchaseReceipts, data.supplierPayments, data.purchaseOrders, data.purchaseDebitNotes]);
 
   const subBtn = (on) => ({ padding: "8px 13px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, cursor: "pointer",
@@ -145,8 +151,8 @@ export function PurchaseHubPg(props){
 /* ═══════════ Overview (لوحة النظرة العامة للمشتريات) ═══════════ */
 function Overview({ ov, isMob, go, allowed }){
   const kpi = (lab, val, sub, accent, danger) => (
-    <div style={{ background: accent ? "linear-gradient(135deg,#F59E0B,#D97706)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
-      <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.9)" : T.textSec, fontWeight: 600 }}>{lab}</div>
+    <div style={{ flex: isMob ? "1 1 45%" : "1 1 150px", minWidth: isMob ? 0 : 140, background: accent ? "linear-gradient(135deg,#F59E0B,#D97706)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
+      <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.9)" : T.textSec, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lab}</div>
       <div style={{ fontSize: isMob ? 19 : 22, fontWeight: 800, marginTop: 5, color: accent ? "#fff" : (danger ? T.err : T.text) }}>{val}</div>
       {sub && <div style={{ fontSize: FS - 3, marginTop: 3, fontWeight: 700, color: accent ? "rgba(255,255,255,.9)" : T.textMut }}>{sub}</div>}
     </div>
@@ -164,9 +170,15 @@ function Overview({ ov, isMob, go, allowed }){
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10, marginBottom: 16 }}>
+      {/* V21.21.6: كل بطاقات الـ KPI على صف واحد (flex + scroll أفقي لو ضاق على الديسكتوب).
+          أُضيفت البطاقات المالية المطابقة لنظرة عامة المبيعات. */}
+      <div style={{ display: "flex", flexWrap: isMob ? "wrap" : "nowrap", gap: 10, marginBottom: 16, overflowX: isMob ? "visible" : "auto", paddingBottom: isMob ? 0 : 4 }}>
         {kpi("🛒 مشتريات الشهر", fmt((ov.monthBuy || 0).toFixed(0)), "فواتير مرحّلة", true)}
-        {kpi("💸 مستحق للموردين", fmt((ov.payable || 0).toFixed(0)), "تقديري", false, true)}
+        {kpi("🧾 إجمالي المشتريات", fmt((ov.totalBuy || 0).toFixed(0)) + " ج.م", "قيمة الاستلامات", false)}
+        {kpi("↩️ إجمالي المرتجعات", fmt((ov.totalReturns || 0).toFixed(0)) + " ج.م", "إشعارات مدينة", false, true)}
+        {kpi("💵 الدفعات النقدية للموردين", fmt((ov.cashPaid || 0).toFixed(0)) + " ج.م", "نقدي", false)}
+        {kpi("📝 شيكات الدفع", fmt((ov.checksPaid || 0).toFixed(0)) + " ج.م", "للموردين", false)}
+        {kpi("⚖️ رصيد الموردين", fmt((ov.payable || 0).toFixed(0)) + " ج.م", "مستحق (تقديري)", false, true)}
         {kpi("📤 فواتير مرحّلة", ov.postedCount, "إجمالي", false)}
         {kpi("📋 أوامر شراء", ov.poCount, "إجمالي", false)}
       </div>
