@@ -818,4 +818,96 @@ the call site in the UI to use `runWithProgress`.
 
 ---
 
-Last updated: V21.9.3 (2026-05-10)
+## 13. Session continuity & git sync (READ FIRST every session)
+
+> **مهم جداً — قبل أي شغل في أي session جديد.**
+
+### الـ git working tree ممكن يكون متأخّر عن origin/main
+في البيئة دي لاحظنا إن الـ **local HEAD أحياناً بيبدأ من commit أقدم** من
+`origin/main` (الـ push بيوصل GitHub بس الـ working copy بتترجّع). **الأعراض:**
+رقم النسخة في `package.json`/`constants` بيبان أقدم من المتوقع، أو ملفات
+معدّلة (من commits سابقة) مش موجودة محلياً.
+
+**الحل — أول أمر في أي session:**
+```bash
+cd <repo> && git fetch origin main && git log --oneline -3 origin/main
+# لو origin أحدث من HEAD المحلي ومفيش شغل محلي غير متكوميت:
+git reset --hard origin/main
+```
+وقبل كل commit جديد: `git fetch origin main` ثم `git rebase origin/main` ثم
+push. لو الـ push اترفض بـ `fetch first` → اعمل rebase وأعد المحاولة.
+
+### البروتوكول ثابت (تأكيد §1)
+بعد كل تعديل: **build → bump النسخة في ٣ أماكن → commit (ملفات محددة) → push
+origin main → zip**. النسخة لازم تتظبط في `package.json` +
+`src/constants/index.js` + entry جديد في `src/components/AboutVersionModal.jsx`.
+لو النسخة «درِفت» بسبب الـ sync، صحّحها واكتب entries الناقصة في الـ changelog.
+
+---
+
+## 14. V21.21.x — قرارات معمارية مهمة (sales orders · dashboard · checks)
+
+### 14.1 أمر البيع = البيع، و«المرايا» من التوزيعة
+- **أمر البيع المباشر** بيُحتسب في الكشف التشغيلي (مدين) + بيخصم الرصيد المتاح
+  (V21.21.0). الحسابات دي **قراءة مشتقّة** — مفيش mutation مالي جديد عند الإنشاء.
+- **«المرآة»** = أمر بيع متولّد من توزيعة (`generateSalesOrdersFromSession
+  Mutator`) عند زر «🧾 تأكيد البيع» في سجل التسليمات. علامته
+  `sourceDistributionId = "${sessionId}:${custId}"` + `isDistributionMirror`.
+- **قاعدة ذهبية لمنع الحساب المزدوج:** أي SO له `sourceDistributionId`
+  **بيتخطّاه** كود V21.21.0 في **٤ أماكن**: `statement.js` (operational)،
+  `accountSummary.computeSalesOverviewTotals` + `buildCustomerSummary`،
+  `CustDeliverPg.soReservedByOrder`، `InventoryValuationReport.soReserved`.
+  التوزيعة هي «مصدر الحقيقة»، المرآة مستند عرض/فوترة فقط (read-only locked).
+- ⚠️ **الأوامر بتتخزّن في subcollection الموسم** (`seasons/{s}/orders`) — **مش
+  في `d.orders` بتاع upConfig/upSales**. المُولّد بيقرأ من `data` الحيّة عبر
+  `ctx={orders,customers,session}` ويكتب `salesOrders` عبر **upConfig** (config).
+  (ده كان سبب bug «مفيش تسليمات مؤكّدة» — V21.21.13.)
+
+### 14.2 تسلسل حذف المستندات (عكس الإنشاء)
+عرض سعر → أمر بيع → فاتورة (ونفسه للمشتريات: RFQ → PO → استلام → فاتورة).
+الحذف **الأحدث أولاً**: تحذف الأحدث، والأقدم يفضل (ويرجع لحالته السابقة).
+- حذف SO: مسموح والعرض موجود (بيرجّعه «مقبول»)؛ ممنوع لو فيه فاتورة.
+- حذف العرض: ممنوع لو فيه SO. حذف الفاتورة المسودة: بيفُكّ ربط الـ SO.
+- المشتريات: `deletePo` يمنع لو فيه استلام، `deleteReceipt` يمنع لو فيه فاتورة،
+  `deleteRfqMutator` يمنع لو فيه PO. (V21.21.3/4)
+- حذف مجمّع (multi-select) + `BlockingOverlay` أثناء الحذف (V21.21.5).
+
+### 14.3 الشيكات في كشف الحساب (V21.21.14)
+- الشيك بيظهر **مرة واحدة من `data.checks`** (للعميل receivable «دفعة عميل»،
+  للمورد payable «دفعة مورد»، غير مرتد/ملغي) — **معلّق أو محصّل/مدفوع**.
+- حركات الخزنة `sourceType = check_collect / check_pay` **مستبعدة** من كشف
+  الطرف (عشان مفيش تكرار؛ رصيد الخزنة النقدي مش متأثر — بيتحسب من
+  `data.treasury` مباشرة). شيكات المورد المرتبطة بـ supplierPayment (بالـ
+  `checkId`) بتتعدّ كدفعة (dedup). تريجر `checkDue` في
+  `api/automation-tick.js` سليم (لازم enabled + ownerPhones).
+
+### 14.4 معادلة الربح في لوحة التحكم (V21.21.17)
+`src/utils/dashboardKpis.js` → **الربح = المبيعات الفعلية − المشتريات الفعلية
++ إجمالي تقييم المخزون** (= صافي المبيعات − COGS، و COGS = صافي المشتريات −
+المخزون الختامي، تراكمي opening=0). **مجمل ربح تجاري — بدون مصروفات تشغيلية**.
+تقييم المخزون بالتكلفة: الجاهز = `avail × calcOrder(o).costPer`، الخامات/
+الإكسسوار = `stock × avgCost`. اللوحة (`DashboardKpis.jsx`) في تبويب «لوحة
+التحكم» (`DashPg`) — **مش** في الهوم (V21.21.18). كل بطاقة → بوب اب تفاصيل +
+طباعة/PDF.
+
+### 14.5 حقائق بيانات متفرقة
+- `buildCustomerSummary(custId, data)` و`buildSupplierSummary(supId, data)` —
+  **الـ id الأول، data تاني** (سهل تتعكس بالغلط).
+- الطباعة الحرارية للعميل: `printSalesDeliveryLabel(...,extra)` — الـ param
+  الأخير `extra={shippingCompany, acctRequired, acctPaid, acctRemaining}`
+  لبوليصة الشحن 15×10 (V21.21.16). متوافق بدون extra.
+- الرصيد الافتتاحي للمخزن (V21.21.12): `applyStockDelta` لكل الفئات، حركة
+  `type=opening sourceType=opening` بدون مورد/خزنة.
+- التذكيرات المجدولة تدعم `daysOfWeek[]` / `daysOfMonth[]` (V21.21.11) — متوافق
+  مع المفرد (الخزنة recurring مش متأثرة).
+- على الموبايل: هَب المبيعات/المشتريات **مخفي شريط تاباته الداخلي** (الشريط
+  العلوي SubViewTabs كفاية) — التنقّل من شبكة «الأقسام» (V21.21.15).
+- التقرير اليومي (`api/_buildDailyReport.js` + client) بيحسب المبيعات من
+  التوزيعات **+ أوامر البيع المباشرة** (بيتخطّى المرايا) — V21.21.2.
+- تقرير الخزنة الشامل: تاب «تقارير» في TreasuryPg (V21.21.2). تاب «الحسابات»
+  اتسمّى «دفاتر اليومية» (V21.21.10).
+
+---
+
+Last updated: V21.21.18 (2026-06-09) — أضيف §13 (git sync + continuity) و§14
+(قرارات V21.21.x). البروتوكول §1 ثابت.
