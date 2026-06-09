@@ -77,6 +77,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[showPoForm,setShowPoForm]=useState(false);
   const[po,setPo]=useState(null);/* {id?, poNo?, supplierId, supplierName, date, items[], notes} */
   const[viewPo,setViewPo]=useState(null);
+  const[previewPo,setPreviewPo]=useState(null);/* V21.21.9: معاينة أمر شراء (read-only) من داخل فورم الاستلام */
   const[poFilter,setPoFilter]=useState("");const poFilterDeb=useDebounced(poFilter,200);
   
   const purchaseSettings=data.purchaseSettings||{stockEnabled:false,stockActivationDate:"",blockOnInsufficientStock:true,autoDeductOnCut:true};
@@ -2094,13 +2095,20 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             if(supPos.length===0) return <div style={{padding:"8px 12px",borderRadius:10,background:T.bg,border:"1px dashed "+T.brd,marginBottom:14,fontSize:FS-2,color:T.textMut}}>لا توجد أوامر شراء غير مكتملة لهذا المورد — أضف البنود يدوياً بالأسفل.</div>;
             return <div style={{padding:"10px 14px",borderRadius:10,background:"#FEF3C708",border:"1px solid #F59E0B30",marginBottom:14}}>
               <div style={{fontSize:FS-1,fontWeight:700,color:"#D97706",marginBottom:8}}>📋 اختر أمر شراء لاستلامه ({supPos.length})</div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {supPos.map(po=>{const st=computePoStatus(po,purchaseReceipts);const pr=poProgress(po,purchaseReceipts);const meta=PO_STATUS_META[st]||PO_STATUS_META.open;return (
-                  <button key={po.id} onClick={()=>convertPoToReceipt(po)} style={{textAlign:"right",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,padding:"8px 12px",cursor:"pointer",fontFamily:"inherit",minWidth:170}}
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",gap:10}}>
+                {supPos.map(po=>{const st=computePoStatus(po,purchaseReceipts);const pr=poProgress(po,purchaseReceipts);const meta=PO_STATUS_META[st]||PO_STATUS_META.open;const rem=Math.max(0,pr.ordered-pr.received);return (
+                  <div key={po.id} style={{display:"flex",flexDirection:"column",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",transition:"border-color .15s"}}
                     onMouseEnter={e=>e.currentTarget.style.borderColor="#D97706"} onMouseLeave={e=>e.currentTarget.style.borderColor=T.brd}>
-                    <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}><span style={{fontWeight:800,color:"#8B5CF6"}}>{po.poNo}</span><span style={{fontSize:FS-3,fontWeight:700,color:meta.color,background:meta.bg,padding:"1px 7px",borderRadius:20}}>{meta.label}</span></div>
-                    <div style={{fontSize:FS-3,color:T.textSec,marginTop:3}}>{po.date} · مستلم {fmt(pr.received)}/{fmt(pr.ordered)} · المتبقي {fmt(Math.max(0,pr.ordered-pr.received))}</div>
-                  </button>);})}
+                    <div onClick={()=>convertPoToReceipt(po)} style={{padding:"10px 12px",cursor:"pointer",flex:1,textAlign:"right"}} title="اضغط لتحميل بنود الأمر">
+                      <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}><span style={{fontWeight:800,color:"#8B5CF6"}}>{po.poNo}</span><span style={{fontSize:FS-3,fontWeight:700,color:meta.color,background:meta.bg,padding:"1px 7px",borderRadius:20}}>{meta.label}</span></div>
+                      <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{po.date}</div>
+                      <div style={{fontSize:FS-3,color:T.textSec,marginTop:3}}>مستلم <b style={{color:T.text}}>{fmt(pr.received)}</b>/{fmt(pr.ordered)} · المتبقي <b style={{color:"#F59E0B"}}>{fmt(rem)}</b></div>
+                    </div>
+                    <div style={{display:"flex",borderTop:"1px solid "+T.brd}}>
+                      <button onClick={()=>convertPoToReceipt(po)} style={{flex:1,padding:"7px 0",border:"none",borderInlineEnd:"1px solid "+T.brd,background:T.ok+"10",color:T.ok,fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:FS-2}}>📥 استلام</button>
+                      <button onClick={e=>{e.stopPropagation();setPreviewPo(po)}} style={{flex:1,padding:"7px 0",border:"none",background:T.accent+"10",color:T.accent,fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:FS-2}}>👁 معاينة</button>
+                    </div>
+                  </div>);})}
               </div>
             </div>;
           })() : null}
@@ -2243,6 +2251,59 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>
       </div>
     </div>}
+
+    {/* V21.21.9: معاينة أمر شراء (read-only للتأكيد) — تفتح فوق فورم الاستلام */}
+    {previewPo&&(()=>{const prog=poLineProgress(previewPo,purchaseReceipts);const st=computePoStatus(previewPo,purchaseReceipts);const meta=PO_STATUS_META[st]||PO_STATUS_META.open;const sup=suppliers.find(s=>String(s.id)===String(previewPo.supplierId));const rows=(previewPo.items||[]).filter(it=>!it.isSection);return(
+    <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreviewPo(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"100%",maxWidth:780,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",borderBottom:"1px solid "+T.brd}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>📋 أمر شراء {previewPo.poNo}</span>
+            <span style={{fontSize:FS-3,fontWeight:700,color:meta.color,background:meta.bg,padding:"2px 9px",borderRadius:20}}>{meta.label}</span>
+          </div>
+          <Btn ghost small onClick={()=>setPreviewPo(null)}>✕</Btn>
+        </div>
+        <div style={{padding:20,overflowY:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:8,fontSize:FS-1,marginBottom:14}}>
+            <div><span style={{color:T.textMut}}>المورد: </span><b style={{color:T.text}}>{sup?.name||previewPo.supplierName||"—"}</b></div>
+            <div><span style={{color:T.textMut}}>التاريخ: </span><span style={{color:T.text}}>{previewPo.date}</span></div>
+            {sup?.phone&&<div><span style={{color:T.textMut}}>الهاتف: </span><span style={{color:T.text}}>{sup.phone}</span></div>}
+            {previewPo.notes&&<div style={{gridColumn:isMob?"auto":"1 / -1"}}><span style={{color:T.textMut}}>ملاحظات: </span><span style={{color:T.text}}>{previewPo.notes}</span></div>}
+          </div>
+          <div style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-2}}>
+              <thead><tr style={{background:T.bg}}>
+                <th style={{...TH,fontSize:FS-3}}>الصنف</th>
+                <th style={{...TH,fontSize:FS-3,textAlign:"center"}}>المطلوب</th>
+                <th style={{...TH,fontSize:FS-3,textAlign:"center"}}>مستلم سابقاً</th>
+                <th style={{...TH,fontSize:FS-3,textAlign:"center"}}>المتبقي</th>
+                <th style={{...TH,fontSize:FS-3,textAlign:"center"}}>السعر</th>
+                <th style={{...TH,fontSize:FS-3,textAlign:"center"}}>الإجمالي</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((it,i)=>{const lp=prog[it.id]||{ordered:Number(it.qty)||0,received:0,remaining:Number(it.qty)||0};return(
+                  <tr key={it.id||i} style={{borderBottom:"1px solid "+T.brd}}>
+                    <td style={{...TD,fontWeight:600}}>{it.itemName||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700}}>{fmt(lp.ordered)} <span style={{fontSize:FS-4,color:T.textMut}}>{it.unit||""}</span></td>
+                    <td style={{...TD,textAlign:"center",color:T.ok}}>{fmt(lp.received)}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{fmt(lp.remaining)}</td>
+                    <td style={{...TD,textAlign:"center"}}>{fmt(r2(Number(it.price)||0))}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(Number(it.amount)||0))}</td>
+                  </tr>);})}
+                <tr style={{background:T.accent+"06",fontWeight:800}}>
+                  <td style={{...TD}} colSpan="5"><span style={{textAlign:"left"}}>الإجمالي الكلي</span></td>
+                  <td style={{...TD,textAlign:"center",color:T.accent,fontSize:FS}}>{fmt(r2(Number(previewPo.totalAmount)||0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",padding:"14px 20px",borderTop:"1px solid "+T.brd}}>
+          <Btn ghost onClick={()=>setPreviewPo(null)}>إغلاق</Btn>
+          <Btn primary onClick={()=>{const po=previewPo;setPreviewPo(null);convertPoToReceipt(po)}} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام هذا الأمر</Btn>
+        </div>
+      </div>
+    </div>);})()}
 
     {/* ════ VIEW RECEIPT DETAIL POPUP ════ */}
     {viewReceipt&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setViewReceipt(null)}>
