@@ -193,7 +193,7 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
 
   return<div style={{maxWidth:1400,margin:"0 auto"}}>
     {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) أعلى لوحة التحكم */}
-    <DashboardKpis data={data} isMob={isMob}/>
+    <DashboardKpis data={data} isMob={isMob} upConfig={upConfig}/>
     {/* Custom styles for hero section */}
     <style>{`
       .hero-kpi{transition:all 0.25s cubic-bezier(0.4,0,0.2,1);cursor:default}

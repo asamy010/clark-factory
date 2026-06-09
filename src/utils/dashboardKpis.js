@@ -89,13 +89,44 @@ export function computeDashboardKpis(data){
   fabricDetail.sort((a, b) => b.value - a.value); accessoryDetail.sort((a, b) => b.value - a.value);
   const inventoryTotal = r2(finishedVal + fabricVal + accessoryVal + otherVal);
 
-  /* ── الربح/الخسارة (مجمل الربح التجاري) ── */
-  const profit = r2(salesNet - buyNet + inventoryTotal);
+  /* ── تكلفة البضاعة المباعة (COGS) — المُسلَّم فعلاً × تكلفة الوحدة الكاملة
+     (costPerProjected: خامات + إكسسوار + أجور التشغيل). أساس البيع الفعلي. ── */
+  let cogs = 0;
+  (d.orders || []).forEach(o => {
+    const sold = (o.customerDeliveries || []).reduce((a, x) => a + (Number(x.qty) || 0), 0) - (o.customerReturns || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
+    if(sold <= 0) return;
+    let cp = 0; try { const t = calcOrder(o); cp = Number(t.costPerProjected) || Number(t.costPer) || 0; } catch(_) {}
+    cogs += sold * cp;
+  });
+  cogs = r2(cogs);
+  const grossProfit = r2(salesNet - cogs);
+
+  /* ── المصروفات التشغيلية — حركات خزنة (out) في الفئات المختارة يدوياً
+     (data.profitSettings.opexCategories). مستبعدة ضمناً: دفعة مورد/ورشة/تحويل
+     لو المستخدم ما اختارهاش (الاختيار يدوي بالكامل). ── */
+  const opexCats = (d.profitSettings && Array.isArray(d.profitSettings.opexCategories)) ? d.profitSettings.opexCategories : [];
+  const opexSet = new Set(opexCats);
+  const opexByCat = {}; let opex = 0;
+  if(opexSet.size){
+    (d.treasury || []).forEach(t => {
+      if(!t || t.type !== "out") return;
+      const cat = (t.category || "").trim() || "غير مصنف";
+      if(!opexSet.has(cat)) return;
+      const amt = Number(t.amount) || 0; opex += amt;
+      opexByCat[cat] = (opexByCat[cat] || 0) + amt;
+    });
+  }
+  opex = r2(opex);
+  const opexDetail = Object.entries(opexByCat).map(([name, value]) => ({ name, value: r2(value) })).sort((a, b) => b.value - a.value);
+  const netProfit = r2(grossProfit - opex);
+
+  /* الربح التجاري القديم (مرجعي): مبيعات فعلية − مشتريات فعلية + تقييم المخزون */
+  const tradingProfit = r2(salesNet - buyNet + inventoryTotal);
 
   return {
     sales: { total: salesTotal, returns: salesReturns, net: salesNet, balance: custBalance, detail: salesDetail },
     purchases: { total: buyTotal, returns: buyReturns, net: buyNet, payable, detail: supDetail },
     inventory: { finished: finishedVal, fabric: fabricVal, accessory: accessoryVal, other: otherVal, total: inventoryTotal, finishedDetail, fabricDetail, accessoryDetail, otherDetail },
-    profit: { value: profit, salesNet, buyNet, inventoryTotal },
+    profit: { value: netProfit, salesNet, cogs, grossProfit, opex, opexDetail, netProfit, tradingProfit, configured: opexSet.size > 0 },
   };
 }

@@ -13,11 +13,28 @@ import { computeDashboardKpis } from "../utils/dashboardKpis.js";
 
 const _esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-export function DashboardKpis({ data, isMob }){
+export function DashboardKpis({ data, isMob, upConfig }){
   const k = useMemo(() => computeDashboardKpis(data), [data]);
-  const [popup, setPopup] = useState(null); /* {title,color,columns,rows,summary,note} */
+  const [popup, setPopup] = useState(null); /* {title,color,columns,rows,summary,note,extra} */
 
   const money = (n) => fmt(Number(n) || 0) + " ج.م";
+
+  /* V21.21.19: فئات المنصرف المتاحة + اختيار فئات المصروفات التشغيلية يدوياً */
+  const outCats = useMemo(() => {
+    const s = new Set();
+    (data.treasury || []).forEach(t => { if(t && t.type === "out"){ s.add((t.category || "").trim() || "غير مصنف"); } });
+    return [...s].sort();
+  }, [data.treasury]);
+  const opexSel = new Set((data.profitSettings && data.profitSettings.opexCategories) || []);
+  const toggleOpex = (cat) => {
+    if(!upConfig) return;
+    upConfig(d => {
+      if(!d.profitSettings) d.profitSettings = {};
+      const cur = new Set(Array.isArray(d.profitSettings.opexCategories) ? d.profitSettings.opexCategories : []);
+      cur.has(cat) ? cur.delete(cat) : cur.add(cat);
+      d.profitSettings.opexCategories = [...cur];
+    });
+  };
 
   /* بطاقة KPI */
   const Card = ({ label, value, color, sub, onClick, big }) => (
@@ -64,15 +81,30 @@ export function DashboardKpis({ data, isMob }){
     summary: [["إجمالي تقييم المخزون", k.inventory.total]],
   });
   const profitPopup = () => open({
-    title: "حساب الربح / الخسارة (مجمل النشاط التجاري)", color: k.profit.value >= 0 ? "#10B981" : "#EF4444",
+    title: "حساب الربح / الخسارة (صافي — على أساس البيع الفعلي)", color: k.profit.value >= 0 ? "#10B981" : "#EF4444",
     columns: [{ key: "name", label: "البند", align: "right" }, { key: "value", label: "القيمة" }],
     rows: [
-      { name: "＋ المبيعات الفعلية (مبيعات − مرتجع)", value: k.profit.salesNet },
-      { name: "－ المشتريات الفعلية (مشتريات − مرتجع)", value: -k.profit.buyNet },
-      { name: "＋ إجمالي تقييم المخزون (بالتكلفة)", value: k.profit.inventoryTotal },
+      { name: "＋ صافي المبيعات (بعد الخصم والمرتجع)", value: k.profit.salesNet },
+      { name: "－ تكلفة البضاعة المباعة (خامات + إكسسوار + أجور)", value: -k.profit.cogs },
+      { name: "= مجمل الربح", value: k.profit.grossProfit },
+      ...(k.profit.opexDetail.length ? k.profit.opexDetail.map(o => ({ name: "－ " + o.name, value: -o.value })) : []),
+      { name: "－ إجمالي المصروفات التشغيلية", value: -k.profit.opex },
     ],
-    summary: [[(k.profit.value >= 0 ? "صافي الربح" : "صافي الخسارة"), k.profit.value]],
-    note: "المعادلة: الربح = المبيعات الفعلية − المشتريات الفعلية + إجمالي تقييم المخزون. ⚠️ ده مجمل الربح من النشاط التجاري ولا يشمل المصروفات التشغيلية (إيجار/رواتب/مصاريف). للربح الصافي راجع المحاسبة.",
+    summary: [["مجمل الربح", k.profit.grossProfit], ["المصروفات التشغيلية", k.profit.opex], [(k.profit.value >= 0 ? "صافي الربح" : "صافي الخسارة"), k.profit.value]],
+    note: "المعادلة: صافي الربح = صافي المبيعات − تكلفة البضاعة المباعة − المصروفات التشغيلية. تكلفة البضاعة المباعة بتشمل الخامات والإكسسوار وأجور التشغيل (مش بنطرح دفعات الموردين ولا الورش تاني — محسوبة هنا). اختر فئات المصروفات التشغيلية من تحت 👇",
+    extra: (
+      <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: T.bg, border: "1px solid " + T.brd }}>
+        <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec, marginBottom: 8 }}>⚙️ فئات المصروفات التشغيلية (تُطرح من الربح) — اضغط لتحديد:</div>
+        {outCats.length === 0 ? <div style={{ fontSize: FS - 2, color: T.textMut }}>لا توجد حركات منصرف في الخزنة بعد.</div> : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {outCats.map(c => { const on = opexSel.has(c); return (
+              <span key={c} onClick={() => toggleOpex(c)} style={{ cursor: "pointer", padding: "5px 11px", borderRadius: 20, fontSize: FS - 2, fontWeight: 700, background: on ? "#EF4444" : T.cardSolid, color: on ? "#fff" : T.textSec, border: "1px solid " + (on ? "#EF4444" : T.brd), userSelect: "none" }}>{on ? "✓ " : ""}{c}</span>
+            ); })}
+          </div>
+        )}
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 8 }}>💡 لا تختر «دفعة مورد» أو «دفعة ورشة» أو «تحويل بين الحسابات» — دي محسوبة في التكلفة أو مش مصروف تشغيلي.</div>
+      </div>
+    ),
   });
 
   /* طباعة البوب اب */
@@ -116,7 +148,7 @@ export function DashboardKpis({ data, isMob }){
         <Card label="🧵 تقييم مخزن القماش" value={k.inventory.fabric} color="#0EA5E9" onClick={fabricPopup} />
         <Card label="🧷 تقييم مخزن الإكسسوار" value={k.inventory.accessory} color="#8B5CF6" onClick={accessoryPopup} />
         <Card label="📊 إجمالي تقييم المخزون" value={k.inventory.total} color="#0284C7" onClick={invTotalPopup} />
-        <Card label={(k.profit.value >= 0 ? "🟢 الربح" : "🔴 الخسارة")} value={k.profit.value} color={k.profit.value >= 0 ? "#10B981" : "#EF4444"} sub={k.profit.value >= 0 ? "ربح حتى الآن" : "خسارة حتى الآن"} big onClick={profitPopup} />
+        <Card label={(k.profit.value >= 0 ? "🟢 صافي الربح" : "🔴 صافي الخسارة")} value={k.profit.value} color={k.profit.value >= 0 ? "#10B981" : "#EF4444"} sub={k.profit.configured ? "بعد المصروفات التشغيلية" : "⚠️ اختر فئات المصروفات"} big onClick={profitPopup} />
       </div>
 
       {/* البوب اب */}
@@ -132,6 +164,7 @@ export function DashboardKpis({ data, isMob }){
             </div>
             <div style={{ padding: 16, overflowY: "auto" }}>
               {popup.note && <div style={{ fontSize: FS - 2, color: T.textSec, background: T.bg, border: "1px solid " + T.brd, borderRadius: 8, padding: "8px 10px", marginBottom: 12, lineHeight: 1.7 }}>{popup.note}</div>}
+              {popup.extra}
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
                   <thead><tr style={{ background: T.bg }}>
