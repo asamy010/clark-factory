@@ -164,7 +164,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     const totals = { gross: Number(so.subtotal) || Number(so.total) || 0, discPct: Number(so.discountPct) || 0, discAmt: Number(so.totalDiscount) || 0, netAmt: Number(so.total) || 0 };
     let acct = {};
     if(cust){
-      const s = buildCustomerSummary(data, cust.id);
+      const s = buildCustomerSummary(cust.id, data);
       const paid = (s.payCash || 0) + (s.payCheck || 0) + (s.payOther || 0);
       const required = r2((s.salesNet || 0) + (s.salesOrdersNet || 0) - (s.returnsNet || 0));
       acct = { acctRequired: required, acctPaid: paid, acctRemaining: s.balance };
