@@ -484,6 +484,21 @@ export function createInvoiceFromSalesOrderMutator(d, soId, userName){
   return { ok: true, invoice };
 }
 
+/* V21.21.16: تحديد طريقة وصول أمر البيع (تسليم مباشر / شحن عبر شركة).
+   so.shipping = { method:"pickup"|"shipping", company, updatedAt, updatedBy }. */
+export function setSalesOrderShippingMutator(d, soId, payload, userName){
+  if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
+  const so = d.salesOrders.find(x => x && x.id === soId);
+  if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  so.shipping = {
+    method: (payload && payload.method === "pickup") ? "pickup" : "shipping",
+    company: ((payload && payload.company) || "").trim(),
+    updatedAt: new Date().toISOString(),
+    updatedBy: userName || "",
+  };
+  return { ok: true, salesOrder: so };
+}
+
 /* ── Cancel Sales Order (+ stock reversal) ── */
 /* بيعكس الخصم بدقّة من stockDeductions[] (self-contained). بيرجّع {ok, error?}. */
 export function cancelSalesOrderMutator(d, soId, userName, reason){

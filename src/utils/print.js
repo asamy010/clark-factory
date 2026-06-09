@@ -190,7 +190,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
      clarkLogoDataUrl                - CLARK_LOGO_PRINT
      existingWin                     - optional pre-opened window (V16.70 popup-blocker fix)
      shipN                           - optional shipment count; default 1 (V16.71) */
-export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl,existingWin,shipN){
+export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,totals,confirmUrl,cfg,clarkLogoDataUrl,existingWin,shipN,extra){
   let pw;
   if(existingWin){
     pw=existingWin;
@@ -249,6 +249,19 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
     +"<div class='trow'><span>الإجمالي</span><span>"+fmt(gross)+" ج.م</span></div>"
     +(discPct>0?"<div class='trow' style='color:#000'><span>خصم "+discPct+"%</span><span>- "+fmt(discAmt)+" ج.م</span></div>":"")
     +"<div class='trow tnet'><span>الصافي</span><span>"+fmt(netAmt)+" ج.م</span></div>"
+    +"</div>":"";
+  /* V21.21.16: بوليصة شحن — شركة الشحن في الـ chip + صندوق حساب العميل
+     (المطلوب/المدفوع/الرصيد المتبقي) زي كارت العميل. كله اختياري (extra). */
+  const ex=extra||{};
+  const shipCompany=ex.shippingCompany||"";
+  const chipHtml=shipCompany
+    ?"<div class='chip'>🚚 بوليصة شحن — "+shipCompany+"</div>"
+    :"<div class='chip'>🚚 إذن تسليم</div>";
+  const hasAcct=ex.acctRequired!=null||ex.acctPaid!=null||ex.acctRemaining!=null;
+  const acctBox=hasAcct?"<div class='tbox'>"
+    +"<div class='trow'><span>المطلوب</span><span>"+fmt(ex.acctRequired)+" ج.م</span></div>"
+    +"<div class='trow'><span>المدفوع</span><span>"+fmt(ex.acctPaid)+" ج.م</span></div>"
+    +"<div class='trow tnet'><span>الرصيد المتبقي</span><span>"+fmt(ex.acctRemaining)+" ج.م</span></div>"
     +"</div>":"";
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><script src='https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js'></"+"script><link href='"+fontUrl+"' rel='stylesheet'/><style>"
   +"@page{size:10cm 15cm;margin:0}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'"+fontFam+"',Arial,sans-serif;color:#000}"
@@ -312,11 +325,12 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
         +"</tr></tbody></table>";
     bodyHtml+="<div class='pg'><div class='pg-inner'>"
       +brandHtml
-      +"<div class='chip'>🚚 إذن تسليم</div>"
+      +chipHtml
       +"<div class='cust'><div class='lab'>العميل</div><div class='nm'>"+(custName||"—")+"</div></div>"
       +"<table class='info'><tbody>"+custRows+"</tbody></table>"
       +itemsSection
       +totalsBox
+      +acctBox
       +"<div class='qrbox'>"
       +(showQr?"<div class='qrc'><canvas id='qr"+i+"' class='conf-qr'></canvas><div class='lab'>📱 امسح للتأكيد</div></div>":"<div></div>")
       /* V16.71: ship badge replaces the right-side spacer when N>1 */

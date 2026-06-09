@@ -22,7 +22,9 @@ const STATUS_META = {
   cancelled:         { label: "ملغي",         color: "#EF4444", bg: "#EF444415" },
 };
 
-export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDelete, onEdit, onCreateInvoice, onClose }){
+const SHIPPING_COMPANIES = ["بوسطة", "أرامكس", "ميلرز", "R2S", "البريد المصري", "سمسا", "خطّاب", "شركة أخرى"];
+
+export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDelete, onEdit, onCreateInvoice, onSetShipping, onPrintWaybill, onClose }){
   if(!so) return null;
   const meta = STATUS_META[so.status] || STATUS_META.confirmed;
   const canCancel = canEdit && so.status !== "cancelled" && so.status !== "invoiced";
@@ -33,6 +35,11 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
   const isMirror = !!so.sourceDistributionId; /* V21.21.1: مرآة توزيعة — مقفولة للتعديل */
   const canEditOrder = canEdit && so.status !== "cancelled" && !invExists && !isMirror; /* مايتعدّلش لو ملغي أو مفوتر أو مرآة توزيعة */
   const [sendWa, setSendWa] = useState(false);
+  /* V21.21.16: شحن عبر شركة + بوليصة حرارية */
+  const isShipping = (so.shipping && so.shipping.method) === "shipping";
+  const [shipOn, setShipOn] = useState(isShipping);
+  const [shipCompany, setShipCompany] = useState((so.shipping && so.shipping.company) || "");
+  const shipDirty = shipOn !== isShipping || (shipCompany.trim() !== ((so.shipping && so.shipping.company) || ""));
 
   return (<>
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
@@ -113,6 +120,28 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
                 ))}
               </div>
             </details>
+          )}
+
+          {/* V21.21.16: الشحن عبر شركة + بوليصة حرارية 15×10 */}
+          {onSetShipping && (
+            <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 12, background: shipOn ? "#0EA5E908" : T.bg, border: "1px solid " + (shipOn ? "#0EA5E940" : T.brd) }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 800, fontSize: FS, color: T.text, marginBottom: shipOn ? 10 : 0 }}>
+                <input type="checkbox" checked={shipOn} onChange={e => { setShipOn(e.target.checked); }} style={{ width: 17, height: 17, cursor: "pointer" }} />
+                🚚 الأوردر هيوصل عن طريق شركة شحن
+              </label>
+              {shipOn && <>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4 }}>شركة الشحن</label>
+                    <input list="so-ship-companies" value={shipCompany} onChange={e => setShipCompany(e.target.value)} placeholder="اختر أو اكتب اسم الشركة..." style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS, fontFamily: "inherit", background: T.cardSolid, color: T.text, boxSizing: "border-box" }} />
+                    <datalist id="so-ship-companies">{SHIPPING_COMPANIES.map(c => <option key={c} value={c} />)}</datalist>
+                  </div>
+                  {canEdit && shipDirty && <Btn small onClick={() => onSetShipping({ method: "shipping", company: shipCompany })} style={{ background: T.ok, color: "#fff", border: "none" }}>💾 حفظ</Btn>}
+                </div>
+                <Btn small onClick={onPrintWaybill} disabled={!shipCompany.trim() || shipDirty} style={{ marginTop: 10, background: "#0EA5E9", color: "#fff", border: "none" }} title={shipDirty ? "احفظ شركة الشحن أولاً" : ""}>🖨 طباعة بوليصة الشحن (15×10)</Btn>
+                {shipDirty && shipCompany.trim() && <div style={{ fontSize: FS - 3, color: T.warn, marginTop: 4 }}>احفظ التغييرات قبل الطباعة.</div>}
+              </>}
+            </div>
           )}
         </div>
 

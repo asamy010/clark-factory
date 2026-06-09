@@ -8,9 +8,12 @@ import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, SearchSel, BlockingOverlay } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
-import { fmt } from "../../utils/format.js";
+import { fmt, r2 } from "../../utils/format.js";
 import { ask, showToast, tell } from "../../utils/popups.js";
-import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, editSalesOrderMutator, nextSalesOrderNo } from "../../utils/sales/salesOrders.js";
+import { cancelSalesOrderMutator, createInvoiceFromSalesOrderMutator, createSalesOrderDirectMutator, deleteSalesOrderMutator, editSalesOrderMutator, nextSalesOrderNo, setSalesOrderShippingMutator } from "../../utils/sales/salesOrders.js";
+import { printSalesDeliveryLabel } from "../../utils/print.js";
+import { buildCustomerSummary } from "../../utils/accountSummary.js";
+import { CLARK_LOGO_PRINT } from "../../constants/logo.js";
 import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
@@ -137,6 +140,38 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
     else showToast("⛔ " + (res?.error || "تعذّر الحذف"));
   };
 
+  /* V21.21.16: شحن أمر البيع — تحديد شركة الشحن + طباعة بوليصة حرارية 15×10 */
+  const handleSetShipping = (so, payload) => {
+    let res = { ok: true };
+    upConfig(d => { res = setSalesOrderShippingMutator(d, so.id, payload, userName); });
+    if(res && res.ok){
+      setActiveSO(prev => prev && prev.id === so.id ? { ...prev, shipping: { method: payload.method || "shipping", company: (payload.company || "").trim() } } : prev);
+      showToast("✓ تم حفظ بيانات الشحن");
+    } else showToast("⛔ " + (res?.error || "تعذّر الحفظ"));
+  };
+  const handlePrintWaybill = (so) => {
+    const cust = (data.customers || []).find(c => String(c.id) === String(so.customerId));
+    const custName = cust?.name || so.customerName || so.customerNameAdHoc || "—";
+    const custPhone = cust?.phone || so.customerPhone || "";
+    const custAddr = cust?.address || "";
+    const items = (so.items || []).filter(it => !(it && it.isSection)).map(it => ({
+      modelNo: it.modelNo || it.itemName || it.description || "—",
+      modelDesc: it.description || "",
+      qty: Number(it.qty) || 0,
+      price: Number(it.unitPrice) || 0,
+      total: Number(it.lineTotal) || 0,
+    }));
+    const totals = { gross: Number(so.subtotal) || Number(so.total) || 0, discPct: Number(so.discountPct) || 0, discAmt: Number(so.totalDiscount) || 0, netAmt: Number(so.total) || 0 };
+    let acct = {};
+    if(cust){
+      const s = buildCustomerSummary(data, cust.id);
+      const paid = (s.payCash || 0) + (s.payCheck || 0) + (s.payOther || 0);
+      const required = r2((s.salesNet || 0) + (s.salesOrdersNet || 0) - (s.returnsNet || 0));
+      acct = { acctRequired: required, acctPaid: paid, acctRemaining: s.balance };
+    }
+    printSalesDeliveryLabel(custName, custPhone, custAddr, so.date || "", items, totals, "", data.printSettings, CLARK_LOGO_PRINT, null, 1, { shippingCompany: (so.shipping && so.shipping.company) || "", ...acct });
+  };
+
   const [showN, setShowN] = useState(50);/* V21.21.3: pagination — 50 + «عرض المزيد» */
   /* V21.21.5: تحديد متعدد + حذف مجمّع */
   const [sel, setSel] = useState(() => new Set());
@@ -253,6 +288,8 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           onDelete={() => handleDelete(activeSO)}
           onEdit={() => handleEdit(activeSO)}
           onCreateInvoice={() => handleCreateInvoice(activeSO)}
+          onSetShipping={(payload) => handleSetShipping(activeSO, payload)}
+          onPrintWaybill={() => handlePrintWaybill(activeSO)}
           onClose={() => setActiveSO(null)}
         />
       )}
