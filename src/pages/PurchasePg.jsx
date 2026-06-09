@@ -39,8 +39,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[itemEditPopup,setItemEditPopup]=useState(null);/* null | {id?,categoryId,name,type,unit,minStock,avgCost,defaultSupplierId,notes} */
   const[showActivate,setShowActivate]=useState(false);
   const[showOpeningBal,setShowOpeningBal]=useState(false);
-  const[openingData,setOpeningData]=useState({});/* {itemId: {qty, cost}} */
-  const[openingType,setOpeningType]=useState("fabric");/* fabric|accessory */
+  const[openingData,setOpeningData]=useState({});/* {itemId: {qty, cost, catId}} */
+  const[openingType,setOpeningType]=useState("fabric");/* legacy (unused بعد V21.21.12) */
+  const[openingCat,setOpeningCat]=useState("");/* V21.21.12: الفئة الجاري إدخال رصيدها */
+  const[openingDate,setOpeningDate]=useState(today);/* V21.21.12: تاريخ الرصيد الافتتاحي */
   const[stockFilter,setStockFilter]=useState("");const stockFilterDeb=useDebounced(stockFilter,200);
   const[stockTypeTab,setStockTypeTab]=useState("fabric");/* fabric|accessory */
   const[activateDate,setActivateDate]=useState(today);
@@ -644,31 +646,37 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   /* ──────── SAVE OPENING BALANCE ──────── */
   const saveOpeningBalance=async()=>{
     if(!canEdit){await denyAction("حفظ الرصيد الافتتاحي");return;}
-    const entries=Object.entries(openingData).filter(([id,v])=>(Number(v.qty)||0)>0);
-    if(entries.length===0){await tell("لا توجد بيانات","يرجى إدخال رصيد لعنصر واحد على الأقل",{type:"warning"});return}
-    const confirmed=await ask("حفظ الرصيد الابتدائي","سيتم تسجيل "+entries.length+" رصيد ابتدائي.\n\nلن يمكن التعديل عليهم بعد الحفظ (إلا عبر تسوية).\n\nمتابعة؟",{confirmText:"حفظ"});
+    const entries=Object.entries(openingData).filter(([id,v])=>(Number(v.qty)||0)>0&&v.catId);
+    if(entries.length===0){await tell("لا توجد بيانات","يرجى إدخال كمية لصنف واحد على الأقل",{type:"warning"});return}
+    const od=openingDate||today;
+    const totalVal=entries.reduce((s,[,v])=>s+(Number(v.qty)||0)*(Number(v.cost)||0),0);
+    const confirmed=await ask("حفظ الرصيد الافتتاحي","سيتم تسجيل رصيد افتتاحي لـ "+entries.length+" صنف بإجمالي قيمة "+fmt(r2(totalVal))+" ج.م.\n\n• بيتضاف للمخزون مباشرةً ويتاح للقص والتشغيل.\n• بدون ربط بمورد ومن غير أي أثر على الخزنة أو المستحقات.\n\nمتابعة؟",{confirmText:"حفظ"});
     if(!confirmed)return;
     upConfig(d=>{
-      if(!d.stockMovements)d.stockMovements=[];
+      if(!Array.isArray(d.stockMovements))d.stockMovements=[];
       entries.forEach(([itemId,v])=>{
-        const qty=Number(v.qty)||0;const cost=Number(v.cost)||0;
-        const list=openingType==="fabric"?(d.fabrics||[]):(d.accessories||[]);
-        const idx=list.findIndex(x=>String(x.id)===String(itemId));
-        if(idx<0)return;
-        const item=list[idx];
-        item.stock=(Number(item.stock)||0)+qty;
-        item.avgCost=cost;/* Opening balance sets avgCost */
-        item.lastReceiveDate=activateDate||new Date().toISOString().split("T")[0];
+        const qty=Number(v.qty)||0;const cost=Number(v.cost)||0;const catId=v.catId;
+        /* applyStockDelta: يضيف للمخزون + متوسط تكلفة مرجّح (لو الصنف فاضي = التكلفة المدخلة).
+           يغطّي الأقمشة/الإكسسوار/أصناف المخازن المخصصة بنفس الآلية. */
+        const ok=applyStockDelta(d,catId,itemId,+qty,cost);
+        if(!ok)return;
+        const catMeta=getCategoryById(d,catId);
+        const legacyKey=catMeta?.legacy||catId;
+        let item;
+        if(catMeta?.legacy==="fabric")item=(d.fabrics||[]).find(x=>String(x.id)===String(itemId));
+        else if(catMeta?.legacy==="accessory")item=(d.accessories||[]).find(x=>String(x.id)===String(itemId));
+        else item=(d.inventoryItems||[]).find(x=>String(x.id)===String(itemId));
+        if(item)item.lastReceiveDate=od;
         d.stockMovements.push({
-          id:gid(),type:"opening",itemType:openingType,itemId:item.id,itemName:item.name,
-          qty,unit:item.unit||"",price:cost,date:activateDate||new Date().toISOString().split("T")[0],
-          sourceType:"opening",sourceId:null,notes:"رصيد ابتدائي",createdBy:userName,createdAt:new Date().toISOString()
+          id:gid(),type:"opening",itemType:legacyKey,itemId,itemName:item?.name||"",
+          qty:+qty,unit:item?.unit||"",price:cost,date:od,
+          sourceType:"opening",sourceId:null,notes:"رصيد افتتاحي (بدون مورد)",createdBy:userName,createdAt:new Date().toISOString()
         });
       });
     });
     setOpeningData({});
     setShowOpeningBal(false);
-    showToast("✅ تم حفظ الرصيد الابتدائي ("+entries.length+" عنصر)");
+    showToast("✅ تم حفظ الرصيد الافتتاحي ("+entries.length+" صنف)");
   };
   
   /* ──────── OPEN RECEIPT FORM (new or edit) ──────── */
@@ -983,7 +991,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       </div>
       {canEdit&&<div style={{display:"flex",gap:6}}>
         {!stockEnabled?<Btn primary small onClick={()=>setShowActivate(true)}>🚀 تفعيل المخزن</Btn>:<>
-          <Btn small onClick={()=>setShowOpeningBal(true)} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>➕ رصيد ابتدائي</Btn>
+          <Btn small onClick={()=>{setOpeningData({});setOpeningDate(today);setOpeningCat(getCategories(data)[0]?.id||"");setShowOpeningBal(true)}} style={{background:"#F59E0B12",color:"#F59E0B",border:"1px solid #F59E0B30"}}>➕ رصيد افتتاحي</Btn>
           <Btn small ghost onClick={deactivateStockModule} style={{color:T.err}}>إيقاف</Btn>
         </>}
       </div>}
@@ -2007,51 +2015,62 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     </div>}
 
     {/* ════ OPENING BALANCE POPUP ════ */}
-    {showOpeningBal&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowOpeningBal(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+    {showOpeningBal&&(()=>{
+      const cats=getCategories(data);
+      const curCat=openingCat||cats[0]?.id||"";
+      const items=getItemsForCategory(data,curCat);
+      const allEntries=Object.entries(openingData).filter(([,v])=>(Number(v.qty)||0)>0&&v.catId);
+      const grandTotal=allEntries.reduce((s,[,v])=>s+(Number(v.qty)||0)*(Number(v.cost)||0),0);
+      return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowOpeningBal(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:760,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>➕ الرصيد الابتدائي</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#F59E0B"}}>➕ رصيد افتتاحي للمخزن</div>
           <Btn ghost small onClick={()=>setShowOpeningBal(false)}>✕</Btn>
         </div>
-        <div style={{padding:10,background:"#F59E0B10",borderRadius:8,marginBottom:12,fontSize:FS-2,color:T.textSec}}>
-          أدخل الكمية الموجودة حالياً لكل صنف وتكلفتها. الحقول الفارغة ستُتجاهل.
+        <div style={{padding:10,background:"#F59E0B10",borderRadius:8,marginBottom:12,fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
+          🏬 أدخل كمية وسعر شراء الأصناف الموجودة فعلاً في المخزن — <b>بدون ربطها بمورد</b> (حساباتها منتهية). بتتضاف للمخزون مباشرةً وتتاح للقص والتشغيل. الحقول الفارغة تُتجاهل، وتقدر تنقّل بين الفئات وتدخل أرصدة لأكتر من فئة قبل الحفظ.
         </div>
-        
-        {/* Type switch */}
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <div onClick={()=>setOpeningType("fabric")} style={{padding:"6px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:openingType==="fabric"?T.accent:T.bg,color:openingType==="fabric"?"#fff":T.text}}>🧵 خامات</div>
-          <div onClick={()=>setOpeningType("accessory")} style={{padding:"6px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:openingType==="accessory"?"#8B5CF6":T.bg,color:openingType==="accessory"?"#fff":T.text}}>🪡 إكسسوار</div>
+        {/* التاريخ */}
+        <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:10,flexWrap:"wrap"}}>
+          <div style={{minWidth:170}}><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:3}}>📅 تاريخ الرصيد</label><Inp type="date" value={openingDate} onChange={setOpeningDate}/></div>
+          {allEntries.length>0&&<div style={{marginInlineStart:"auto",fontSize:FS-2,color:T.textSec}}>محدّد: <b style={{color:"#F59E0B"}}>{allEntries.length}</b> صنف · إجمالي القيمة <b style={{color:T.accent}}>{fmt(r2(grandTotal))}</b> ج.م</div>}
         </div>
-        
+        {/* Category switch — كل الفئات */}
+        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+          {cats.map(cat=>{const on=curCat===cat.id;const col=cat.legacy==="fabric"?T.accent:cat.legacy==="accessory"?"#8B5CF6":"#F59E0B";const cnt=Object.entries(openingData).filter(([,v])=>v.catId===cat.id&&(Number(v.qty)||0)>0).length;
+            return<div key={cat.id} onClick={()=>setOpeningCat(cat.id)} style={{padding:"6px 14px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:on?col:T.bg,color:on?"#fff":T.text,border:"1px solid "+(on?col:T.brd),display:"flex",alignItems:"center",gap:6}}>{(cat.emoji||"📦")+" "+cat.name}{cnt>0&&<span style={{background:on?"rgba(255,255,255,0.25)":col+"20",color:on?"#fff":col,borderRadius:20,padding:"0 6px",fontSize:FS-3}}>{cnt}</span>}</div>;})}
+        </div>
+        {items.length===0?<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,fontSize:FS-1,padding:30}}>لا توجد أصناف في هذه الفئة — أضف أصناف أولاً من تاب «الأصناف».</div>:
         <div style={{flex:1,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
             <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
               <th style={TH}>الصنف</th>
               <th style={{...TH,textAlign:"center"}}>الرصيد الحالي</th>
-              <th style={{...TH,textAlign:"center"}}>الكمية</th>
-              <th style={{...TH,textAlign:"center"}}>تكلفة الوحدة</th>
+              <th style={{...TH,textAlign:"center"}}>الكمية المضافة</th>
+              <th style={{...TH,textAlign:"center"}}>سعر الشراء</th>
               <th style={{...TH,textAlign:"center"}}>القيمة</th>
             </tr></thead>
             <tbody>
-              {(openingType==="fabric"?fabrics:accessories).map(item=>{const d=openingData[item.id]||{};const qty=Number(d.qty)||0;const cost=Number(d.cost)||0;
-                return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{...TD,fontWeight:700}}>{item.name}</td>
+              {items.map(item=>{const ed=openingData[item.id]||{};const qty=Number(ed.qty)||0;const cost=Number(ed.cost)||0;
+                return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd,background:qty>0?"#F59E0B08":undefined}}>
+                  <td style={{...TD,fontWeight:700}}>{item.name}{item.type?<span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>{" — "+item.type}</span>:""}</td>
                   <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(Number(item.stock)||0)+" "+(item.unit||"")}</td>
-                  <td style={{...TD,textAlign:"center"}}><Inp type="number" value={d.qty||""} onChange={v=>setOpeningData(p=>({...p,[item.id]:{...p[item.id],qty:v}}))} placeholder="0" style={{width:80,padding:"3px 6px",textAlign:"center"}}/></td>
-                  <td style={{...TD,textAlign:"center"}}><Inp type="number" value={d.cost||""} onChange={v=>setOpeningData(p=>({...p,[item.id]:{...p[item.id],cost:v}}))} placeholder={item.price||"0"} style={{width:80,padding:"3px 6px",textAlign:"center"}}/></td>
+                  <td style={{...TD,textAlign:"center"}}><Inp type="number" value={ed.qty||""} onChange={v=>setOpeningData(p=>({...p,[item.id]:{...p[item.id],qty:v,catId:curCat}}))} placeholder="0" style={{width:90,padding:"3px 6px",textAlign:"center"}}/></td>
+                  <td style={{...TD,textAlign:"center"}}><Inp type="number" value={ed.cost||""} onChange={v=>setOpeningData(p=>({...p,[item.id]:{...p[item.id],cost:v,catId:curCat}}))} placeholder={String(item.avgCost||item.price||"0")} style={{width:90,padding:"3px 6px",textAlign:"center"}}/></td>
                   <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{qty&&cost?fmt(r2(qty*cost)):"—"}</td>
                 </tr>;
               })}
             </tbody>
           </table>
-        </div>
-        
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}>
+        </div>}
+
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12,alignItems:"center"}}>
+          {allEntries.length>0&&<span style={{marginInlineEnd:"auto",fontSize:FS-2,color:T.textSec}}>الإجمالي: <b style={{color:T.accent}}>{fmt(r2(grandTotal))}</b> ج.م</span>}
           <Btn ghost onClick={()=>setShowOpeningBal(false)}>إلغاء</Btn>
-          <Btn primary onClick={saveOpeningBalance}>💾 حفظ الرصيد الابتدائي</Btn>
+          <Btn primary onClick={saveOpeningBalance} disabled={allEntries.length===0} style={{background:allEntries.length===0?T.textMut:"#F59E0B",color:"#fff",border:"none"}}>💾 حفظ الرصيد الافتتاحي ({allEntries.length})</Btn>
         </div>
       </div>
-    </div>}
+    </div>;})()}
 
     {/* ════ NEW RECEIPT FORM POPUP ════ */}
     {showReceiptForm&&rcpt&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReceiptForm(false)}>
