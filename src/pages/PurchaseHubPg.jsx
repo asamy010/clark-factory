@@ -122,17 +122,26 @@ export function PurchaseHubPg(props){
         <div style={{ fontSize: isMob ? 18 : 20, fontWeight: 800, color: T.text }}>المشتريات</div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
+      {/* V21.21.15: على الموبايل بنخفي شريط تابات الهَب (الشريط العلوي الثابت كفاية) —
+          التنقّل بين الأقسام عبر شبكة «الأقسام» في نظرة عامة + زر رجوع. */}
+      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
         {tabs.map(t => (
           <div key={t.id} style={subBtn(active === t.id)} onClick={() => setActive(t.id)}>
             <span>{t.label}</span>
             {t.cnt != null && <span style={cntChip(active === t.id)}>{t.cnt}</span>}
           </div>
         ))}
-      </div>
+      </div>}
+      {isMob && active !== "overview" && (
+        <div onClick={() => setActive("overview")} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", marginBottom: 12, borderRadius: 10, background: T.cardSolid, border: "1px solid " + T.brd, cursor: "pointer" }}>
+          <span style={{ fontSize: 16, color: T.warn, fontWeight: 800 }}>‹</span>
+          <span style={{ fontWeight: 700, fontSize: FS - 1, color: T.text }}>كل الأقسام</span>
+          <span style={{ marginInlineStart: "auto", fontSize: FS - 2, color: T.textMut }}>{(tabs.find(t => t.id === active) || {}).label || ""}</span>
+        </div>
+      )}
 
       <Suspense fallback={<Loading />}>
-        {active === "overview" && <Overview ov={ov} isMob={isMob} go={(id) => allowed(id) && setActive(id)} allowed={allowed} />}
+        {active === "overview" && <Overview ov={ov} isMob={isMob} tabs={tabs} go={(id) => allowed(id) && setActive(id)} allowed={allowed} />}
         {active === "rfq"        && canRfq && <PurchaseRfqPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("purchaseRfq")} />}
         {active === "invoices"   && canInv && <PurchaseInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("purchaseInvoices")} user={props.user} />}
         {active === "debitNotes" && canDN  && <DebitNotesPg data={data} upConfig={props.upConfig} isMob={isMob} canEdit={canEditTab("debitNotes")} user={props.user} />}
@@ -149,7 +158,7 @@ export function PurchaseHubPg(props){
 }
 
 /* ═══════════ Overview (لوحة النظرة العامة للمشتريات) ═══════════ */
-function Overview({ ov, isMob, go, allowed }){
+function Overview({ ov, isMob, tabs, go, allowed }){
   const kpi = (lab, val, sub, accent, danger) => (
     <div style={{ flex: isMob ? "1 1 45%" : "1 1 150px", minWidth: isMob ? 0 : 140, background: accent ? "linear-gradient(135deg,#F59E0B,#D97706)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
       <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.9)" : T.textSec, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lab}</div>
@@ -184,7 +193,18 @@ function Overview({ ov, isMob, go, allowed }){
       </div>
 
       <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "8px 0 10px" }}>📂 الأقسام</div>
-      <div style={{ display: "flex", flexWrap: isMob ? "wrap" : "nowrap", gap: 10, overflowX: isMob ? "visible" : "auto", paddingBottom: isMob ? 0 : 4 }}>
+      {isMob ? (
+        /* V21.21.15: موبايل — شبكة كاملة بكل أقسام الهَب (بديل شريط التابات المخفي) */
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+          {(tabs || []).filter(t => t.id !== "overview").map(t => (
+            <div key={t.id} onClick={() => go(t.id)} style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 13, padding: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>{t.label}</span>
+              {t.cnt != null && <span style={{ background: "#FEF3C7", color: "#D97706", fontSize: FS - 3, padding: "1px 7px", borderRadius: 20, fontWeight: 800 }}>{t.cnt}</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+      <div style={{ display: "flex", flexWrap: "nowrap", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
         {card("rfq", "💬", "#FEF3C7", "#D97706", "طلب عروض أسعار", "اطلب أسعار + قارن + حوّل لأمر", "")}
         {card("orders", "📋", "#FEF3C7", "#D97706", "أوامر الشراء", "إنشاء + تحويل لاستلام", ov.poCount + " أمر")}
         {card("receipts", "📥", "#DBEAFE", "#2563EB", "الاستلام", "استلام البضاعة + الدفع", "")}
@@ -192,6 +212,7 @@ function Overview({ ov, isMob, go, allowed }){
         {card("debitNotes", "↪️", "#DBEAFE", "#2563EB", "إشعارات مدينة", "مرتجعات للموردين", ov.dnMonth + " هذا الشهر")}
         {card("suppliers", "👥", "#ECFDF5", "#059669", "الموردون", "كشوف حساب + أرصدة", "")}
       </div>
+      )}
     </div>
   );
 }

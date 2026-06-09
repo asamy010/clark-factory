@@ -127,21 +127,28 @@ export function SalesHubPg(props){
         <div style={{ fontSize: isMob ? 18 : 20, fontWeight: 800, color: T.text }}>المبيعات</div>
       </div>
 
-      {/* tab bar */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
+      {/* tab bar — V21.21.15: مخفي على الموبايل (الشريط العلوي الثابت كفاية؛ التنقّل عبر شبكة الأقسام + زر رجوع) */}
+      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
         {tabs.map(t => (
           <div key={t.id} style={subBtn(active === t.id)} onClick={() => setActive(t.id)}>
             <span>{t.label}</span>
             {t.cnt != null && <span style={cntChip(active === t.id)}>{t.cnt}</span>}
           </div>
         ))}
-      </div>
+      </div>}
+      {isMob && active !== "overview" && (
+        <div onClick={() => setActive("overview")} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", marginBottom: 12, borderRadius: 10, background: T.cardSolid, border: "1px solid " + T.brd, cursor: "pointer" }}>
+          <span style={{ fontSize: 16, color: T.accent, fontWeight: 800 }}>‹</span>
+          <span style={{ fontWeight: 700, fontSize: FS - 1, color: T.text }}>كل الأقسام</span>
+          <span style={{ marginInlineStart: "auto", fontSize: FS - 2, color: T.textMut }}>{(tabs.find(t => t.id === active) || {}).label || ""}</span>
+        </div>
+      )}
 
       {/* content */}
       <Suspense fallback={<Loading />}>
         {active === "overview" && (
           <div>
-            <Overview ov={ov} isMob={isMob} go={(id) => allowed(id) && setActive(id)} allowed={allowed} />
+            <Overview ov={ov} isMob={isMob} tabs={tabs} go={(id) => allowed(id) && setActive(id)} allowed={allowed} />
             {canOps && <div style={{ marginTop: 18 }}>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "4px 0 8px" }}>📦 ملخص التسليمات (الموسم الحالي)</div>
               <CustDeliverPg {...props} hubView="overview" canEdit={canEditTab("custDeliver")} />
@@ -169,7 +176,7 @@ export function SalesHubPg(props){
 }
 
 /* ═══════════ Overview (لوحة النظرة العامة — بدون قمع البيع) ═══════════ */
-function Overview({ ov, isMob, go, allowed }){
+function Overview({ ov, isMob, tabs, go, allowed }){
   const kpi = (lab, val, sub, accent, danger) => (
     <div style={{ flex: isMob ? "1 1 45%" : "1 1 150px", minWidth: isMob ? 0 : 140, background: accent ? "linear-gradient(135deg,#0EA5E9,#0284C7)" : T.cardSolid, border: accent ? "none" : "1px solid " + T.brd, borderRadius: 13, padding: 14 }}>
       <div style={{ fontSize: FS - 1, color: accent ? "rgba(255,255,255,.85)" : T.textSec, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lab}</div>
@@ -220,12 +227,24 @@ function Overview({ ov, isMob, go, allowed }){
       )}
 
       <div style={{ fontSize: FS, fontWeight: 800, color: T.textSec, margin: "16px 0 10px" }}>📂 الأقسام</div>
-      <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
+      {isMob ? (
+        /* V21.21.15: موبايل — شبكة كاملة بكل أقسام الهَب (بديل شريط التابات المخفي) */
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+          {(tabs || []).filter(t => t.id !== "overview").map(t => (
+            <div key={t.id} onClick={() => go(t.id)} style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 13, padding: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: FS, color: T.text }}>{t.label}</span>
+              {t.cnt != null && <span style={{ background: "#E0F2FE", color: "#0284C7", fontSize: FS - 3, padding: "1px 7px", borderRadius: 20, fontWeight: 800 }}>{t.cnt}</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
         {card("quotations", "📋", "#E0F2FE", "#0284C7", "عروض الأسعار", "إنشاء وإرسال وتحويل لأوامر", ov.openQ + " مفتوح")}
         {card("orders", "📑", "#EEF2FF", "#6366F1", "أوامر البيع", "حجز مخزون + تحويل لفاتورة", ov.ordCount + " مؤكّد")}
         {card("invoices", "📤", "#D1FAE5", "#059669", "فواتير البيع", "ترحيل + تحصيل + طباعة", ov.postedCount + " مرحّلة · " + ov.unpaidCount + " غير مدفوعة")}
         {card("returns", "↩️", "#FEE2E2", "#DC2626", "مرتجعات - إشعارات دائنة", "مرتجعات بفاتورة + خصومات", ov.cnMonth + " هذا الشهر")}
       </div>
+      )}
     </div>
   );
 }
