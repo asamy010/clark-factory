@@ -75,12 +75,13 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
     if(res?.ok) showToast("✓ اتعمل أمر الشراء " + (res.po?.poNo || ""));
     else showToast("⛔ " + (res?.error || "تعذّر التحويل"));
   };
-  const handleDelete = async () => {
-    if(!liveActive) return;
-    if(!await ask("حذف الطلب", "حذف " + (liveActive.rfqNo || "") + " نهائياً؟", { danger: true, confirmText: "حذف" })) return;
-    upConfig(d => deleteRfqMutator(d, liveActive.id));
-    setActiveRfq(null);
-    showToast("✓ اتحذف الطلب");
+  const handleDelete = async (rfq) => {
+    const target = rfq || liveActive;
+    if(!target) return;
+    if(!await ask("حذف الطلب", "حذف " + (target.rfqNo || "") + " نهائياً؟", { danger: true, confirmText: "حذف" })) return;
+    let res; upConfig(d => { res = deleteRfqMutator(d, target.id); });
+    if(res && res.ok){ setActiveRfq(null); showToast("✓ اتحذف الطلب"); }
+    else showToast("⛔ " + ((res && res.error) || "تعذّر الحذف"));
   };
 
   const chip = (key, label) => (
@@ -90,6 +91,8 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
       {label} ({stats[key] || 0})
     </div>
   );
+
+  const [showN, setShowN] = useState(50);/* V21.21.4: pagination — 50 + «عرض المزيد» */
 
   return (
     <div style={{ padding: isMob ? 4 : 0 }}>
@@ -115,7 +118,7 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
         <Card><div style={{ textAlign: "center", padding: 30, color: T.textMut }}>لا توجد طلبات{q || statusF ? " مطابقة" : " — اضغط «+ طلب جديد»"}</div></Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(r => {
+          {filtered.slice(0, showN).map(r => {
             const ds = displayStatus(r, today); const meta = STATUS_META[ds] || STATUS_META.draft;
             return (
               <div key={r.id} onClick={() => setActiveRfq(r)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: T.cardSolid, border: "1px solid " + T.brd, cursor: "pointer", flexWrap: "wrap" }}>
@@ -131,9 +134,11 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
                   <div style={{ fontWeight: 800, color: T.text }}>{fmt(Number(r.total || 0).toFixed(0))}</div>
                 </div>
                 <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: FS - 2, fontWeight: 700, background: meta.bg, color: meta.color }}>{meta.label}</span>
+                {canEdit && <button onClick={e => { e.stopPropagation(); handleDelete(r); }} title="حذف الطلب" style={{ background: "#EF444412", color: "#EF4444", border: "1px solid #EF444433", borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: FS }}>🗑</button>}
               </div>
             );
           })}
+          {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{ marginTop: 4, padding: "10px", borderRadius: 10, border: "1px dashed " + T.brd, background: T.bg, color: T.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
         </div>
       )}
 

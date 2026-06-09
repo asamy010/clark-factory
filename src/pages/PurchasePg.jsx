@@ -31,6 +31,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const today=new Date().toISOString().split("T")[0];
   const[subTab,setSubTab]=useState("receipts");
+  const[rcptN,setRcptN]=useState(50);const[poN,setPoN]=useState(50);/* V21.21.4: pagination — 50 + «عرض المزيد» */
   /* V16.31: categories management popups */
   const[catEditPopup,setCatEditPopup]=useState(null);/* null | {id?,name,emoji} for create/edit */
   const[catTypesPopup,setCatTypesPopup]=useState(null);/* null | {categoryId} */
@@ -494,6 +495,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   
   const deletePo=async(p)=>{
     if(!canEdit){await denyAction("حذف أمر الشراء");return;}
+    /* V21.21.4: السلسلة المستندية — أمر الشراء «وسط» السلسلة (RFQ ← أمر شراء ←
+       استلام). مينفعش يتحذف طالما فيه استلام متولّد منه (احذف الاستلام الأول).
+       عرض السعر «قبله» فمسموح، وبنرجّعه لحالة «مُرسل» + نفُكّ الربط. */
+    const linkedReceipts=(data.purchaseReceipts||[]).filter(r=>r&&r._poId===p.id);
+    if(linkedReceipts.length>0){
+      await tell("⛔ لا يمكن حذف أمر الشراء","أمر الشراء له استلامات مرتبطة ("+linkedReceipts.map(r=>r.receiptNo||r.id).join("، ")+") — احذف الاستلام الأول.",{type:"warning"});
+      return;
+    }
     const confirmed=await ask("حذف أمر الشراء","حذف أمر الشراء "+p.poNo+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     /* V19.47: Dedicated handling for PO deletion. Previously the optimistic
@@ -503,7 +512,18 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
        clear toast with the error category, so the user knows whether to
        retry or escalate. The toast below is shown OPTIMISTICALLY; if the
        write fails, V19.46's fallback in App.jsx shows the error toast on top. */
-    upConfig(d=>{d.purchaseOrders=(d.purchaseOrders||[]).filter(x=>x.id!==p.id)});
+    upConfig(d=>{
+      d.purchaseOrders=(d.purchaseOrders||[]).filter(x=>x.id!==p.id);
+      /* رجّع طلب عرض السعر المصدر لحالة «مُرسل» وفُكّ الربط (الحذف عكس التسلسل) */
+      if(p._fromRfqId && Array.isArray(d.purchaseRfqs)){
+        const q=d.purchaseRfqs.find(x=>x&&x.id===p._fromRfqId);
+        if(q&&q.status==="converted"){
+          q.status="sent"; q.convertedToPoId=""; q.convertedToPoNo="";
+          if(!Array.isArray(q.statusHistory))q.statusHistory=[];
+          q.statusHistory.push({from:"converted",to:"sent",at:new Date().toISOString(),by:userName||"",note:"حذف أمر الشراء "+(p.poNo||"")});
+        }
+      }
+    });
     showToast("✓ تم حذف "+p.poNo);
   };
   
@@ -854,6 +874,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     if(lockedChecks.length>0){
       const list=lockedChecks.map(c=>"• شيك #"+(c.checkNo||"—")+" — حالته: "+c.status).join("\n");
       await tell("⛔ لا يمكن حذف الاستلام","الاستلام مرتبط بشيكات تم تحصيلها أو دفعها:\n"+list+"\n\nأرجع الشيكات لـ \"معلق\" أولاً (من تاب الشيكات) ثم احذف الاستلام.",{type:"warning"});
+      return;
+    }
+    /* V21.21.4: السلسلة المستندية — الاستلام «قبل» فاتورة المشتريات، فمينفعش
+       يتحذف طالما فيه فاتورة مرتبطة (احذف/الغِ الفاتورة الأول). */
+    const linkedInv=findInvoiceByReceipt(data,r.id);
+    if(linkedInv){
+      await tell("⛔ لا يمكن حذف الاستلام","الاستلام له فاتورة مشتريات مرتبطة ("+(linkedInv.invoiceNo||"")+") — احذف/الغِ الفاتورة الأول ثم احذف الاستلام.",{type:"warning"});
       return;
     }
     const confirmed=await ask("حذف الاستلام","سيتم حذف الاستلام "+r.receiptNo+" وعكس كل التأثيرات:\n\n⚠️ سيتم خصم البنود من المخزن\n⚠️ سيتم حذف الحركات المالية المرتبطة\n\nهل تريد المتابعة؟",{danger:true,confirmText:"حذف"});
@@ -1283,7 +1310,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <th style={TH}></th>
               </tr></thead>
               <tbody>
-                {filtered.map(r=>{const total=Number(r.totalAmount)||0;const paid=Number(r.paidAmount)||0;const remaining=total-paid;
+                {filtered.slice(0,rcptN).map(r=>{const total=Number(r.totalAmount)||0;const paid=Number(r.paidAmount)||0;const remaining=total-paid;
                   const statusColor=r.paymentStatus==="paid"?T.ok:r.paymentStatus==="partial"?T.warn:T.err;
                   const statusLabel=r.paymentStatus==="paid"?"مدفوع":r.paymentStatus==="partial"?"جزئي":"غير مدفوع";
                   const methodLabel=r.paymentMethod==="cash"?"💵 كاش":r.paymentMethod==="check"?"📄 شيك":"⏳ آجل";
@@ -1306,6 +1333,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 })}
               </tbody>
             </table>
+            {filtered.length>rcptN&&<button onClick={()=>setRcptN(n=>n+50)} style={{marginTop:8,padding:"9px 14px",borderRadius:8,border:"1px dashed "+T.brd,background:T.bg,color:T.accent,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>عرض المزيد ({filtered.length-rcptN} متبقي)</button>}
           </div>})()}
       </Card>
     </>}
@@ -1368,7 +1396,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 <th style={{...TH,textAlign:"center"}}>الإجراءات</th>
               </tr></thead>
               <tbody>
-                {filtered.map(p=><tr key={p.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setViewPo(p)}>
+                {filtered.slice(0,poN).map(p=><tr key={p.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setViewPo(p)}>
                   <td style={{...TD,fontWeight:700,color:"#8B5CF6"}}>{p.poNo}</td>
                   <td style={{...TD}}>{p.date}</td>
                   <td style={{...TD,fontWeight:600}}>{p.supplierName||"—"}</td>
@@ -1385,6 +1413,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                 </tr>)}
               </tbody>
             </table>
+            {filtered.length>poN&&<button onClick={()=>setPoN(n=>n+50)} style={{marginTop:8,padding:"9px 14px",borderRadius:8,border:"1px dashed "+T.brd,background:T.bg,color:T.accent,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>عرض المزيد ({filtered.length-poN} متبقي)</button>}
           </div>;
         })()}
       </Card>

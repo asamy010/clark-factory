@@ -177,10 +177,17 @@ export function sendRfqMutator(d, id, channel, userName){
 }
 
 export function deleteRfqMutator(d, id){
-  if(!Array.isArray(d.purchaseRfqs)) return false;
-  const before = d.purchaseRfqs.length;
+  if(!Array.isArray(d.purchaseRfqs)) return { ok: false, error: "لا توجد طلبات" };
+  const q = d.purchaseRfqs.find(x => x && x.id === id);
+  if(!q) return { ok: false, error: "الطلب غير موجود" };
+  /* V21.21.4: السلسلة المستندية — طلب عرض السعر «أول» السلسلة، فمينفعش يتحذف
+     طالما فيه أمر شراء متولّد منه لسه موجود (احذف أمر الشراء الأول). */
+  if(q.convertedToPoId && Array.isArray(d.purchaseOrders)){
+    const po = d.purchaseOrders.find(x => x && x.id === q.convertedToPoId);
+    if(po) return { ok: false, error: "الطلب متحوّل لأمر شراء (" + (q.convertedToPoNo || po.poNo || "") + ") — احذف أمر الشراء الأول" };
+  }
   d.purchaseRfqs = d.purchaseRfqs.filter(x => x && x.id !== id);
-  return d.purchaseRfqs.length < before;
+  return { ok: true };
 }
 
 /* ── تحويل RFQ → أمر شراء (purchaseOrder) ──
