@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.21.18",
+    date: "2026-06-09",
+    types: ["improvement"],
+    title: "📊 نقل لوحة KPI من الهوم لتبويب «لوحة التحكم»",
+    changes: [
+      { type: "improvement", text: "📊 بطاقات الـ KPI (مبيعات/مشتريات/تقييم مخزون/ربح-خسارة) اتنقلت من الصفحة الرئيسية لأعلى تبويب «لوحة التحكم» — الهوم رجع زي ما كان." },
+    ],
+  },
+  {
     version: "V21.21.17",
     date: "2026-06-09",
     types: ["feature"],

@@ -183,7 +183,6 @@ import { genPieceId, buildTrackedQr, createPiecesBulk, createLinkedSeriesBatch }
 /* V21.9.155: Mobile-only bottom navigation shell. Desktop unaffected — the
    existing home tiles + topbar layout (V21.9.142-148) renders unchanged. */
 import { BottomNav } from "./components/navigation/BottomNav.jsx";
-import { DashboardKpis } from "./components/DashboardKpis.jsx";
 import { BottomNavFab } from "./components/navigation/BottomNavFab.jsx";
 import { SubViewTabs } from "./components/navigation/SubViewTabs.jsx";
 import { MoreMenuPage } from "./pages/MoreMenuPage.jsx";
@@ -6649,12 +6648,12 @@ export default function App(){
           (4-column layout) on mobile. The desktop home is sophisticated and
           information-dense — overkill on a phone. The mobile version is just
           a grid of 6 big buttons. Exit toggle lets the user override. */}
-      {tab==="home"&&isMob&&<><DashboardKpis data={data} isMob={true}/><MobileHomePage
+      {tab==="home"&&isMob&&<MobileHomePage
         user={user}
         canViewTab={canViewTab}
         onNavigate={(k)=>goTo(k)}
         onSpecialAction={onMobileSpecialAction}
-      /></>}
+      />}
       {tab==="home"&&!isMob&&(()=>{
         /* V18.25: Greeting fixed to "مرحبا" — always (was time-based) */
         const greetText="مرحبا";
@@ -6761,7 +6760,6 @@ export default function App(){
           {/* V21.9.144: maxWidth 1500→1700 (less side padding on wide screens),
               gap 14→20 (~43% wider spacing between the 4 columns for a cleaner,
               more "اطراف منفصلة" professional look per user feedback). */}
-          {!isMob&&<DashboardKpis data={data} isMob={false}/>}
           {!isMob?<div style={{display:"grid",gridTemplateColumns:"20fr 50fr 15fr 15fr",gap:20,alignItems:"flex-start",maxWidth:1700,margin:"0 auto"}}>
 
             {/* ═══════════════════════════════════════════════════════════

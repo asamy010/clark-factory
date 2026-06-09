@@ -14,6 +14,7 @@ import { fmt, r2, dayName } from "../utils/format.js";
 import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { computeWorkshopDue, computeWorkshopBalance } from "../utils/accountSummary.js";
 import { printPage } from "../utils/print.js";
+import { DashboardKpis } from "../components/DashboardKpis.jsx";
 /* V16.12: alerts.js import removed — the engine used field names that don't
    match the actual order/treasury schema (e.g. o.expectedDeliveryDate, wd.pieces,
    o.cuts, t.ts), so SmartAlertsSection on the dashboard was effectively
@@ -191,6 +192,8 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
   },[orders]);
 
   return<div style={{maxWidth:1400,margin:"0 auto"}}>
+    {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) أعلى لوحة التحكم */}
+    <DashboardKpis data={data} isMob={isMob}/>
     {/* Custom styles for hero section */}
     <style>{`
       .hero-kpi{transition:all 0.25s cubic-bezier(0.4,0,0.2,1);cursor:default}
