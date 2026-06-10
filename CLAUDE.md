@@ -5,6 +5,29 @@
 
 ---
 
+## ⚡ AUTO-WORKFLOW — بعد كل تعديل (أمر صريح من Ahmed — 2026-06-10)
+
+> **بعد أي تعديل في الكود، نفّذ التسلسل ده أوتوماتيك من غير ما تسأل:**
+>
+> 1. **Build** — `npm run build` (لازم `✓ built` وصفر أخطاء).
+> 2. **Bump** النسخة في ٣ أماكن (`package.json` + `src/constants/index.js` +
+>    entry جديد في `src/components/AboutVersionModal.jsx`).
+> 3. **Commit** للملفات المحددة بس (مفيش `git add .`)، رسالة V-tagged.
+> 4. **Push**: فرع التطوير `claude/code-review-3e12c` **و** `main` (النشر على
+>    Vercel — بـ fast-forward من فرع التطوير). *(لو السيشن من غير فرع تطوير
+>    محدد، الـ push على `main` مباشرة زي البروتوكول الأصلي §1.)*
+> 5. **Zip** — اعمل `clark-v<النسخة>.zip` (المجلد الداخلي = اسم النسخة، من
+>    غير `node_modules`/`dist`) وابعته للمستخدم. في البيئة السحابية استخدم
+>    `git archive --format=zip --prefix=clark-v<N>/ -o clark-v<N>.zip HEAD`.
+>
+> **«اعمل دايماً زيب فايل لكل تعديل» — Ahmed.** الزيب جزء إلزامي من كل تعديل،
+> مش خطوة اختيارية.
+>
+> التفاصيل الكاملة لأي تعديل بتتكتب في ملف MD داخل `docs/` (شوف
+> `docs/SESSION-*.md` كنموذج).
+
+---
+
 ## 0. Engineer Persona — Principal Engineer Standard
 
 > **أنت خبير برمجيات عالمي من الطراز الأول، ومتخصص في اكتشاف الأخطاء البرمجية

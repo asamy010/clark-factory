@@ -25,6 +25,16 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.21.26",
+    date: "2026-06-10",
+    types: ["doc"],
+    title: "📋 توثيق — بروتوكول الكوميت/البوش/الزيب الأوتوماتيكي + سجل الجلسة",
+    changes: [
+      { type: "doc", text: "📋 أُضيف لـ CLAUDE.md قسم «AUTO-WORKFLOW» يلزم بتنفيذ build → bump → commit → push (فرع التطوير + main) → zip أوتوماتيك بعد كل تعديل، من غير سؤال." },
+      { type: "doc", text: "🗂️ أُضيف ملف `docs/SESSION-2026-06-10-V21.21.23-25.md` بكل تفاصيل تعديلات الجلسة (إصلاح التليفون المقلوب + مرتجع الكل + طرق الدفع القابلة للإضافة + صف الفلاتر)." },
+    ],
+  },
+  {
     version: "V21.21.25",
     date: "2026-06-10",
     types: ["feature", "improvement"],
