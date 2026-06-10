@@ -1,0 +1,58 @@
+# CLARK — جدول متابعة خطة الإصلاح (FIX TRACKER)
+
+> يتحدث هذا الملف مع **كل تعديل** — المرجع: `docs/ROADMAP-PROFESSIONAL.md`.
+> آخر تحديث: **2026-06-10 — V21.21.27**
+
+## الحالة العامة
+
+| المرحلة | الوصف | الحالة |
+|---|---|---|
+| 0 — شبكة الأمان | CI + staging + backups | 🟡 جزئي (CI ✅) |
+| 1 — تحصين المال | tests + rules validation + reconciliation | 🟡 بدأت (tests الأساسية ✅) |
+| 2 — النظافة | lint + deps + bundle | ⬜ لم تبدأ |
+| 3 — الهيكلة | تفكيك App.jsx والصفحات | ⬜ لم تبدأ |
+| 4 — النضج التشغيلي | E2E + runbook | ⬜ لم تبدأ |
+
+## ✅ ما تم إنجازه
+
+| # | البند | المرحلة | النسخة | ملاحظات |
+|---|---|---|---|---|
+| 1 | إصلاح package-lock.json (كان عالقاً على 21.9.35) | تمهيدي | — | commit `5499c52` |
+| 2 | خارطة طريق التحول الاحترافي | تمهيدي | — | `docs/ROADMAP-PROFESSIONAL.md` |
+| 3 | Vitest مثبّت + سكربت `npm test` | 1.1 | V21.21.27 | devDependency فقط — صفر تأثير على bundle |
+| 4 | ٧١ اختبار على محرك الترحيل وقواعده | 1.1 | V21.21.27 | `posting.js` (24) + `postingRules.js` (47) — كل builder يتحقق توازنه بالقرش |
+| 5 | Regression tests للحوادث الموثقة | 1.1 | V21.21.27 | V19.66 · V21.9.40 · V21.9.53 · V21.9.56 · V21.9.87 |
+| 6 | GitHub Actions CI (build + test على كل push) | 0.2 | V21.21.27 | `.github/workflows/ci.yml` |
+
+## 🟡 شغال عليه حالياً
+
+| البند | المرحلة | الخطوة القادمة |
+|---|---|---|
+| توسيع الاختبارات: `statement.js` + `accountSummary` + `dashboardKpis` + `invoices` | 1.1 | الموجة القادمة |
+
+## ⬜ لم يبدأ بعد (بترتيب الأولوية)
+
+| # | البند | المرحلة | يحتاج Ahmed؟ |
+|---|---|---|---|
+| 1 | AbortController في `api/ai.js` (مخالفة §10) | 1.4 | لا |
+| 2 | إصلاح الـ catch الفاضي على المسارات المالية (~20 موقع) | 1.4 | لا |
+| 3 | autoPost fire-and-forget → await + try/finally | 1.4 | لا |
+| 4 | Migration لـ `tagRegistry` + `contacts` (قنبلة الـ 1MB) | 1.5 | لا (يشغّلها من DiagnosticsPanel) |
+| 5 | إنذار مبكر 70% لحجم مصفوفات config في DiagnosticsPanel | 1.5 | لا |
+| 6 | اختبارات Firestore rules بالـ emulator في CI | 1.2 | لا |
+| 7 | field-level validation على المجموعات المالية في rules | 1.2 | مراجعة قبل النشر |
+| 8 | إصلاح `custPaymentsDays` (hardcoded roles) + `hrLogDays` (verifier write) | 1.2 | مراجعة قبل النشر |
+| 9 | Reconciliation cron يومي + تنبيه واتساب | 1.3 | لا |
+| 10 | بيئة staging (Firebase project ثانٍ + Vercel preview) | 0.1 | ✅ إنشاء المشروع |
+| 11 | Backups تلقائية (scheduled exports + PITR) | 0.3 | ✅ تفعيل Blaze |
+| 12 | ESLint (errors فقط) + إزالة @babel/zod + بديل xlsx | 2 | لا |
+| 13 | الـ changelog خارج الـ bundle (lazy JSON — يوفر ~400KB) | 2.4 | لا |
+| 14 | توحيد دوال التنسيق المالي client/server + حل ازدواجية `_resolveUnitCost` | 2.3 | لا |
+| 15 | Sentry لمراقبة الأخطاء | 2.5 | ✅ إنشاء حساب |
+| 16 | تفكيك App.jsx → providers ثم الصفحات العملاقة | 3 | لا |
+
+## 📌 قرارات معلقة بانتظار Ahmed
+
+1. **تجميد الميزات** أثناء المرحلتين 0–1 — موافقة مبدئية مطلوبة.
+2. **خطة Blaze** مفعّلة؟ (لازمة للبند 11).
+3. **أعداد tags/contacts الحالية** في production (تحدد إلحاح البند 4).
