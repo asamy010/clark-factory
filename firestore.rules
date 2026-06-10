@@ -430,6 +430,21 @@ service cloud.firestore {
       allow write: if isPurchaseScope();
     }
 
+    /* V21.21.33 — tags + unified contacts (partitioned from factory/config).
+       Scopes mirror the fields' effective pre-migration access: both lived
+       in factory/config (read: any user; write: manager+ via the
+       non-sensitive config write path). MISSING these rules would re-create
+       the V21.9.44 hang class — V21.9.46 listener resilience softens it,
+       but data stays invisible until the rules deploy. */
+    match /tagRegistryDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+    match /contactsDocs/{id} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
     /* V21.9.18 — Shopify pending orders, split daily */
     match /shopifyOrdersDays/{day} {
       allow read:  if isAnyUser();

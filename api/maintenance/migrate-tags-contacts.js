@@ -1,0 +1,267 @@
+/* ═══════════════════════════════════════════════════════════════
+   CLARK V21.21.33 — Tags + Contacts Migration
+
+   WHY (proactive — the last two known 1MB time bombs):
+   ─────────────────────────────────────────────────────────────
+   `tagRegistry` (V21.9.101) and `contacts` (V21.9.115) live as plain
+   arrays on factory/config with explicit "move once large" TODOs in
+   their definitions. Both grow over time; once factory/config nears
+   the hard 1MB Firestore limit, EVERY save fails ("حجم البيانات
+   تجاوز الحد") and the app becomes read-only — the V21.9.42 incident
+   class. Both are also vulnerable to the cross-device stale-write
+   race (V21.9.44 class) until partitioned.
+
+   WHAT:
+   ─────────────────────────────────────────────────────────────
+   factory/config.tagRegistry[] → tagRegistryDocs/{id}
+   factory/config.contacts[]    → contactsDocs/{id}
+   One flag covers both (same pattern as V19.57's 8-field flag):
+     _partitionedTagsContactsV212133Done
+
+   Safety (V21.9.42/V21.9.44 pattern):
+   1. Backup both arrays → backups/pre-tags-contacts-migration-{ts}
+   2. Per-entry idempotent upsert (existing newer docs not overwritten)
+   3. Flag set ONLY if zero failures (atomic transaction, race-protected)
+   4. migrationLog entry
+   5. dryRun mode returns stats without writing
+
+   Auth: admin Bearer token · Body: { dryRun?: boolean }
+   ═══════════════════════════════════════════════════════════════ */
+
+import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+
+const FLAG = "_partitionedTagsContactsV212133Done";
+const FIELDS = [
+  { field: "tagRegistry", col: "tagRegistryDocs", idPrefix: "tag_" },
+  { field: "contacts",    col: "contactsDocs",    idPrefix: "contact_" },
+];
+
+function approxBytes(v){
+  try { return Buffer.byteLength(JSON.stringify(v) || "", "utf8"); }
+  catch(_) { return 0; }
+}
+function gid(prefix){
+  return prefix + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+}
+
+export default async function handler(req, res){
+  setCors(res, req);
+  if(req.method === "OPTIONS"){ res.status(204).end(); return; }
+  if(req.method !== "POST"){
+    return res.status(405).json({ ok:false, error: "POST فقط" });
+  }
+  const auth = await verifyAdminToken(req.headers.authorization);
+  if(!auth.ok){
+    return res.status(auth.status).json({ ok:false, error: auth.error });
+  }
+
+  const body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {});
+  const dryRun = body.dryRun === true;
+  const startTs = Date.now();
+
+  try {
+    const db = getDb();
+    const cfgRef = db.collection("factory").doc("config");
+    const snap = await cfgRef.get();
+    if(!snap.exists){
+      return res.status(404).json({ ok:false, error: "factory/config doesn't exist" });
+    }
+    const cfg = snap.data() || {};
+
+    if(cfg[FLAG]){
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        message: "Migration already completed",
+        flag_set_at: cfg[FLAG + "_at"] || null,
+      });
+    }
+
+    const arrays = {};
+    let totalBytes = 0;
+    for(const f of FIELDS){
+      arrays[f.field] = Array.isArray(cfg[f.field]) ? cfg[f.field] : [];
+      totalBytes += approxBytes(arrays[f.field]);
+    }
+    const beforeBytes = approxBytes(cfg);
+
+    /* ── DRY RUN ─────────────────────────────────────────────── */
+    if(dryRun){
+      const perField = {};
+      for(const f of FIELDS){
+        const arr = arrays[f.field];
+        const sampleSize = Math.min(arr.length, 20);
+        let sampleNew = 0, sampleExist = 0, sampleIdless = 0;
+        for(let i = 0; i < sampleSize; i++){
+          const e = arr[i];
+          if(!e || !e.id){ sampleIdless++; continue; }
+          const existing = await db.collection(f.col).doc(String(e.id)).get();
+          if(existing.exists) sampleExist++;
+          else sampleNew++;
+        }
+        perField[f.field] = {
+          count: arr.length,
+          kb: Math.round(approxBytes(arr) / 1024),
+          sample_size: sampleSize,
+          sample_new: sampleNew,
+          sample_exist: sampleExist,
+          sample_idless: sampleIdless,
+        };
+      }
+      return res.status(200).json({
+        ok: true,
+        dryRun: true,
+        fields: perField,
+        tags_count: perField.tagRegistry.count,
+        contacts_count: perField.contacts.count,
+        before_kb: Math.round(beforeBytes / 1024),
+        will_free_kb: Math.round(totalBytes / 1024),
+        after_kb_estimate: Math.round((beforeBytes - totalBytes) / 1024),
+      });
+    }
+
+    /* ── ACTUAL RUN ─────────────────────────────────────────── */
+
+    /* Step 1: Backup both arrays in one doc */
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupId = "pre-tags-contacts-migration-" + ts;
+    await db.collection("backups").doc(backupId).set({
+      label: "Backup قبل migration: tagRegistry + contacts → per-id docs (V21.21.33)",
+      autoGenerated: true,
+      migrationType: "tags-contacts-v21.21.33",
+      createdAt: new Date().toISOString(),
+      createdBy: auth.email || auth.uid,
+      tags_count: arrays.tagRegistry.length,
+      contacts_count: arrays.contacts.length,
+      bytes_before: beforeBytes,
+      tagRegistry: arrays.tagRegistry,
+      contacts: arrays.contacts,
+    });
+
+    /* Step 2: Write per-id docs (idempotent — newer existing docs preserved) */
+    const stats = {};
+    let totalFailed = 0;
+    const allFailures = [];
+
+    for(const f of FIELDS){
+      const arr = arrays[f.field];
+      let migrated = 0, skippedExisting = 0, failed = 0;
+
+      const BATCH_SIZE = 200;
+      for(let i = 0; i < arr.length; i += BATCH_SIZE){
+        const slice = arr.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        const intents = [];
+        for(const entry of slice){
+          if(!entry || typeof entry !== "object"){ failed++; allFailures.push(f.field + ":invalid-entry"); continue; }
+          /* Firestore doc ids must be strings — contacts may carry numeric ids
+             (workshop convention). String() everywhere; the client merge layer
+             also keys by String(id) so the round-trip is consistent. */
+          const docId = String(entry.id || gid(f.idPrefix));
+          intents.push({ entry, docId });
+        }
+
+        const existsResults = await Promise.all(intents.map(it =>
+          db.collection(f.col).doc(it.docId).get()
+            .then(s => ({ ...it, exists: s.exists, existingData: s.exists ? s.data() : null }))
+            .catch(err => ({ ...it, exists: null, err: err.message }))
+        ));
+
+        let batchCount = 0;
+        for(const it of existsResults){
+          if(it.err){
+            failed++;
+            allFailures.push(`${f.field}:read-failed:${it.docId}: ${it.err}`);
+            continue;
+          }
+          if(it.exists){
+            const legacyTs = Date.parse(it.entry.updatedAt || it.entry.modifiedAt || it.entry.createdAt || 0);
+            const existingTs = Date.parse(it.existingData?.updatedAt || it.existingData?.modifiedAt || it.existingData?.createdAt || 0);
+            if(Number.isFinite(legacyTs) && Number.isFinite(existingTs) && legacyTs > existingTs){
+              batch.set(db.collection(f.col).doc(it.docId), { ...it.entry, id: it.entry.id ?? it.docId });
+              batchCount++; migrated++;
+            } else {
+              skippedExisting++;
+            }
+            continue;
+          }
+          batch.set(db.collection(f.col).doc(it.docId), { ...it.entry, id: it.entry.id ?? it.docId });
+          batchCount++; migrated++;
+        }
+
+        if(batchCount > 0){
+          try {
+            await batch.commit();
+          } catch(batchErr){
+            failed += batchCount;
+            migrated -= batchCount;
+            allFailures.push(`${f.field}:batch-commit-failed at offset ${i}: ${batchErr.message}`);
+          }
+        }
+      }
+
+      stats[f.field] = { migrated, skipped_existing: skippedExisting, failed };
+      totalFailed += failed;
+    }
+
+    /* Step 3: Strip arrays + set flag — ONLY if zero failures */
+    if(totalFailed > 0){
+      console.warn("[V21.21.33 migrate-tags-contacts] failures — flag NOT set:", allFailures.slice(0, 10));
+      return res.status(200).json({
+        ok: false,
+        partial: true,
+        message: "Migration had failures — flag NOT set, config arrays preserved.",
+        stats,
+        sample_failures: allFailures.slice(0, 20),
+        backup_doc_id: backupId,
+        durationMs: Date.now() - startTs,
+      });
+    }
+
+    await db.runTransaction(async (tx) => {
+      const fresh = (await tx.get(cfgRef)).data() || {};
+      if(fresh[FLAG]) return;/* race-protect */
+      const next = { ...fresh };
+      next.tagRegistry = [];
+      next.contacts = [];
+      next[FLAG] = true;
+      next[FLAG + "_at"] = new Date().toISOString();
+      next[FLAG + "_by"] = auth.email || auth.uid;
+      next[FLAG + "_tags"] = stats.tagRegistry.migrated;
+      next[FLAG + "_contacts"] = stats.contacts.migrated;
+      next[FLAG + "_freed_kb"] = Math.round(totalBytes / 1024);
+      next[FLAG + "_backup_id"] = backupId;
+      tx.set(cfgRef, next);
+    });
+
+    /* Step 4: Migration log */
+    try {
+      await db.collection("migrationLog").doc("tags-contacts-v21.21.33-" + Date.now()).set({
+        type: "tags-contacts-v21.21.33",
+        status: "success",
+        stats,
+        bytes_before: beforeBytes,
+        freed_bytes: totalBytes,
+        backup_doc_id: backupId,
+        by: auth.email || auth.uid,
+        at: new Date().toISOString(),
+      });
+    } catch(_) {}
+
+    return res.status(200).json({
+      ok: true,
+      tags_migrated: stats.tagRegistry.migrated,
+      tags_skipped_existing: stats.tagRegistry.skipped_existing,
+      contacts_migrated: stats.contacts.migrated,
+      contacts_skipped_existing: stats.contacts.skipped_existing,
+      before_kb: Math.round(beforeBytes / 1024),
+      freed_kb: Math.round(totalBytes / 1024),
+      after_kb_estimate: Math.round((beforeBytes - totalBytes) / 1024),
+      backup_doc_id: backupId,
+      durationMs: Date.now() - startTs,
+    });
+  } catch(e){
+    console.error("[V21.21.33 migrate-tags-contacts] failed:", e);
+    return res.status(500).json({ ok:false, error: e.message });
+  }
+}

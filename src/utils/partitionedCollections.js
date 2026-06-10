@@ -45,6 +45,12 @@ export const PARTITIONED_COLLECTIONS = {
      overwrite, see CLAUDE.md §10 and WORK_LOG V21.9.44). Per-id collection means
      each rule survives concurrent saves to factory/config from other devices. */
   recurringTreasury: "recurringTreasuryDocs",
+  /* V21.21.33 — الوسوم + سجل جهات الاتصال الموحد. كانوا plain arrays في
+     factory/config ("هننقلهم لما يكبروا" — TODO من V21.9.101/V21.9.115).
+     النقل الاستباقي يقفل آخر قنبلتي 1MB المعروفتين + يحصّنهم ضد الـ
+     stale-write الكروس-ديفايس (نفس علة recurringTreasury V21.9.44). */
+  tagRegistry: "tagRegistryDocs",
+  contacts:    "contactsDocs",
 };
 
 /* مفاتيح الـfields */
@@ -65,11 +71,14 @@ export const PARTITIONED_FIELDS_V2192 = ["shopifyProducts", "shopifyCustomers"];
    concurrent saves from another device with a stale base could silently
    overwrite recent additions. Per-id collection isolates each rule. */
 export const PARTITIONED_FIELDS_V21944 = ["recurringTreasury"];
+/* V21.21.33 — tags + unified contacts (proactive — before hitting the 1MB cliff) */
+export const PARTITIONED_FIELDS_V212133 = ["tagRegistry", "contacts"];
 
 export const PARTITIONED_FLAG_V1675  = "_partitionedV1675Done";
 export const PARTITIONED_FLAG_V1957  = "_partitionedV1957Done";
 export const PARTITIONED_FLAG_V2192  = "_partitionedV2192Done";
 export const PARTITIONED_FLAG_V21944 = "_partitionedRecurringV21944Done";
+export const PARTITIONED_FLAG_V212133 = "_partitionedTagsContactsV212133Done";
 
 /* ════════════════════════════════════════════════════════════════════════
    READ
@@ -203,6 +212,9 @@ export function stripPartitionedArrays(configObj) {
   }
   if (configObj[PARTITIONED_FLAG_V21944]) {
     for (const field of PARTITIONED_FIELDS_V21944) delete stripped[field];
+  }
+  if (configObj[PARTITIONED_FLAG_V212133]) {
+    for (const field of PARTITIONED_FIELDS_V212133) delete stripped[field];
   }
   return stripped;
 }

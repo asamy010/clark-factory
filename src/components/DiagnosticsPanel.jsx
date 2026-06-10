@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, repairConfirmedTransfers, repairPayrollWeekTreasury } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, migrateTagsContacts, repairConfirmedTransfers, repairPayrollWeekTreasury } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -43,6 +43,9 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   /* V21.9.44: recurring treasury migration (cfg.recurringTreasury → recurringTreasuryDocs/{id}) */
   const [recurringBusy, setRecurringBusy] = useState(false);
   const [recurringResult, setRecurringResult] = useState(null);
+  /* V21.21.33: tags + contacts migration (cfg.tagRegistry/contacts → per-id docs) */
+  const [tagsContactsBusy, setTagsContactsBusy] = useState(false);
+  const [tagsContactsResult, setTagsContactsResult] = useState(null);
   /* V21.9.45: repair confirmed transfers — legs recovery */
   const [transferRepairBusy, setTransferRepairBusy] = useState(false);
   const [transferRepairResult, setTransferRepairResult] = useState(null);
@@ -486,6 +489,61 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   const recurringMigrated = !!data?._partitionedRecurringV21944Done;
   const recurringArrEntries = Array.isArray(data?.recurringTreasury) ? data.recurringTreasury.length : 0;
   const showRecurringButton = !recurringMigrated;
+
+  /* V21.21.33: tags + contacts migration banner gating. Auto-migration
+     (V21.9.49 path) normally runs this on boot; the banner is the manual
+     fallback if the auto-run was gated (non-admin first opener, offline). */
+  const tagsContactsMigrated = !!data?._partitionedTagsContactsV212133Done;
+  const tagsArrEntries = Array.isArray(data?.tagRegistry) ? data.tagRegistry.length : 0;
+  const contactsArrEntries = Array.isArray(data?.contacts) ? data.contacts.length : 0;
+  const showTagsContactsButton = !tagsContactsMigrated;
+
+  /* V21.21.33: tags + contacts migration handler — dry-run → confirm → run. */
+  const runTagsContactsMigration = async () => {
+    if(!canEdit) return;
+    setTagsContactsBusy(true);
+    try {
+      const dry = await migrateTagsContacts({ dryRun: true }, user);
+      if(!dry?.ok){
+        showToast("⛔ " + (dry?.error || "فشل dry-run"));
+        return;
+      }
+      if((dry.tags_count || 0) === 0 && (dry.contacts_count || 0) === 0){
+        const yes = await ask("🏷️ تفعيل تخزين الوسوم/جهات الاتصال المنفصل",
+          "المصفوفتان فاضيتان — هيتسطّ الـ flag بس عشان أي وسوم/جهات اتصال جديدة تتسجل مباشرة في الـ collections المنفصلة. تأكيد؟");
+        if(!yes) return;
+      } else {
+        const yes = await ask(
+          "🏷️ نقل الوسوم وجهات الاتصال — إغلاق آخر قنبلتي 1MB المعروفتين",
+          `هـ يتـ نقل ${dry.tags_count} وسم + ${dry.contacts_count} جهة اتصال من factory/config إلى collections منفصلة (per-id).\n\n` +
+          `📊 Stats:\n` +
+          `• حجم factory/config: ${dry.before_kb} KB\n` +
+          `• هـ نوفّر: ${dry.will_free_kb} KB → بعد النقل ~${dry.after_kb_estimate} KB\n\n` +
+          `✅ آمن جداً:\n` +
+          `• Backup كامل للمصفوفتين قبل أي كتابة\n` +
+          `• Idempotent — إعادة التشغيل تتخطى المنقول\n` +
+          `• الـ flag مش بـ يتسطّ لو فيه أي failure\n\n` +
+          `النقل ده استباقي — قبل ما المصفوفات تكبر وتوصل لحد الـ 1MB اللي بيوقف كل الحفظ. تأكيد؟`
+        );
+        if(!yes) return;
+      }
+      const r = await migrateTagsContacts({ dryRun: false }, user);
+      setTagsContactsResult(r);
+      if(r?.ok){
+        if(r.skipped){
+          showToast("ℹ️ الـ migration مطبّق بالفعل");
+        } else {
+          showToast(`✅ تم! 🏷️ ${r.tags_migrated} وسم · 👥 ${r.contacts_migrated} جهة اتصال · وفّرنا ${r.freed_kb} KB`);
+          setTimeout(() => runCheck(), 1500);
+        }
+      } else if(r?.partial){
+        showToast(`⚠️ ${r.message || "migration partial — راجع الـ logs"}`);
+      } else {
+        showToast("⛔ " + (r?.error || "فشل"));
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setTagsContactsBusy(false); }
+  };
 
   /* V21.9.23: Test Firestore rules deployment by attempting to read 1 doc
      from each critical collection. The server (admin SDK) bypasses rules so
@@ -2121,6 +2179,56 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
             <div style={{ marginTop: 10, padding: 8, background: T.warn + "10", borderRadius: 6, fontSize: FS - 2, color: T.warn }}>
               ⚠️ Migration partial — flag NOT set.
               نجح: <b>{recurringResult.rules_migrated}</b> · فشل: <b>{recurringResult.rules_failed}</b>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* V21.21.33: Tags + Contacts Migration banner — proactive 1MB defusal.
+          Auto-runs on boot (V21.9.49 path); this is the manual fallback. */}
+      {(showTagsContactsButton || tagsContactsResult?.ok) && (
+        <div style={{
+          padding: 12,
+          marginBottom: 12,
+          background: tagsContactsResult?.ok ? T.ok + "10" : T.warn + "12",
+          border: "1.5px solid " + (tagsContactsResult?.ok ? T.ok : T.warn) + "60",
+          borderRadius: 10,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, color: tagsContactsResult?.ok ? T.ok : T.warn, fontSize: FS }}>
+                {tagsContactsResult?.ok
+                  ? "✅ تم نقل الوسوم وجهات الاتصال"
+                  : "🏷️ الوسوم وجهات الاتصال لسه في factory/config — قنبلة الـ 1MB"}
+              </div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+                {tagsContactsResult?.ok
+                  ? `اتنقلوا لـ tagRegistryDocs/{id} + contactsDocs/{id}. محصّنين دلوقتي ضد حد الـ 1MB وضد الـ stale-write بين الأجهزة.`
+                  : `\`tagRegistry\` فيه ${tagsArrEntries} وسم و\`contacts\` فيه ${contactsArrEntries} جهة اتصال — الاتنين plain arrays بيكبروا مع الوقت. لو وصل factory/config لحد الـ 1MB كل الحفظ بيقف (سيناريو V21.9.42). النقل بيحصل تلقائياً عند الفتح (admin) — الزر ده fallback يدوي (آمن + idempotent + backup).`}
+              </div>
+            </div>
+            {!tagsContactsResult?.ok && (
+              <LoadingBtn loading={tagsContactsBusy} loadingText="جاري النقل..." onClick={runTagsContactsMigration} disabled={!canEdit} small
+                style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 800 }}>
+                🏷️ ابدأ النقل
+              </LoadingBtn>
+            )}
+          </div>
+          {tagsContactsResult?.ok && !tagsContactsResult.skipped && (
+            <div style={{ marginTop: 10, padding: 8, background: T.ok + "08", borderRadius: 6, fontSize: FS - 2 }}>
+              🏷️ وسوم اتنقلت: <b>{tagsContactsResult.tags_migrated}</b>
+              {" · "}👥 جهات اتصال: <b>{tagsContactsResult.contacts_migrated}</b>
+              {" · "}وفّرنا <b style={{ color: T.ok }}>{tagsContactsResult.freed_kb} KB</b>
+              {tagsContactsResult.backup_doc_id && (
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>
+                  Backup: <code>{tagsContactsResult.backup_doc_id}</code>
+                </div>
+              )}
+            </div>
+          )}
+          {tagsContactsResult?.partial && (
+            <div style={{ marginTop: 10, padding: 8, background: T.warn + "10", borderRadius: 6, fontSize: FS - 2, color: T.warn }}>
+              ⚠️ Migration partial — flag NOT set. راجع الـ logs.
             </div>
           )}
         </div>

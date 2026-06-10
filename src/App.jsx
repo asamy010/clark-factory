@@ -62,6 +62,8 @@ import {
   PARTITIONED_FLAG_V1675, PARTITIONED_FLAG_V1957, PARTITIONED_FLAG_V21944,
   /* V21.9.2: Shopify products + customers partition */
   PARTITIONED_FIELDS_V2192, PARTITIONED_FLAG_V2192,
+  /* V21.21.33: tags + unified contacts partition */
+  PARTITIONED_FIELDS_V212133, PARTITIONED_FLAG_V212133,
 } from "./utils/partitionedCollections.js";
 import { noticeSuccess, noticeWarn, noticeError } from "./utils/storageNotices.js";
 /* V19.58: Zod-based schema validation in WARN-only mode. Surfaces drift in
@@ -508,6 +510,12 @@ export default function App(){
        to stale-write overwrite from concurrent devices (see CLAUDE.md §10). */
     if(configDoc[PARTITIONED_FLAG_V21944]){
       for(const f of PARTITIONED_FIELDS_V21944){
+        merged[f]=partitionedData[f]||[];
+      }
+    }
+    /* V21.21.33: tagRegistry + contacts split — same merge pattern */
+    if(configDoc[PARTITIONED_FLAG_V212133]){
+      for(const f of PARTITIONED_FIELDS_V212133){
         merged[f]=partitionedData[f]||[];
       }
     }
@@ -4464,7 +4472,7 @@ export default function App(){
        Shopify split, never the master-data V1675/V1957 splits), the pre-V21.9.39 guard would
        silently skip and let upConfig wipe shopifyProductsDocs/shopifyCustomersDocs before they
        finished loading. */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944]||configDoc[PARTITIONED_FLAG_V212133])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return {ok:false, error:"partitioned-not-loaded", phase:"gate"};/* V21.9.67 */
@@ -4485,7 +4493,7 @@ export default function App(){
        never ran, and Shopify data couldn't be synced. More commonly: when ALL three
        are set, the V2192 fields were missing from newPart, causing the silent
        wipe of shopifyCustomersDocs/shopifyProductsDocs on every upConfig call. */
-    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957])||Boolean(configDoc?.[PARTITIONED_FLAG_V2192])||Boolean(configDoc?.[PARTITIONED_FLAG_V21944]);
+    const partActive=Boolean(configDoc?.[PARTITIONED_FLAG_V1675])||Boolean(configDoc?.[PARTITIONED_FLAG_V1957])||Boolean(configDoc?.[PARTITIONED_FLAG_V2192])||Boolean(configDoc?.[PARTITIONED_FLAG_V21944])||Boolean(configDoc?.[PARTITIONED_FLAG_V212133]);
     const splitAfter=splitActive?precomputedNewSplit:null;
     const partAfter=partActive?precomputedNewPart:null;
     /* Strip the precomputed next */
@@ -4705,7 +4713,7 @@ export default function App(){
     }
     /* V19.57 + V21.9.39: refuse if any partitioned migration is done but listeners haven't loaded yet.
        Same V2192 parity fix as the upConfigTx guard above. */
-    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944])&&!partitionedLoaded){
+    if(configDoc&&(configDoc[PARTITIONED_FLAG_V1675]||configDoc[PARTITIONED_FLAG_V1957]||configDoc[PARTITIONED_FLAG_V2192]||configDoc[PARTITIONED_FLAG_V21944]||configDoc[PARTITIONED_FLAG_V212133])&&!partitionedLoaded){
       console.error("[V19.57 SAFETY] Refusing upConfig — partitionedData not loaded yet");
       showToast("⏳ البرنامج لسه بيحمّل البيانات — حاول تاني بعد ثانيتين");
       return {ok:false, error:"partitioned-not-loaded", phase:"gate"};/* V21.9.67 */
@@ -4884,6 +4892,16 @@ export default function App(){
          protects against single-device re-render races. */
       if(prev[PARTITIONED_FLAG_V21944]){
         for(const f of PARTITIONED_FIELDS_V21944){
+          next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
+          partFieldsActive.push(f);
+        }
+      }
+      /* V21.21.33 CRITICAL HYDRATION — tagRegistry + contacts.
+         نفس نمط V21.9.33/V21.9.44: لازم الترطيب قبل fn() وإلا
+         syncAllPartitionedChanges هيشوف oldArr=بيانات الـ listener مقابل
+         newArr=undefined→[] ويمسح كل الوسوم/جهات الاتصال مع كل حفظة. */
+      if(prev[PARTITIONED_FLAG_V212133]){
+        for(const f of PARTITIONED_FIELDS_V212133){
           next[f]=JSON.parse(JSON.stringify(explicitPartBefore[f]||[]));
           partFieldsActive.push(f);
         }

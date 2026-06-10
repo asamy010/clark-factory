@@ -44,6 +44,7 @@ import {
   migrateLegacyOrders,
   migrateRecurringTreasury,
   repairConfirmedTransfers,
+  migrateTagsContacts,
 } from "./shopify/shopifyClient.js";
 
 /* ── Migration manifest ──────────────────────────────────────────
@@ -114,6 +115,24 @@ export const AUTO_MIGRATIONS = [
       return `🔧 أصلحنا ${r.legs_created} leg لـ ${r.transfers_with_missing_legs} تحويل`;
     },
     loadingMsg: "🔧 فحص + إصلاح التحويلات المعتمدة…",
+  },
+  {
+    id: "tags_contacts_v212133",
+    label: "نقل الوسوم وجهات الاتصال إلى partitioned collections",
+    /* Proactive — these are the last two known factory/config 1MB time
+       bombs ("move once large" TODOs since V21.9.101/V21.9.115). Run if
+       either array has entries AND the flag isn't set; the endpoint
+       re-checks the flag server-side (skipped:true if raced). */
+    shouldRun: (configDoc) => {
+      if (configDoc?._partitionedTagsContactsV212133Done) return false;
+      const tags = configDoc?.tagRegistry;
+      const contacts = configDoc?.contacts;
+      return (Array.isArray(tags) && tags.length > 0)
+          || (Array.isArray(contacts) && contacts.length > 0);
+    },
+    run: (user) => migrateTagsContacts({ dryRun: false }, user),
+    successMsg: (r) => `🏷️ نُقل ${r.tags_migrated || 0} وسم + ${r.contacts_migrated || 0} جهة اتصال لـ collections منفصلة (${r.freed_kb || 0} KB)`,
+    loadingMsg: "🏷️ نقل الوسوم وجهات الاتصال…",
   },
   {
     id: "legacy_orders_v2110",

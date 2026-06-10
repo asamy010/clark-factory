@@ -367,6 +367,15 @@ export function migrateRecurringTreasury(opts, user){
   return call("POST", "/api/maintenance/migrate-recurring-treasury", opts || {}, user);
 }
 
+/* V21.21.33 — Tags + Contacts migration (proactive — closes the last two known
+   1MB time bombs in factory/config). Moves cfg.tagRegistry[] → tagRegistryDocs
+   and cfg.contacts[] → contactsDocs. Backup + dry-run + idempotent; the flag
+   is set only on zero failures. { dryRun? }
+   → { ok, tags_migrated, contacts_migrated, freed_kb, backup_doc_id, ... } */
+export function migrateTagsContacts(opts, user){
+  return call("POST", "/api/maintenance/migrate-tags-contacts", opts || {}, user);
+}
+
 /* V21.9.45 — Recover missing treasury legs for confirmed transfers. Addresses
    the case where approveTransfer set tf.status="confirmed" successfully but
    the syncAllSplitChanges write for the 2 treasury legs silently failed —
