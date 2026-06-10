@@ -24,7 +24,7 @@ import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
-import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt } from "../utils/invoices.js";
+import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt, upsertDebitNoteFromReturn } from "../utils/invoices.js";
 import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts, poLineProgress } from "../utils/purchase/purchaseOrders.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubView}){
@@ -56,6 +56,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[rcptDateTo,setRcptDateTo]=useState("");
   const[rcptSupplierF,setRcptSupplierF]=useState("");
   const[viewReceipt,setViewReceipt]=useState(null);/* view a receipt detail */
+  /* V21.21.20: مرتجع مشتريات من الاستلام (إشعار مدين + خصم من المخزن) */
+  const[returnRcpt,setReturnRcpt]=useState(null);/* الاستلام اللي بنعمل له مرتجع */
+  const[retQty,setRetQty]=useState({});/* itemKey → كمية المرتجع */
+  const[retNotes,setRetNotes]=useState("");
   
   /* ── Supplier statement state ── */
   const[supFilter,setSupFilter]=useState("");const supFilterDeb=useDebounced(supFilter,200);
@@ -890,7 +894,57 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     setRcpt(null);
     showToast("✅ تم حفظ الاستلام "+receiptNo);
   };
-  
+
+  /* ──────── PURCHASE RETURN (V21.21.20) ────────
+     مرتجع مشتريات من الاستلام: البضاعة تطلع من المخزن (راجعة للمورد) + إشعار
+     مدين يقلّل المستحق. الكمية محدودة بـ (المستلم − المرتجع سابقاً) لكل بند. */
+  const _retKey=(it)=>String(it.itemType)+":"+String(it.itemId);
+  const returnedByLine=(r)=>{const m={};(r&&r._returns||[]).forEach(x=>{const k=String(x.itemType)+":"+String(x.itemId);m[k]=(m[k]||0)+(Number(x.qty)||0)});return m};
+  const openReceiptReturn=(r)=>{ if(!canEdit){denyAction("مرتجع مشتريات");return;} setReturnRcpt(r); setRetQty({}); setRetNotes(""); setViewReceipt(null); };
+  const _catIdFromItemType=(it)=>{let c=it.itemType; if(c==="fabric")c="core_fabric"; else if(c==="accessory")c="core_accessory"; return c;};
+  const saveReceiptReturn=async()=>{
+    if(!canEdit){await denyAction("مرتجع مشتريات");return;}
+    const r=returnRcpt; if(!r)return;
+    const ret=returnedByLine(r);
+    const picked=(r.items||[]).map((it,i)=>{const k=_retKey(it);const max=(Number(it.qty)||0)-(ret[k]||0);const q=Math.max(0,Math.min(Number(retQty[i])||0,max));return{...it,_retQ:q,_idx:i,_max:max}}).filter(x=>x._retQ>0);
+    if(picked.length===0){await tell("لا توجد كميات","حدّد كمية مرتجع لبند واحد على الأقل",{type:"warning"});return}
+    const totalVal=picked.reduce((s,it)=>s+it._retQ*(Number(it.price)||0),0);
+    const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
+    const confirmed=await ask("تأكيد مرتجع المشتريات","مرتجع "+picked.length+" بند للمورد «"+(supplier?.name||r.supplierName||"—")+"» بقيمة "+fmt(r2(totalVal))+" ج.م.\n\n• هتطلع البضاعة من المخزن (راجعة للمورد).\n• هيتعمل إشعار مدين يقلّل المستحق للمورد.\n\nمتابعة؟",{confirmText:"تأكيد المرتجع"});
+    if(!confirmed)return;
+    const today2=new Date().toISOString().split("T")[0];
+    let dnNo="";
+    upConfig(d=>{
+      if(!Array.isArray(d.stockMovements))d.stockMovements=[];
+      /* (1) خصم المخزون لكل بند */
+      if(stockEnabled){
+        picked.forEach(it=>{
+          const catId=_catIdFromItemType(it);
+          applyStockDelta(d,catId,it.itemId,-it._retQ,null);
+          /* clamp ≥0 (زي deleteReceipt) */
+          const cat=getCategoryById(d,catId);
+          if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f&&f.stock<0)f.stock=0}
+          else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a&&a.stock<0)a.stock=0}
+          else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x&&x.stock<0)x.stock=0}
+          d.stockMovements.push({id:gid(),type:"out",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName||"",qty:-it._retQ,unit:it.unit||"",price:Number(it.price)||0,date:today2,sourceType:"purchase_return",sourceId:r.id,notes:"مرتجع مشتريات للمورد — استلام "+(r.receiptNo||""),createdBy:userName,createdAt:nowISO()});
+        });
+      }
+      /* (2) إشعار مدين (يقلّل المستحق للمورد) */
+      const res=upsertDebitNoteFromReturn(d,{
+        supplierId:r.supplierId,supplierName:r.supplierName,date:today2,
+        items:picked.map(it=>({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,name:it.itemName,qty:it._retQ,unitPrice:Number(it.price)||0})),
+        notes:(retNotes||"").trim()||("مرتجع استلام "+(r.receiptNo||"")),
+        linkedReceiptId:r.id,
+      },supplier,userName);
+      dnNo=res&&res.debitNote?res.debitNote.debitNoteNo:"";
+      /* (3) سجّل المرتجع على الاستلام (لتحديد الكمية المتبقية) */
+      const ri=(d.purchaseReceipts||[]).findIndex(x=>x.id===r.id);
+      if(ri>=0){ if(!Array.isArray(d.purchaseReceipts[ri]._returns))d.purchaseReceipts[ri]._returns=[]; picked.forEach(it=>{d.purchaseReceipts[ri]._returns.push({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it._retQ,price:Number(it.price)||0,date:today2,debitNoteId:res&&res.debitNote?res.debitNote.id:"",by:userName,at:nowISO()})}); }
+    });
+    setReturnRcpt(null);setRetQty({});setRetNotes("");
+    showToast("✅ تم المرتجع — إشعار مدين "+dnNo+(stockEnabled?" + خصم المخزن":""));
+  };
+
   /* ──────── PRINT RECEIPT ──────── */
   const printReceipt=(r)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
@@ -2422,10 +2476,63 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
           })()}
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
+          {canEdit&&<Btn onClick={()=>openReceiptReturn(viewReceipt)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↪️ مرتجع مشتريات</Btn>}
           <Btn ghost onClick={()=>setViewReceipt(null)}>إغلاق</Btn>
         </div>
       </div>
     </div>}
+
+    {/* ════ PURCHASE RETURN MODAL (V21.21.20) ════ */}
+    {returnRcpt&&(()=>{
+      const r=returnRcpt; const ret=returnedByLine(r);
+      const sup=suppliers.find(s=>String(s.id)===String(r.supplierId));
+      const rows=(r.items||[]).map((it,i)=>{const k=_retKey(it);const recd=Number(it.qty)||0;const done=ret[k]||0;const rem=Math.max(0,recd-done);return{it,i,recd,done,rem,q:Math.max(0,Math.min(Number(retQty[i])||0,rem))}});
+      const totVal=rows.reduce((s,x)=>s+x.q*(Number(x.it.price)||0),0);
+      const anyAvail=rows.some(x=>x.rem>0);
+      return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setReturnRcpt(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:740,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.err}}>↪️ مرتجع مشتريات — استلام {r.receiptNo}</div>
+            <Btn ghost small onClick={()=>setReturnRcpt(null)}>✕</Btn>
+          </div>
+          <div style={{padding:10,background:T.err+"0D",borderRadius:8,marginBottom:12,fontSize:FS-2,color:T.textSec,lineHeight:1.7}}>
+            المورد: <b style={{color:T.text}}>{sup?.name||r.supplierName||"—"}</b> · حدّد كمية المرتجع لكل بند (بحد أقصى المتبقي). <b>هتطلع من المخزن</b> ويتعمل <b>إشعار مدين</b> يقلّل المستحق للمورد.
+          </div>
+          {!anyAvail?<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.textMut,padding:30}}>كل بنود الاستلام اترجّعت بالكامل.</div>:
+          <div style={{flex:1,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
+                <th style={TH}>الصنف</th>
+                <th style={{...TH,textAlign:"center"}}>المستلم</th>
+                <th style={{...TH,textAlign:"center"}}>مرتجع سابق</th>
+                <th style={{...TH,textAlign:"center"}}>المتبقي</th>
+                <th style={{...TH,textAlign:"center",width:100}}>كمية المرتجع</th>
+                <th style={{...TH,textAlign:"center"}}>القيمة</th>
+              </tr></thead>
+              <tbody>
+                {rows.map(x=><tr key={x.i} style={{borderBottom:"1px solid "+T.brd,background:x.q>0?T.err+"08":undefined,opacity:x.rem<=0?0.5:1}}>
+                  <td style={{...TD,fontWeight:700}}>{x.it.itemName||"—"}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(x.recd)} {x.it.unit||""}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{x.done?fmt(x.done):"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{fmt(x.rem)}</td>
+                  <td style={{...TD,textAlign:"center"}}>{x.rem>0?<Inp type="number" value={retQty[x.i]||""} onChange={v=>{const n=Math.max(0,Math.min(Number(v)||0,x.rem));setRetQty(p=>({...p,[x.i]:n}))}} placeholder="0" style={{width:80,padding:"3px 6px",textAlign:"center"}}/>:"—"}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,color:T.err}}>{x.q?fmt(r2(x.q*(Number(x.it.price)||0))):"—"}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>}
+          <div style={{marginTop:10}}>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>سبب المرتجع (اختياري)</label>
+            <Inp value={retNotes} onChange={setRetNotes} placeholder="مثلاً: بضاعة معيبة / مخالفة للمواصفات..."/>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center",marginTop:12}}>
+            <span style={{marginInlineEnd:"auto",fontSize:FS-1,color:T.textSec}}>إجمالي المرتجع: <b style={{color:T.err}}>{fmt(r2(totVal))}</b> ج.م</span>
+            <Btn ghost onClick={()=>setReturnRcpt(null)}>إلغاء</Btn>
+            <Btn primary onClick={saveReceiptReturn} disabled={totVal<=0} style={{background:totVal<=0?T.textMut:T.err,color:"#fff",border:"none"}}>↪️ تأكيد المرتجع (إشعار مدين)</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
 
     {/* ════ SUPPLIER STATEMENT POPUP ════ */}
     {activeSupplier&&(()=>{const st=supplierStats[activeSupplier.id]||{};const entries=buildStatement(activeSupplier.id);

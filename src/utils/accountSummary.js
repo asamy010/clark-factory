@@ -223,11 +223,20 @@ export function buildSupplierSummary(supId, data) {
     if (t.date > lastActivity) lastActivity = t.date;
   });
 
+  /* 4. V21.21.20: مرتجعات المشتريات (إشعارات مدينة) بتقلّل المستحق للمورد */
+  let totalReturns = 0;
+  (data.purchaseDebitNotes || []).forEach(dn => {
+    if (!dn || dn.supplierId !== supId || dn.status === "void") return;
+    totalReturns += Number(dn.total) || 0;
+    if (dn.date > lastActivity) lastActivity = dn.date;
+  });
+
   totalInvoiced = _r2(totalInvoiced);
   totalPaid = _r2(totalPaid);
-  const balance = _r2(totalInvoiced - totalPaid);
+  totalReturns = _r2(totalReturns);
+  const balance = _r2(totalInvoiced - totalReturns - totalPaid);
 
-  return { totalInvoiced, totalPaid, balance, receiptCount, lastActivity };
+  return { totalInvoiced, totalReturns, totalPaid, balance, receiptCount, lastActivity };
 }
 
 /* ═══ WORKSHOP ACCOUNT SUMMARY ═══
