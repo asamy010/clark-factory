@@ -445,6 +445,13 @@ service cloud.firestore {
       allow write: if isManagerPlus();
     }
 
+    /* V21.21.34 — تقارير المطابقة المالية اليومية. الكتابة من السيرفر فقط
+       (admin SDK بيتخطى القواعد) — العميل قراءة للإدارة فقط. */
+    match /reconciliationDays/{day} {
+      allow read:  if isManagerPlus();
+      allow write: if false;
+    }
+
     /* V21.9.18 — Shopify pending orders, split daily */
     match /shopifyOrdersDays/{day} {
       allow read:  if isAnyUser();

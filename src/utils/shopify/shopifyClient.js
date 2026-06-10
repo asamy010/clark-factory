@@ -376,6 +376,14 @@ export function migrateTagsContacts(opts, user){
   return call("POST", "/api/maintenance/migrate-tags-contacts", opts || {}, user);
 }
 
+/* V21.21.34 — المطابقة المالية اليومية (Roadmap 1.3). بتشتغل تلقائياً عبر
+   Vercel Cron يومياً؛ النداء ده للتشغيل اليدوي من التشخيصات.
+   { windowDays?, dryRun?, force? }
+   → { ok, report: { issues, highCount, warnCount, scanned, ... }, alert } */
+export function reconcileFinancials(opts, user){
+  return call("POST", "/api/cron/reconcile-financials", opts || {}, user);
+}
+
 /* V21.9.45 — Recover missing treasury legs for confirmed transfers. Addresses
    the case where approveTransfer set tf.status="confirmed" successfully but
    the syncAllSplitChanges write for the 2 treasury legs silently failed —

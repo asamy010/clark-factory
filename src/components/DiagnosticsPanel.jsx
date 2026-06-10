@@ -18,7 +18,7 @@ import { Btn, Card, LoadingBtn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { ask, showToast, tell } from "../utils/popups.js";
-import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, migrateTagsContacts, repairConfirmedTransfers, repairPayrollWeekTreasury } from "../utils/shopify/shopifyClient.js";
+import { fetchDiagnostics, splitShopifyCollections, splitShopifyOrdersDaily, dedupeTreasuryTransfers, auditState, fixFlags, myPermissions, usersPermissions, recoverLegacyData, migrationLog, auditPermissions, roleScopes, migrateLegacyOrders, migrateRecurringTreasury, migrateTagsContacts, repairConfirmedTransfers, repairPayrollWeekTreasury, reconcileFinancials } from "../utils/shopify/shopifyClient.js";
 import { collection, getDocs, query, limit } from "firebase/firestore";
 import { db } from "../firebase.js";
 /* V21.9.35: shared bridge client — used by BridgeStatusCard for live status,
@@ -46,6 +46,9 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   /* V21.21.33: tags + contacts migration (cfg.tagRegistry/contacts → per-id docs) */
   const [tagsContactsBusy, setTagsContactsBusy] = useState(false);
   const [tagsContactsResult, setTagsContactsResult] = useState(null);
+  /* V21.21.34: المطابقة المالية اليومية — تشغيل يدوي */
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState(null);
   /* V21.9.45: repair confirmed transfers — legs recovery */
   const [transferRepairBusy, setTransferRepairBusy] = useState(false);
   const [transferRepairResult, setTransferRepairResult] = useState(null);
@@ -497,6 +500,28 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   const tagsArrEntries = Array.isArray(data?.tagRegistry) ? data.tagRegistry.length : 0;
   const contactsArrEntries = Array.isArray(data?.contacts) ? data.contacts.length : 0;
   const showTagsContactsButton = !tagsContactsMigrated;
+
+  /* V21.21.34: تشغيل المطابقة المالية يدوياً (بتشتغل تلقائياً يومياً عبر cron).
+     dryRun — تقرير فوري بدون كتابة ولا واتساب. */
+  const runReconcileNow = async () => {
+    if(!canEdit) return;
+    setReconcileBusy(true);
+    try {
+      const r = await reconcileFinancials({ dryRun: true }, user);
+      setReconcileResult(r);
+      if(!r?.ok){
+        showToast("⛔ " + (r?.error || "فشل تشغيل المطابقة"));
+        return;
+      }
+      const rep = r.report || {};
+      if(rep.ok){
+        showToast(`✅ المطابقة سليمة — فُحص ${rep.scanned?.journalEntries ?? 0} قيد و${rep.scanned?.treasury ?? 0} حركة خزنة (آخر ${rep.windowDays} يوم)`);
+      } else {
+        showToast(`⚠️ المطابقة لقت ${rep.highCount} مشكلة حرجة + ${rep.warnCount} تحذير — التفاصيل تحت`);
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setReconcileBusy(false); }
+  };
 
   /* V21.21.33: tags + contacts migration handler — dry-run → confirm → run. */
   const runTagsContactsMigration = async () => {
@@ -2233,6 +2258,48 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
           )}
         </div>
       )}
+
+      {/* V21.21.34: المطابقة المالية اليومية — تشغيل يدوي + عرض النتيجة.
+          بتشتغل تلقائياً كل يوم (cron 04:10 بتوقيت القاهرة تقريباً) وبتبعت
+          واتساب لمستلمي الأتمتة لو فيه انحراف. */}
+      <div style={{
+        padding: 12, marginBottom: 12,
+        background: (reconcileResult?.report && !reconcileResult.report.ok) ? T.warn + "12" : T.cardSolid,
+        border: "1.5px solid " + ((reconcileResult?.report && !reconcileResult.report.ok) ? T.warn : T.brd),
+        borderRadius: 10,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800, fontSize: FS }}>🧮 المطابقة المالية اليومية</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
+              فحص يومي تلقائي (٤ فجراً) بيقارن الخزنة بالقيود بالفواتير: أرجل التحويلات، توازن القيود،
+              التكرارات، الفواتير بلا قيد، وحجم التخزين — وبيبعت واتساب لو فيه انحراف. الزر ده بيشغّل
+              الفحص فوراً (قراءة فقط — من غير واتساب).
+            </div>
+          </div>
+          <LoadingBtn loading={reconcileBusy} loadingText="جاري الفحص..." onClick={runReconcileNow} disabled={!canEdit} small
+            style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800 }}>
+            🧮 شغّل المطابقة الآن
+          </LoadingBtn>
+        </div>
+        {reconcileResult?.report && (
+          <div style={{ marginTop: 10, padding: 8, background: (reconcileResult.report.ok ? T.ok : T.warn) + "08", borderRadius: 6, fontSize: FS - 2 }}>
+            {reconcileResult.report.ok ? (
+              <>✅ سليمة — فُحص <b>{reconcileResult.report.scanned?.journalEntries ?? 0}</b> قيد
+                {" · "}<b>{reconcileResult.report.scanned?.treasury ?? 0}</b> حركة خزنة
+                {" · "}<b>{reconcileResult.report.scanned?.invoices ?? 0}</b> فاتورة (آخر {reconcileResult.report.windowDays} يوم)</>
+            ) : (
+              <ul style={{ margin: 0, paddingInlineStart: 18, lineHeight: 1.9 }}>
+                {(reconcileResult.report.issues || []).map((i, idx) => (
+                  <li key={idx} style={{ color: i.severity === "high" ? T.err : T.warn }}>
+                    {i.severity === "high" ? "🔴" : "🟡"} {i.label}: <b>{i.count}</b>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* V21.9.42: Legacy Orders Migration banner — HIGHEST PRIORITY when active.
           This addresses the user-reported "factory/config = 1MB → writes fail" bug.
