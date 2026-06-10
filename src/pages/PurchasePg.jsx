@@ -25,6 +25,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt, upsertDebitNoteFromReturn } from "../utils/invoices.js";
+import { buildSupplierSummary } from "../utils/accountSummary.js";
 import { openPurchaseDoc, consumePendingPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts, poLineProgress } from "../utils/purchase/purchaseOrders.js";
 
@@ -114,43 +115,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const treasuryAccounts=(data.treasuryAccounts||[]).map(a=>typeof a==="string"?{id:a,name:a}:a);
   
   /* ──────── SUPPLIER BALANCES (memoized) ──────── */
-  /* For each supplier: totalInvoiced, totalPaid, balance, receiptCount, lastActivity */
+  /* V21.21.30: المصدر الواحد — buildSupplierSummary بدل الحسبة المكرّرة.
+     النسخة المحلية القديمة كانت ناقصة الإشعارات المدينة (V21.21.20) وشيكات
+     الدفع غير المرتبطة (V21.21.30) → قائمة الموردين هنا كانت بتخالف رصيد
+     جهات الاتصال/لوحة التحكم/كشف الحساب لنفس المورد. دلوقتي رقم واحد في
+     كل الشاشات، واختبارات التطابق في statement.test.js بتحرسه. */
   const supplierStats=useMemo(()=>{
     const stats={};
-    suppliers.forEach(s=>{stats[s.id]={id:s.id,name:s.name,phone:s.phone||"",address:s.address||"",totalInvoiced:0,totalPaid:0,balance:0,receiptCount:0,lastActivity:""}});
-    /* Sum receipts */
-    purchaseReceipts.forEach(r=>{if(!r.supplierId)return;const st=stats[r.supplierId];if(!st)return;
-      st.totalInvoiced+=Number(r.totalAmount)||0;
-      st.totalPaid+=Number(r.paidAmount)||0;/* paid at receipt time */
-      st.receiptCount++;
-      if(r.date>(st.lastActivity||""))st.lastActivity=r.date;
+    suppliers.forEach(s=>{
+      const sum=buildSupplierSummary(s.id,data)||{totalInvoiced:0,totalReturns:0,totalPaid:0,payChecks:0,balance:0,receiptCount:0,lastActivity:""};
+      stats[s.id]={id:s.id,name:s.name,phone:s.phone||"",address:s.address||"",...sum};
     });
-    /* Sum standalone payments (not linked to a specific receipt but to supplier) */
-    supplierPayments.forEach(p=>{if(!p.supplierId)return;const st=stats[p.supplierId];if(!st)return;
-      /* Only count payments that are NOT already counted in receipts.paidAmount */
-      /* receiptId means payment was made WITH the receipt — already counted */
-      if(!p.receiptId){st.totalPaid+=Number(p.amount)||0;if(p.date>(st.lastActivity||""))st.lastActivity=p.date}
-    });
-    /* V19.12 FIX: include orphan treasury payments (linked to supplier by supplierId
-       but not yet reflected in supplierPayments). Mirror of the V18.64 pattern in
-       customer balances. Honors tombstones — deleted payments stay deleted. */
-    const _knownTxIds=new Set(supplierPayments.map(p=>p.treasuryTxId).filter(Boolean));
-    const _tombstones=new Set(data._deletedSupplierPayTreasuryIds||[]);
-    treasury.forEach(t=>{
-      if(!t||!t.id)return;
-      if(t.type!=="out")return;
-      if(!t.supplierId)return;
-      if(_knownTxIds.has(t.id))return;
-      if(_tombstones.has(t.id))return;
-      if(t.sourceType==="check_bounce")return;
-      const st=stats[t.supplierId];if(!st)return;
-      st.totalPaid+=Number(t.amount)||0;
-      if(t.date>(st.lastActivity||""))st.lastActivity=t.date;
-    });
-    /* balance = invoiced - paid (positive = we owe them) */
-    Object.values(stats).forEach(st=>{st.balance=r2(st.totalInvoiced-st.totalPaid)});
     return stats;
-  },[suppliers,purchaseReceipts,supplierPayments,treasury,data._deletedSupplierPayTreasuryIds]);
+  },[suppliers,purchaseReceipts,supplierPayments,treasury,checks,data.purchaseDebitNotes,data._deletedSupplierPayTreasuryIds]);
   
   /* Total across all suppliers */
   const supplierTotals=useMemo(()=>{

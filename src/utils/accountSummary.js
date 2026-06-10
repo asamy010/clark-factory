@@ -146,6 +146,22 @@ export function buildCustomerSummary(custId, data) {
     c.partyId === custId
   ).forEach(c => { payCheck += Number(c.amount) || 0; });
 
+  /* V21.21.30 (قرار Ahmed: «الدفعة في أي مكان تتسجل تظهر في الكشف والملخصات»):
+     دفعات الخزنة اليتيمة — حركة وارد بعميل من غير صف مقابل في custPayments.
+     كانت بتظهر في كشف الحساب (statement.js gatherCustomerPayments) لكن مش
+     بتدخل رصيد الملخص → الكشف والملخص يطلعوا رقمين مختلفين (نفس صنف حادثة
+     V21.21.22). LOGIC MUST MATCH statement.js:55-66 — أي تعديل هنا لازم
+     يتعمل هناك (اختبارات التطابق في statement.test.js بتضمن ده). */
+  const _knownCustTxIds = new Set((data.custPayments || []).map(p => p.treasuryTxId).filter(Boolean));
+  (data.treasury || []).forEach(t => {
+    if (!t || !t.id || t.type !== "in") return;
+    if (t.custId !== custId) return;
+    if (_knownCustTxIds.has(t.id)) return;
+    /* حركات الشيكات مستبعدة — الشيك متعدّ من data.checks فوق (V21.21.14) */
+    if (t.sourceType === "check_collect" || t.sourceType === "check_pay") return;
+    payOther += Number(t.amount) || 0;
+  });
+
   /* V21.20.5: أوامر البيع كبيع تشغيلي («أمر البيع = البيع»). صافي الأمر (so.total)
      يضاف للرصيد التشغيلي. (لو العميل بيتسلّم عبر سجل التوزيعات بدل الأوامر،
      مايبقاش عنده أوامر بيع فمفيش تكرار.) */
@@ -180,10 +196,10 @@ export function buildCustomerSummary(custId, data) {
    with the suppliers list (e.g., a receipt not yet promoted to a posted
    invoice would show different balances on the two pages).
 
-   Note: this intentionally omits `purchaseDebitNotes` to keep parity
-   with PurchasePg.jsx (which also omits them). The audit found that
-   computeSupplierStatement includes them; the inconsistency is tracked
-   for a future bug-fix cycle. */
+   V21.21.30: PurchasePg.jsx supplierStats now CALLS this function (the
+   old ad-hoc copy was removed), so the suppliers list + Contacts ledger
+   + dashboard all share one balance. Debit notes (V21.21.20) and
+   unlinked payable checks (V21.21.30) are included everywhere. */
 export function buildSupplierSummary(supId, data) {
   if (!supId || !data) return null;
   const supplier = (data.suppliers || []).find(s => s.id === supId);
@@ -231,12 +247,31 @@ export function buildSupplierSummary(supId, data) {
     if (dn.date > lastActivity) lastActivity = dn.date;
   });
 
+  /* 5. V21.21.30 (قرار Ahmed: «الدفعة في أي مكان تتسجل تظهر في الكشف
+        والملخصات»): شيكات الدفع للمورد (دفعة مورد) غير المرتبطة بدفعة —
+        معلّقة أو مدفوعة — تُحتسب التزاماً مدفوعاً زي ما بتظهر في كشف
+        الحساب. الشيك المرتبط بدفعة مورد (بالـ checkId) متعدّ بالفعل في
+        totalPaid فمايتكرّرش. LOGIC MUST MATCH statement.js:206-218. */
+  let payChecks = 0;
+  const _supPayCheckIds = new Set((data.supplierPayments || []).filter(p => p && p.supplierId === supId && p.checkId).map(p => p.checkId));
+  (data.checks || []).forEach(c => {
+    if (!c || c.type !== "payable") return;
+    if (c.partyId !== supId) return;
+    if (c.status === "ملغي" || c.status === "مرتد") return;
+    if ((c.category || "دفعة مورد") !== "دفعة مورد") return;
+    if (_supPayCheckIds.has(c.id)) return;
+    payChecks += Number(c.amount) || 0;
+    const cDate = c.date || c.dueDate || "";
+    if (cDate > lastActivity) lastActivity = cDate;
+  });
+
   totalInvoiced = _r2(totalInvoiced);
   totalPaid = _r2(totalPaid);
   totalReturns = _r2(totalReturns);
-  const balance = _r2(totalInvoiced - totalReturns - totalPaid);
+  payChecks = _r2(payChecks);
+  const balance = _r2(totalInvoiced - totalReturns - totalPaid - payChecks);
 
-  return { totalInvoiced, totalReturns, totalPaid, balance, receiptCount, lastActivity };
+  return { totalInvoiced, totalReturns, totalPaid, payChecks, balance, receiptCount, lastActivity };
 }
 
 /* ═══ WORKSHOP ACCOUNT SUMMARY ═══

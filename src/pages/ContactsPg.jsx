@@ -1056,7 +1056,11 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
                   </div>
                 </div>
                 <div style={{fontSize: FS-3, color: T.textMut, marginTop: 4, lineHeight: 1.6, paddingInlineStart: 26}}>
-                  مشتريات: {fmt(ledger.supplier.totalInvoiced)} · مدفوع: −{fmt(ledger.supplier.totalPaid)}
+                  {/* V21.21.30: عرض كل مكوّنات الرصيد عشان الحسبة تتقفل قدام المستخدم */}
+                  مشتريات: {fmt(ledger.supplier.totalInvoiced)}
+                  {ledger.supplier.totalReturns > 0 ? <> · مرتجع: −{fmt(ledger.supplier.totalReturns)}</> : null}
+                  {" "}· مدفوع: −{fmt(ledger.supplier.totalPaid)}
+                  {ledger.supplier.payChecks > 0 ? <> · شيكات: −{fmt(ledger.supplier.payChecks)}</> : null}
                 </div>
                 {linkedIds.supplier && (
                   <div style={{marginTop: 6, paddingInlineStart: 26}}>

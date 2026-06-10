@@ -73,6 +73,25 @@ describe("buildCustomerSummary — رصيد العميل التشغيلي", () =
     expect(buildCustomerSummary(data, "c1")).toBeNull();
     expect(buildCustomerSummary("c1", data)).not.toBeNull();
   });
+
+  it("V21.21.30: دفعة الخزنة اليتيمة تدخل الرصيد — والمرتبطة لا تتكرر", () => {
+    const data = makeFactoryData();
+    data.treasury.push({ id: "t-orphan", type: "in", amount: 50, custId: "c1", date: "2026-06-07" });
+    const s = buildCustomerSummary("c1", data);
+    expect(s.payOther).toBe(50);
+    expect(s.balance).toBe(320);/* 370 − 50 */
+
+    /* لما الحركة مرتبطة بدفعة رسمية (treasuryTxId) ماتتعدّش مرتين */
+    data.custPayments[0].treasuryTxId = "t-orphan";
+    expect(buildCustomerSummary("c1", data).balance).toBe(370);
+  });
+
+  it("V21.21.30: حركات تحصيل الشيكات (check_collect) لا تدخل كدفعة يتيمة", () => {
+    const data = makeFactoryData();
+    data.checks[0].status = "محصل";
+    data.treasury.push({ id: "t-cc", type: "in", amount: 200, custId: "c1", sourceType: "check_collect", date: "2026-06-06" });
+    expect(buildCustomerSummary("c1", data).balance).toBe(370);/* الشيك متعدّ مرة واحدة */
+  });
 });
 
 /* ───────────── buildSupplierSummary ───────────── */
@@ -111,6 +130,30 @@ describe("buildSupplierSummary — رصيد المورد التشغيلي", () =
   it("الإشعار المدين الملغي (void) لا يقلّل الرصيد", () => {
     const data = makeFactoryData();
     data.purchaseDebitNotes.push({ id: "dn2", supplierId: "sup1", total: 999, status: "void", date: "2026-06-08" });
+    expect(buildSupplierSummary("sup1", data).balance).toBe(230);
+  });
+
+  it("V21.21.30: شيك الدفع المعلق غير المرتبط يقلّل الرصيد — والمرتبط لا يتكرر", () => {
+    const data = makeFactoryData();
+    data.checks.push({ id: "chs1", type: "payable", partyId: "sup1", amount: 60, status: "معلق", date: "2026-06-08" });
+    const s = buildSupplierSummary("sup1", data);
+    expect(s.payChecks).toBe(60);
+    expect(s.balance).toBe(170);/* 230 − 60 */
+
+    /* الشيك المرتبط بدفعة مورد (checkId) متعدّ ضمن المدفوعات — لا يتكرر */
+    data.supplierPayments[0].checkId = "chs1";
+    const s2 = buildSupplierSummary("sup1", data);
+    expect(s2.payChecks).toBe(0);
+    expect(s2.balance).toBe(230);
+  });
+
+  it("V21.21.30: الشيك المرتد/الملغي وفئة غير «دفعة مورد» لا يُحتسبون", () => {
+    const data = makeFactoryData();
+    data.checks.push(
+      { id: "chx1", type: "payable", partyId: "sup1", amount: 100, status: "مرتد", date: "2026-06-08" },
+      { id: "chx2", type: "payable", partyId: "sup1", amount: 100, status: "ملغي", date: "2026-06-08" },
+      { id: "chx3", type: "payable", partyId: "sup1", amount: 100, status: "معلق", category: "ضمان", date: "2026-06-08" },
+    );
     expect(buildSupplierSummary("sup1", data).balance).toBe(230);
   });
 });

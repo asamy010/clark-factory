@@ -67,7 +67,7 @@ describe("كشف العميل — الوضع التشغيلي", () => {
     expect(stmt.rows.filter((r) => r.type === "treasury")).toHaveLength(0);
   });
 
-  it("دفعة خزنة يتيمة (غير مسجلة في custPayments) تظهر كصف «دفعة (خزنة)»", () => {
+  it("V21.21.30: دفعة الخزنة اليتيمة تظهر في الكشف وتدخل رصيد الملخص (تطابق)", () => {
     const data = makeFactoryData();
     data.treasury.push({ id: "t-orphan", type: "in", amount: 50, custId: "c1", date: "2026-06-07" });
     const stmt = custStmt(data);
@@ -75,9 +75,9 @@ describe("كشف العميل — الوضع التشغيلي", () => {
     expect(orphan).toBeTruthy();
     expect(orphan.credit).toBe(50);
     expect(stmt.totals.closing).toBe(320);
-    /* ⚠️ ملاحظة موثّقة: buildCustomerSummary لا يحتسب اليتيمة دي —
-       ده انحراف معروف بين الكشف والملخص لمّا توجد حركة خزنة يتيمة.
-       مسجّل في تقرير الفحص — القرار لـ Ahmed (توحيد أو إبقاء). */
+    /* قرار Ahmed (V21.21.30): «الدفعة في أي مكان تتسجل تظهر في الكشف
+       والملخصات» — الرصيدان لازم يتطابقا حتى مع اليتيمة. */
+    expect(buildCustomerSummary("c1", data).balance).toBe(320);
   });
 
   it("الحركة المرتبطة (treasuryTxId) لا تتعدّ مرتين", () => {
@@ -145,15 +145,17 @@ describe("كشف المورد — الوضع التشغيلي", () => {
     expect(stmt.rows.filter((r) => r.type === "check")).toHaveLength(0);
   });
 
-  it("شيك دفع معلق غير مرتبط يظهر كالتزام (دائن) في الكشف", () => {
+  it("V21.21.30: شيك الدفع المعلق غير المرتبط يظهر في الكشف ويدخل رصيد الملخص (تطابق)", () => {
     const data = makeFactoryData();
     data.checks.push({ id: "chs2", type: "payable", partyId: "sup1", amount: 60, status: "معلق", checkNo: "556", date: "2026-06-08" });
     const stmt = supStmt(data);
     const check = stmt.rows.find((r) => r.type === "check");
     expect(check.credit).toBe(60);
     expect(stmt.totals.closing).toBe(170);/* 230 − 60 */
-    /* ⚠️ ملاحظة موثّقة: buildSupplierSummary لا يحتسب الشيك المعلق غير
-       المرتبط — انحراف معروف بين الكشف والملخص. مسجّل في تقرير الفحص. */
+    /* قرار Ahmed (V21.21.30): الرصيدان لازم يتطابقا حتى مع الشيك المعلق. */
+    const sum = buildSupplierSummary("sup1", data);
+    expect(sum.payChecks).toBe(60);
+    expect(sum.balance).toBe(170);
   });
 
   it("حركة الخزنة بعد حذفها (tombstone) لا تظهر في الكشف", () => {
