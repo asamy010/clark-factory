@@ -28,7 +28,7 @@ const RECEIPT_TEMPLATE=`
     <div class="title-block">
       <div class="factory-name">{{factory.name}}</div>
       {{#if factory.address}}<div class="factory-line">{{factory.address}}</div>{{/if}}
-      {{#if factory.phone}}<div class="factory-line">☎ {{factory.phone}}</div>{{/if}}
+      {{#if factory.phone}}<div class="factory-line">☎ ⁦{{factory.phone}}⁩</div>{{/if}}
     </div>
     <div class="doc-title">إيصال تسليم عميل</div>
   </div>
@@ -37,7 +37,7 @@ const RECEIPT_TEMPLATE=`
     <div><b>العميل:</b> {{customer.name}}</div>
     <div><b>التاريخ:</b> {{date session.date}}</div>
     <div><b>رقم الجلسة:</b> {{session.id}}</div>
-    {{#if customer.phone}}<div><b>الهاتف:</b> {{customer.phone}}</div>{{/if}}
+    {{#if customer.phone}}<div><b>الهاتف:</b> ⁦{{customer.phone}}⁩</div>{{/if}}
     {{#if session.receiver}}<div><b>المستلم:</b> {{session.receiver}}</div>{{/if}}
   </div>
 
@@ -269,13 +269,13 @@ const STATEMENT_TEMPLATE=`
     {{#if factory.logo}}<img src="{{{factory.logo}}}" class="logo"/>{{/if}}
     <div class="header-mid">
       <div class="factory-name">{{factory.name}}</div>
-      {{#if factory.phone}}<div class="factory-line">☎ {{factory.phone}}</div>{{/if}}
+      {{#if factory.phone}}<div class="factory-line">☎ ⁦{{factory.phone}}⁩</div>{{/if}}
     </div>
     <div class="doc-title">كشف حساب</div>
   </div>
   <div class="cust-info">
     <div><b>العميل:</b> {{customer.name}}</div>
-    {{#if customer.phone}}<div><b>الهاتف:</b> {{customer.phone}}</div>{{/if}}
+    {{#if customer.phone}}<div><b>الهاتف:</b> ⁦{{customer.phone}}⁩</div>{{/if}}
     <div><b>التاريخ:</b> {{date today}}</div>
   </div>
   <h3>حركات الحساب</h3>

@@ -8,7 +8,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, SearchSel } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { fmt, r2 } from "../utils/format.js";
+import { fmt, r2, ltrPhone } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
 import { printPage } from "../utils/print.js";
@@ -38,7 +38,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const [drill, setDrill] = useState(null); /* row being drilled into */
 
   const party = parties.find(p => String(p.id) === String(partyId)) || (fixedPartyId != null ? parties.find(p => String(p.id) === String(fixedPartyId)) : null);
-  const partyOpts = parties.filter(p => !p.archived).map(p => ({ value: p.id, label: p.name + (p.phone ? " — " + p.phone : "") }));
+  const partyOpts = parties.filter(p => !p.archived).map(p => ({ value: p.id, label: p.name + (p.phone ? " — " + ltrPhone(p.phone) : "") }));
 
   const result = useMemo(() => party
     ? buildAccountStatement(data, { partyId: party.id, partyType, mode, fromDate, toDate, invoiceNoFilter: invNo, typeFilters: tf, includeOpening: openingOn })
@@ -67,7 +67,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     const html = `
       <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">
-        ${party.phone ? "تليفون: " + party.phone + " · " : ""}${party.address ? "العنوان: " + party.address + " · " : ""}الوضع: ${mode === "accounting" ? "محاسبي" : "تشغيلي"}
+        ${party.phone ? "تليفون: " + ltrPhone(party.phone) + " · " : ""}${party.address ? "العنوان: " + party.address + " · " : ""}الوضع: ${mode === "accounting" ? "محاسبي" : "تشغيلي"}
         ${fromDate || toDate ? "<br>الفترة: " + (fromDate || "البداية") + " ← " + (toDate || "الآن") : ""}
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -169,7 +169,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     }
     const h = `
       <h2 style="color:${accent};margin:0 0 4px">${drill.desc}</h2>
-      <div style="font-size:12px;color:#64748b;margin-bottom:10px">${party.name}${party.phone ? " · " + party.phone : ""} · التاريخ: ${drill.date || "—"}</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px">${party.name}${party.phone ? " · " + ltrPhone(party.phone) : ""} · التاريخ: ${drill.date || "—"}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px"><thead>${thead}</thead><tbody>${body}</tbody>${foot}</table>`;
     printPage(drill.desc + " — " + party.name, h, { factoryName: data.factoryName, logo: data.logo });
   };
@@ -250,7 +250,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
             <div>
               <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.text }}>{party.name}</div>
-              <div style={{ fontSize: FS - 2, color: T.textSec }}>{party.phone || ""}{party.address ? " · " + party.address : ""}</div>
+              <div style={{ fontSize: FS - 2, color: T.textSec }}>{party.phone ? ltrPhone(party.phone) : ""}{party.address ? " · " + party.address : ""}</div>
               <div style={{ fontSize: FS, fontWeight: 800, marginTop: 4, color: balanceLabel(result.totals.closing, partyType).color }}>📌 {balanceLabel(result.totals.closing, partyType).txt}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

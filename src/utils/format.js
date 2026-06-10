@@ -240,6 +240,15 @@ export function normalizePhone(p){
   return"+2"+d;
 }
 
+/* V21.21.23: تغليف رقم التليفون بـ LTR isolate (U+2066 LRI … U+2069 PDI) عشان
+   مايتقلبش في السياق العربي (RTL) — الـ "+" والأرقام بـ يـ reorder غلط في
+   bidi. يشتغل في HTML الطباعة وفي النص العادي. استخدمه في كل عرض تليفون داخل
+   تقرير/طباعة/سطر مختلط بعربي. */
+export function ltrPhone(p){
+  const s = String(p == null ? "" : p).trim();
+  return s ? "⁦" + s + "⁩" : "";
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════
    V19.70.6: Format a transaction's date + time-of-day in Cairo timezone

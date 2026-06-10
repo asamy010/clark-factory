@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { FS } from "../constants/index.js";
-import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA, formatTxTime } from "../utils/format.js";
+import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA, formatTxTime, ltrPhone } from "../utils/format.js";
 import { compressImage } from "../utils/image.js";/* V21.9.203: wallet thumbnail */
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
@@ -3268,7 +3268,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
             const icon=txPartyType==="customer"?"🧑 العميل:":txPartyType==="supplier"?"🏭 المورد:":txPartyType==="employee"?"👷 الموظف:":"🔧 الورشة:";
             return<div style={{padding:"6px 10px",borderRadius:8,background:T.accent+"08",border:"1px solid "+T.accent+"30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:6}}>
-              <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {p.phone}</span>}</div>
+              <div><span style={{fontSize:FS-2,color:T.textMut}}>{icon}</span> <b style={{color:T.accent,fontSize:FS-1}}>{p.name}</b>{p.phone&&<span style={{fontSize:FS-3,color:T.textMut,marginRight:6}}> • {ltrPhone(p.phone)}</span>}</div>
               <span onClick={()=>{setTxPartyId("");setPartySearch("")}} style={{cursor:"pointer",fontSize:FS-2,color:T.err,padding:"2px 8px",borderRadius:6,background:T.err+"08",border:"1px solid "+T.err+"20"}}>✕ تغيير</span>
             </div>})()}
           {/* Inline party list */}
@@ -4268,7 +4268,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     <Inp value={chkParty} onChange={setChkParty} placeholder="أو اكتب الاسم يدوياً (بدون ربط بسجل)" style={{marginTop:6}}/>
                   </>
                 )}
-                {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{selectedParty.phone?"📞 "+selectedParty.phone:""}</div>}
+                {selectedParty&&<div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{selectedParty.phone?"📞 "+ltrPhone(selectedParty.phone):""}</div>}
               </div>
               <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>البنك</label>
                 {banksList.length>0?<>
@@ -4583,7 +4583,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                 <input value={endorseSearch} onChange={e=>setEndorseSearch(e.target.value)} placeholder="🔍 بحث عن مورد..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,marginBottom:10,boxSizing:"border-box"}}/>
                 {filteredSup.length>0?<div style={{display:"flex",flexDirection:"column",gap:4}}>
                   {filteredSup.map(s=><div key={s.id} onClick={()=>endorseCheck(endorsePopup,s.id,endorseDate)} style={{padding:"10px 14px",borderRadius:10,border:"1px solid "+T.brd,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF608"} onMouseLeave={e=>e.currentTarget.style.background=""}>
-                    <div><div style={{fontSize:FS,fontWeight:700}}>{s.name}</div>{s.phone&&<div style={{fontSize:FS-2,color:T.textMut}}>{s.phone}</div>}</div>
+                    <div><div style={{fontSize:FS,fontWeight:700}}>{s.name}</div>{s.phone&&<div style={{fontSize:FS-2,color:T.textMut}}>{ltrPhone(s.phone)}</div>}</div>
                     <span style={{fontSize:FS-1,color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>
                   </div>)}
                 </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{suppliers.length===0?"لا يوجد موردين — أضف موردين من قاعدة البيانات":"لا توجد نتائج"}</div>}

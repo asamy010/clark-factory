@@ -8,7 +8,7 @@
 import { Badge } from "../components/ui.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { TD, TDB, TDL, TH } from "../theme.js";
-import { gIcon, gc, gcons, gf } from "../utils/format.js";
+import { gIcon, gc, gcons, gf, ltrPhone } from "../utils/format.js";
 import { calcOrder, calcStockNeeded, checkStockAvailability, deductStockForOrder, getOrderDetails, getOrderTimeline, getStatusColor } from "../utils/orders.js";
 import { tell } from "../utils/popups.js";
 import { printPage } from "../utils/print.js";
@@ -408,7 +408,7 @@ export function printCashReceipt(tx,partyInfo,configInfo){
   h+="<table style='width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px'>";
   h+="<tr><th style='text-align:right;padding:8px 12px;background:#F8FAFC;font-weight:700;width:30%;border:1px solid #E2E8F0'>"+partyLabel+"</th>";
   h+="<td style='padding:8px 12px;font-weight:800;font-size:15px;border:1px solid #E2E8F0'>"+partyName+"</td></tr>";
-  if(partyPhone)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التليفون</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0;direction:ltr;text-align:right'>"+partyPhone+"</td></tr>";
+  if(partyPhone)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التليفون</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0;direction:ltr;text-align:right'>"+ltrPhone(partyPhone)+"</td></tr>";
   if(partyAddress)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>العنوان</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0'>"+partyAddress+"</td></tr>";
   h+="</table>";
   /* Amount block — prominent */
@@ -489,7 +489,7 @@ export function printCheckReceipt(check,partyInfo,configInfo){
   h+="<table style='width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px'>";
   h+="<tr><th style='text-align:right;padding:8px 12px;background:#F8FAFC;font-weight:700;width:30%;border:1px solid #E2E8F0'>"+partyLabel+"</th>";
   h+="<td style='padding:8px 12px;font-weight:800;font-size:15px;border:1px solid #E2E8F0'>"+partyName+"</td></tr>";
-  if(partyPhone)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التليفون</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0;direction:ltr;text-align:right'>"+partyPhone+"</td></tr>";
+  if(partyPhone)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>التليفون</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0;direction:ltr;text-align:right'>"+ltrPhone(partyPhone)+"</td></tr>";
   if(partyAddress)h+="<tr><th style='text-align:right;padding:6px 12px;background:#F8FAFC;font-weight:700;border:1px solid #E2E8F0'>العنوان</th><td style='padding:6px 12px;font-weight:600;border:1px solid #E2E8F0'>"+partyAddress+"</td></tr>";
   h+="</table>";
   /* Cheque details — prominent boxed section that mirrors the physical cheque */

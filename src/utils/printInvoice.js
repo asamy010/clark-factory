@@ -7,6 +7,7 @@
 
 import { openPrintWindow } from "./print.js";
 import { PRINT_CSS } from "../constants/index.js";
+import { ltrPhone } from "./format.js";
 
 const fmt = n => Math.round(Number(n)||0).toLocaleString("en-US");
 const r2  = n => Math.round((Number(n)||0)*100)/100;
@@ -79,7 +80,7 @@ ${PRINT_CSS}
     ${factoryAddr ? `<div style="font-size:11px;color:#64748B;margin-top:2px">${_esc(factoryAddr)}</div>` : ""}
   </div>
   <div class="inv-meta">
-    ${factoryPhone ? `<div>📞 ${_esc(factoryPhone)}</div>` : ""}
+    ${factoryPhone ? `<div>📞 ${_esc(ltrPhone(factoryPhone))}</div>` : ""}
     ${factoryEmail ? `<div>✉️ ${_esc(factoryEmail)}</div>` : ""}
   </div>
 </div>
@@ -96,7 +97,7 @@ ${PRINT_CSS}
   <div class="inv-box">
     <div class="lbl">${partyLabel}</div>
     <div class="val">${_esc((party && party.name) || (isPurchase ? invoice.supplierName : invoice.customerName) || "—")}</div>
-    ${party && party.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(party.phone)}</div>` : ""}
+    ${party && party.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(ltrPhone(party.phone))}</div>` : ""}
     ${party && party.address ? `<div style="font-size:11px;color:#64748B;margin-top:2px">📍 ${_esc(party.address)}</div>` : ""}
   </div>
   <div class="inv-box">
@@ -211,7 +212,7 @@ ${PRINT_CSS}
     ${factoryAddr ? `<div style="font-size:11px;color:#64748B;margin-top:2px">${_esc(factoryAddr)}</div>` : ""}
   </div>
   <div class="inv-meta">
-    ${factoryPhone ? `<div>📞 ${_esc(factoryPhone)}</div>` : ""}
+    ${factoryPhone ? `<div>📞 ${_esc(ltrPhone(factoryPhone))}</div>` : ""}
     ${factoryEmail ? `<div>✉️ ${_esc(factoryEmail)}</div>` : ""}
   </div>
 </div>
@@ -230,7 +231,7 @@ ${creditNote.linkedInvoiceNo ? `<div style="background:#FEF2F2;padding:8px 12px;
   <div class="inv-box">
     <div class="lbl">العميل</div>
     <div class="val">${_esc((customer && customer.name) || creditNote.customerName || "—")}</div>
-    ${customer && customer.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(customer.phone)}</div>` : ""}
+    ${customer && customer.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(ltrPhone(customer.phone))}</div>` : ""}
   </div>
   <div class="inv-box">
     <div class="lbl">التاريخ</div>
@@ -352,7 +353,7 @@ ${PRINT_CSS}
     ${factoryAddr ? `<div style="font-size:11px;color:#64748B;margin-top:2px">${_esc(factoryAddr)}</div>` : ""}
   </div>
   <div class="inv-meta">
-    ${factoryPhone ? `<div>📞 ${_esc(factoryPhone)}</div>` : ""}
+    ${factoryPhone ? `<div>📞 ${_esc(ltrPhone(factoryPhone))}</div>` : ""}
     ${factoryEmail ? `<div>✉️ ${_esc(factoryEmail)}</div>` : ""}
   </div>
 </div>
@@ -371,7 +372,7 @@ ${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;b
   <div class="inv-box">
     <div class="lbl">المورد</div>
     <div class="val">${_esc((supplier && supplier.name) || debitNote.supplierName || "—")}</div>
-    ${supplier && supplier.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(supplier.phone)}</div>` : ""}
+    ${supplier && supplier.phone ? `<div style="font-size:11px;color:#64748B;margin-top:3px">📞 ${_esc(ltrPhone(supplier.phone))}</div>` : ""}
   </div>
   <div class="inv-box">
     <div class="lbl">التاريخ</div>

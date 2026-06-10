@@ -10,7 +10,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { Badge, Btn, Card, Inp, Sel, Timeline } from "../components/ui.jsx";
 import { FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
-import { fmt, gIcon, gc, gcons, gf, r2, slay, parseSizes, getSizesFromSet } from "../utils/format.js";
+import { fmt, gIcon, gc, gcons, gf, r2, slay, parseSizes, getSizesFromSet, ltrPhone } from "../utils/format.js";
 import { calcOrder, getStatusColor } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
@@ -1143,7 +1143,7 @@ export function AgingReport({data,isMob,season}){
     {rows.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
       {["العميل","التليفون","الرصيد المستحق","آخر بيع","أيام التأخر","الفئة"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map(r=><tr key={r.name} style={{borderBottom:"1px solid "+T.brd}}>
-      <td style={{...TD,fontWeight:700}}>{r.name}</td><td style={{...TD,direction:"ltr",fontSize:FS-2}}>{r.phone}</td>
+      <td style={{...TD,fontWeight:700}}>{r.name}</td><td style={{...TD,direction:"ltr",fontSize:FS-2}}>{ltrPhone(r.phone)}</td>
       <td style={{...TDB,color:T.err,fontWeight:800,fontSize:FS+1}}>{fmt(r.balance)}</td>
       <td style={TD}>{r.lastSale}</td><td style={{...TDB,fontWeight:700}}>{r.days}</td>
       <td style={TDB}><span style={{padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:r.bucketColor+"12",color:r.bucketColor}}>{r.bucket}</span></td>
@@ -1315,7 +1315,7 @@ export function CustomerProfitReport({data,isMob,season}){
       {["#","العميل","صافي الكمية","مرتجع","إيراد","تكلفة","الربح","هامش %"].map(h=><th key={h} style={TH}>{h}</th>)}
     </tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i<3?T.accent+"04":""}}>
       <td style={{...TDB,fontSize:FS+1,fontWeight:800}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1)}</td>
-      <td style={{...TD,fontWeight:700}}>{r.name}{r.phone&&<div style={{fontSize:FS-3,color:T.textMut}}>{r.phone}</div>}</td>
+      <td style={{...TD,fontWeight:700}}>{r.name}{r.phone&&<div style={{fontSize:FS-3,color:T.textMut}}>{ltrPhone(r.phone)}</div>}</td>
       <td style={TDB}>{fmt(r.netQty)}</td>
       <td style={{...TDB,color:r.returnQty>0?T.err:T.textMut}}>{r.returnQty||"—"}</td>
       <td style={{...TDB,color:T.ok,fontWeight:700}}>{fmt(r.revenue)}</td>

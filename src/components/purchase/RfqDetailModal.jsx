@@ -5,7 +5,7 @@
 import { Btn } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
-import { fmt } from "../../utils/format.js";
+import { fmt, ltrPhone } from "../../utils/format.js";
 import { displayStatus } from "../../utils/purchase/rfq.js";
 import { openPurchaseDoc } from "../../utils/purchase/navDoc.js";
 
@@ -76,7 +76,7 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
 
         <div style={{ padding: 20 }}>
           {row("المورد", supName)}
-          {phone && row("التليفون", phone)}
+          {phone && row("التليفون", ltrPhone(phone))}
           {row("التاريخ", rfq.date)}
           {rfq.validUntil && row("مهلة الرد", rfq.validUntil)}
           {isConverted && (

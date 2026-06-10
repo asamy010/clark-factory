@@ -8,6 +8,7 @@ import { PRINT_CSS } from "../constants/index.js";
 import { CLARK_LOGO, CLARK_LOGO_PRINT } from "../constants/logo.js";
 import { renderTemplate } from "./templateEngine.js";
 import { getTemplate } from "./printTemplates.js";
+import { ltrPhone } from "./format.js";
 
 /* V16.4: Template-based printing — uses user-customized template if available,
    else falls back to default. Accepts context data and optional extra CSS. */
@@ -63,8 +64,8 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
   /* Build professional header */
   let brandSub="نظام إدارة مصانع الملابس";
   if(factoryAddr)brandSub=factoryAddr;
-  if(factoryAddr&&factoryPhone)brandSub=factoryAddr+" • "+factoryPhone;
-  else if(factoryPhone)brandSub=factoryPhone;
+  if(factoryAddr&&factoryPhone)brandSub=factoryAddr+" • "+ltrPhone(factoryPhone);
+  else if(factoryPhone)brandSub=ltrPhone(factoryPhone);
   const header="<div class='hdr'>"
     +"<div class='hdr-brand'>"
       +"<img src='"+factoryLogo+"'/>"
@@ -240,7 +241,7 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
     :"<div class='brand'>CLARK Factory</div>";
   /* Customer info table — only enabled rows */
   let custRows="<tr><td class='lbl'>التاريخ</td><td class='val'>"+date+"</td></tr>";
-  if(showPhone&&custPhone)custRows+="<tr><td class='lbl'>التليفون</td><td class='val'>"+custPhone+"</td></tr>";
+  if(showPhone&&custPhone)custRows+="<tr><td class='lbl'>التليفون</td><td class='val'>"+ltrPhone(custPhone)+"</td></tr>";
   if(showAddress&&custAddr)custRows+="<tr><td class='lbl'>العنوان</td><td class='val' style='font-size:7.5pt'>"+custAddr+"</td></tr>";
   /* Totals box */
   const t=totals||{};
