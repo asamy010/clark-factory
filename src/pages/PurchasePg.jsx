@@ -24,6 +24,8 @@ import { filterByTags } from "../utils/tags.js";
 /* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { DocLineEditor } from "../components/sales/DocLineEditor.jsx";
+import { DocItemsTable } from "../components/DocItemsTable.jsx";
+import { docColumnsHTML } from "../utils/docColumns.js";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
@@ -471,7 +473,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const validItems=(po.items||[]).filter(it=>it.isSection?String(it.title||"").trim():((it.itemId||String(it.itemName||"").trim())&&(Number(it.qty)||0)>0));
 
     const supplier=suppliers.find(s=>String(s.id)===String(po.supplierId));
-    const totalAmount=realItems.reduce((s,it)=>s+(Number(it.amount)||0),0);
+    /* V21.21.43: خصم كلي (header) فوق خصومات البنود. item.amount = صافي البند
+       بعد خصمه؛ totalAmount النهائي = إجمالي البنود − الخصم الكلي. كل قُرّاء
+       totalAmount (الداشبورد/القائمة/الطباعة) بيشوفوا الإجمالي النهائي تلقائياً.
+       ربط الاستلام بيعتمد على item.price (مش متأثر بخصم الرأس) — آمن. */
+    const afterLineDisc=r2(realItems.reduce((s,it)=>s+(Number(it.amount)||0),0));
+    const poPct=Math.min(Math.max(Number(po.discountPct)||0,0),100);
+    const poHeaderDisc=r2(afterLineDisc*(poPct/100));
+    const totalAmount=r2(afterLineDisc-poHeaderDisc);
     const poNo=po.poNo||nextPoNo();
     const poId=po.id||gid();
     const isEdit=!!po.id;
@@ -485,7 +494,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         id:poId,poNo,supplierId:po.supplierId,supplierName:supplier?.name||"",
         date:po.date||today,
         items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
-        totalAmount:r2(totalAmount),notes:po.notes||"",
+        subtotal:afterLineDisc,discountPct:poPct,headerDiscount:poHeaderDisc,totalAmount:r2(totalAmount),notes:po.notes||"",
         createdBy:userName,createdAt:po.createdAt||new Date().toISOString()
       };
       if(isEdit){const idx=d.purchaseOrders.findIndex(x=>x.id===poId);if(idx>=0)d.purchaseOrders[idx]=obj;else d.purchaseOrders.push(obj)}
@@ -578,8 +587,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const printPo=(p)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(p.supplierId));
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
-    const rows=(p.items||[]).map(it=>it.isSection?"<tr><td colspan='5' style='background:#EDE9FE;font-weight:800'>📑 "+(it.title||"")+"</td></tr>":"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
-    const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+ltrPhone(supplier.phone)+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rows+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(p.totalAmount))+" ج.م</td></tr></tbody></table>"+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
+    /* V21.21.43: جدول الأعمدة الموحّد (كود/اسم/وحدة/كمية/سعر/قبل/الخصم/بعد) + توزيع الخصم الكلي */
+    const itemsHTML=docColumnsHTML(p.items,{headerDiscountPct:p.discountPct,accent:"#8B5CF6"});
+    const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+ltrPhone(supplier.phone)+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3>"+itemsHTML+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK Factory Management — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
   
@@ -2652,10 +2662,29 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           <div style={{marginBottom:14}}>
             <label style={{fontSize:FS,color:T.text,fontWeight:700,display:"block",marginBottom:8}}>البنود المطلوبة <span style={{color:T.err}}>*</span></label>
             <DocLineEditor items={poEditorItems} setItems={setPoEditorItems} productOptions={poProductOptions} resolveProduct={resolveProductPO} isMob={isMob} accent="#8B5CF6" />
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,padding:"8px 12px",borderRadius:8,background:"#8B5CF608"}}>
-              <span style={{fontWeight:700,color:T.textSec}}>الإجمالي</span>
-              <span style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>{fmt(r2((po.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0)))}</span>
-            </div>
+            {/* V21.21.43: ملخص + خصم كلي */}
+            {(()=>{
+              const afterLine=r2((po.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0));
+              const pct=Math.min(Math.max(Number(po.discountPct)||0,0),100);
+              const hd=r2(afterLine*(pct/100));
+              return <div style={{marginTop:10,padding:"10px 12px",borderRadius:8,background:"#8B5CF608",border:"1px solid #8B5CF618"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:FS-1,color:T.textSec}}>الإجمالي قبل الخصم الكلي</span>
+                  <span style={{fontWeight:700,direction:"ltr"}}>{fmt(afterLine)}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:FS-1,color:T.textSec,display:"flex",alignItems:"center",gap:6}}>خصم كلي
+                    <input type="number" min="0" max="100" value={po.discountPct||""} onChange={e=>setPo(p=>({...p,discountPct:e.target.value}))} style={{width:70,padding:"4px 8px",borderRadius:6,border:"1px solid "+T.brd,background:T.cardSolid,color:T.text,fontFamily:"inherit",direction:"ltr",textAlign:"left",fontSize:FS-1}} placeholder="0"/>
+                    <span style={{fontSize:FS-2,color:T.textMut}}>%</span>
+                  </span>
+                  <span style={{fontWeight:700,color:T.err,direction:"ltr"}}>{hd>0?"− "+fmt(hd):"—"}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,borderTop:"1px solid #8B5CF625"}}>
+                  <span style={{fontWeight:800,color:T.text}}>الإجمالي</span>
+                  <span style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",direction:"ltr"}}>{fmt(r2(afterLine-hd))}</span>
+                </div>
+              </div>;
+            })()}
           </div>
           
           {/* Notes */}
@@ -2721,28 +2750,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
 
         <div style={{marginBottom:14}}>
           <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:6}}>البنود المطلوبة</div>
-          <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:8}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-              <thead><tr>
-                <th style={TH}>الصنف</th>
-                <th style={{...TH,textAlign:"center"}}>الكمية</th>
-                <th style={{...TH,textAlign:"center"}}>الوحدة</th>
-                <th style={{...TH,textAlign:"center"}}>السعر</th>
-                <th style={{...TH,textAlign:"center"}}>الإجمالي</th>
-              </tr></thead>
-              <tbody>
-                {(viewPo.items||[]).map((it,i)=>it.isSection?<tr key={i} style={{background:"#EDE9FE"}}>
-                  <td colSpan={5} style={{...TD,fontWeight:800,color:"#8B5CF6"}}>📑 {it.title||""}</td>
-                </tr>:<tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{...TD,fontWeight:700}}><span style={{padding:"1px 6px",borderRadius:6,fontSize:FS-3,marginLeft:4,background:it.itemType==="fabric"?T.accent+"15":"#8B5CF615",color:it.itemType==="fabric"?T.accent:"#8B5CF6"}}>{(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦")}</span>{it.itemName}</td>
-                  <td style={{...TD,textAlign:"center"}}>{fmt(it.qty)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{it.unit||"—"}</td>
-                  <td style={{...TD,textAlign:"center"}}>{fmt(r2(it.price))}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(it.amount))}</td>
-                </tr>)}
-              </tbody>
-            </table>
-          </div>
+          {/* V21.21.43: أعمدة موحّدة + توزيع الخصم الكلي + ملخص تحت */}
+          <DocItemsTable items={viewPo.items} headerDiscountPct={viewPo.discountPct} accent="#8B5CF6" />
+          {(()=>{
+            const sub=Number(viewPo.subtotal)||(viewPo.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0);
+            const hd=Number(viewPo.headerDiscount)||0;
+            const tot=Number(viewPo.totalAmount)||r2(sub-hd);
+            return <div style={{background:T.bg,borderRadius:10,padding:12,border:"1px solid "+T.brd}}>
+              <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:FS-2}}><span style={{color:T.textSec}}>الإجمالي قبل الخصم الكلي</span><b style={{direction:"ltr"}}>{fmt(r2(sub))}</b></div>
+              {hd>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:FS-2,color:T.err}}><span>الخصم الكلي ({fmt(viewPo.discountPct||0)}%)</span><b style={{direction:"ltr"}}>− {fmt(hd)}</b></div>}
+              <div style={{height:1,background:T.brd,margin:"6px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}><span style={{fontWeight:800,color:T.text}}>الإجمالي</span><span style={{fontWeight:800,fontSize:FS+2,color:"#8B5CF6",direction:"ltr"}}>{fmt(r2(tot))}</span></div>
+            </div>;
+          })()}
         </div>
         
         {viewPo.notes&&<div style={{padding:10,background:"#F59E0B08",borderRadius:8,fontSize:FS-1,color:T.textSec,marginBottom:12}}>📝 {viewPo.notes}</div>}

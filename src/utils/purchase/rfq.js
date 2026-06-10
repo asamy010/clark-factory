@@ -61,8 +61,13 @@ export function recalcRfqLine(item){
 }
 export function recalcRfqTotals(rfq){
   const items = (rfq.items || []).map(recalcRfqLine);
-  const subtotal = r2(items.reduce((s, it) => s + (it.lineTotal || 0), 0));
-  return { ...rfq, items, subtotal, total: subtotal };
+  /* afterLine = إجمالي البنود بعد خصومات البنود */
+  const afterLine = r2(items.reduce((s, it) => s + (it.lineTotal || 0), 0));
+  /* V21.21.43: خصم كلي على مستوى الرأس (discountPct) فوق خصومات البنود. */
+  const discountPct = Math.min(Math.max(Number(rfq.discountPct) || 0, 0), 100);
+  const headerDiscount = r2(afterLine * (discountPct / 100));
+  /* subtotal محفوظ كإجمالي-بعد-خصم-البنود (متوافق مع القديم) · total = بعد الخصم الكلي */
+  return { ...rfq, items, subtotal: afterLine, discountPct, headerDiscount, total: r2(afterLine - headerDiscount) };
 }
 
 /* ── Validation ── */

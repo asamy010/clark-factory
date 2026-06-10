@@ -29,6 +29,8 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
   const [validUntil, setValidUntil] = useState(editRfq?.validUntil || "");
   const [items, setItems] = useState(editRfq?.items?.length ? editRfq.items.map(toEditorItem) : [toEditorItem({})]);
   const [notes, setNotes] = useState(editRfq?.notes || "");
+  /* V21.21.43: خصم كلي على مستوى الطلب (فوق خصومات البنود) */
+  const [discountPct, setDiscountPct] = useState(editRfq?.discountPct || 0);
 
   const supOpts = suppliers.map(s => ({ value: s.id, label: s.name + (s.phone ? " — " + s.phone : "") }));
 
@@ -48,12 +50,15 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
     return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice };
   };
 
-  const total = useMemo(() => r2(items.reduce((s, it) => {
+  const afterLine = useMemo(() => r2(items.reduce((s, it) => {
     if(it.isSection) return s;
     const qty = Number(it.qty) || 0, up = Number(it.unitPrice) || 0, sub = qty * up, dv = Number(it.discountValue) || 0;
     const disc = it.discountType === "amount" ? Math.min(Math.max(dv, 0), sub) : sub * (Math.min(Math.max(dv, 0), 100) / 100);
     return s + (sub - disc);
   }, 0)), [items]);
+  const _pct = Math.min(Math.max(Number(discountPct) || 0, 0), 100);
+  const headerDisc = r2(afterLine * (_pct / 100));
+  const total = r2(afterLine - headerDisc);
 
   const handleSave = () => {
     const sup = suppliers.find(s => String(s.id) === String(supplierId));
@@ -68,6 +73,7 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
         .map(it => it.isSection ? it : ({ ...it, description: it.modelNo || it.description || "" }))
         .filter(it => it.isSection ? String(it.title || "").trim() : (String(it.modelNo || it.description || "").trim() || Number(it.qty) > 0)),
       notes: notes.trim(),
+      discountPct: _pct,
       requestedBy: userName || "",
     };
     const v = validateRfq(payload);
@@ -111,9 +117,24 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
 
           <div><label style={lbl}>ملاحظات الطلب</label><Inp value={notes} onChange={setNotes} placeholder="شروط/مواصفات إضافية..." /></div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, padding: "12px 14px", borderRadius: 10, background: "#D9770610", border: "1px solid #D9770625" }}>
-            <span style={{ fontSize: FS, fontWeight: 700, color: T.textSec }}>الإجمالي التقديري</span>
-            <span style={{ fontSize: FS + 4, fontWeight: 800, color: "#D97706", direction: "ltr" }}>{fmt(total.toFixed(2))}</span>
+          {/* V21.21.43: خصم كلي + ملخص */}
+          <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 10, background: "#D9770610", border: "1px solid #D9770625" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: FS - 1, color: T.textSec }}>الإجمالي قبل الخصم الكلي</span>
+              <span style={{ fontSize: FS, fontWeight: 700, direction: "ltr" }}>{fmt(afterLine.toFixed(2))}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: FS - 1, color: T.textSec, display: "flex", alignItems: "center", gap: 6 }}>
+                خصم كلي
+                <input type="number" min="0" max="100" value={discountPct} onChange={e => setDiscountPct(e.target.value)} style={{ width: 70, padding: "4px 8px", borderRadius: 6, border: "1px solid " + T.brd, background: T.cardSolid, color: T.text, fontFamily: "inherit", direction: "ltr", textAlign: "left", fontSize: FS - 1 }} placeholder="0" />
+                <span style={{ fontSize: FS - 2, color: T.textMut }}>%</span>
+              </span>
+              <span style={{ fontSize: FS, fontWeight: 700, color: T.err, direction: "ltr" }}>{headerDisc > 0 ? "− " + fmt(headerDisc.toFixed(2)) : "—"}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #D9770630" }}>
+              <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>الإجمالي التقديري</span>
+              <span style={{ fontSize: FS + 4, fontWeight: 800, color: "#D97706", direction: "ltr" }}>{fmt(total.toFixed(2))}</span>
+            </div>
           </div>
         </div>
 

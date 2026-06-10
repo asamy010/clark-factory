@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { Btn } from "../ui.jsx";
+import { DocItemsTable } from "../DocItemsTable.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, ltrPhone } from "../../utils/format.js";
@@ -88,28 +89,8 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
           )}
 
           <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, margin: "14px 0 6px" }}>الأصناف ({(rfq.items || []).length})</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 1 }}>
-            <thead><tr style={{ background: T.bg }}>
-              <th style={{ textAlign: "right", padding: 8, color: T.textSec }}>الصنف</th>
-              <th style={{ padding: 8, color: T.textSec }}>الكمية</th>
-              <th style={{ padding: 8, color: T.textSec }}>الوحدة</th>
-              <th style={{ padding: 8, color: T.textSec, direction: "ltr" }}>سعر متوقع</th>
-            </tr></thead>
-            <tbody>
-              {(rfq.items || []).map((it, i) => it.isSection ? (
-                <tr key={i} style={{ borderBottom: "1px solid " + T.brd, background: "#D977060c" }}>
-                  <td colSpan={4} style={{ padding: 8, fontWeight: 800, color: "#D97706" }}>📑 {it.title || ""}</td>
-                </tr>
-              ) : (
-                <tr key={i} style={{ borderBottom: "1px solid " + T.brd }}>
-                  <td style={{ padding: 8, color: T.text }}>{it.description || it.modelNo}{it.notes ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {it.notes}</span> : ""}</td>
-                  <td style={{ padding: 8, textAlign: "center", color: T.text }}>{it.qty}</td>
-                  <td style={{ padding: 8, textAlign: "center", color: T.textMut }}>{it.unit || "—"}</td>
-                  <td style={{ padding: 8, textAlign: "left", color: T.text, direction: "ltr" }}>{Number(it.unitPrice) > 0 ? fmt(Number(it.unitPrice).toFixed(2)) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* V21.21.43: أعمدة موحّدة + توزيع الخصم الكلي */}
+          <DocItemsTable items={rfq.items} headerDiscountPct={rfq.discountPct} accent="#D97706" />
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#D9770610" }}>
             <span style={{ fontWeight: 700, color: T.textSec }}>الإجمالي التقديري</span>
