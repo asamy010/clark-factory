@@ -10,12 +10,19 @@ import { computeDashboardKpis } from "../dashboardKpis.js";
 import { makeFactoryData } from "./dataFixture.js";
 
 describe("computeDashboardKpis — الأرقام الذهبية", () => {
-  it("المبيعات: صافي 720 ورصيد عملاء 220", () => {
+  it("المبيعات: صافي 720 ورصيد عملاء 370 (شامل أوامر البيع المباشرة — V21.21.32)", () => {
     const k = computeDashboardKpis(makeFactoryData());
     expect(k.sales.total).toBe(900);
     expect(k.sales.returns).toBe(180);
     expect(k.sales.net).toBe(720);
-    expect(k.sales.balance).toBe(220);
+    /* V21.21.32: البطاقة = مجموع أرصدة العملاء (مع so1 المباشر) مش 220 */
+    expect(k.sales.balance).toBe(370);
+  });
+
+  it("V21.21.32: بطاقة الرصيد تساوي مجموع صفوف التفاصيل دائماً", () => {
+    const k = computeDashboardKpis(makeFactoryData());
+    const detailSum = k.sales.detail.reduce((a, x) => a + x.balance, 0);
+    expect(k.sales.balance).toBe(detailSum);
   });
 
   it("المشتريات: صافي 450 ومستحق للموردين 230", () => {

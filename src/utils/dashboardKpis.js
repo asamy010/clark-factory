@@ -30,7 +30,6 @@ export function computeDashboardKpis(data){
   const salesTotal = r2(s.totalSales);
   const salesReturns = r2(s.totalReturns);
   const salesNet = r2(salesTotal - salesReturns);
-  const custBalance = r2(s.totalBalance);
   const salesDetail = (d.customers || []).map(c => {
     const cs = buildCustomerSummary(c.id, d);
     const sales = r2((cs.salesNet || 0) + (cs.salesOrdersNet || 0));
@@ -38,6 +37,12 @@ export function computeDashboardKpis(data){
     const paid = r2((cs.payCash || 0) + (cs.payCheck || 0) + (cs.payOther || 0));
     return { name: c.name || "—", sales, returns, net: r2(sales - returns), paid, balance: r2(cs.balance || 0) };
   }).filter(x => x.sales || x.returns || x.paid || x.balance).sort((a, b) => b.net - a.net);
+  /* V21.21.32: بطاقة «رصيد العملاء» = مجموع أرصدة العملاء الفعلية (نفس
+     buildCustomerSummary اللي بيبني التفاصيل) — بالبناء البطاقة تساوي مجموع
+     الصفوف. قبل كده كانت من computeSalesOverviewTotals اللي ما بيحتسبش
+     أوامر البيع المباشرة ولا دفعات الخزنة اليتيمة → رقم البطاقة كان ممكن
+     يخالف مجموع التفاصيل اللي تحتها. */
+  const custBalance = r2(salesDetail.reduce((acc, x) => acc + (x.balance || 0), 0));
 
   /* ── المشتريات ── */
   const receipts = d.purchaseReceipts || [], dnotes = d.purchaseDebitNotes || [];

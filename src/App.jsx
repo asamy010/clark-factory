@@ -30,6 +30,8 @@ import { isExpectedDenial } from "./utils/firestoreScopes.js";
 /* V21.9.49: auto-run pending migrations on app boot (admin only).
    Replaces the manual "click banner" UX from V21.9.42 + V21.9.44 + V21.9.45. */
 import { runAllPendingMigrations, shouldAttemptAutoMigrations } from "./utils/autoMigrations.js";
+/* V21.21.32: مزامنة دفعات الخزنة اليتيمة للعملاء (تجسيدها كدفعات رسمية) */
+import { findOrphanCustTreasury, syncOrphanCustTreasuryMutator } from "./utils/treasurySync.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
@@ -969,6 +971,47 @@ export default function App(){
         setAutoMigrationProgress(null);
       }
     }, 3000);
+    return ()=>clearTimeout(timeoutId);
+  },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
+  /* ── V21.21.32: مزامنة تلقائية لدفعات الخزنة اليتيمة للعملاء ──
+     حركة وارد متسجلة بالخزنة باسم عميل من غير دفعة رسمية مقابلة كانت
+     بتتحسب في الكشف والملخص (V21.21.30) لكن مش بتظهر في بوابة العميل
+     (السيرفر بيقرأ custPayments بس). بنجسّدها كدفعة رسمية مرة واحدة:
+     • id حتمي ("tsync-"+txId — نمط V21.9.249) → جهازان متزامنان ينتجان
+       نفس الـ id → دمج الـ split collection يستبدل بدل ما يكرّر.
+     • idempotent عبر treasuryTxId — وصفرية الأثر على الأرصدة (مضمونة
+       باختبار treasurySync.test.js «الضمانة الذهبية»).
+     • Admin فقط + مرة لكل جلسة + بعد استقرار التطبيق (فلسفة V21.9.49). */
+  const custTreasurySyncRanRef = useRef(false);
+  useEffect(()=>{
+    if(custTreasurySyncRanRef.current) return;
+    if(!user||!configDoc) return;
+    if(!splitLoaded||!partitionedLoaded) return;
+    if(!isOnline) return;
+    let role = "viewer";
+    if(configDoc.users && configDoc.users[user.uid]){
+      const r = configDoc.users[user.uid];
+      role = typeof r === "string" ? r : (r?.role || "viewer");
+    }
+    if(role!=="admin"){ custTreasurySyncRanRef.current = true; return; }
+    const _treasury = splitDataRef.current?.treasury || [];
+    const _custPays = splitDataRef.current?.custPayments || [];
+    const orphans = findOrphanCustTreasury(_treasury, _custPays);
+    custTreasurySyncRanRef.current = true;
+    if(orphans.length === 0) return;
+    /* استقرار 5 ثواني — بعد نافذة الـ auto-migrations (3 ث) */
+    const timeoutId = setTimeout(()=>{
+      try{
+        let res = null;
+        upConfig(d => { res = syncOrphanCustTreasuryMutator(d); });
+        if(res && res.created > 0){
+          console.warn("[V21.21.32 cust-treasury-sync] materialized", res.created, "orphan payment(s), total", res.totalAmount);
+          showToast("🔁 تمت مزامنة "+res.created+" دفعة خزنة لعملاء — هتظهر دلوقتي في سجل الدفعات وبوابة العميل");
+        }
+      }catch(e){
+        console.warn("[V21.21.32 cust-treasury-sync] failed:", e?.message||e);
+      }
+    }, 5000);
     return ()=>clearTimeout(timeoutId);
   },[user,configDoc,splitLoaded,partitionedLoaded,isOnline]);
   /* V21.9.254: Due-checks alerts generator. Materializes side-panel
