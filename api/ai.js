@@ -120,20 +120,39 @@ export default async function handler(req, res) {
        on the most sensitive use cases). Otherwise allow the client's. */
     const system = process.env.AI_SYSTEM_PROMPT || clientSystemStr;
 
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system,
-        messages: messages || []
-      })
-    });
+    /* V21.21.28 (protocol §10): external fetch MUST carry an explicit
+       timeout shorter than the Vercel function-kill window. Without it,
+       a hanging upstream means Vercel kills the function mid-flight and
+       the client gets an opaque 504 with no Arabic error. 50s leaves
+       room for long Claude responses while staying under the 60s pro
+       limit; on abort we return a clear 504 ourselves. */
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 50_000);
+    let r;
+    try {
+      r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system,
+          messages: messages || []
+        }),
+        signal: ctrl.signal
+      });
+    } catch (e) {
+      if (e.name === "AbortError") {
+        return res.status(504).json({ error: { message: "انتهت مهلة الاتصال بخدمة الذكاء الاصطناعي — حاول تاني" } });
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const data = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: { message: data.error?.message || "API error: " + r.status } });
     res.status(200).json(data);
