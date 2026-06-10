@@ -25,6 +25,15 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.21.36",
+    date: "2026-06-10",
+    types: ["maintenance"],
+    title: "🧹 تنظيف الحزم — إزالة حزمتين ميتتين (مرحلة النظافة 2.2)",
+    changes: [
+      { type: "maintenance", text: "🧹 أُزيلت حزمتا @babel/core و@babel/preset-react من التبعيات — لم تكونا مستخدمتين في أي مكان (أداة البناء Vite ليها نسختها الداخلية). و@babel/parser اتنقلت لتبعيات التطوير (مستخدمة كأداة فحص صيغة وقت الجلسات فقط). zod اتأكد إنها مستخدمة فعلاً (مخططات التحقق في src/schemas) فبقيت — تصحيح لنتيجة مراجعة سابقة قالت إنها ميتة." },
+    ],
+  },
+  {
     version: "V21.21.35",
     date: "2026-06-10",
     types: ["architectural", "fix"],
