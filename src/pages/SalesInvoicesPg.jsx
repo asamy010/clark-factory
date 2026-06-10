@@ -8,6 +8,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel, BlockingOverlay } from "../components/ui.jsx";
+import { DocItemsTable } from "../components/DocItemsTable.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
@@ -575,33 +576,9 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         </div>
       )}
 
-      {/* Items table */}
-      <div style={{border:"1px solid "+T.brd, borderRadius:8, overflow:"hidden", marginBottom:14}}>
-        <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1}}>
-          <thead>
-            <tr style={{background:T.accent+"08"}}>
-              <th style={{padding:"8px 10px", textAlign:"right", color:T.textSec, fontWeight:800, fontSize:FS-2, borderBottom:"2px solid "+T.brd}}>الصنف</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:800, fontSize:FS-2, borderBottom:"2px solid "+T.brd, width:80}}>الكمية</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:800, fontSize:FS-2, borderBottom:"2px solid "+T.brd, width:100}}>السعر</th>
-              <th style={{padding:"8px 10px", textAlign:"center", color:T.textSec, fontWeight:800, fontSize:FS-2, borderBottom:"2px solid "+T.brd, width:120}}>الإجمالي</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(invoice.items||[]).map((it,i) => it.isSection ? <tr key={i} style={{borderTop:"1px solid "+T.brd, background:T.accent+"0c"}}>
-              <td colSpan={4} style={{padding:"8px 10px", fontWeight:800, color:T.accent}}>📑 {it.title||""}</td>
-            </tr> : <tr key={i} style={{borderTop:"1px solid "+T.brd}}>
-              <td style={{padding:"8px 10px"}}>
-                <div style={{fontWeight:700, color:T.text}}>{invoice.subtype==="service" ? (it.description||"—") : (isPurchase ? it.name : (it.modelNo||"—"))}{it.unit ? <span style={{fontSize:FS-3, color:T.textMut}}> / {it.unit}</span> : null}</div>
-                {invoice.subtype!=="service" && !isPurchase && it.modelDesc && <div style={{fontSize:FS-3, color:T.textMut}}>{it.modelDesc}</div>}
-                {invoice.subtype==="service" && it.accountName && <div style={{fontSize:FS-3, color:T.textMut}}>📊 {it.accountName}</div>}
-              </td>
-              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:600}}>{fmt(it.qty)}</td>
-              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", color:T.textSec}}>{fmt(Number(it.unitPrice||0).toFixed(2))}</td>
-              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:T.text}}>{fmt(Number(it.lineTotal||0).toFixed(2))}</td>
-            </tr>)}
-          </tbody>
-        </table>
-      </div>
+      {/* Items table — V21.21.42: أعمدة موحّدة + توزيع الخصم الكلي على الصفوف.
+          للمسودّة بنمرّر الخصم الحيّ من المحرّر تحت فالتوزيع بيتحدّث وانت بتكتب. */}
+      <DocItemsTable items={invoice.items} headerDiscountAmount={isDraft ? computedDiscount : (Number(invoice.discount) || 0)} accent={T.accent} />
 
       {/* Totals */}
       <div style={{display:"flex", justifyContent:"flex-end", marginBottom:14}}>

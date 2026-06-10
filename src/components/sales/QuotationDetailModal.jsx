@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { Btn } from "../ui.jsx";
+import { DocItemsTable } from "../DocItemsTable.jsx";
 import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
@@ -141,35 +142,8 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
             <div><span style={{ color: T.textMut }}>صالح حتى: </span><span style={{ color: ds === "expired" ? T.err : T.text }}>{quote.validUntil || "—"}</span></div>
           </div>
 
-          {/* البنود */}
-          <div style={{ border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
-              <thead><tr style={{ background: T.bg }}>
-                <th style={{ textAlign: "right", padding: "8px 10px" }}>البند</th>
-                <th style={{ textAlign: "center", padding: "8px 6px" }}>الوحدة</th>
-                <th style={{ textAlign: "center", padding: "8px 6px" }}>كمية</th>
-                <th style={{ textAlign: "left", padding: "8px 10px" }}>السعر</th>
-                <th style={{ textAlign: "center", padding: "8px 6px" }}>خصم %</th>
-                <th style={{ textAlign: "left", padding: "8px 10px" }}>الإجمالي</th>
-              </tr></thead>
-              <tbody>
-                {(quote.items || []).map((it, i) => it.isSection ? (
-                  <tr key={i} style={{ borderTop: "1px solid " + T.brd, background: "#0EA5E90c" }}>
-                    <td colSpan={6} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
-                  </tr>
-                ) : (
-                  <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
-                    <td style={{ padding: "8px 10px", color: T.text }}>{(it.modelNo || it.description || "—")}</td>
-                    <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.unit || "—"}</td>
-                    <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.qty}</td>
-                    <td style={{ textAlign: "left", padding: "8px 10px", color: T.textSec }}>{fmt(it.unitPrice)}</td>
-                    <td style={{ textAlign: "center", padding: "8px 6px", color: it.discountValue ? T.err : T.textMut }}>{it.discountValue ? (it.discountType === "amount" ? "−" + fmt(it.discountValue) : it.discountValue + "%") : "—"}</td>
-                    <td style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: T.text }}>{fmt(it.lineTotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* البنود — V21.21.42: أعمدة موحّدة + توزيع الخصم الكلي */}
+          <DocItemsTable items={quote.items} headerDiscountPct={quote.discountPct} accent="#0EA5E9" />
 
           {/* الإجماليات */}
           <div style={{ background: T.bg, borderRadius: 10, padding: 12, border: "1px solid " + T.brd, marginBottom: 12 }}>

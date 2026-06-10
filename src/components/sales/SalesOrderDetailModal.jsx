@@ -12,6 +12,7 @@ import { fmt } from "../../utils/format.js";
 import { openSalesDoc } from "../../utils/sales/navDoc.js";
 import { printPage } from "../../utils/print.js";
 import { buildSalesDocHTML } from "../../utils/sales/docPrint.js";
+import { DocItemsTable } from "../DocItemsTable.jsx";
 import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 
 const STATUS_META = {
@@ -61,31 +62,8 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
             <div><span style={{ color: T.textMut }}>المخزون: </span><span style={{ color: so.stockDeducted ? "#10B981" : T.textMut }}>{so.stockDeducted ? "متخصم ✓" : "غير متخصم"}</span></div>
           </div>
 
-          {/* البنود */}
-          <div style={{ border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 2 }}>
-              <thead><tr style={{ background: T.bg }}>
-                <th style={{ textAlign: "right", padding: "8px 10px" }}>البند</th>
-                <th style={{ textAlign: "center", padding: "8px 6px" }}>كمية</th>
-                <th style={{ textAlign: "left", padding: "8px 10px" }}>السعر</th>
-                <th style={{ textAlign: "left", padding: "8px 10px" }}>الإجمالي</th>
-              </tr></thead>
-              <tbody>
-                {(so.items || []).map((it, i) => it.isSection ? (
-                  <tr key={i} style={{ borderTop: "1px solid " + T.brd, background: "#0EA5E90c" }}>
-                    <td colSpan={4} style={{ padding: "8px 10px", fontWeight: 800, color: "#0EA5E9" }}>📑 {it.title || ""}</td>
-                  </tr>
-                ) : (
-                  <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
-                    <td style={{ padding: "8px 10px", color: T.text }}>{it.modelNo || it.description || "—"}{it.unit ? <span style={{ color: T.textMut, fontSize: FS - 4 }}> / {it.unit}</span> : null}{it.sourceType === "inventoryItem" ? <span style={{ color: "#0EA5E9", fontSize: FS - 4 }}> 📦</span> : null}</td>
-                    <td style={{ textAlign: "center", padding: "8px 6px", color: T.textSec }}>{it.qty}</td>
-                    <td style={{ textAlign: "left", padding: "8px 10px", color: T.textSec }}>{fmt(it.unitPrice)}</td>
-                    <td style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: T.text }}>{fmt(it.lineTotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* البنود — V21.21.42: أعمدة موحّدة (كود/اسم/وحدة/كمية/سعر/قبل الخصم/الخصم/بعد الخصم) */}
+          <DocItemsTable items={so.items} headerDiscountPct={so.discountPct} accent="#0EA5E9" />
 
           <div style={{ background: T.bg, borderRadius: 10, padding: 12, border: "1px solid " + T.brd, marginBottom: 12 }}>
             <Row label="الإجمالي قبل الخصم" value={fmt(so.subtotal)} />

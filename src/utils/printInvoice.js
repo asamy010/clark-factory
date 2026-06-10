@@ -8,6 +8,7 @@
 import { openPrintWindow } from "./print.js";
 import { PRINT_CSS } from "../constants/index.js";
 import { ltrPhone } from "./format.js";
+import { docColumnsHTML } from "./docColumns.js";
 
 const fmt = n => Math.round(Number(n)||0).toLocaleString("en-US");
 const r2  = n => Math.round((Number(n)||0)*100)/100;
@@ -24,18 +25,7 @@ export function printInvoice(invoice, party, factoryInfo, type){
   const accentColor = isPurchase ? "#F59E0B" : "#10B981";
   const partyLabel = isPurchase ? "المورد" : "العميل";
 
-  /* Items table rows */
-  const rows = (invoice.items||[]).map(it => {
-    const name = isPurchase ? (it.name||"—") : (it.modelNo||"—");
-    const desc = isPurchase ? "" : (it.modelDesc||"");
-    return `<tr>
-      <td><div style="font-weight:700">${_esc(name)}</div>${desc?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(desc)}</div>`:""}</td>
-      <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
-      <td class="center" style="direction:ltr;color:#475569">${fmt2(it.unitPrice)}</td>
-      <td class="center" style="direction:ltr;font-weight:700">${fmt2(it.lineTotal)}</td>
-    </tr>`;
-  }).join("");
-
+  /* V21.21.42: البنود اتنقلت لجدول الأعمدة الموحّد (docColumnsHTML) تحت. */
   const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
   const factoryAddr = (factoryInfo && factoryInfo.address) || "";
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
@@ -108,36 +98,7 @@ ${PRINT_CSS}
 </div>
 
 <h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">البنود</h3>
-<table>
-  <thead>
-    <tr>
-      <th style="width:50%">الصنف</th>
-      <th style="width:15%" class="center">الكمية</th>
-      <th style="width:15%" class="center">سعر الوحدة</th>
-      <th style="width:20%" class="center">الإجمالي</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rows}
-  </tbody>
-</table>
-
-<div class="inv-totals">
-  <div class="box">
-    <div class="row">
-      <span>الإجمالي قبل الخصم</span>
-      <span style="direction:ltr;font-weight:700">${fmt2(invoice.subtotal)}</span>
-    </div>
-    ${(invoice.discount||0) > 0 ? `<div class="row disc">
-      <span>الخصم${invoice.discountType==="pct" && invoice.discountValue ? ` (${Number(invoice.discountValue).toFixed(1)}%)` : invoice.discountPct ? ` (${invoice.discountPct.toFixed(1)}%)` : ""}</span>
-      <span style="direction:ltr;font-weight:700">- ${fmt2(invoice.discount)}</span>
-    </div>` : ""}
-    <div class="row total">
-      <span>الإجمالي المستحق</span>
-      <span style="direction:ltr">${fmt2(invoice.total)} ج.م</span>
-    </div>
-  </div>
-</div>
+${docColumnsHTML(invoice.items, { headerDiscountAmount: Number(invoice.discount) || 0, accent: accentColor })}
 
 ${invoice.notes ? `<h3 style="margin-top:18px">ملاحظات</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(invoice.notes)}</p>` : ""}
 
