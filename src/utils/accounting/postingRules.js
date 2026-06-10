@@ -27,25 +27,10 @@
 import { getAccountByCode } from "./coa.js";
 import { DEFAULT_POSTING_RULES, DEFAULT_CATEGORY_MAP } from "./coaDefaults.js";
 import { resolveTreasuryAccountByName, FALLBACK_CASH_CODE, FALLBACK_BANK_CODE } from "./treasuryMapping.js";
-import { calcOrder } from "../orders.js";
-
-/* V21.9.87 (Accounting audit Bug #2 + #4): local copy of resolveUnitCost
-   to avoid the circular import autoPost.js → postingRules.js → autoPost.js.
-   Keep this LOGIC IDENTICAL to autoPost.js:resolveUnitCost. If you change
-   one, change the other. */
-function _resolveUnitCost(order, config){
-  if(!order) return 0;
-  const source = (config?.accountingSettings?.cogsCostSource) || "auto";
-  const manual = Number(order.costPrice) || 0;
-  let computed = 0;
-  try {
-    const calc = calcOrder(order);
-    computed = Number(calc?.costPer) || 0;
-  } catch(e){ computed = 0; }
-  if(source === "manual") return manual;
-  if(source === "computed") return computed;
-  return manual > 0 ? manual : computed;
-}
+/* V21.21.38: كانت هنا نسخة محلية _resolveUnitCost («لتجنب الدائرية مع
+   autoPost — لو غيّرت واحدة غيّر التانية» V21.9.87). النسختان اتوحّدتا في
+   موديول unitCost.js المستقل — الدائرة اتكسرت من غير نسخ يدوي. */
+import { resolveUnitCost as _resolveUnitCost } from "./unitCost.js";
 
 /* Resolve rules with fallback to defaults. The user may override individual
    account codes — anything missing falls back to defaults. */

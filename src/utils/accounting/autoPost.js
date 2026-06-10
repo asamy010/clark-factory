@@ -36,7 +36,7 @@ import {
   buildDebitNotePostedEntry,
 } from "./postingRules.js";
 import { isDateLocked, getLockReason } from "./periodLock.js";
-import { calcOrder } from "../orders.js";
+import { resolveUnitCost } from "./unitCost.js";
 
 /* ── module-level upConfig registry ──
    App.jsx registers its upConfig once on mount. autoPost calls it to
@@ -122,35 +122,9 @@ function sanitizePayload(args){
   }
 }
 
-/* V18.40 — Resolve the unit cost for an order:
-   1. If order.costPrice is set explicitly → use it (manual override)
-   2. Else use calcOrder(order).costPer (computed from materials + accessories + workshop)
-   3. Else 0 (caller will skip COGS posting)
-
-   The user can override this default via accountingSettings.cogsCostSource:
-     - "manual"   : only use order.costPrice (skip if 0)
-     - "computed" : only use calcOrder().costPer (skip if 0)
-     - "auto"     : prefer manual, fallback to computed (default) */
-function resolveUnitCost(order, config){
-  if(!order) return 0;
-  const source = (config?.accountingSettings?.cogsCostSource) || "auto";
-  const manual = Number(order.costPrice) || 0;
-  let computed = 0;
-  try {
-    const calc = calcOrder(order);
-    computed = Number(calc?.costPer) || 0;
-  } catch(e){
-    computed = 0;
-  }
-  if(source === "manual") return manual;
-  if(source === "computed") return computed;
-  /* auto */
-  return manual > 0 ? manual : computed;
-}
-
-/* V21.9.87 (Accounting audit Bug #2 + #4): postingRules.js has a private
-   copy of this function (_resolveUnitCost) to avoid the circular import
-   autoPost ↔ postingRules. Keep both in sync. */
+/* V18.40 → V21.21.38 — تكلفة الوحدة اتوحّدت في موديول unitCost.js المشترك
+   (كانت منسوخة هنا وفي postingRules.js مع تعليق «خلّيهم متزامنين يدوياً»
+   — V21.9.87). راجع unitCost.js للأولوية manual/computed/auto. */
 
 function isCogsEnabled(config){
   /* COGS posting is opt-in. Defaults to ON if not set, since it's the

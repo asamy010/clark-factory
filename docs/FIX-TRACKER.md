@@ -1,15 +1,15 @@
 # CLARK — جدول متابعة خطة الإصلاح (FIX TRACKER)
 
 > يتحدث هذا الملف مع **كل تعديل** — المرجع: `docs/ROADMAP-PROFESSIONAL.md`.
-> آخر تحديث: **2026-06-10 — V21.21.35**
+> آخر تحديث: **2026-06-10 — V21.21.38**
 
 ## الحالة العامة
 
 | المرحلة | الوصف | الحالة |
 |---|---|---|
 | 0 — شبكة الأمان | CI + staging + backups | 🟡 جزئي (CI ✅) |
-| 1 — تحصين المال | tests + rules validation + reconciliation | 🟡 بدأت (tests الأساسية ✅) |
-| 2 — النظافة | lint + deps + bundle | ⬜ لم تبدأ |
+| 1 — تحصين المال | tests + rules validation + reconciliation | ✅ **اكتملت V21.21.35** (الطبقات الثلاثة) |
+| 2 — النظافة | lint + deps + bundle | 🟡 جارية (deps ✅ bundle ✅ — lint وxlsx وSentry باقيين) |
 | 3 — الهيكلة | تفكيك App.jsx والصفحات | ⬜ لم تبدأ |
 | 4 — النضج التشغيلي | E2E + runbook | ⬜ لم تبدأ |
 
@@ -51,9 +51,9 @@
 | 9 | ~~Reconciliation cron يومي + تنبيه واتساب~~ ✅ **V21.21.34** — ٦ فحوصات يومية + سجل تاريخي + زر يدوي | 1.3 | — |
 | 10 | بيئة staging (Firebase project ثانٍ + Vercel preview) | 0.1 | ✅ إنشاء المشروع |
 | 11 | Backups تلقائية (scheduled exports + PITR) | 0.3 | ✅ تفعيل Blaze |
-| 12 | ESLint (errors فقط) + إزالة @babel/zod + بديل xlsx | 2 | لا |
-| 13 | الـ changelog خارج الـ bundle (lazy JSON — يوفر ~400KB) | 2.4 | لا |
-| 14 | توحيد دوال التنسيق المالي client/server + حل ازدواجية `_resolveUnitCost` | 2.3 | لا |
+| 12 | ESLint (errors فقط) لسه · ~~إزالة @babel~~ ✅ **V21.21.36** (zod طلعت مستخدمة فعلاً — بقيت) · بديل xlsx مؤجل | 2 | لا |
+| 13 | ~~الـ changelog خارج الـ bundle~~ ✅ **V21.21.37** — chunk المودال نزل من 1.27MB لـ 5KB (-99.6%)، السجل بيتحمل lazy عند الفتح | 2.4 | — |
+| 14 | ~~ازدواجية `_resolveUnitCost`~~ ✅ **V21.21.38** (موديول unitCost.js مشترك) · توحيد دوال التنسيق client/server لسه | 2.3 | لا |
 | 15 | Sentry لمراقبة الأخطاء | 2.5 | ✅ إنشاء حساب |
 | 16 | تفكيك App.jsx → providers ثم الصفحات العملاقة | 3 | لا |
 
