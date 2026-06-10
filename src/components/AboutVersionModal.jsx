@@ -25,6 +25,17 @@ import { FS } from "../constants/index.js";
           maintenance (صيانة), architectural (تغيير معماري) */
 const CHANGELOG = [
   {
+    version: "V21.21.35",
+    date: "2026-06-10",
+    types: ["architectural", "fix"],
+    title: "🔒 اختبار قواعد الحماية بالمحاكي + التحقق من شكل البيانات المالية",
+    changes: [
+      { type: "architectural", text: "🔒 أول شبكة اختبارات لقواعد حماية Firestore (١٧ اختبار) بتجري ضد محاكي محلي — في الجهاز وفي الفحص التلقائي (CI) — من غير أي لمس للإنتاج. ده بيقفل جذرياً السبب اللي خلّى تعديل قواعد زمان يكسر كل الرفع في الإنتاج (حادثة V21.9.69): القاعدة كانت بتعدّي فحص الصيغة لكن تفشل وقت التنفيذ ومفيش مكان نجربها فيه." },
+      { type: "fix", text: "🛡️ أُضيف تحقق من شكل مستندات الأيام المالية في القواعد (treasuryDays · accountingDays · custPaymentsDays · supplierPaymentsDays · checksDays · salesInvoicesDays · purchaseInvoicesDays): الكتابة لازم يكون فيها مصفوفة entries صحيحة — يمنع كتابة مستند مشوّه بالكامل (خطأ كود أو عبث) يفسد التقارير. (الحذف وتنظيف اليوم الفاضي مسموحان كالمعتاد.)" },
+      { type: "fix", text: "📊 إضافة دور payroll_accountant بيقدر يقرأ دفعات العملاء لكن مايكتبهاش — قرار مقصود بعد مراجعة (مفيش flow مرتبات بيكتب دفعة عميل)، متغطّى باختبار." },
+    ],
+  },
+  {
     version: "V21.21.34",
     date: "2026-06-10",
     types: ["feature", "architectural"],

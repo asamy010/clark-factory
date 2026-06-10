@@ -95,6 +95,19 @@ service cloud.firestore {
     function isHRWriter()     { return inScope('isHRWriter', ['admin','manager','payroll_accountant']); }
     function isAnyUser()      { return inScope('isAnyUser', ['admin','manager','sales_accountant','purchase_accountant','warehouse_keeper','payroll_accountant','payroll_verifier','viewer']); }
 
+    /* V21.21.35 — التحقق من شكل مستند اليوم المالي (defense-in-depth).
+       حدود CEL الواقعية: مفيش loops في القواعد، فمستحيل نفحص كل عنصر جوه
+       entries[] (مئات العناصر). اللي بنضمنه هنا: المستند نفسه بالشكل الصحيح
+       (entries مصفوفة) — يمنع كتابة doc مشوّه بالكامل (خطأ كود أو عبث client).
+       فحص العناصر نفسها مسؤولية: validateLines (client) + المطابقة اليومية
+       (V21.21.34 server). ⚠️ ممنوع نطلب حقل date هنا — الـ split sync بيكتب
+       {entries, count, updatedAt} من غير date (شكل الكتابة الفعلي V21.9.67)،
+       وطلبه كان هيكسر كل حفظة. الحذف مسموح بدون validation (تنظيف اليوم
+       الفاضي — tx.delete في syncSplitCollection). */
+    function validDayDoc() {
+      return request.resource.data.entries is list;
+    }
+
     /* V19.64: detect sensitive-field changes on factory/config.
        Only admin can change role assignments / permissions / custom roles. */
     function affectsSensitiveFields() {
@@ -144,8 +157,9 @@ service cloud.firestore {
        (was isAnyUser — viewers shouldn't see ledger entries)
        ────────────────────────────────────────────────────────── */
     match /accountingDays/{day} {
-      allow read:  if isAnyAccountant();
-      allow write: if isAnyAccountant();
+      allow read:   if isAnyAccountant();
+      allow create, update: if isAnyAccountant() && validDayDoc();
+      allow delete: if isAnyAccountant();
     }
 
     /* ──────────────────────────────────────────────────────────
@@ -153,8 +167,9 @@ service cloud.firestore {
        حركات الخزنة اليومية — V19.64: read restricted to purchase scope+
        ────────────────────────────────────────────────────────── */
     match /treasuryDays/{day} {
-      allow read:  if isPurchaseScope();
-      allow write: if isPurchaseScope();
+      allow read:   if isPurchaseScope();
+      allow create, update: if isPurchaseScope() && validDayDoc();
+      allow delete: if isPurchaseScope();
     }
 
     /* ──────────────────────────────────────────────────────────
@@ -229,12 +244,18 @@ service cloud.firestore {
        ────────────────────────────────────────────────────────── */
     match /custPaymentsDays/{day} {
       allow read:  if isAnyAccountant();
-      allow write: if hasRole(['admin','manager','sales_accountant','purchase_accountant']);
+      /* V21.21.35 ملاحظة مقصودة: القائمة هنا أضيق من isAnyAccountant() عمداً —
+         payroll_accountant بيقرأ دفعات العملاء (ضمن isAnyAccountant) لكن
+         ما يكتبهاش (مفيش flow مرتبات بيكتب دفعة عميل). التوحيد المقترح في
+         مراجعة 2026-06-10 كان هيوسّع الكتابة بدون داعٍ — مرفوض. */
+      allow create, update: if hasRole(['admin','manager','sales_accountant','purchase_accountant']) && validDayDoc();
+      allow delete: if hasRole(['admin','manager','sales_accountant','purchase_accountant']);
     }
 
     match /supplierPaymentsDays/{day} {
-      allow read:  if isPurchaseScope();
-      allow write: if isPurchaseScope();
+      allow read:   if isPurchaseScope();
+      allow create, update: if isPurchaseScope() && validDayDoc();
+      allow delete: if isPurchaseScope();
     }
 
     match /wsPaymentsDays/{day} {
@@ -243,16 +264,18 @@ service cloud.firestore {
     }
 
     match /checksDays/{day} {
-      allow read:  if isAnyAccountant();
-      allow write: if isPurchaseScope();
+      allow read:   if isAnyAccountant();
+      allow create, update: if isPurchaseScope() && validDayDoc();
+      allow delete: if isPurchaseScope();
     }
 
     /* ──────────────────────────────────────────────────────────
        V19.50 — invoices (V19.64: read scoped to relevant roles)
        ────────────────────────────────────────────────────────── */
     match /salesInvoicesDays/{day} {
-      allow read:  if isSalesScope();
-      allow write: if isSalesScope();
+      allow read:   if isSalesScope();
+      allow create, update: if isSalesScope() && validDayDoc();
+      allow delete: if isSalesScope();
     }
 
     /* V21.10.0 — Sales Quotations (عروض الأسعار) daily split */
@@ -274,8 +297,9 @@ service cloud.firestore {
     }
 
     match /purchaseInvoicesDays/{day} {
-      allow read:  if isPurchaseScope();
-      allow write: if isPurchaseScope();
+      allow read:   if isPurchaseScope();
+      allow create, update: if isPurchaseScope() && validDayDoc();
+      allow delete: if isPurchaseScope();
     }
 
     match /purchaseOrdersDays/{day} {

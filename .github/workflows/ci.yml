@@ -32,3 +32,27 @@ jobs:
 
       - name: Run financial test-suite
         run: npm test
+
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # V21.9.69 lesson: Firestore rules had no test env, so a syntax-valid
+      # rule broke every write in production. This job runs the rules test
+      # suite against the local emulator on every push — no production touch.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Firestore rules test-suite (emulator)
+        run: npm run test:rules
