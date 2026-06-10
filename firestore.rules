@@ -116,6 +116,21 @@ service cloud.firestore {
              .hasAny(['users','usersList','permissions','customRoles']);
     }
 
+    /* V21.21.40 — حزام وحمّالات لمنع تصعيد الصلاحيات (تحقيق FIX-TRACKER هـ):
+       اختبار المحاكي أظهر إن guard الـ diff() فوق ممكن يعدّي تعديل manager
+       على users/permissions (سلوك متضارب مع التحليل الساكن — مرجّح quirk في
+       تقييم MapDiff بالمحاكي، لكن مفيش يقين للإنتاج). الفحص ده مستقل تماماً
+       عن diff(): مقارنة قيمة الحقول الأربعة الحساسة قبل وبعد مباشرةً —
+       لو أي واحد اتغيّر، كتابة الـ manager تترفض مهما كان سلوك diff().
+       ملاحظة: إخفاء شاشة الإعدادات عن الـ manager في الـ UI ليس حدوداً
+       أمنية — صاحب حساب manager يقدر يكتب مباشرة بالـ SDK من المتصفح. */
+    function sensitiveFieldsUnchanged() {
+      return request.resource.data.get('users', {}) == resource.data.get('users', {})
+          && request.resource.data.get('usersList', []) == resource.data.get('usersList', [])
+          && request.resource.data.get('permissions', {}) == resource.data.get('permissions', {})
+          && request.resource.data.get('customRoles', {}) == resource.data.get('customRoles', {});
+    }
+
     /* ──────────────────────────────────────────────────────────
        V19.64 SPLIT: factory/config (sensitive — needs sub-field guard)
        vs factory/{others} (sales/tasks — manager+ writes any field)
@@ -124,8 +139,9 @@ service cloud.firestore {
       allow read:   if isAnyUser();
       /* CREATE: only admin (initial setup or rebuild) */
       allow create: if isAdmin();
-      /* UPDATE: admin always; manager only if NOT touching sensitive fields */
-      allow update: if isAdmin() || (isManagerPlus() && !affectsSensitiveFields());
+      /* UPDATE: admin always; manager only if NOT touching sensitive fields
+         (V21.21.40: الفحصان معاً — diff-based + value-equality) */
+      allow update: if isAdmin() || (isManagerPlus() && !affectsSensitiveFields() && sensitiveFieldsUnchanged());
       allow delete: if isAdmin();
     }
 
@@ -137,9 +153,18 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* V21.21.40 ROOT CAUSE — ثغرة تصعيد صلاحيات حقيقية (FIX-TRACKER هـ):
+       الـ wildcard ده بيطابق `factory/config` و`factory/roleScopes` كمان،
+       وقواعد Firestore بتمنح الإذن لو أي match سمح (OR، مش precedence).
+       فكان أي manager يكتب على config/roleScopes عبر المسار ده — متخطّياً
+       حارس الحقول الحساسة في `match /factory/config` بالكامل (يقدر يرقّي
+       نفسه admin أو يعيد تعريف الأدوار). المحاكي كان محقّاً؛ المراجعة
+       الساكنة فاتها تداخل الـ wildcard. الإصلاح: استثناء المستندين
+       الحسّاسين هنا فيُحكَما بقاعدتيهما الخاصتين فقط (config: حارس الحقول
+       الحساسة · roleScopes: admin فقط). */
     match /factory/{docId} {
       allow read:  if isAnyUser();
-      allow write: if isManagerPlus();
+      allow write: if isManagerPlus() && docId != 'config' && docId != 'roleScopes';
     }
 
     /* ──────────────────────────────────────────────────────────

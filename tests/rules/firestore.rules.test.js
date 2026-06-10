@@ -152,8 +152,15 @@ describe("reconciliationDays — قراءة إدارية، كتابة سيرفر
   });
 });
 
-/* ───────── منع التصعيد الذاتي (regression للمراجعة الأمنية) ───────── */
-describe("factory/config — حماية الحقول الحساسة (V19.64)", () => {
+/* ───────── منع التصعيد الذاتي (تحقيق FIX-TRACKER هـ — اتقفل V21.21.40) ─────────
+   خلفية: اختبار V21.21.35 التشخيصي أظهر إن guard الـ diff() لوحده عدّى
+   تعديل manager على users في المحاكي (سلوك متضارب مع التحليل الساكن).
+   ملحوظة منهجية: نتيجة «admin مرفوض» في التشخيص القديم طلعت عيباً في
+   التشخيص نفسه — أول اختبار كان بيستبدل خريطة users فبيمسح دور الأدمن
+   لباقي الاختبارات (تلوث بيانات بين الاختبارات).
+   الحل: sensitiveFieldsUnchanged() — مقارنة قيمة مباشرة مستقلة عن diff().
+   الاختبارات دي بتثبت إن التصعيد مرفوض مهما كان سلوك diff(). */
+describe("factory/config — حماية الحقول الحساسة (V19.64 + تحصين V21.21.40)", () => {
   it("manager يعدّل الإعدادات العادية (factoryName)", async () => {
     await assertSucceeds(db("mgrU").doc("factory/config").update({ factoryName: "اسم جديد" }));
   });
@@ -162,18 +169,29 @@ describe("factory/config — حماية الحقول الحساسة (V19.64)", (
     await assertFails(db("viewerU").doc("factory/config").update({ factoryName: "x" }));
   });
 
-  /* ⚠️ V21.21.35 — قيد تحقيق (مش ضمن هدف الموجة):
-     الاختبار التشخيصي على المحاكي أظهر سلوكاً معكوساً وغير متوقع لقاعدة
-     factory/config update (affectsSensitiveFields):
-       manager→users     : مسموح  (المفروض مرفوض)
-       manager→permissions: مسموح  (المفروض مرفوض)
-       admin→users       : مرفوض  (admin المفروض مسموح دايماً)
-     المراجعة الأمنية الساكنة (2026-06-10) خلصت إن القاعدة تمنع التصعيد.
-     التضارب يرجّح فرقاً في تقييم diff() بين المحاكي والـ SDK/الإنتاج،
-     لكنه يحتمل ثغرة حقيقية. القرار (بروتوكول §0.1): ممنوع تعديل قاعدة
-     صلاحيات بناءً على إشارة متضاربة وسط موجة أخرى — يلزم تحقيق منفصل
-     يتحقق على الإنتاج بمحاولة آمنة قبل أي تغيير. مسجّل في FIX-TRACKER. */
-  it.skip("[تحقيق] manager ممنوع يلمس users — سلوك المحاكي متضارب مع تحليل القاعدة", async () => {
+  it("V21.21.40: manager ممنوع يرقّي نفسه عبر users — حتى لو diff() اتخدع", async () => {
     await assertFails(db("mgrU").doc("factory/config").update({ users: { mgrU: "admin" } }));
+  });
+
+  it("V21.21.40: manager ممنوع يلمس permissions أو customRoles أو usersList", async () => {
+    await assertFails(db("mgrU").doc("factory/config").update({ permissions: { hack: 1 } }));
+    await assertFails(db("mgrU").doc("factory/config").update({ customRoles: { x: {} } }));
+    await assertFails(db("mgrU").doc("factory/config").update({ usersList: [{ email: "x@x", role: "admin" }] }));
+  });
+
+  it("V21.21.40: manager ممنوع يكتب factory/roleScopes (إعادة تعريف الأدوار = تصعيد)", async () => {
+    await assertFails(db("mgrU").doc("factory/roleScopes").set({ isAdmin: ["admin", "manager"] }));
+  });
+
+  it("admin يقدر يضيف مستخدماً (الصلاحية الكاملة محفوظة)", async () => {
+    /* بنبعت الخريطة كاملة + إضافة — update بيستبدل الحقل كله،
+       والحفاظ على الأدوار الأصلية بيمنع تلوث باقي الاختبارات */
+    await assertSucceeds(db("adminU").doc("factory/config").update({
+      users: {
+        adminU: "admin", mgrU: "manager", salesAccU: "sales_accountant",
+        purchAccU: "purchase_accountant", payrollAccU: "payroll_accountant",
+        viewerU: "viewer", newU: "viewer",
+      },
+    }));
   });
 });
