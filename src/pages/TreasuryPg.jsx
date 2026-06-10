@@ -11,7 +11,7 @@ import { gid, fmt, fmt0, r2, _esc, dayName, dayNameFull, openWA, formatTxTime, l
 import { compressImage } from "../utils/image.js";/* V21.9.203: wallet thumbnail */
 import { playBeep } from "../utils/audio.js";
 import { addAudit } from "../utils/audit.js";
-import { showToast, ask, tell } from "../utils/popups.js";
+import { showToast, ask, tell, askInput } from "../utils/popups.js";
 import { pushUndo } from "../utils/undo.js";
 import { openPrintWindow, printPage } from "../utils/print.js";
 import { printCashReceipt, printCheckReceipt } from "../utils/print-extras.js";
@@ -62,6 +62,17 @@ function walletHasMonthExtra(w){
   const o=w&&w.monthExtra&&w.monthExtra[curMonthKeyCairo()];
   return !!o&&((Number(o.extDay)||0)>0||(Number(o.extMonth)||0)>0||(Number(o.extBalance)||0)>0);
 }
+
+/* V21.21.25: طرق الدفع الافتراضية لدفعات العملاء/الموردين. القائمة قابلة
+   للتوسعة — المستخدم يضيف طرق جديدة وتتخزّن في cfg.payMethods (settings array،
+   تعديل نادر من جهاز واحد → cfg مناسب). الطريقة المختارة بتتخزّن في
+   custPayments[].method / supplierPayments[].method وبتظهر في كشف الحساب. */
+const DEFAULT_PAY_METHODS = [
+  { value: "نقدي كاش", emoji: "💵" },
+  { value: "تحويل محفظة الكترونية", emoji: "📱" },
+  { value: "تحويل انستاباي", emoji: "🔄" },
+  { value: "تحويل بنكي", emoji: "🏦" },
+];
 
 export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const userName=user?.displayName||(user?.email||"").split("@")[0];
@@ -3299,15 +3310,30 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           {/* V19.70.1: payment method dropdown — visible only for cust/supplier payments.
               Saved into custPayments[].method / supplierPayments[].method, displayed
               in event-trigger messages via the {method} variable. */}
-          {((txType==="in"&&txCategory==="دفعة عميل")||(txType==="out"&&txCategory==="دفعة مورد"))&&
-          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>طريقة الدفع</label>
-            <Sel value={txMethod} onChange={setTxMethod}>
-              <option value="نقدي كاش">💵 نقدي كاش</option>
-              <option value="تحويل محفظة الكترونية">📱 تحويل محفظة الكترونية</option>
-              <option value="تحويل انستاباي">🔄 تحويل انستاباي</option>
-              <option value="تحويل بنكي">🏦 تحويل بنكي</option>
-            </Sel>
-          </div>}
+          {((txType==="in"&&txCategory==="دفعة عميل")||(txType==="out"&&txCategory==="دفعة مورد"))&&(()=>{
+            /* V21.21.25: قائمة الطرق = الافتراضية + المخصّصة (cfg.payMethods) + الطريقة
+               المختارة حالياً لو مش موجودة (عشان التعديل على حركة قديمة مايضيّعش قيمتها). */
+            const customMethods=Array.isArray(data.payMethods)?data.payMethods.filter(m=>typeof m==="string"&&m.trim()):[];
+            const knownVals=new Set([...DEFAULT_PAY_METHODS.map(m=>m.value),...customMethods]);
+            const opts=[...DEFAULT_PAY_METHODS,...customMethods.map(m=>({value:m,emoji:"💳"}))];
+            if(txMethod&&!knownVals.has(txMethod))opts.push({value:txMethod,emoji:"💳"});
+            const addMethod=async()=>{
+              const name=await askInput("طريقة دفع جديدة",{label:"اسم طريقة الدفع",placeholder:"مثلاً: فودافون كاش / فيزا / تحويل بنك مصر",confirmText:"إضافة",validate:v=>{const t=(v||"").trim();if(!t)return "اكتب اسم طريقة الدفع";if(knownVals.has(t))return "الطريقة دي موجودة بالفعل";return null;}});
+              const t=(name||"").trim();
+              if(!t)return;
+              upConfig(d=>{if(!Array.isArray(d.payMethods))d.payMethods=[];if(!d.payMethods.includes(t))d.payMethods.push(t);});
+              setTxMethod(t);
+              showToast("✅ تمت إضافة «"+t+"» لطرق الدفع");
+            };
+            return <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span>طريقة الدفع</span>
+              {canEdit&&<span onClick={addMethod} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,padding:"2px 8px",borderRadius:6,background:T.accent+"0D",border:"1px solid "+T.accent+"30",fontWeight:700}} title="إضافة طريقة دفع جديدة للقائمة">➕ إضافة</span>}
+            </label>
+              <Sel value={txMethod} onChange={setTxMethod}>
+                {opts.map(m=><option key={m.value} value={m.value}>{m.emoji} {m.value}</option>)}
+              </Sel>
+            </div>;
+          })()}
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>بيان</label><Inp value={txDesc} onChange={setTxDesc} placeholder="وصف الحركة"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={txNotes} onChange={setTxNotes} placeholder="ملاحظات إضافية"/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"space-between"}}>

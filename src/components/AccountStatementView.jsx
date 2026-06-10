@@ -224,11 +224,12 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
 
       {/* الفلاتر */}
       <Card style={{ marginBottom: 12 }}>
-        {fixedPartyId == null && <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 3 }}>{partyType === "customer" ? "العميل" : "المورد"}</label>
-          <SearchSel value={partyId} onChange={setPartyId} options={partyOpts} placeholder={"اختر " + (partyType === "customer" ? "عميل" : "مورد") + "..."} showAllOnFocus maxResults={15} />
-        </div>}
-        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+        {/* V21.21.25: المورد/العميل + التواريخ + رقم الفاتورة على صف واحد لتوفير المساحة */}
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : (fixedPartyId == null ? "2fr 1fr 1fr 1fr" : "1fr 1fr 1fr"), gap: 8, marginBottom: 8, alignItems: "end" }}>
+          {fixedPartyId == null && <div style={{ gridColumn: isMob ? "1 / -1" : "auto" }}>
+            <label style={{ fontSize: FS - 3, color: T.textSec, display: "block", marginBottom: 3 }}>{partyType === "customer" ? "العميل" : "المورد"}</label>
+            <SearchSel value={partyId} onChange={setPartyId} options={partyOpts} placeholder={"اختر " + (partyType === "customer" ? "عميل" : "مورد") + "..."} showAllOnFocus maxResults={15} />
+          </div>}
           <div><label style={{ fontSize: FS - 3, color: T.textSec }}>من</label><Inp type="date" value={fromDate} onChange={setFromDate} /></div>
           <div><label style={{ fontSize: FS - 3, color: T.textSec }}>إلى</label><Inp type="date" value={toDate} onChange={setToDate} /></div>
           <div><label style={{ fontSize: FS - 3, color: T.textSec }}>رقم الفاتورة</label><Inp value={invNo} onChange={setInvNo} placeholder="بحث..." /></div>
