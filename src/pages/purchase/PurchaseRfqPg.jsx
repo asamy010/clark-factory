@@ -3,8 +3,9 @@
    نظير QuotationsPg على جهة الموردين. مستند مستقل — صفر مساس بالمخزون/المحاسبة.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel, BlockingOverlay } from "../../components/ui.jsx";
+import { openPurchaseDoc, consumePendingPurchaseDoc } from "../../utils/purchase/navDoc.js";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
@@ -35,6 +36,15 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
   const [activeRfq, setActiveRfq] = useState(null);
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("");
+
+  /* V21.21.21: cross-link deep-link — افتح طلب عرض السعر من مستند تاني */
+  useEffect(() => {
+    const open = (id) => { const r = rfqs.find(x => x && x.id === id); if(r){ setActiveRfq(r); return true; } return false; };
+    const pid = consumePendingPurchaseDoc("rfq"); if(pid) open(pid);
+    const h = (e) => { const d = e?.detail; if(d && d.kind === "rfq" && d.id) open(d.id); };
+    window.addEventListener("clark-open-purchase-doc", h);
+    return () => window.removeEventListener("clark-open-purchase-doc", h);
+  }, [rfqs]);
 
   const stats = useMemo(() => {
     const acc = { draft: 0, sent: 0, received: 0, converted: 0, rejected: 0, expired: 0, total: 0 };

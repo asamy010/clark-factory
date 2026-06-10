@@ -7,6 +7,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { displayStatus } from "../../utils/purchase/rfq.js";
+import { openPurchaseDoc } from "../../utils/purchase/navDoc.js";
 
 const STATUS_META = {
   draft:     { label: "مسودة",   color: "#6B7280", bg: "#6B728015" },
@@ -79,7 +80,7 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
           {row("التاريخ", rfq.date)}
           {rfq.validUntil && row("مهلة الرد", rfq.validUntil)}
           {isConverted && (
-            <div onClick={() => { try { window.dispatchEvent(new CustomEvent("clark-open-purchase-tab", { detail: "orders" })); } catch(e) {} onClose(); }}
+            <div onClick={() => { onClose(); openPurchaseDoc("po", rfq.convertedToPoId); }}
               style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid " + T.brd, fontSize: FS - 1, cursor: "pointer" }}>
               <span style={{ color: T.textSec }}>أمر الشراء</span>
               <span style={{ color: "#10B981", fontWeight: 700 }}>{rfq.convertedToPoNo} ↗</span>

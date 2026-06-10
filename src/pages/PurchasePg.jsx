@@ -25,6 +25,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt, upsertDebitNoteFromReturn } from "../utils/invoices.js";
+import { openPurchaseDoc, consumePendingPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { PO_STATUS_META, poProgress, computePoStatus, poLinkedReceipts, poLineProgress } from "../utils/purchase/purchaseOrders.js";
 
 export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubView}){
@@ -60,6 +61,19 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[returnRcpt,setReturnRcpt]=useState(null);/* الاستلام اللي بنعمل له مرتجع */
   const[retQty,setRetQty]=useState({});/* itemKey → كمية المرتجع */
   const[retNotes,setRetNotes]=useState("");
+  /* V21.21.21: cross-link deep-link — افتح PO أو استلام من مستند تاني */
+  useEffect(()=>{
+    const openDoc=(kind,id)=>{
+      if(kind==="po"){const p=(data.purchaseOrders||[]).find(x=>x&&x.id===id);if(p){setViewReceipt(null);setViewPo(p);return true}}
+      if(kind==="receipt"){const r=(data.purchaseReceipts||[]).find(x=>x&&x.id===id);if(r){setViewPo(null);setViewReceipt(r);return true}}
+      return false;
+    };
+    const poId=consumePendingPurchaseDoc("po");if(poId)openDoc("po",poId);
+    const rcId=consumePendingPurchaseDoc("receipt");if(rcId)openDoc("receipt",rcId);
+    const h=(e)=>{const d=e&&e.detail;if(d&&d.id)openDoc(d.kind,d.id)};
+    window.addEventListener("clark-open-purchase-doc",h);
+    return()=>window.removeEventListener("clark-open-purchase-doc",h);
+  },[data.purchaseOrders,data.purchaseReceipts]);
   
   /* ── Supplier statement state ── */
   const[supFilter,setSupFilter]=useState("");const supFilterDeb=useDebounced(supFilter,200);
@@ -2388,7 +2402,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           </div>
           <Btn ghost small onClick={()=>setViewReceipt(null)}>✕</Btn>
         </div>
-        
+
+        {/* V21.21.21: روابط السلسلة — أمر الشراء + الفاتورة */}
+        {(()=>{const po=viewReceipt._poId?(data.purchaseOrders||[]).find(p=>p&&p.id===viewReceipt._poId):null;const inv=findInvoiceByReceipt(data,viewReceipt.id);if(!po&&!inv)return null;return(
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,fontSize:FS-1}}>
+            {po&&<span onClick={()=>openPurchaseDoc("po",po.id)} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:"#8B5CF610",color:"#8B5CF6",border:"1px solid #8B5CF630",fontWeight:700}}>📋 أمر الشراء: {po.poNo} ↗</span>}
+            {inv&&<span onClick={()=>openPurchaseDoc("invoice",inv.id)} style={{cursor:"pointer",padding:"4px 10px",borderRadius:8,background:"#D9770610",color:"#D97706",border:"1px solid #D9770630",fontWeight:700}}>📤 الفاتورة: {inv.invoiceNo} ↗</span>}
+          </div>);})()}
+
         {/* Summary grid */}
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:14}}>
           <div style={{padding:10,borderRadius:8,background:T.bg}}>
@@ -2678,7 +2699,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
               {(()=>{const st=computePoStatus(viewPo,purchaseReceipts);const m=PO_STATUS_META[st];return<span style={{padding:"2px 10px",borderRadius:7,fontSize:FS-2,fontWeight:800,background:m.bg,color:m.color}}>{m.label}</span>})()}
             </div>
             <div style={{fontSize:FS-1,color:T.textMut,marginTop:2}}>{viewPo.date} — {viewPo.supplierName||"—"}</div>
-            {viewPo._fromRfqNo&&<div onClick={()=>{try{window.dispatchEvent(new CustomEvent("clark-open-purchase-tab",{detail:"rfq"}))}catch(e){}setViewPo(null)}} style={{fontSize:FS-2,color:"#D97706",marginTop:2,cursor:"pointer",fontWeight:600}}>💬 من طلب عروض أسعار: <b>{viewPo._fromRfqNo}</b> ↗</div>}
+            {/* V21.21.21: روابط السلسلة — عرض السعر + الاستلامات */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
+              {viewPo._fromRfqId&&<span onClick={()=>{setViewPo(null);openPurchaseDoc("rfq",viewPo._fromRfqId)}} style={{fontSize:FS-2,color:"#D97706",cursor:"pointer",fontWeight:700,background:"#D9770610",border:"1px solid #D9770630",borderRadius:8,padding:"3px 9px"}}>💬 عرض السعر: {viewPo._fromRfqNo||"—"} ↗</span>}
+              {(data.purchaseReceipts||[]).filter(rc=>rc&&rc._poId===viewPo.id).map(rc=><span key={rc.id} onClick={()=>{setViewPo(null);openPurchaseDoc("receipt",rc.id)}} style={{fontSize:FS-2,color:"#0284C7",cursor:"pointer",fontWeight:700,background:"#0284C710",border:"1px solid #0284C730",borderRadius:8,padding:"3px 9px"}}>📥 استلام: {rc.receiptNo} ↗</span>)}
+            </div>
           </div>
           <div style={{display:"flex",gap:6}}>
             {canEdit&&<>

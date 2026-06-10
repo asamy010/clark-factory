@@ -192,6 +192,16 @@ function gatherSupplierEntries(data, supId, mode){
       entries.push({ date: p.date, createdAt: p.createdAt, type: "payment", ref: p.id, refId: p.id,
         desc: "دفعة للمورد " + (p.method ? "(" + p.method + ")" : ""), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
     });
+    /* V21.21.21 FIX: مرتجعات المشتريات (إشعارات مدينة) لازم تظهر في الوضع
+       التشغيلي كمان — كانت بتظهر في المحاسبي بس. تُحتسب (مش draft) لتطابق
+       buildSupplierSummary (الرصيد التشغيلي). */
+    (data.purchaseDebitNotes || []).forEach(dn => {
+      if(!dn || dn.supplierId !== supId || dn.status === "void") return;
+      entries.push({ date: dn.date, createdAt: dn.createdAt, type: "debit_note", ref: dn.debitNoteNo, refId: dn.id,
+        desc: "مرتجع مشتريات — إشعار مدين " + (dn.debitNoteNo || ""),
+        sub: dn.linkedInvoiceNo ? "فاتورة " + dn.linkedInvoiceNo : "",
+        debit: 0, credit: r2(Number(dn.total) || 0), raw: dn });
+    });
   }
   /* V21.21.14: شيكات الدفع للمورد (دفعة مورد) — تظهر في الوضعين زي شيكات العميل،
      معلّقة كانت أو مدفوعة. dedup ضد دفعات المورد بالـ checkId (شيك مرتبط بدفعة

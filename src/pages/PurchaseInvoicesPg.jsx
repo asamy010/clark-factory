@@ -16,6 +16,7 @@ import {
   getInvoiceStats, buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
 } from "../utils/invoices.js";
 import { InvoiceDetailModal } from "./SalesInvoicesPg.jsx";
+import { consumePendingPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 /* V19.39: Bulk-post toolbar shared with SalesInvoicesPg + CreditNotesPg */
@@ -74,6 +75,15 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
     };
     window.addEventListener("notif-deeplink", handler);
     return () => window.removeEventListener("notif-deeplink", handler);
+  }, [invoices]);
+
+  /* V21.21.21: cross-link deep-link — افتح فاتورة المشتريات من مستند تاني */
+  useEffect(() => {
+    const open = (id) => { const inv = invoices.find(i => i && i.id === id); if(inv){ setActiveInvoice(inv); return true; } return false; };
+    const pid = consumePendingPurchaseDoc("invoice"); if(pid) open(pid);
+    const h = (e) => { const d = e?.detail; if(d && d.kind === "invoice" && d.id) open(d.id); };
+    window.addEventListener("clark-open-purchase-doc", h);
+    return () => window.removeEventListener("clark-open-purchase-doc", h);
   }, [invoices]);
 
   const handlePost = async (inv, opts = {}) => {

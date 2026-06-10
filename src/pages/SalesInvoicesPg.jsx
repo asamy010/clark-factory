@@ -22,6 +22,7 @@ import { printInvoice } from "../utils/printInvoice.js";
 import { recordInvoicePaymentMutator, invoiceBalance } from "../utils/sales/invoicePayments.js";
 import { PaymentFromInvoiceModal } from "../components/sales/PaymentFromInvoiceModal.jsx";
 import { openSalesDoc } from "../utils/sales/navDoc.js";
+import { openPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 /* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
    The entityType is derived dynamically from invoice.type (sales vs purchase). */
@@ -517,6 +518,19 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         </div>
         <span style={{padding:"6px 14px", borderRadius:8, fontSize:FS, fontWeight:800, background:meta.bg, color:meta.color, border:"2px solid "+meta.color+"40"}}>{meta.label}</span>
       </div>
+
+      {/* V21.21.21: روابط السلسلة لفاتورة المشتريات — أمر الشراء + الاستلام */}
+      {isPurchase && (()=>{
+        const refs = (invoice.receiptRefs && invoice.receiptRefs.length) ? invoice.receiptRefs : (invoice.receiptRef ? [invoice.receiptRef] : []);
+        const recs = refs.map(rf => (data.purchaseReceipts||[]).find(r => r && r.id === rf.receiptId)).filter(Boolean);
+        const poIds = [...new Set(recs.map(r => r._poId).filter(Boolean))];
+        const pos = poIds.map(id => (data.purchaseOrders||[]).find(p => p && p.id === id)).filter(Boolean);
+        if(recs.length === 0 && pos.length === 0) return null;
+        return <div style={{display:"flex", gap:8, flexWrap:"wrap", marginBottom:12}}>
+          {pos.map(p => <span key={p.id} onClick={()=>{onClose&&onClose();openPurchaseDoc("po",p.id)}} style={{cursor:"pointer",fontSize:FS-2,fontWeight:700,color:"#8B5CF6",background:"#8B5CF610",border:"1px solid #8B5CF630",borderRadius:8,padding:"4px 10px"}}>📋 أمر الشراء: {p.poNo} ↗</span>)}
+          {recs.map(r => <span key={r.id} onClick={()=>{onClose&&onClose();openPurchaseDoc("receipt",r.id)}} style={{cursor:"pointer",fontSize:FS-2,fontWeight:700,color:"#0284C7",background:"#0284C710",border:"1px solid #0284C730",borderRadius:8,padding:"4px 10px"}}>📥 استلام: {r.receiptNo} ↗</span>)}
+        </div>;
+      })()}
 
       {/* Header info */}
       <div style={{display:"grid", gridTemplateColumns:isMob?"1fr 1fr":"repeat(3,1fr)", gap:8, marginBottom:14}}>
