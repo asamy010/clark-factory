@@ -77,7 +77,12 @@ function recordFailure(type, label, error, sourceId, payload){
           id: "fail_" + Date.now() + "_" + Math.random().toString(36).slice(2,9),
           type, label,
           sourceId: sourceId||null,
-          errorMessage: errMsg, errorCode,
+          /* V21.21.39 ROOT CAUSE FIX (اكتشفه ESLint no-undef): كان مكتوب
+             `errorCode,` (shorthand) والمتغير اسمه errCode → ReferenceError
+             عند إنشاء أي سجل فشل جديد → الـ catch الأخير تحت بيبلعه →
+             سجلات الفشل الجديدة كانت بتضيع بصمت من يوم ما النظام اتكتب
+             (تحديث السجلات الموجودة فقط كان شغال). */
+          errorMessage: errMsg, errorCode: errCode,
           payload: payload ? sanitizePayload(payload) : null,
           happenedAt: new Date().toISOString(),
           lastAttemptAt: new Date().toISOString(),

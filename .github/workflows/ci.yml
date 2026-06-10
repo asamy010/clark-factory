@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint (error-level rules only — V21.21.39)
+        run: npm run lint
+
       - name: Build
         run: npm run build
 

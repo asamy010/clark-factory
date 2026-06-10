@@ -62,6 +62,11 @@ import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
    to read latest scan mode. Was assigned but never declared — caused ReferenceError
    when opening 'جرد المخزن من المبيعات' page after Vite/ESM strict-mode upgrade. */
 let _auditScanMode = "series";
+/* V21.21.39 (اكتشفه ESLint no-undef): _stockRcvScanMode كانت بتتسند من غير
+   تعريف — في ESM (strict mode) ده ReferenceError فوري → إعداد وضع مسح
+   استلام المخزن كان بينهار بصمت (الـ catch القديم الفاضي بلعه لحد
+   V21.21.31). نفس نمط _auditScanMode الشقيقة. */
+let _stockRcvScanMode = "series";
 
 export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTab,canEdit,user,season,hubView}){
   const config=data;const orders=data.orders||[];const customers=config.customers||[];const sessions=config.custDeliverySessions||[];
@@ -6263,7 +6268,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <video id="pkg-action-video" playsInline muted autoPlay style={{width:"100%",display:"block"}} ref={el=>{if(!el||el.srcObject)return;(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640}}});el.srcObject=stream;
               const hasBD=typeof BarcodeDetector!=="undefined";const detector=hasBD?new BarcodeDetector({formats:["qr_code"]}):null;const canvas=document.createElement("canvas");let lastScan="";let lastTime=0;
               const scan=async()=>{if(!el.srcObject)return;if(el.readyState<2){requestAnimationFrame(scan);return}canvas.width=el.videoWidth;canvas.height=el.videoHeight;canvas.getContext("2d").drawImage(el,0,0);
-                {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;handlePkgScan(t)}}}
+                {const _qr=await scanQR(canvas);if(_qr){const now=Date.now();if(_qr!==lastScan||now-lastTime>2000){lastScan=_qr;lastTime=now;/* V21.21.39 (ESLint): كان handlePkgScan(t) و t غير معرّفة → مسح كاميرا الكرتونة كان بينهار بصمت */handlePkgScan(_qr)}}}
                 if(el.srcObject)requestAnimationFrame(scan)};setTimeout(scan,500)}catch(e){showToast("⚠️ تعذر فتح الكاميرا");setPkgAction({id:pkgAction.id,mode:"menu"})}})()}}/>
             <div style={{position:"absolute",top:"35%",left:"50%",transform:"translate(-50%,-50%)",width:140,height:140,border:"2px solid "+color,borderRadius:12,boxShadow:"0 0 0 999px rgba(0,0,0,0.4)"}}/>
           </div>

@@ -252,11 +252,10 @@ async function handleAudit(res, body) {
         cell.conflict = "matrix_says_view_but_rules_deny_read";
         cell.recommended = "hide";
         conflicts.push(cell);
-      } else if (effectiveMatrix === "edit" && canReadAll && !canWriteAll) {
-        /* Special: rules allow read but not write — should be "view" */
-        cell.conflict = "matrix_says_edit_but_rules_only_allow_read";
-        cell.recommended = "view";
-        conflicts.push(cell);
+      /* V21.21.39 (اكتشفه ESLint no-dupe-else-if): كان هنا فرع ثالث
+         `edit && canReadAll && !canWriteAll` — مستحيل يتنفذ لأن الفرع
+         الأول (edit && !canWriteAll) أعمّ منه وبيمسك حالته بنفس التوصية
+         (view لو canReadAll). فرع ميت اتشال — صفر تغيير في السلوك. */
       } else if (effectiveMatrix === "hide" && canReadAll && role !== "admin") {
         /* Rules allow but UI hides — informational only, not a critical bug */
         cell.conflict = "hidden_but_rules_allow"; /* low severity */

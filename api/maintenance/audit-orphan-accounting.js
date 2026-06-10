@@ -6,7 +6,7 @@
    Pre-V21.9.67, every approveWeek/approveTransfer/saveTx flow had this
    shape:
 
-     upConfig(d => { /* mutate treasury/hrLog/... */ });    // async, NOT awaited
+     upConfig(d => { ...mutate treasury/hrLog/... });       // async, NOT awaited
      autoPost.hr(data, log, emp, userName);                  // fires immediately
      autoPost.workshopPay(...); autoPost.treasury(...);
 

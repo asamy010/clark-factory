@@ -10,7 +10,7 @@
      audience: {
        type: "purchased" | "not_purchased" | "abandoned_cart"
            | "shopify_only" | "vip" | "at_risk" | "custom",
-       /* type-specific filters */
+       (type-specific filters)
        min_delivered?: number,    // for purchased
        max_delivered?: number,
        max_age_days?: number,     // last activity within N days

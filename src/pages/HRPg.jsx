@@ -4471,6 +4471,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
             </div>
 
             {/* Add form — V15.72: hidden, replaced by bulk popup */}
+            {/* eslint-disable-next-line no-constant-binary-expression -- معطّل عمداً منذ V15.72 */}
             {false&&showWsPayForm&&canEdit&&<div style={{padding:"14px",background:"#8B5CF608",border:"1px solid #8B5CF630",borderRadius:12,marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
                 {/* Workshop selector */}
@@ -6944,7 +6945,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
           <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الموظف *</label>
           {(()=>{
             const sortedEmps=activeEmps.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-            const q=(advNote&&false)||"";/* placeholder */
+            const q="";/* placeholder — V21.21.39: كان (advNote&&false)||"" — قيمته دايماً "" */
             const searchQ=advEmpId?"":(window._advSearch||"");
             const selected=sortedEmps.find(e=>e.id===advEmpId);
             if(selected){

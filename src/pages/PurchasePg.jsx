@@ -9,6 +9,10 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { gid, fmt, r2, normalizePhone, dayName, ltrPhone } from "../utils/format.js";
 import { ask, tell, showToast, denyAction } from "../utils/popups.js";
+/* V21.21.39 (اكتشفه ESLint): nowISO كانت مستدعاة في flow مرتجع المشتريات
+   (سطرا stockMovements/_returns) من غير استيراد → ReferenceError وقت
+   التشغيل → فشل حفظ المرتجع مع خصم المخزون. */
+import { nowISO } from "../utils/serverTime.js";
 import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced, BlockingOverlay } from "../components/ui.jsx";
 /* V21.9.106: Universal Tagging — Slice 5 Supplier integration. Same pattern
