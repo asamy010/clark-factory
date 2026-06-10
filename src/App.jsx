@@ -32,6 +32,8 @@ import { isExpectedDenial } from "./utils/firestoreScopes.js";
 import { runAllPendingMigrations, shouldAttemptAutoMigrations } from "./utils/autoMigrations.js";
 /* V21.21.32: مزامنة دفعات الخزنة اليتيمة للعملاء (تجسيدها كدفعات رسمية) */
 import { findOrphanCustTreasury, syncOrphanCustTreasuryMutator } from "./utils/treasurySync.js";
+/* V21.21.41: حارس المسح الجماعي (مستخرَج للاختبار) + خيار allowEmptyFields */
+import { collectMassWipes } from "./utils/massWipeGuard.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
@@ -4669,7 +4671,10 @@ export default function App(){
     upConfigWriteQueueRef.current=myWrite.catch(()=>{});
     return myWrite;
   },[configDoc,splitLoaded,partitionedLoaded,markSynced]);
-  const upConfig=useCallback(fn=>{
+  const upConfig=useCallback((fn,opts={})=>{
+    /* V21.21.41: opts.allowEmptyFields — قائمة الحقول المسموح للمستخدم
+       تفريغها لـ 0 صراحةً في الكتابة دي (حذف مجمّع مؤكّد). الافتراضي []
+       (سلوك كل النداءات القديمة بدون تغيير). راجع massWipeGuard.js. */
     /* V19.48: Online-only mode — refuse all writes when device is offline.
        Reading from cache is fine, but writes must reach the server immediately
        to avoid the race conditions that motivated this whole online-only push.
@@ -4956,25 +4961,14 @@ export default function App(){
        multi-entry collections to 0 in a single upConfig — bulk delete UIs operate
        per-item. Setting ≥2 covers small collections without false positives. */
     if(newPart||newSplit){
-      const wipes=[];
-      /* All partitioned fields (V1675 hrWeeks + V1957 master data) */
-      if(newPart){
-        for(const f of PARTITIONED_FIELDS){
-          if(!(f in newPart))continue;/* only check fields included in this write */
-          const before=(partitionedDataRef.current[f]||[]).length;
-          const after=(newPart[f]||[]).length;
-          if(before>=2&&after===0)wipes.push(`${f}: ${before} → 0 (partitioned)`);
-        }
-      }
-      /* All split fields (treasury, hrLog, custPayments, salesInvoices, etc.) */
-      if(newSplit){
-        for(const f of SPLIT_FIELDS){
-          if(!(f in newSplit))continue;
-          const before=(splitDataRef.current[f]||[]).length;
-          const after=(newSplit[f]||[]).length;
-          if(before>=2&&after===0)wipes.push(`${f}: ${before} → 0 (split)`);
-        }
-      }
+      /* V21.21.41: نفس منطق V19.62/63 (≥2→0) لكن مستخرَج لـ collectMassWipes
+         (مُختبَر) + يحترم opts.allowEmptyFields. الحقول المسموح تفريغها
+         (حذف مجمّع مؤكّد) ما تتمنعش؛ أي حقل تاني يتفضّى بالغلط لسه يتمسك. */
+      const _allowEmpty=Array.isArray(opts.allowEmptyFields)?opts.allowEmptyFields:[];
+      const wipes=[
+        ...(newPart?collectMassWipes(PARTITIONED_FIELDS,f=>(partitionedDataRef.current[f]||[]).length,newPart,_allowEmpty,"partitioned"):[]),
+        ...(newSplit?collectMassWipes(SPLIT_FIELDS,f=>(splitDataRef.current[f]||[]).length,newSplit,_allowEmpty,"split"):[]),
+      ];
       if(wipes.length>0){
         console.error("[V19.63 BLOCKED] Refusing mass wipe:",wipes,
           "\nexplicitPartBefore keys:",Object.keys(explicitPartBefore||{}),

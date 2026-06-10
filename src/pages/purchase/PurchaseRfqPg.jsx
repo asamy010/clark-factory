@@ -121,7 +121,7 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
           const res = deleteRfqMutator(d, id);
           if(res && res.ok) deleted++; else blocked.push((q?.rfqNo || id) + ": " + ((res && res.error) || "تعذّر"));
         }
-      });
+      }, { allowEmptyFields: ["purchaseRfqs"] });/* V21.21.41 */
     } finally { setBusy(false); }
     setSel(new Set());
     if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " طلب");

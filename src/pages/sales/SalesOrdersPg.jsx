@@ -191,7 +191,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           const res = deleteSalesOrderMutator(d, id, userName);
           if(res && res.ok) deleted++; else blocked.push((o?.orderNo || id) + ": " + ((res && res.error) || "تعذّر"));
         }
-      });
+      }, { allowEmptyFields: ["salesOrders"] });/* V21.21.41: حذف الكل → 0 كان يتمنع بصمت */
     } finally { setBusy(false); }
     setSel(new Set());
     if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " أمر بيع");

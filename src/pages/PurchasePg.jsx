@@ -512,7 +512,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           if(p._fromRfqId&&Array.isArray(d.purchaseRfqs)){const q=d.purchaseRfqs.find(x=>x&&x.id===p._fromRfqId);if(q&&q.status==="converted"){q.status="sent";q.convertedToPoId="";q.convertedToPoNo="";if(!Array.isArray(q.statusHistory))q.statusHistory=[];q.statusHistory.push({from:"converted",to:"sent",at:new Date().toISOString(),by:userName||"",note:"حذف أمر الشراء "+(p.poNo||"")});}}
           deleted++;
         }
-      });
+      },{allowEmptyFields:["purchaseOrders"]});/* V21.21.41: حذف الكل → 0 كان يتمنع بصمت */
     }finally{setBulkBusy(false);}
     setPoSel(new Set());
     if(blocked.length===0)showToast("✓ اتحذف "+deleted+" أمر شراء");

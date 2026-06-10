@@ -194,7 +194,7 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
           const ok = deleteDraftInvoiceMutator(d, id, "sales");
           if(ok) deleted++; else blocked.push((inv?.invoiceNo || id) + ": مش مسودة");
         }
-      });
+      }, { allowEmptyFields: ["salesInvoices"] });/* V21.21.41 */
     } finally { setBulkBusy(false); }
     setSelectedIds(new Set());
     if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " مسودة");

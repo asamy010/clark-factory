@@ -154,7 +154,7 @@ export function QuotationsPg({ data, upConfig, isMob, user, canEdit }){
           const res = deleteQuotationMutator(d, id);
           if(res && res.ok) deleted++; else blocked.push((q?.quoteNo || id) + ": " + ((res && res.error) || "تعذّر"));
         }
-      });
+      }, { allowEmptyFields: ["salesQuotations"] });/* V21.21.41 */
     } finally { setBusy(false); }
     setSel(new Set());
     if(blocked.length === 0) showToast("✓ اتحذف " + deleted + " عرض");

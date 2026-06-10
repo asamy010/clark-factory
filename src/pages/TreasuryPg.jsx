@@ -826,12 +826,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[selectedChkIds,setSelectedChkIds]=useState(new Set());
   const toggleChkSel=(id)=>{setSelectedChkIds(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n})};
   const clearChkSel=()=>setSelectedChkIds(new Set());
-  const bulkDeleteChecks=(ids)=>{
+  const bulkDeleteChecks=async(ids)=>{
     if(!ids||ids.length===0)return;
-    upConfig(d=>{
+    /* V21.21.41 ROOT-CAUSE FIX: الحذف المجمّع بيشيل كل المحدّد في نداء
+       upConfig واحد — فلو ده فضّى الشيكات لـ 0، شبكة المسح الجماعي كانت
+       بتمنع الكتابة بصمت بينما التوست بيقول «تم الحذف» → الشيكات ترجع بعد
+       الريفريش. الحل: (1) allowEmptyFields:['checks'] عشان التفريغ المؤكّد
+       يعدّي، (2) نحترم نتيجة upConfig فمنعرضش نجاح كاذب. */
+    const r=await upConfig(d=>{
       if(!Array.isArray(d.checks))return;
       d.checks=d.checks.filter(c=>!ids.includes(c.id));
-    });
+    },{allowEmptyFields:["checks"]});
+    if(r&&r.ok===false){
+      showToast("⛔ فشل حذف الشيكات على السيرفر — حاول تاني ("+(r.error||"خطأ غير معروف")+")");
+      return;
+    }
     clearChkSel();
     showToast("✓ تم حذف "+ids.length+" شيك");
   };
@@ -856,7 +865,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       if(Array.isArray(d.hrWeeks)){d.hrWeeks=d.hrWeeks.map(w=>({...w,status:"open",totalGross:0,totalNet:0,empCount:0}))}
       /* Clear only treasury-related notifications */
       d.notifications=(d.notifications||[]).filter(n=>n.type!=="treasury_transfer"&&n.type!=="treasury_transfer_confirmed"&&n.type!=="cust_payment");
-    });
+    /* V21.21.41: المسح الشامل بيفضّي ٦ مصفوفات متقسمة دفعة واحدة — لازم
+       allowEmptyFields وإلا شبكة المسح الجماعي تمنعه وتعرض «تم المسح» كذباً. */
+    },{allowEmptyFields:["treasury","treasuryTransfers","custPayments","supplierPayments","hrLog","empDebts"]});
     setShowResetPopup(false);setResetConfirmText("");showToast("✅ تم المسح الشامل");
   };
 
@@ -1887,7 +1898,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       }
       if(skippedCount>0)showToast("⚠️ "+deletedCount+" حذف • "+skippedCount+" متخطي (أيام مقفولة)");
       else showToast("✓ تم حذف "+deletedCount+" حركة");
-    });
+    },{allowEmptyFields:["treasury","treasuryTransfers","custPayments","supplierPayments","wsPayments","notifications"]});
     /* V19.80.19: same accounting-consistency reversals as single-delete (line 1389+).
        Iterate the txs we know we're deleting (snapshot via `data` since upConfig is
        async; the txs may already be removed from local state by the time this runs).
