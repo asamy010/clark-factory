@@ -4316,7 +4316,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           playBeep("ok");
           setQrSale(p=>{const newItems=[...p.items];dist.allocations.forEach(a=>{const oo=orders.find(x=>x.id===a.orderId);newItems.push({orderId:a.orderId,modelNo:oo.modelNo,modelDesc:oo.modelDesc,rackSize:rs,qty:a.qty})});return{...p,items:newItems}});
         }
-        }catch(e){}};
+        }catch(e){
+          /* V21.21.31 (تحصين 1.4): الـ catch ده كان فاضي — أي خطأ غير متوقع
+             أثناء إضافة المسح للسلة كان بيضيع بصمت: لا صوت ولا رسالة، والقطعة
+             المتسلّمة فعلياً ماتتسجلش على العميل (نقص محاسبي صامت). دلوقتي
+             المستخدم بيتنبه فوراً ويعيد المسح. */
+          playBeep("error");
+          showToast("⛔ خطأ غير متوقع أثناء تسجيل المسح — أعد مسح القطعة ("+(e?.message||e)+")");
+          console.warn("[CLARK qr-sale addModel]",e);
+        }};
       const total=qrSale.items.reduce((s,it)=>s+(Number(it.qty)||0),0);
       const updateQty=(idx,v)=>setQrSale(p=>{const items=[...p.items];items[idx]={...items[idx],qty:Math.max(0,Number(v)||0)};return{...p,items}});
       const removeItem=(idx)=>setQrSale(p=>({...p,items:p.items.filter((_,i)=>i!==idx)}));
@@ -5063,7 +5071,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Read current mode from module-level variable */
         const currentMode=_stockRcvScanMode;
         const addQty=currentMode==="piece"?1:rs;
-        setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+addQty}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
+        setStockRcv(p=>({...p,items:{...p.items,[orderId]:(p.items[orderId]||0)+addQty}}));playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}
+        catch(e){
+          /* V21.21.31: كان catch فاضي — فشل تسجيل استلام المخزن كان يضيع بصمت */
+          playBeep("error");showToast("⛔ خطأ في تسجيل الاستلام — أعد المسح ("+(e?.message||e)+")");console.warn("[CLARK stock-rcv scan]",e);
+        }};
       const closeStockCam=()=>{try{const v=document.getElementById("stock-rcv-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setStockRcv(p=>({...p,scanning:false}))};
       const totalRcv=Object.values(rcvItems).reduce((s,v)=>s+v,0);
       const confirmStockRcv=()=>{if(totalRcv<=0){showToast("⚠️ لا توجد كميات للاستلام");return}
@@ -5143,7 +5155,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         /* Read current scan mode from module-level variable (always current) */
         const currentMode=_auditScanMode;
         const addQty=currentMode==="piece"?1:rs;
-        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}catch(e){}};
+        setInvAudit(p=>{const items={...p.items};items[orderId]=(items[orderId]||0)+addQty;return{...p,items}});playBeep("ok");showToast("✅ "+o.modelNo+" +"+(currentMode==="piece"?"1 قطعة":rs+" سيري"))}
+        catch(e){
+          /* V21.21.31: كان catch فاضي — فشل تسجيل عدّة الجرد كان يضيع بصمت
+             والجرد يطلع ناقص → تسوية خاطئة تمسح مخزوناً حقيقياً. */
+          playBeep("error");showToast("⛔ خطأ في تسجيل الجرد — أعد المسح ("+(e?.message||e)+")");console.warn("[CLARK inv-audit scan]",e);
+        }};
       const closeAuditCam=()=>{try{const v=document.getElementById("audit-scan-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setInvAudit(p=>({...p,scanning:false}))};
       const totalSystem=allStock.reduce((s,m)=>s+m.avail,0);const totalCounted=allStock.reduce((s,m)=>s+(auditItems[m.id]||0),0);const totalDiff=totalCounted-totalSystem;
       const applyAdjust=()=>{let adj=0;allStock.forEach(m=>{const counted=auditItems[m.id];if(counted===undefined)return;const diff=counted-m.avail;if(diff===0)return;adj++;
@@ -6228,7 +6245,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(d.packages[pi].items[existing].count<=0)d.packages[pi].items.splice(existing,1);
           const totalRemain=d.packages[pi].items.reduce((s,x)=>s+(x.qty||0),0);
           if(totalRemain<=0){d.packages[pi].status="مغلقة";d.packages[pi].closedAt=nowISO();playBeep("done");showToast("🔒 الكرتونة فارغة — تم الإغلاق")}else{playBeep("ok");showToast("📤 "+o.modelNo+" -1 سيري")}})}
-      }catch(e){}};
+      }catch(e){
+        /* V21.21.31: كان catch فاضي — فشل تسجيل حركة الكرتونة كان بيضيع بصمت
+           وعدّاد الكراتين ينحرف عن الواقع. */
+        playBeep("error");
+        showToast("⛔ خطأ غير متوقع في تسجيل حركة الكرتونة — أعد المسح ("+(e?.message||e)+")");
+        console.warn("[CLARK pkg-scan]",e);
+      }};
       const closePkgScan=()=>{try{const v=document.getElementById("pkg-action-video");if(v&&v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}}catch(e){}setPkgAction(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:16}} onClick={closePkgScan}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:"100%",maxWidth:isMob?420:500,maxHeight:"90vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
