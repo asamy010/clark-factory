@@ -276,9 +276,12 @@ export default async function handler(req, res) {
       ? await readSplitCollection("checksDays")
       : (config.checks || []));
 
-    /* Customer payments — V18.3: keep method for cash/checks split */
+    /* Customer payments — V18.3: keep method for cash/checks split.
+       V21.21.22 FIX: استبعاد custPayments بـ method شيك — الشيكات بتتعدّ من
+       data.checks تحت (receivableChecks)، فعدّها هنا كمان = تكرار. مطابقة
+       gatherCustomerPayments في statement.js (المحاسبي). */
     const payments = allCustPayments
-      .filter(p => p.custId === custId)
+      .filter(p => { if(p.custId !== custId) return false; const m = (p.method || "").toLowerCase(); return !(m.includes("شيك") || m.includes("check")); })
       .map(p => ({
         date: p.date || "",
         amount: Number(p.amount) || 0,
@@ -353,6 +356,10 @@ export default async function handler(req, res) {
     let p2OrphanDelGross = 0, p2OrphanDelNet = 0, p2OrphanRetGross = 0, p2OrphanRetNet = 0;
     let p2OrphanDelCount = 0, p2OrphanRetCount = 0;
     customerInvoices.forEach(inv => {
+      /* V21.21.22 FIX: المسودات مش داخلة الرصيد — مطابقة الكشف المحاسبي
+         (statement.js: e.draft → balance غير محتسب). التسليم المغطّى بمسودة
+         بيفضل في invoicedDeliveryKeys فمايتعدّش تاني في Pass 2. */
+      if(inv.status !== "posted") return;
       const s = Number(inv.subtotal) || 0;
       const t = Number(inv.total) || 0;
       totalDelValue += s;
@@ -361,6 +368,7 @@ export default async function handler(req, res) {
       p1InvTotal += t;
     });
     customerCreditNotes.forEach(cn => {
+      if(cn.status !== "posted") return; /* V21.21.22: المرتجعات المسودة برضه مستبعدة من الرصيد */
       const s = Number(cn.subtotal) || 0;
       const t = Number(cn.total) || 0;
       totalRetValue += s;
