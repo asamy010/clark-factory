@@ -2546,8 +2546,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>سبب المرتجع (اختياري)</label>
             <Inp value={retNotes} onChange={setRetNotes} placeholder="مثلاً: بضاعة معيبة / مخالفة للمواصفات..."/>
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center",marginTop:12}}>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center",marginTop:12,flexWrap:"wrap"}}>
             <span style={{marginInlineEnd:"auto",fontSize:FS-1,color:T.textSec}}>إجمالي المرتجع: <b style={{color:T.err}}>{fmt(r2(totVal))}</b> ج.م</span>
+            {/* V21.21.24: «مرتجع الكل» — يملأ كمية المرتجع لكل بند بقيمة المتبقي بتاعه (لإرجاع كامل المتبقي/الاستلام) */}
+            {anyAvail&&<Btn small ghost onClick={()=>setRetQty(Object.fromEntries(rows.map(x=>[x.i,x.rem])))} title="إرجاع كامل الكمية المتبقية لكل بند" style={{color:T.err,border:"1px solid "+T.err+"40",background:T.err+"0D"}}>↪️ مرتجع الكل (المتبقي)</Btn>}
+            {anyAvail&&totVal>0&&<Btn small ghost onClick={()=>setRetQty({})} title="تصفير كل كميات المرتجع" style={{color:T.textSec}}>تصفير</Btn>}
             <Btn ghost onClick={()=>setReturnRcpt(null)}>إلغاء</Btn>
             <Btn primary onClick={saveReceiptReturn} disabled={totVal<=0} style={{background:totVal<=0?T.textMut:T.err,color:"#fff",border:"none"}}>↪️ تأكيد المرتجع (إشعار مدين)</Btn>
           </div>
