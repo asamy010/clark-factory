@@ -8,7 +8,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo } from "react";
-import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
+import { Btn, Card, Inp, Sel, SearchSel } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
@@ -28,7 +28,7 @@ const STATUS_META = {
   void:   { label: "ملغي",    color: "#EF4444", bg: "#EF444415" },
 };
 
-export function CreditNotesPg({data, upConfig, isMob, user}){
+export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
   const today = new Date().toISOString().split("T")[0];
   const monthStart = today.slice(0,7) + "-01";
   const [from, setFrom]   = useState(monthStart);
@@ -39,6 +39,8 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
   const [activeCN, setActiveCN] = useState(null);
   /* V19.39: Multi-select for bulk posting */
   const [selectedIds, setSelectedIds] = useState(new Set());
+  /* V21.21.48: guided "add return" popup (إضافة مرتجع) */
+  const [showAddReturn, setShowAddReturn] = useState(false);
 
   const creditNotes = data.salesCreditNotes || [];
   const customers = data.customers || [];
@@ -156,6 +158,10 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
         <div style={{fontSize:isMob?18:22, fontWeight:800, color:T.text}}>الإشعارات الدائنة (مرتجع المبيعات)</div>
         <div style={{fontSize:FS-2, color:T.textSec}}>إشعارات دائنة لمرتجعات العملاء — قيد محاسبي عكسي للبيع الأصلي</div>
       </div>
+      {/* V21.21.48: إضافة مرتجع موجّه — اختيار العميل + الموديلات + ترحيل من نفس البوب اب */}
+      <Btn primary onClick={() => setShowAddReturn(true)} style={{background:"#6366F1",color:"#fff",border:"none",fontWeight:800}}>
+        ➕ إضافة مرتجع
+      </Btn>
       {uncreditedReturns.length > 0 && <Btn primary onClick={handleBulkCreate} style={{background:"#EF4444",color:"#fff",border:"none",fontWeight:800}}>
         ➕ إنشاء إشعارات من {uncreditedReturns.length} مرتجع
       </Btn>}
@@ -262,6 +268,11 @@ export function CreditNotesPg({data, upConfig, isMob, user}){
       onClose={() => setActiveCN(null)}
       onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
       isMob={isMob}
+    />}
+    {showAddReturn && <AddReturnModal
+      data={data} userName={userName} isMob={isMob}
+      upConfig={upConfig} updOrder={updOrder} onPost={handlePost}
+      onClose={() => setShowAddReturn(false)}
     />}
     {/* V19.39: Floating bulk-post bar */}
     <BulkPostBar
@@ -380,6 +391,280 @@ function CreditNoteDetailModal({creditNote, data, onClose, onPost, onVoid, onDel
           <Btn primary onClick={() => onPost(creditNote)} style={{background:STATUS_META.posted.color, color:"#fff", border:"none"}}>✅ ترحيل</Btn>
         </>}
         {creditNote.status === "posted" && <Btn onClick={() => onVoid(creditNote)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
+      </div>
+    </div>
+  </div>;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.21.48 · AddReturnModal — «إضافة مرتجع» موجّه (بوب اب واحد)
+   ───────────────────────────────────────────────────────────────────────
+   مرحلتان:
+   1) إنشاء: اختيار العميل → إضافة الموديلات اللي استلمها/لسه عنده منها كمية.
+      تحت كل موديل: تواريخ التسليم + الكمية المُسلّمة لكل جلسة، رقم الفاتورة
+      لو موجودة، صافي المتاح للإرجاع (= مُسلّم − مُرتجع سابق)، وحقل الكمية.
+   2) تم: يظهر الإشعار الدائن المُنشأ مع أزرار: طباعة إذن المرتجع/PDF،
+      ترحيل حسابات (من نفس البوب اب)، إغلاق.
+
+   ▸ «تأكيد المرتجع» بيكتب على o.customerReturns (عبر updOrder) → ده اللي
+     بينزّل من حساب العميل التشغيلي (statement.js / buildCustomerSummary)،
+     وبيعمل مسودة إشعار دائن (upsertCreditNoteFromReturn). كله reuse للمنطق
+     المالي المجرّب — مفيش حساب مالي جديد.
+   ▸ حارس الإرجاع الزائد: الكمية ≤ صافي المُسلّم (إجمالي العميل لكل أوردر).
+   ═══════════════════════════════════════════════════════════════════════ */
+function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onClose }){
+  const orders = data.orders || [];
+  const customers = (data.customers || []).filter(c => c && !c.archived);
+  const [custId, setCustId]   = useState("");
+  const [lines, setLines]     = useState([]);    /* [{orderId}] — صف لكل موديل */
+  const [qtys, setQtys]       = useState({});     /* {orderId: "qty"} */
+  const [note, setNote]       = useState("");
+  const [modelSearch, setModelSearch] = useState("");
+  const [busy, setBusy]       = useState(false);
+  const [createdCN, setCreatedCN] = useState(null);  /* مرحلة «تم» */
+  const [posting, setPosting] = useState(false);
+  const [posted, setPosted]   = useState(false);
+
+  const customer = customers.find(c => String(c.id) === String(custId)) || null;
+  const custOpts = customers.map(c => ({ value: c.id, label: c.name + (c.phone ? " — " + c.phone : "") }));
+
+  /* الموديلات القابلة للإرجاع لهذا العميل: صافي مُسلّم > 0 */
+  const returnable = useMemo(() => {
+    if(!custId) return [];
+    const out = [];
+    orders.forEach(o => {
+      const dels = (o.customerDeliveries || []).filter(d => d.custId === custId);
+      if(dels.length === 0) return;
+      const rets = (o.customerReturns || []).filter(r => r.custId === custId);
+      const delQty = dels.reduce((s, d) => s + (Number(d.qty) || 0), 0);
+      const retQty = rets.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+      const net = delQty - retQty;
+      if(net <= 0) return;
+      /* تجميع التسليمات بالجلسة (تاريخ + كمية) */
+      const bySess = {};
+      dels.forEach(d => {
+        const sid = d.sessionId || ("free_" + (d.date || ""));
+        if(!bySess[sid]) bySess[sid] = { date: d.date || "", qty: 0 };
+        bySess[sid].qty += Number(d.qty) || 0;
+        if(d.date && (!bySess[sid].date || d.date < bySess[sid].date)) bySess[sid].date = d.date;
+      });
+      const sessions = Object.values(bySess).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      /* فاتورة مرتبطة (غير ملغاة) لنفس العميل + الأوردر، إن وُجدت */
+      const inv = (data.salesInvoices || []).find(i =>
+        i && i.status !== "void" && i.customerId === custId &&
+        Array.isArray(i.items) && i.items.some(it => it.orderId === o.id)
+      );
+      out.push({
+        orderId: o.id, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "",
+        sellPrice: Number(o.sellPrice) || 0, net, delQty, retQty,
+        sessions, invoiceNo: inv ? inv.invoiceNo : null, image: o.image || null,
+      });
+    });
+    return out.sort((a, b) => String(a.modelNo).localeCompare(String(b.modelNo)));
+  }, [custId, orders, data.salesInvoices]);
+
+  const returnableMap = useMemo(() => Object.fromEntries(returnable.map(r => [r.orderId, r])), [returnable]);
+  const searchResults = useMemo(() => {
+    const inLines = new Set(lines.map(l => l.orderId));
+    const q = modelSearch.trim().toLowerCase();
+    return returnable.filter(r => !inLines.has(r.orderId) &&
+      (!q || String(r.modelNo).toLowerCase().includes(q) || String(r.modelDesc).toLowerCase().includes(q)));
+  }, [returnable, lines, modelSearch]);
+
+  const addModel = (orderId) => { setLines(p => [...p, { orderId }]); setQtys(p => ({ ...p, [orderId]: "" })); setModelSearch(""); };
+  const removeLine = (orderId) => { setLines(p => p.filter(l => l.orderId !== orderId)); setQtys(p => { const n = { ...p }; delete n[orderId]; return n; }); };
+  const setQty = (orderId, v) => setQtys(p => ({ ...p, [orderId]: v.replace(/[^0-9]/g, "") }));
+
+  const lineErr = (orderId) => {
+    const r = returnableMap[orderId]; const q = Number(qtys[orderId]) || 0;
+    if(q <= 0) return "أدخل كمية";
+    if(r && q > r.net) return "أقصى مرتجع " + r.net;
+    return null;
+  };
+  const totalQty = lines.reduce((s, l) => s + (Number(qtys[l.orderId]) || 0), 0);
+  const valid = !!custId && lines.length > 0 && lines.every(l => !lineErr(l.orderId));
+
+  const factoryInfo = data.factoryInfo || data.businessSettings || {};
+
+  /* تأكيد: سجّل المرتجع على كل أوردر (يخصم من الحساب) + اعمل مسودة إشعار دائن */
+  const confirmReturn = async () => {
+    if(!valid || busy) return;
+    if(typeof updOrder !== "function"){ showToast("⛔ تعذّر الكتابة على الأوردر — أعد فتح الصفحة"); return; }
+    if(!await ask("تأكيد المرتجع", "تسجيل مرتجع " + totalQty + " قطعة لـ " + (customer?.name || "") + "؟\n\nهيُخصم من حساب العميل + يتعمل إشعار دائن مسودة.", { confirmText: "تأكيد" })) return;
+    setBusy(true);
+    try {
+      const date = new Date().toISOString().split("T")[0];
+      const built = [];
+      for(const l of lines){
+        const o = orders.find(x => x.id === l.orderId);
+        if(!o) continue;
+        const q = Number(qtys[l.orderId]) || 0;
+        if(q <= 0) continue;
+        /* اختم discPct من آخر تسليم لنفس العميل عليه خصم (مطابقة مرتجع سريع) */
+        const dels = (o.customerDeliveries || []).filter(d => d.custId === custId);
+        let discPct;
+        const lastWithDisc = [...dels].reverse().find(d => d && d.discPct !== undefined && d.discPct !== null);
+        if(lastWithDisc){ const n = Number(lastWithDisc.discPct); if(!isNaN(n)) discPct = n; }
+        const retEntry = { custId, custName: customer?.name || "", qty: q, note: note.trim(), date, createdBy: userName || "" };
+        if(discPct !== undefined) retEntry.discPct = discPct;
+        retEntry._key = o.id + ":addReturn:" + custId + ":" + date + ":" + Math.random().toString(36).slice(2, 8);
+        built.push({ order: o, retEntry });
+        /* (أ) سجّل المرتجع على الأوردر → يخصم من حساب العميل التشغيلي */
+        await updOrder(o.id, ord => { if(!ord.customerReturns) ord.customerReturns = []; ord.customerReturns.push(retEntry); });
+      }
+      /* (ب) مسودة إشعار دائن — بتتدمج في إشعار واحد لنفس العميل/التاريخ */
+      let cn = null;
+      upConfig(d => {
+        for(const b of built){
+          const cust = (d.customers || []).find(c => c.id === custId) || customer;
+          const res = upsertCreditNoteFromReturn(d, b.retEntry, b.order, cust, userName);
+          if(res && res.creditNote) cn = res.creditNote;
+        }
+      });
+      setCreatedCN(cn ? JSON.parse(JSON.stringify(cn)) : null);
+      showToast("✓ تم تسجيل المرتجع — اتخصم من حساب العميل");
+    } catch(e){
+      showToast("⛔ تعذّر تسجيل المرتجع: " + (e?.message || e));
+    } finally { setBusy(false); }
+  };
+
+  /* الإشعار من أحدث data (بعد ما الـ snapshot يحدّث)، fallback للنسخة المُلتقطة */
+  const freshCN = createdCN ? ((data.salesCreditNotes || []).find(c => c.id === createdCN.id) || createdCN) : null;
+
+  const doPrint = () => {
+    if(!freshCN) return;
+    printCreditNote(freshCN, customer, factoryInfo);
+  };
+  const doPost = async () => {
+    if(!freshCN || posting || posted) return;
+    if(freshCN.status === "posted"){ setPosted(true); return; }
+    setPosting(true);
+    try {
+      await onPost(freshCN, { silent: true });
+      setPosted(true);
+      showToast("✓ تم ترحيل الإشعار للحسابات");
+    } catch(e){
+      showToast("⛔ تعذّر الترحيل: " + (e?.message || e));
+    } finally { setPosting(false); }
+  };
+
+  const th = { padding: "7px 8px", textAlign: "center", color: T.textSec, fontWeight: 800, fontSize: FS - 2, borderBottom: "2px solid " + T.brd };
+  const overlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10002, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMob ? 8 : 24, overflowY: "auto" };
+  const box = { background: T.cardSolid, borderRadius: 14, padding: isMob ? 14 : 22, width: "100%", maxWidth: 760, margin: "auto", border: "1px solid " + T.brd, boxShadow: "0 25px 70px rgba(0,0,0,0.4)", direction: "rtl" };
+
+  /* ─── مرحلة «تم» ─── */
+  if(createdCN) return <div style={overlay} onClick={onClose}>
+    <div style={box} onClick={e => e.stopPropagation()}>
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        <div style={{ fontSize: 40 }}>✅</div>
+        <div style={{ fontSize: FS + 4, fontWeight: 800, color: T.text }}>تم تسجيل المرتجع</div>
+        <div style={{ fontSize: FS - 1, color: T.textSec }}>اتخصم من حساب <b>{customer?.name}</b> + اتعمل إشعار دائن مسودة</div>
+      </div>
+      <div style={{ border: "1px solid " + T.brd, borderRadius: 10, padding: 12, marginBottom: 14, background: T.bg }}>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          <div><span style={{ color: T.textSec, fontSize: FS - 2 }}>رقم الإشعار: </span><b style={{ color: "#EF4444", fontFamily: "monospace" }}>{freshCN.creditNoteNo}</b></div>
+          <div><span style={{ color: T.textSec, fontSize: FS - 2 }}>الإجمالي المستحق رد: </span><b style={{ color: "#EF4444", direction: "ltr" }}>{fmt((Number(freshCN.total) || 0).toFixed(2))}</b></div>
+          <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: FS - 2, fontWeight: 700, background: (STATUS_META[freshCN.status] || STATUS_META.draft).bg, color: (STATUS_META[freshCN.status] || STATUS_META.draft).color }}>{(STATUS_META[freshCN.status] || STATUS_META.draft).label}</span>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 1 }}>
+          <thead><tr><th style={{ ...th, textAlign: "right" }}>الموديل</th><th style={th}>الكمية</th><th style={th}>السعر</th><th style={th}>الإجمالي</th></tr></thead>
+          <tbody>{(freshCN.items || []).map((it, i) => <tr key={i} style={{ borderTop: "1px solid " + T.brd }}>
+            <td style={{ padding: "6px 8px" }}><b>{it.modelNo || "—"}</b>{it.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {it.modelDesc}</span> : ""}</td>
+            <td style={{ padding: "6px 8px", textAlign: "center", direction: "ltr" }}>{fmt(it.qty)}</td>
+            <td style={{ padding: "6px 8px", textAlign: "center", direction: "ltr", color: T.textSec }}>{fmt((Number(it.unitPrice) || 0).toFixed(2))}</td>
+            <td style={{ padding: "6px 8px", textAlign: "center", direction: "ltr", fontWeight: 700, color: "#EF4444" }}>{fmt((Number(it.lineTotal) || 0).toFixed(2))}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <Btn ghost onClick={onClose}>إغلاق</Btn>
+        <Btn onClick={doPrint} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "30" }}>🖨️ طباعة إذن المرتجع / PDF</Btn>
+        {(freshCN.status === "draft" && !posted) ? <Btn primary onClick={doPost} disabled={posting} style={{ background: STATUS_META.posted.color, color: "#fff", border: "none" }}>{posting ? "⏳ جاري الترحيل..." : "✅ ترحيل حسابات"}</Btn>
+          : <Btn disabled style={{ background: STATUS_META.posted.bg, color: STATUS_META.posted.color, border: "1px solid " + STATUS_META.posted.color + "40" }}>✓ مُرحّل للحسابات</Btn>}
+      </div>
+    </div>
+  </div>;
+
+  /* ─── مرحلة «إنشاء» ─── */
+  return <div style={overlay} onClick={busy ? undefined : onClose}>
+    <div style={box} onClick={e => e.stopPropagation()}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 10, borderBottom: "2px solid " + T.brd }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 24 }}>↩️</span>
+          <div>
+            <div style={{ fontSize: FS + 3, fontWeight: 800, color: "#6366F1" }}>إضافة مرتجع</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec }}>اختر العميل والموديلات اللي استلمها — هيتخصم من حسابه</div>
+          </div>
+        </div>
+        <Btn ghost small onClick={onClose}>✕</Btn>
+      </div>
+
+      {/* اختيار العميل */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4 }}>العميل</label>
+        <SearchSel value={custId} onChange={v => { setCustId(v); setLines([]); setQtys({}); }} options={custOpts} placeholder="اختر العميل..." showAllOnFocus maxResults={20} />
+      </div>
+
+      {custId && <>
+        {/* إضافة موديل */}
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4 }}>أضف موديل اشتراه العميل (المتاح للإرجاع فقط)</label>
+          <Inp value={modelSearch} onChange={setModelSearch} placeholder="🔍 ابحث برقم الموديل / الوصف..." />
+          {modelSearch.trim() && <div style={{ border: "1px solid " + T.brd, borderRadius: 8, marginTop: 4, maxHeight: 180, overflowY: "auto", background: T.cardSolid }}>
+            {searchResults.length === 0 ? <div style={{ padding: 12, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>لا يوجد موديل متاح للإرجاع بهذا البحث</div> :
+              searchResults.slice(0, 25).map(r => <div key={r.orderId} onClick={() => addModel(r.orderId)} style={{ padding: "8px 10px", cursor: "pointer", borderTop: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", gap: 8 }}
+                onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ fontWeight: 700, color: T.text }}>{r.modelNo}{r.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {r.modelDesc}</span> : ""}</span>
+                <span style={{ fontSize: FS - 2, color: T.ok, fontWeight: 700, whiteSpace: "nowrap" }}>متاح {r.net}</span>
+              </div>)}
+          </div>}
+          {returnable.length === 0 && <div style={{ fontSize: FS - 2, color: T.textMut, marginTop: 6 }}>💡 العميل ده مفيش عنده موديلات متاحة للإرجاع (كل المُسلّم مُرتجع بالفعل).</div>}
+        </div>
+
+        {/* صفوف الموديلات المختارة */}
+        {lines.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {lines.map(l => {
+            const r = returnableMap[l.orderId]; if(!r) return null;
+            const err = lineErr(l.orderId);
+            return <div key={l.orderId} style={{ border: "1px solid " + (err ? T.err + "55" : T.brd), borderRadius: 10, padding: 10, background: T.bg }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontWeight: 800, color: T.text }}>{r.modelNo}{r.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3, fontWeight: 400 }}> — {r.modelDesc}</span> : ""}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: FS - 2, color: T.textSec }}>الكمية:</span>
+                  <input value={qtys[l.orderId] || ""} onChange={e => setQty(l.orderId, e.target.value)} inputMode="numeric" placeholder={"≤ " + r.net}
+                    style={{ width: 70, padding: "6px 8px", borderRadius: 7, border: "1px solid " + (err ? T.err : T.brd), textAlign: "center", direction: "ltr", fontWeight: 700, background: T.cardSolid, color: T.text, fontFamily: "inherit" }} />
+                  <Btn ghost small onClick={() => removeLine(l.orderId)} style={{ color: T.err }}>🗑</Btn>
+                </div>
+              </div>
+              {/* السياق: تسليمات (تاريخ + كمية) · فاتورة · صافي متاح */}
+              <div style={{ marginTop: 8, fontSize: FS - 2, color: T.textSec, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
+                <span>📦 صافي متاح للإرجاع: <b style={{ color: T.ok }}>{r.net}</b> <span style={{ color: T.textMut }}>(مُسلّم {r.delQty} − مُرتجع {r.retQty})</span></span>
+                {r.invoiceNo && <span>🧾 الفاتورة: <b style={{ color: T.accent, fontFamily: "monospace" }}>{r.invoiceNo}</b></span>}
+                <span>💰 السعر: <b style={{ direction: "ltr" }}>{fmt(r.sellPrice)}</b></span>
+              </div>
+              <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {r.sessions.map((s, i) => <span key={i} style={{ fontSize: FS - 3, padding: "2px 8px", borderRadius: 6, background: T.accent + "10", color: T.accent, border: "1px solid " + T.accent + "25" }}>
+                  📅 تسليم {s.date || "—"} · {s.qty} قطعة
+                </span>)}
+              </div>
+              {err && <div style={{ marginTop: 6, fontSize: FS - 3, color: T.err, fontWeight: 700 }}>⛔ {err}</div>}
+            </div>;
+          })}
+        </div>}
+
+        {/* سبب المرتجع */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4 }}>سبب المرتجع (اختياري)</label>
+          <Inp value={note} onChange={setNote} placeholder="سبب المرتجع..." />
+        </div>
+      </>}
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ fontSize: FS - 1, color: T.textSec }}>{lines.length > 0 && <>الإجمالي: <b style={{ color: T.text }}>{totalQty}</b> قطعة</>}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn ghost onClick={onClose} disabled={busy}>إلغاء</Btn>
+          <Btn primary onClick={confirmReturn} disabled={!valid || busy} style={{ background: valid ? "#6366F1" : T.brd, color: "#fff", border: "none", fontWeight: 800 }}>{busy ? "⏳ جاري التسجيل..." : "↩️ تأكيد المرتجع (" + totalQty + ")"}</Btn>
+        </div>
       </div>
     </div>
   </div>;
