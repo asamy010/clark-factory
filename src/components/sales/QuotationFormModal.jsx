@@ -11,6 +11,7 @@ import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { showToast } from "../../utils/popups.js";
 import { recalcQuotationTotals, validateQuotation, nextQuotationNo } from "../../utils/sales/quotations.js";
+import { salePriceForCustomer } from "../../utils/pricing.js";
 import { DocLineEditor } from "./DocLineEditor.jsx";
 
 const SOURCE_LABELS = {
@@ -57,18 +58,21 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
     [items, discountPct]
   );
 
-  /* عند اختيار مصدر → autofill الاسم + السعر + الوحدة (يُستهلك من DocLineEditor) */
+  /* عند اختيار مصدر → autofill الاسم + السعر + الوحدة (يُستهلك من DocLineEditor).
+     V21.21.54: السعر بياخد نوع تسعير العميل تلقائياً (سعر جملة/قطاعي) لو العميل
+     له نوع تسعير والصنف له سعر للنوع ده — وإلا سعر البيع الأساسي (fallback). */
   const resolveSource = (sourceType, sourceId, cur) => {
     let modelNo = "", description = "", unitPrice = cur?.unitPrice, unit = cur?.unit || "";
+    const _cust = customers.find(c => c.id === customerId) || null;
     if(sourceType === "order"){
       const o = orders.find(x => x.id === sourceId);
       if(o){ modelNo = o.modelNo || ""; description = o.modelDesc || ""; unitPrice = Number(o.sellPrice) || unitPrice; if(!unit) unit = "قطعة"; }
     } else if(sourceType === "inventoryItem"){
       const it = inventoryItems.find(x => x.id === sourceId);
-      if(it){ modelNo = it.name || ""; description = it.type || ""; unitPrice = Number(it.price ?? it.sellPrice ?? 0) || unitPrice; unit = it.unit || unit; }
+      if(it){ modelNo = it.name || ""; description = it.type || ""; unitPrice = salePriceForCustomer(it, "inventoryItem", _cust) || unitPrice; unit = it.unit || unit; }
     } else if(sourceType === "generalProduct"){
       const p = generalProducts.find(x => x.id === sourceId);
-      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; unitPrice = Number(p.price ?? p.sellPrice ?? 0) || unitPrice; unit = p.unit || unit; }
+      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; unitPrice = salePriceForCustomer(p, "generalProduct", _cust) || unitPrice; unit = p.unit || unit; }
     }
     return { modelNo, description, unitPrice, unit };
   };

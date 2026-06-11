@@ -17,6 +17,7 @@ import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildSalesServiceInvoice, buildPurchaseServiceInvoice } from "../utils/invoices.js";
+import { salePriceForCustomer } from "../utils/pricing.js";
 import { DocLineEditor } from "./sales/DocLineEditor.jsx";
 
 export function ServiceInvoiceModal({ mode, data, upConfig, user, onClose, isMob = false }){
@@ -55,11 +56,14 @@ export function ServiceInvoiceModal({ mode, data, upConfig, user, onClose, isMob
     const sourceType = s.slice(0, ci), sourceId = s.slice(ci + 1);
     let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice;
     const findIn = (arr) => (arr || []).find(x => String(x.id) === String(sourceId));
+    /* V21.21.54: في البيع — السعر بياخد نوع تسعير العميل تلقائياً (جملة/قطاعي).
+       في الشراء — السلوك القديم (التكلفة) من غير تغيير. */
+    const _cust = isSales ? (data.customers || []).find(c => String(c.id) === String(partyId)) : null;
     if(sourceType === "order"){ const o = findIn(data.orders); if(o){ modelNo = o.modelNo || ""; unitPrice = Number(o.sellPrice) || unitPrice; if(!unit) unit = "قطعة"; } }
-    else if(sourceType === "inventoryItem"){ const it = findIn(data.inventoryItems); if(it){ modelNo = it.name || ""; unit = it.unit || unit; unitPrice = Number(it.price ?? it.sellPrice ?? 0) || unitPrice; } }
-    else if(sourceType === "fabric"){ const f = findIn(data.fabrics); if(f){ modelNo = f.name || ""; unit = f.unit || unit; unitPrice = Number(f.avgCost ?? f.price ?? 0) || unitPrice; } }
-    else if(sourceType === "accessory"){ const a = findIn(data.accessories); if(a){ modelNo = a.name || ""; unit = a.unit || unit; unitPrice = Number(a.avgCost ?? a.price ?? 0) || unitPrice; } }
-    else if(sourceType === "generalProduct"){ const p = findIn(data.generalProducts); if(p){ modelNo = p.name || p.modelNo || ""; unit = p.unit || unit; unitPrice = Number(p.price ?? p.cost ?? p.sellPrice ?? 0) || unitPrice; } }
+    else if(sourceType === "inventoryItem"){ const it = findIn(data.inventoryItems); if(it){ modelNo = it.name || ""; unit = it.unit || unit; unitPrice = (isSales ? salePriceForCustomer(it, "inventoryItem", _cust) : Number(it.price ?? it.sellPrice ?? 0)) || unitPrice; } }
+    else if(sourceType === "fabric"){ const f = findIn(data.fabrics); if(f){ modelNo = f.name || ""; unit = f.unit || unit; unitPrice = (isSales ? salePriceForCustomer(f, "inventoryItem", _cust) : Number(f.avgCost ?? f.price ?? 0)) || unitPrice; } }
+    else if(sourceType === "accessory"){ const a = findIn(data.accessories); if(a){ modelNo = a.name || ""; unit = a.unit || unit; unitPrice = (isSales ? salePriceForCustomer(a, "inventoryItem", _cust) : Number(a.avgCost ?? a.price ?? 0)) || unitPrice; } }
+    else if(sourceType === "generalProduct"){ const p = findIn(data.generalProducts); if(p){ modelNo = p.name || p.modelNo || ""; unit = p.unit || unit; unitPrice = (isSales ? salePriceForCustomer(p, "generalProduct", _cust) : Number(p.price ?? p.cost ?? p.sellPrice ?? 0)) || unitPrice; } }
     return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice };
   };
 

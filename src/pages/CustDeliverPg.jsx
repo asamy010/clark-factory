@@ -17,6 +17,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { FKEYS, FS } from "../constants/index.js";
 import { gid, fmt, r2, gf, normalizePhone, parseSizes, getSizesFromSet, dayName, openWA, ltrPhone } from "../utils/format.js";
 import { nowISO, cairoDateStr } from "../utils/serverTime.js";
+import { getPriceTiers } from "../utils/pricing.js";
 import { playBeep } from "../utils/audio.js";
 import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
@@ -98,6 +99,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      `cTags` is the array of tag IDs being edited; `custTagFilter` filters
      the customer list popup. Mode defaults to "OR" (any). */
   const[cTags,setCTags]=useState([]);
+  const[cPriceTier,setCPriceTier]=useState("");/* V21.21.54: نوع تسعير العميل الافتراضي */
   const[custTagFilter,setCustTagFilter]=useState([]);
   const[custTagFilterMode,setCustTagFilterMode]=useState("OR");
   /* V18.16: Show-archived toggle (admin only — defaults off so archived are hidden everywhere) */
@@ -510,8 +512,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     const discVal=Math.max(0,Math.min(100,Number(cDiscount)||0));
     /* V21.9.105: snapshot tags to a safe array — never undefined, dedup just in case. */
     const tagsClean=Array.from(new Set(Array.isArray(cTags)?cTags.filter(Boolean):[]));
-    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived;d.customers[idx].tags=tagsClean}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived,tags:tagsClean})}});
-    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
+    const tierVal=String(cPriceTier||"").trim();/* V21.21.54 */
+    upConfig(d=>{if(!d.customers)d.customers=[];if(cEditId){const idx=d.customers.findIndex(c=>c.id===cEditId);if(idx>=0){d.customers[idx].name=cName.trim();d.customers[idx].phone=phoneClean;d.customers[idx].address=cAddr.trim();d.customers[idx].type=cType;d.customers[idx].discount=discVal;d.customers[idx].archived=!!cArchived;d.customers[idx].tags=tagsClean;d.customers[idx].priceTier=tierVal}}else{d.customers.push({id:gid(),name:cName.trim(),phone:phoneClean,address:cAddr.trim(),type:cType,discount:discVal,archived:!!cArchived,tags:tagsClean,priceTier:tierVal})}});
+    setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCPriceTier("");setCEditId(null);setShowCustForm(false);showToast("✓ تم الحفظ")};
 
   /* V21.9.57 CRITICAL FIX (Reported Bug — '"تسوية جرد" مش بعرف احذف'):
      `safeDelete` was referenced at line ~3116 inside the customer list
@@ -3610,7 +3613,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
           <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
+            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCPriceTier("");setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
             <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
           </div>
         </div>
@@ -3653,7 +3656,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={TD}><TagChips tagIds={c.tags||[]} registry={data.tagRegistry||[]} small max={3}/></td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
-              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
+              <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCPriceTier(c.priceTier||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={getDeleteBlocker(data,"customer",c.id)}/>
@@ -6347,6 +6350,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>اسم العميل *</label><Inp value={cName} onChange={setCName} placeholder="الاسم بالكامل..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>رقم التليفون *</label><Inp value={cPhone} onChange={setCPhone} placeholder="+201xxxxxxxxx" style={{direction:"ltr",textAlign:"left",fontFamily:"monospace"}}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع العميل</label><Sel value={cType} onChange={setCType}><option value="مكتب">🏢 مكتب</option><option value="محل">🏪 محل</option><option value="أونلاين">🌐 أونلاين</option><option value="أخرى">📦 أخرى</option></Sel></div>
+          {/* V21.21.54: نوع التسعير الافتراضي — بيتطبّق تلقائياً على أسعار البنود في البيع */}
+          <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>نوع التسعير <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— سعر الصنف يتعبّى تلقائي حسبه</span></label>
+            <Sel value={cPriceTier} onChange={setCPriceTier}>
+              <option value="">سعر عادي (سعر البيع الأساسي)</option>
+              {getPriceTiers(data).map(t=><option key={t} value={t}>{t}</option>)}
+            </Sel>
+          </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>العنوان</label><Inp value={cAddr} onChange={setCAddr} placeholder="اختياري..."/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الخصم (%) <span style={{fontSize:FS-3,color:T.textMut,fontWeight:400}}>— يطبق على إذن التسليم وبيان السعر</span></label>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
