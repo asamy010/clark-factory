@@ -69,3 +69,47 @@ export function countUnitUsage(config, unit) {
     ? config.inventoryItems : [];
   return items.filter(it => it && it.unit === unit).length;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   V21.21.52 — Multi-unit (dual unit of measure) — Phase 1 foundation
+   ════════════════════════════════════════════════════════════════════════
+   صنف (قماش/إكسسوار/منتج) ممكن يبقى ليه وحدة فرعية اختيارية جنب وحدته الأساسية.
+
+   ─── قاعدة التخزين الذهبية (مصدر حقيقة واحد) ───
+   الرصيد `item.stock` ومتوسط التكلفة `item.avgCost` بيتخزّنوا **دايماً**
+   بالوحدة الأساسية `item.unit`. الوحدة الفرعية `item.unit2` مجرد عرض/إدخال
+   مُشتق عبر `item.unit2Rate` = كام وحدة فرعية تساوي وحدة أساسية واحدة
+   (مثلاً unit=كيلو، unit2=متر، unit2Rate=2 → 1 كيلو = 2 متر).
+   الأصناف اللي مالهاش unit2/unit2Rate بتشتغل بالظبط زي الأول (وحدة واحدة) —
+   فكل مواضع الحساب (stock × avgCost بالوحدة الأساسية) تفضل صح من غير تعديل.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* معدل التحويل الصالح للصنف (>0) أو 0 لو مفيش وحدة فرعية صالحة. */
+export function itemUnit2Rate(item) {
+  const r = Number(item && item.unit2Rate);
+  return (item && item.unit2 && typeof item.unit2 === "string" && item.unit2.trim()
+          && isFinite(r) && r > 0) ? r : 0;
+}
+
+/* هل الصنف بيشتغل بوحدتين فعلاً؟ */
+export function hasDualUnit(item) {
+  return itemUnit2Rate(item) > 0;
+}
+
+/* تحويل كمية بين وحدتَي الصنف. from/to ∈ {"base","secondary"}.
+   بيرجّع الرقم محوَّلاً، أو زي ما هو لو مفيش وحدة فرعية صالحة أو from===to. */
+export function convertItemQty(item, qty, from, to) {
+  const n = Number(qty) || 0;
+  const rate = itemUnit2Rate(item);
+  if (!rate || from === to) return n;
+  if (from === "base" && to === "secondary") return n * rate;
+  if (from === "secondary" && to === "base") return n / rate;
+  return n;
+}
+
+/* الكمية الأساسية → الفرعية (أو null لو مفيش وحدة فرعية). */
+export function baseToSecondary(item, baseQty) {
+  const rate = itemUnit2Rate(item);
+  return rate ? (Number(baseQty) || 0) * rate : null;
+}
+

@@ -14,7 +14,7 @@ import { calcOrder, getConfirmedStock } from "../utils/orders.js";
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
-import { countUnitUsage, DEFAULT_UNITS, getUnits } from "../utils/units.js";
+import { countUnitUsage, DEFAULT_UNITS, getUnits, hasDualUnit, baseToSecondary } from "../utils/units.js";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -274,8 +274,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   },[generalProducts,hideZero,prodFilterDeb,prodCategoryF,sortBy]);
   
   /* ──────── GENERAL PRODUCT CRUD ──────── */
-  const openNewProd=()=>{setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",price:0,minStock:0,notes:""});setShowProdForm(true)};
-  const editProd=(p)=>{setProdForm({...p});setShowProdForm(true)};
+  const openNewProd=()=>{setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,minStock:0,notes:""});setShowProdForm(true)};
+  const editProd=(p)=>{setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||""});setShowProdForm(true)};
   const saveProd=async()=>{
     if(!canEdit){await denyAction("حفظ المنتج");return;}
     if(!prodForm)return;
@@ -283,6 +283,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const isEdit=!!prodForm.id;
     upConfig(d=>{
       if(!d.generalProducts)d.generalProducts=[];
+      /* V21.21.52: وحدة فرعية اختيارية — الرصيد يفضل بالوحدة الأساسية */
+      const _u2=(prodForm.unit2||"").trim();
+      const _r2=Number(prodForm.unit2Rate);
+      const _dual=_u2&&isFinite(_r2)&&_r2>0;
       const obj={
         id:prodForm.id||gid(),
         name:prodForm.name.trim(),
@@ -296,6 +300,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         lastMovementDate:prodForm.lastMovementDate||"",
         createdAt:prodForm.createdAt||new Date().toISOString()
       };
+      if(_dual){obj.unit2=_u2;obj.unit2Rate=_r2;}
       if(isEdit){const idx=d.generalProducts.findIndex(x=>x.id===obj.id);if(idx>=0)d.generalProducts[idx]=obj}
       else d.generalProducts.push(obj);
     });
@@ -367,17 +372,28 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     if(!fabForm.name||!fabForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال اسم القماش",{type:"warning"});return}
     upConfig(d=>{
       if(!d.fabrics)d.fabrics=[];
+      /* V21.21.52: الوحدة الفرعية اختيارية — تتكتب بس لو متظبطة بمعدل صالح،
+         وإلا تتمسح (لو المستخدم شالها). الرصيد يفضل بالوحدة الأساسية. */
+      const _u2=(fabForm.unit2||"").trim();
+      const _r2=Number(fabForm.unit2Rate);
+      const _dual=_u2&&isFinite(_r2)&&_r2>0;
       if(fabForm._eid){
         const idx=d.fabrics.findIndex(x=>x.id===fabForm._eid);
-        if(idx>=0)d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0};
+        if(idx>=0){
+          d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0};
+          if(_dual){d.fabrics[idx].unit2=_u2;d.fabrics[idx].unit2Rate=_r2;}
+          else{delete d.fabrics[idx].unit2;delete d.fabrics[idx].unit2Rate;}
+        }
       }else{
-        d.fabrics.push({id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,stock:0});
+        const _f={id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,stock:0};
+        if(_dual){_f.unit2=_u2;_f.unit2Rate=_r2;}
+        d.fabrics.push(_f);
       }
     });
     setFabForm(null);
     showToast(fabForm._eid?"✅ تم تعديل القماش":"✅ تم إضافة القماش");
   };
-  const editFab=(f)=>setFabForm({name:f.name,unit:f.unit,price:f.price,_eid:f.id});
+  const editFab=(f)=>setFabForm({name:f.name,unit:f.unit,price:f.price,unit2:f.unit2||"",unit2Rate:f.unit2Rate||"",_eid:f.id});
   const deleteFab=async(f)=>{
     if(!canEdit){await denyAction("حذف القماش");return;}
     const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
@@ -405,17 +421,27 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     if(!accForm.name||!accForm.name.trim()){await tell("الاسم مطلوب","يرجى إدخال وصف الإكسسوار",{type:"warning"});return}
     upConfig(d=>{
       if(!d.accessories)d.accessories=[];
+      /* V21.21.52: وحدة فرعية اختيارية — نفس منطق القماش */
+      const _u2=(accForm.unit2||"").trim();
+      const _r2=Number(accForm.unit2Rate);
+      const _dual=_u2&&isFinite(_r2)&&_r2>0;
       if(accForm._eid){
         const idx=d.accessories.findIndex(x=>x.id===accForm._eid);
-        if(idx>=0)d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0};
+        if(idx>=0){
+          d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0};
+          if(_dual){d.accessories[idx].unit2=_u2;d.accessories[idx].unit2Rate=_r2;}
+          else{delete d.accessories[idx].unit2;delete d.accessories[idx].unit2Rate;}
+        }
       }else{
-        d.accessories.push({id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,stock:0});
+        const _a={id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,stock:0};
+        if(_dual){_a.unit2=_u2;_a.unit2Rate=_r2;}
+        d.accessories.push(_a);
       }
     });
     setAccForm(null);
     showToast(accForm._eid?"✅ تم تعديل الإكسسوار":"✅ تم إضافة الإكسسوار");
   };
-  const editAcc=(a)=>setAccForm({name:a.name,unit:a.unit,price:a.price,_eid:a.id});
+  const editAcc=(a)=>setAccForm({name:a.name,unit:a.unit,price:a.price,unit2:a.unit2||"",unit2Rate:a.unit2Rate||"",_eid:a.id});
   const deleteAcc=async(a)=>{
     if(!canEdit){await denyAction("حذف الإكسسوار");return;}
     const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
@@ -646,8 +672,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
               {isBulkActive&&<td style={{...TD,textAlign:"center"}}><input type="checkbox" checked={isSel} onChange={()=>toggleBulkSelect(item.id)} style={{width:18,height:18,cursor:"pointer"}}/></td>}
               <td style={{...TD,fontWeight:700}}>{item.name||"—"}</td>
               {type==="general"&&<td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:600,background:color+"15",color}}>{item.category||"—"}</span></td>}
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}</td>
-              <td style={{...TD,textAlign:"center",color:T.textSec}}>{item.unit||"—"}</td>
+              {/* V21.21.52: عرض الرصيد بالوحدتين لو الصنف له وحدة فرعية (مشتق من المعدل) */}
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}{hasDualUnit(item)&&<div style={{fontSize:FS-4,fontWeight:600,color:T.textMut}}>≈ {fmt(r2(baseToSecondary(item,stock)))} {item.unit2}</div>}</td>
+              <td style={{...TD,textAlign:"center",color:T.textSec}}>{item.unit||"—"}{hasDualUnit(item)&&<span style={{color:T.textMut}}> / {item.unit2}</span>}</td>
               {type==="accessory"&&<td style={{...TD,textAlign:"center"}}>
                 {canEdit?<Inp type="number" value={item.qtyPerPiece||1} onChange={v=>{upConfig(d=>{const idx=d.accessories.findIndex(x=>x.id===item.id);if(idx>=0)d.accessories[idx].qtyPerPiece=Number(v)||1})}} style={{width:60,padding:"3px 6px",fontSize:FS-1,textAlign:"center"}}/>:<span>{item.qtyPerPiece||1}</span>}
               </td>}
@@ -862,7 +889,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
-          {canEdit&&<Btn primary small onClick={()=>setFabForm({name:"",unit:"كيلو",price:"",_eid:null})}>+ قماش جديد</Btn>}
+          {canEdit&&<Btn primary small onClick={()=>setFabForm({name:"",unit:"كيلو",price:"",unit2:"",unit2Rate:"",_eid:null})}>+ قماش جديد</Btn>}
         </div>
         {renderItemTable(filteredFab,"fabric")}
       </Card>
@@ -889,7 +916,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
-          {canEdit&&<Btn primary small onClick={()=>setAccForm({name:"",unit:"قطعة",price:"",_eid:null})}>+ اكسسوار جديد</Btn>}
+          {canEdit&&<Btn primary small onClick={()=>setAccForm({name:"",unit:"قطعة",price:"",unit2:"",unit2Rate:"",_eid:null})}>+ اكسسوار جديد</Btn>}
         </div>
         {renderItemTable(filteredAcc,"accessory")}
       </Card>
@@ -1169,7 +1196,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
               </Sel>
             </div>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الوحدة</label>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الوحدة الأساسية</label>
               <Sel value={prodForm.unit||""} onChange={v=>setProdForm(p=>({...p,unit:v}))}>
                 {getUnits(data,prodForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
               </Sel>
@@ -1185,6 +1212,21 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
               <Inp type="number" value={prodForm.minStock||""} onChange={v=>setProdForm(p=>({...p,minStock:v}))} placeholder="0"/>
             </div>
           </div>
+          {/* V21.21.52: وحدة فرعية اختيارية + معدل التحويل (الرصيد يفضل بالوحدة الأساسية) */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>وحدة فرعية (اختياري)</label>
+              <Sel value={prodForm.unit2||""} onChange={v=>setProdForm(p=>({...p,unit2:v}))}>
+                <option value="">— بدون —</option>
+                {getUnits(data,prodForm.unit2).filter(u=>u!==prodForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>معدل التحويل</label>
+              <Inp type="number" value={prodForm.unit2Rate||""} onChange={v=>setProdForm(p=>({...p,unit2Rate:v}))} placeholder="مثال: 2"/>
+            </div>
+          </div>
+          {prodForm.unit2&&Number(prodForm.unit2Rate)>0&&<div style={{fontSize:FS-2,color:"#EC4899",fontWeight:700,background:"#EC489910",borderRadius:8,padding:"6px 10px",textAlign:"center"}}>1 {prodForm.unit||"؟"} = {fmt(Number(prodForm.unit2Rate))} {prodForm.unit2}</div>}
           <div>
             <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظات</label>
             <textarea value={prodForm.notes||""} onChange={e=>setProdForm(p=>({...p,notes:e.target.value}))} placeholder="وصف المنتج، مورد، إلخ..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box",resize:"vertical",minHeight:50}}/>
@@ -1210,16 +1252,31 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة الأساسية</label>
               <Sel value={fabForm.unit} onChange={v=>setFabForm({...fabForm,unit:v})}>
                 {getUnits(data,fabForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
               </Sel>
             </div>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر (لكل وحدة أساسية)</label>
               <Inp value={fabForm.price} onChange={v=>setFabForm({...fabForm,price:v})} type="number"/>
             </div>
           </div>
+          {/* V21.21.52: وحدة فرعية اختيارية + معدل التحويل (الرصيد يفضل بالوحدة الأساسية) */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>وحدة فرعية (اختياري)</label>
+              <Sel value={fabForm.unit2||""} onChange={v=>setFabForm({...fabForm,unit2:v})}>
+                <option value="">— بدون —</option>
+                {getUnits(data,fabForm.unit2).filter(u=>u!==fabForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>معدل التحويل</label>
+              <Inp value={fabForm.unit2Rate} onChange={v=>setFabForm({...fabForm,unit2Rate:v})} type="number" placeholder="مثال: 2"/>
+            </div>
+          </div>
+          {fabForm.unit2&&Number(fabForm.unit2Rate)>0&&<div style={{fontSize:FS-2,color:T.accent,fontWeight:700,background:T.accent+"10",borderRadius:8,padding:"6px 10px",textAlign:"center"}}>1 {fabForm.unit||"؟"} = {fmt(Number(fabForm.unit2Rate))} {fabForm.unit2}</div>}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
             <Btn ghost onClick={()=>setFabForm(null)}>إلغاء</Btn>
             <Btn primary onClick={saveFab}>💾 {fabForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
@@ -1239,16 +1296,31 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label>
+              <label style={{fontSize:FS-2,color:T.textSec}}>الوحدة الأساسية</label>
               <Sel value={accForm.unit} onChange={v=>setAccForm({...accForm,unit:v})}>
                 {getUnits(data,accForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
               </Sel>
             </div>
             <div>
-              <label style={{fontSize:FS-2,color:T.textSec}}>السعر</label>
+              <label style={{fontSize:FS-2,color:T.textSec}}>السعر (لكل وحدة أساسية)</label>
               <Inp value={accForm.price} onChange={v=>setAccForm({...accForm,price:v})} type="number"/>
             </div>
           </div>
+          {/* V21.21.52: وحدة فرعية اختيارية + معدل التحويل */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>وحدة فرعية (اختياري)</label>
+              <Sel value={accForm.unit2||""} onChange={v=>setAccForm({...accForm,unit2:v})}>
+                <option value="">— بدون —</option>
+                {getUnits(data,accForm.unit2).filter(u=>u!==accForm.unit).map(u=><option key={u} value={u}>{u}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <label style={{fontSize:FS-2,color:T.textSec}}>معدل التحويل</label>
+              <Inp value={accForm.unit2Rate} onChange={v=>setAccForm({...accForm,unit2Rate:v})} type="number" placeholder="مثال: 2"/>
+            </div>
+          </div>
+          {accForm.unit2&&Number(accForm.unit2Rate)>0&&<div style={{fontSize:FS-2,color:"#8B5CF6",fontWeight:700,background:"#8B5CF610",borderRadius:8,padding:"6px 10px",textAlign:"center"}}>1 {accForm.unit||"؟"} = {fmt(Number(accForm.unit2Rate))} {accForm.unit2}</div>}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
             <Btn ghost onClick={()=>setAccForm(null)}>إلغاء</Btn>
             <Btn primary onClick={saveAcc} style={{background:"#8B5CF6",color:"#fff",border:"none"}}>💾 {accForm._eid?"حفظ التعديلات":"إضافة"}</Btn>
@@ -1336,7 +1408,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <div style={{padding:12,borderRadius:10,background:statusColor+"08",border:"1px solid "+statusColor+"20"}}>
               <div style={{fontSize:FS-3,color:T.textSec}}>الرصيد الحالي</div>
               <div style={{fontSize:FS+6,fontWeight:800,color:statusColor}}>{fmt(stock)}</div>
-              <div style={{fontSize:FS-3,color:T.textMut}}>{viewProd.unit||"—"}</div>
+              <div style={{fontSize:FS-3,color:T.textMut}}>{viewProd.unit||"—"}{hasDualUnit(viewProd)&&" ≈ "+fmt(r2(baseToSecondary(viewProd,stock)))+" "+viewProd.unit2}</div>
             </div>
             <div style={{padding:12,borderRadius:10,background:T.bg}}>
               <div style={{fontSize:FS-3,color:T.textSec}}>متوسط التكلفة</div>
