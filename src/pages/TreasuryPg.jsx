@@ -2652,7 +2652,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(!accountName){
       w.document.write(`<div class="accounts-row">${accounts.map(acc=>{const ab=accBalances[acc]||{in:0,out:0};return`<div class="acc-chip">${acc}<b class="num">${fmt0(ab.in-ab.out)}</b></div>`}).join("")}</div>`);
     }
-    w.document.write(`<div class="foot"><span>CLARK Factory Management System</span><span>صفحة 1</span></div>
+    w.document.write(`<div class="foot"><span>CLARK ERP System</span><span>صفحة 1</span></div>
     </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
 
   /* ── V15.44: Print filtered view — prints whatever's currently visible with active filters ── */
@@ -2691,7 +2691,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       w.document.write(`<tr><td>${t.date}</td><td class="num green">${t.type==="in"?fmt0(t.amount):""}</td><td class="num red">${t.type==="out"?fmt0(t.amount):""}</td><td>${_esc(t.category||"—")}</td><td>${_esc(t.desc||"—")}</td><td>${_esc(t.account||"")}</td></tr>`)});
     if(sorted.length===0)w.document.write(`<tr><td colspan="6" class="empty">لا توجد حركات مطابقة للفلاتر</td></tr>`);
     w.document.write(`</tbody></table>
-    <div class="foot"><span>CLARK Factory Management System</span><span>تقرير مخصص — الفلاتر المفعّلة مبينة أعلاه</span></div>
+    <div class="foot"><span>CLARK ERP System</span><span>تقرير مخصص — الفلاتر المفعّلة مبينة أعلاه</span></div>
     </body></html>`);w.document.close();setTimeout(()=>w.print(),300)};
 
   /* ── Build daily report HTML (shared between PDF and WA) ── */
@@ -2754,7 +2754,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </table>
       ${accFootBlock}
       <div style="margin-top:12px;padding:6px 0;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8">
-        <span>CLARK Factory Management System</span>
+        <span>CLARK ERP System</span>
         <span>${new Date().toLocaleDateString("ar-EG")}</span>
       </div>
     </div>`;
@@ -2845,7 +2845,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       "*🔴 المنصرف حسب التصنيف*",
       buildBreakdown(catOut),
       "━━━━━━━━━━━━━━━━",
-      "🏭 CLARK Factory Management"
+      "🏭 CLARK ERP System"
     ];
     return out.join("\n");
   };

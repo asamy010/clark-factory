@@ -269,7 +269,7 @@ export function AboutVersionModal({ open, onClose, currentVersion = "V16.79" }) 
                 textAlign: "center", lineHeight: 1.6,
               }}
             >
-              CLARK Factory Management — © 2026
+              CLARK ERP System — © 2026
               <br />
               للمساعدة أو الإبلاغ عن مشاكل، تواصل مع المدير.
             </div>

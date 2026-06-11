@@ -78,7 +78,7 @@ export function StockPg({data,updOrder,isMob,canEdit,statusCards,user}){
     const totalQty=allStock.reduce((s,x)=>s+(Number(x.qty)||0),0);
     h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='4'>الاجمالي</td><td style='color:#059669'>"+fmt(totalQty)+"</td><td></td></tr>";
     h+="</tbody></table>";
-    h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
+    h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK ERP System — "+new Date().toLocaleDateString("ar-EG")+"</div>";
     printPage("سجل تسليمات المخزن",h)
   };
 

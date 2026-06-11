@@ -306,7 +306,7 @@ export async function printStockDelivery(order,qty,date,note,totalDelivered,tota
   h+="<div style='margin:20px 0;padding:14px;border:2px solid #CBD5E1;border-radius:10px;background:#F0FDF4;font-size:12px;line-height:2;text-align:center'>";
   h+="أقر بأنني استلمت الكمية المذكورة أعلاه وتم ادخالها للمخزن بعد الفحص والمراجعة</div>";
   h+="<div class='sig'><div class='sig-box'>أمين المخزن</div><div class='sig-box'>مسؤول التشطيب</div><div class='sig-box'>مدير الانتاج</div></div>";
-  h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
+  h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK ERP System — "+new Date().toLocaleDateString("ar-EG")+"</div>";
   printPage("اذن تسليم مخزن — "+order.modelNo,h)
 }
 

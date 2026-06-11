@@ -159,7 +159,7 @@ export function AvailableReport({data,isMob,season}){
     rows.forEach((r,i)=>{h+="<tr><td>"+(i+1)+"</td><td style='font-weight:700'>"+r.modelNo+"</td><td>"+r.modelDesc+"</td><td style='color:#8B5CF6;font-weight:700'>"+r.piece+"</td><td style='font-weight:700'>"+r.cutQty+"</td><td style='color:#F59E0B;font-weight:700'>"+r.delivered+"</td><td style='color:#10B981;font-weight:800;font-size:14px'>"+r.available+"</td></tr>"});
     h+="<tr style='background:#EFF6FF;font-weight:800'><td colspan='4'>الاجمالي</td><td>"+fmt(rows.reduce((s,r)=>s+r.cutQty,0))+"</td><td>"+fmt(rows.reduce((s,r)=>s+r.delivered,0))+"</td><td style='color:#10B981;font-size:16px'>"+fmt(totalAvail)+"</td></tr>";
     h+="</tbody></table>";
-    h+="<div style='margin-top:20px;padding:12px;border:2px solid #E2E8F0;border-radius:8px;text-align:center;font-size:11px;color:#94A3B8'>تم الطباعة في "+new Date().toLocaleDateString("ar-EG")+" — CLARK Factory Management</div>";
+    h+="<div style='margin-top:20px;padding:12px;border:2px solid #E2E8F0;border-radius:8px;text-align:center;font-size:11px;color:#94A3B8'>تم الطباعة في "+new Date().toLocaleDateString("ar-EG")+" — CLARK ERP System</div>";
     printPage("القطع المتاحة للتسليم — "+season,h)
   };
   return<div id="avail-rep">
@@ -670,7 +670,7 @@ export function WsFullAccountReport({data,isMob,season}){
       html+="</tbody></table>";
       html+="<div style='page-break-after:auto;margin-bottom:20px'></div>";
     });
-    html+="<div class='foot'>CLARK Factory Management — تقرير تشغيل خارجي — "+today+"</div>";
+    html+="<div class='foot'>CLARK ERP System — تقرير تشغيل خارجي — "+today+"</div>";
     printPage("تقرير تشغيل خارجي",html);
   };
   

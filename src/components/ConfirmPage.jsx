@@ -503,7 +503,7 @@ export function ConfirmPage({ params }) {
               borderTop: "1px dashed #E2E8F0",
             }}
           >
-            Powered by CLARK Factory Management
+            Powered by CLARK ERP System
           </div>
         </div>
       </div>

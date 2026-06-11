@@ -979,7 +979,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
           {/* Footer */}
           <div style={{marginTop:"auto",paddingTop:3,borderTop:"1px solid #000",display:"flex",justifyContent:"space-between",fontSize:6,color:"#888",fontWeight:600}}>
             <span>{f.createdBy?.show!==false?"التعبئة: أحمد":""}</span>
-            <span>CLARK Factory Management</span>
+            <span>CLARK ERP System</span>
           </div>
         </>}
         {/* === Sales delivery label preview (V16.57) === */}

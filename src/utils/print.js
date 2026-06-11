@@ -44,7 +44,7 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
   const today=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   const timeStr=new Date().toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
   const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);
-  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK Factory Management";
+  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK ERP System";
   const factoryLogo=(configInfo&&configInfo.logo)||CLARK_LOGO;
   const factoryAddr=(configInfo&&configInfo.address)||"";
   const factoryPhone=(configInfo&&configInfo.phone)||"";
@@ -81,7 +81,7 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
   +"</div>";
   const footer="<div class='foot'>"
     +"<span class='foot-brand'>"+factoryName+"</span>"
-    +"<span class='foot-meta'>"+today+" • Powered by CLARK Factory Management</span>"
+    +"<span class='foot-meta'>"+today+" • Powered by CLARK ERP System</span>"
   +"</div>";
   pw.document.write("<!DOCTYPE html><html dir='rtl'><head><meta charset='utf-8'/><link href='https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap' rel='stylesheet'/><script src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'></"+"script><title>"+title+"</title><style>"+PRINT_CSS+enhancedStyles+".pbar{position:sticky;top:0;background:#fff;padding:8px 16px;border-bottom:2px solid #E2E8F0;display:flex;justify-content:center;gap:10px;z-index:999}.pbar button{padding:8px 22px;border-radius:8px;border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700}.pb-back{background:#F1F5F9;color:#475569}.pb-print{background:#0EA5E9;color:#fff}.pb-pdf{background:#EF4444;color:#fff}.pb-pdf:disabled{opacity:0.6;cursor:wait}@media print{.pbar{display:none}}</style></head><body><div class='pbar'><button class='pb-back' onclick='window.close()'>↩ رجوع</button><button class='pb-print' onclick='window.print()'>🖨 طباعة</button><button class='pb-pdf' id='pdf-btn' onclick='savePdf()'>📄 حفظ PDF</button></div><div id='report-content'>"+header+bodyHtml+footer+"</div><script>function savePdf(){var btn=document.getElementById('pdf-btn');if(!window.html2pdf){alert('مكتبة PDF لم تُحمّل بعد — انتظر قليلاً ثم أعد المحاولة');return}var el=document.getElementById('report-content');if(!el){alert('محتوى التقرير غير موجود');return}var orig=btn.textContent;btn.disabled=true;btn.textContent='⏳ جاري الإنشاء...';window.html2pdf().set({margin:[10,10,10,10],filename:'"+safeTitle.replace(/'/g,"\\'")+".pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,letterRendering:true,allowTaint:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait',compress:true},pagebreak:{mode:['css','legacy','avoid-all']}}).from(el).save().then(function(){btn.disabled=false;btn.textContent=orig}).catch(function(e){alert('فشل إنشاء PDF: '+e.message);btn.disabled=false;btn.textContent=orig})}</"+"script></body></html>");pw.document.close();/* V15.83: restore focus + auto-print.
      Was removed in V15.79 but caused "nothing happens" — new window opens in background tab,
@@ -149,7 +149,7 @@ export function printPkgLabel(pkgNum,pkgDate,pkgNote,pkgItems,movements,status,c
   +itemRows
   +"<tr class='tot'><td colspan='2'>الاجمالي</td><td class='ct'>"+totalSeries+"</td><td class='qt' style='font-size:11pt'>"+totalQ+"</td></tr></tbody></table>"
   +(showMovements&&movRows?"<div class='sec'>سجل الحركات</div><table><thead><tr><th>التاريخ</th><th>النوع</th><th>التفاصيل</th><th>الكمية</th><th>بواسطة</th></tr></thead><tbody>"+movRows+"</tbody></table>":"")
-  +"<div class='ft'><span>"+(showCreatedBy&&createdBy?"التعبئة: "+createdBy:"")+"</span><span>CLARK Factory Management</span></div>"
+  +"<div class='ft'><span>"+(showCreatedBy&&createdBy?"التعبئة: "+createdBy:"")+"</span><span>CLARK ERP System</span></div>"
   +"</div></div>"
   +"<script>(function(){"
   +(showQr?"try{QRCode.toCanvas(document.getElementById('qr'),'"+qrData.replace(/'/g,"\\'")+"',{width:120,margin:1},function(){})}catch(e){}":"")

@@ -1598,7 +1598,7 @@ export function ExtProdPg({data,updOrder,upConfig,isMob,isTab,canEdit,statusCard
             h+="<tr style='background:"+(e.type==="payment"?"#FEF2F2":e.type==="purchase"?"#F0FDF4":"")+"'><td>"+e.date+"</td><td>"+e.desc+"</td><td style='font-weight:700'>"+(e.qty||"-")+"</td><td>"+(e.price||"-")+"</td><td style='color:#0284C7;font-weight:700'>"+(e.type==="due"?fmt(e.amount):e.type==="purchase"?fmt(e.amount):"-")+"</td><td style='color:#EF4444;font-weight:700'>"+(e.type==="payment"?fmt(e.amount):"-")+"</td><td style='font-weight:700;color:"+(pRun>0?"#EF4444":"#10B981")+"'>"+fmt(r2(pRun))+"</td></tr>"});
           h+="</tbody></table>";
           h+="<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px'><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع المسؤول</div></div><div style='text-align:center;width:180px'><div style='border-top:2px solid #333;padding-top:8px;font-weight:700;font-size:12px'>توقيع الورشة</div></div>"+(qrSrc?"<div style='text-align:center'><img src='"+qrSrc+"' style='width:80px;height:80px'/><div style='font-size:8px;color:#94A3B8'>"+w.name+"</div></div>":"")+"</div>";
-          h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK Factory Management — "+new Date().toLocaleDateString("ar-EG")+"</div>";
+          h+="<div style='margin-top:16px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:8px'>CLARK ERP System — "+new Date().toLocaleDateString("ar-EG")+"</div>";
           printPage("كشف حساب — "+w.name,h)
         };
         return<div key={w.id}>

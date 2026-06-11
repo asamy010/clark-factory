@@ -102,7 +102,7 @@ export function AgingReportTab({data, T, FS, isMob, showToast}){
   </thead>
   <tbody>${rowsHtml}${totalsRow}</tbody>
 </table>
-<div class="foot">CLARK Factory Management — تقرير تقادم — تم الطباعة: ${new Date().toLocaleString("ar-EG")}</div>
+<div class="foot">CLARK ERP System — تقرير تقادم — تم الطباعة: ${new Date().toLocaleString("ar-EG")}</div>
 <script>setTimeout(function(){window.print()},500)</script>
 </body></html>`;
     w.document.write(html);
