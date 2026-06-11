@@ -9,6 +9,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Btn, Card, Inp, Sel, BlockingOverlay } from "../components/ui.jsx";
 import { DocItemsTable } from "../components/DocItemsTable.jsx";
+import { tafqitEGP } from "../utils/tafqit.js";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
@@ -496,7 +497,7 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   return <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} style={{
       background:T.cardSolid, borderRadius:14, padding:isMob?16:24,
-      width:"100%", maxWidth:800, maxHeight:"90vh", overflowY:"auto",
+      width:"100%", maxWidth:920, maxHeight:"90vh", overflowY:"auto",
       border:"1px solid "+T.brd, boxShadow:"0 25px 70px rgba(0,0,0,0.4)"
     }}>
       {/* V18.94: Review-request banner — visible only to the sender if there's an active request */}
@@ -617,6 +618,10 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
               <span>المتبقي</span><span style={{fontWeight:800, direction:"ltr"}}>{fmt(balanceDue.toFixed(2))}</span>
             </div>
           </>}
+          {/* V21.21.45: التفقيط تحت الإجماليات */}
+          <div style={{marginTop:10, paddingTop:10, borderTop:"1px dashed "+T.brd, fontSize:FS-1, fontWeight:700, color:T.textSec, lineHeight:1.7}}>
+            {tafqitEGP(isDraft ? computedTotal : invoice.total)}
+          </div>
         </div>
       </div>
 

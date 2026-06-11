@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { Btn } from "../ui.jsx";
-import { DocItemsTable } from "../DocItemsTable.jsx";
+import { DocItemsTable, DocTotals } from "../DocItemsTable.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, ltrPhone } from "../../utils/format.js";
@@ -66,7 +66,7 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "min(720px,100%)", maxHeight: "92vh", overflowY: "auto", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "min(900px,100%)", maxHeight: "92vh", overflowY: "auto", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid " + T.brd }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>💬 {rfq.rfqNo}</div>
@@ -89,13 +89,9 @@ export function RfqDetailModal({ rfq, data, userName, canEdit, onClose, onEdit, 
           )}
 
           <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, margin: "14px 0 6px" }}>الأصناف ({(rfq.items || []).length})</div>
-          {/* V21.21.43: أعمدة موحّدة + توزيع الخصم الكلي */}
+          {/* V21.21.45: أعمدة موحّدة + نسبة الخصم + الإجماليات/التفقيط */}
           <DocItemsTable items={rfq.items} headerDiscountPct={rfq.discountPct} accent="#D97706" />
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#D9770610" }}>
-            <span style={{ fontWeight: 700, color: T.textSec }}>الإجمالي التقديري</span>
-            <span style={{ fontSize: FS + 3, fontWeight: 800, color: "#D97706", direction: "ltr" }}>{fmt(Number(rfq.total || 0).toFixed(2))}</span>
-          </div>
+          <DocTotals items={rfq.items} headerDiscountPct={rfq.discountPct} accent="#D97706" />
 
           {rfq.notes && <div style={{ marginTop: 12, padding: 10, background: "#FEF3C7", borderRadius: 8, fontSize: FS - 1, color: T.text }}>📝 {rfq.notes}</div>}
         </div>

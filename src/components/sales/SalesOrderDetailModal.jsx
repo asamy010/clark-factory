@@ -12,7 +12,7 @@ import { fmt } from "../../utils/format.js";
 import { openSalesDoc } from "../../utils/sales/navDoc.js";
 import { printPage } from "../../utils/print.js";
 import { buildSalesDocHTML } from "../../utils/sales/docPrint.js";
-import { DocItemsTable } from "../DocItemsTable.jsx";
+import { DocItemsTable, DocTotals } from "../DocItemsTable.jsx";
 import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 
 const STATUS_META = {
@@ -44,7 +44,7 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
 
   return (<>
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 880, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{so.orderNo}</div>
@@ -62,15 +62,9 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
             <div><span style={{ color: T.textMut }}>المخزون: </span><span style={{ color: so.stockDeducted ? "#10B981" : T.textMut }}>{so.stockDeducted ? "متخصم ✓" : "غير متخصم"}</span></div>
           </div>
 
-          {/* البنود — V21.21.42: أعمدة موحّدة (كود/اسم/وحدة/كمية/سعر/قبل الخصم/الخصم/بعد الخصم) */}
+          {/* البنود — V21.21.45: أعمدة موحّدة + نسبة الخصم + الإجماليات/التفقيط */}
           <DocItemsTable items={so.items} headerDiscountPct={so.discountPct} accent="#0EA5E9" />
-
-          <div style={{ background: T.bg, borderRadius: 10, padding: 12, border: "1px solid " + T.brd, marginBottom: 12 }}>
-            <Row label="الإجمالي قبل الخصم" value={fmt(so.subtotal)} />
-            <Row label="إجمالي الخصومات" value={"− " + fmt(so.totalDiscount)} color={T.err} />
-            <div style={{ height: 1, background: T.brd, margin: "6px 0" }} />
-            <Row label="الإجمالي" value={fmt(so.total)} big />
-          </div>
+          <DocTotals items={so.items} headerDiscountPct={so.discountPct} accent="#0EA5E9" />
 
           {/* cross-links */}
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>

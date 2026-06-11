@@ -74,11 +74,15 @@ export function buildDocColumns(items, opts = {}){
     }
     distributed = r2(distributed + share);
     const discount = r2(r.lineDiscount + share);
-    rows.push({ isSection: false, code: r.code, name: r.name, unit: r.unit, qty: r.qty, price: r.price, subBefore: r.subBefore, discount, subAfter: r2(r.subBefore - discount) });
+    /* V21.21.45: نسبة الخصم الفعلية للصف (قيمة الخصم ÷ الإجمالي قبل الخصم) */
+    const discountPct = r.subBefore > 0 ? r2(discount / r.subBefore * 100) : 0;
+    rows.push({ isSection: false, code: r.code, name: r.name, unit: r.unit, qty: r.qty, price: r.price, subBefore: r.subBefore, discountPct, discount, subAfter: r2(r.subBefore - discount) });
   });
 
   const discount = r2(lineDiscTotal + headerDisc);
-  return { rows, totals: { subBefore, discount, subAfter: r2(subBefore - discount) } };
+  /* V21.21.45: نسبة الخصم الإجمالية الفعلية */
+  const discountPct = subBefore > 0 ? r2(discount / subBefore * 100) : 0;
+  return { rows, totals: { subBefore, discount, discountPct, subAfter: r2(subBefore - discount) } };
 }
 
 /* hتجنّب حقن HTML في حقول النصوص داخل الـ PDF */
@@ -93,8 +97,9 @@ export function docColumnsHTML(items, opts = {}){
   const { rows, totals } = buildDocColumns(items, opts);
   const accent = opts.accent || "#0EA5E9";
   const bd = "1px solid #cbd5e1";
+  const pctStr = (p) => (p > 0 ? (Number.isInteger(p) ? p : p) + "%" : "—");
   const body = rows.map(r => r.isSection
-    ? `<tr><td colspan="8" style="background:#F1F5F9;font-weight:800;color:#0369A1;padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`
+    ? `<tr><td colspan="9" style="background:#F1F5F9;font-weight:800;color:#0369A1;padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`
     : `<tr>
         <td style="text-align:center;padding:5px;border:${bd}">${_esc(r.code) || "—"}</td>
         <td style="padding:5px;border:${bd}">${_esc(r.name) || "—"}</td>
@@ -102,6 +107,7 @@ export function docColumnsHTML(items, opts = {}){
         <td style="text-align:center;padding:5px;border:${bd}">${fmt(r.qty)}</td>
         <td style="text-align:left;padding:5px;border:${bd}">${fmt(r.price)}</td>
         <td style="text-align:left;padding:5px;border:${bd}">${fmt(r.subBefore)}</td>
+        <td style="text-align:center;padding:5px;border:${bd};color:#EF4444">${pctStr(r.discountPct)}</td>
         <td style="text-align:left;padding:5px;border:${bd};color:#EF4444">${r.discount > 0 ? "− " + fmt(r.discount) : "—"}</td>
         <td style="text-align:left;padding:5px;border:${bd}"><b>${fmt(r.subAfter)}</b></td>
       </tr>`
@@ -109,14 +115,14 @@ export function docColumnsHTML(items, opts = {}){
   const th = `padding:5px;border:${bd}`;
   return `<table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="background:${accent};color:#fff">
-        <th style="${th}">الكود</th><th style="${th}">اسم الصنف</th><th style="${th}">الوحدة</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">إجمالي قبل الخصم</th><th style="${th}">الخصم</th><th style="${th}">إجمالي بعد الخصم</th>
+        <th style="${th}">الكود</th><th style="${th}">اسم الصنف</th><th style="${th}">الوحدة</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">إجمالي قبل الخصم</th><th style="${th}">نسبة الخصم</th><th style="${th}">الخصم</th><th style="${th}">إجمالي بعد الخصم</th>
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <div style="margin-top:12px;width:330px;margin-inline-start:auto;font-size:13px">
+    <div style="margin-top:12px;width:340px;margin-inline-start:auto;font-size:13px">
       <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصم</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #1E293B;font-size:16px;font-weight:800"><span>الإجمالي بعد الخصم</span><span>${fmt(totals.subAfter)} ج.م</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #1E293B;font-size:16px;font-weight:800"><span>الإجمالي</span><span>${fmt(totals.subAfter)} ج.م</span></div>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;font-size:12px;font-weight:700;color:#334155">${_esc(tafqitEGP(totals.subAfter))}</div>`;
 }

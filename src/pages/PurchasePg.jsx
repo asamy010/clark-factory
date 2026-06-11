@@ -24,7 +24,7 @@ import { filterByTags } from "../utils/tags.js";
 /* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { DocLineEditor } from "../components/sales/DocLineEditor.jsx";
-import { DocItemsTable } from "../components/DocItemsTable.jsx";
+import { DocItemsTable, DocTotals } from "../components/DocItemsTable.jsx";
 import { docColumnsHTML } from "../utils/docColumns.js";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
@@ -2705,7 +2705,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     
     {/* ════ VIEW PO POPUP ════ */}
     {viewPo&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setViewPo(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:700,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>📋 {viewPo.poNo}
@@ -2750,19 +2750,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
 
         <div style={{marginBottom:14}}>
           <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:6}}>البنود المطلوبة</div>
-          {/* V21.21.43: أعمدة موحّدة + توزيع الخصم الكلي + ملخص تحت */}
+          {/* V21.21.45: أعمدة موحّدة + نسبة الخصم + الإجماليات/التفقيط */}
           <DocItemsTable items={viewPo.items} headerDiscountPct={viewPo.discountPct} accent="#8B5CF6" />
-          {(()=>{
-            const sub=Number(viewPo.subtotal)||(viewPo.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0);
-            const hd=Number(viewPo.headerDiscount)||0;
-            const tot=Number(viewPo.totalAmount)||r2(sub-hd);
-            return <div style={{background:T.bg,borderRadius:10,padding:12,border:"1px solid "+T.brd}}>
-              <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:FS-2}}><span style={{color:T.textSec}}>الإجمالي قبل الخصم الكلي</span><b style={{direction:"ltr"}}>{fmt(r2(sub))}</b></div>
-              {hd>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:FS-2,color:T.err}}><span>الخصم الكلي ({fmt(viewPo.discountPct||0)}%)</span><b style={{direction:"ltr"}}>− {fmt(hd)}</b></div>}
-              <div style={{height:1,background:T.brd,margin:"6px 0"}}/>
-              <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}><span style={{fontWeight:800,color:T.text}}>الإجمالي</span><span style={{fontWeight:800,fontSize:FS+2,color:"#8B5CF6",direction:"ltr"}}>{fmt(r2(tot))}</span></div>
-            </div>;
-          })()}
+          <DocTotals items={viewPo.items} headerDiscountPct={viewPo.discountPct} accent="#8B5CF6" />
         </div>
         
         {viewPo.notes&&<div style={{padding:10,background:"#F59E0B08",borderRadius:8,fontSize:FS-1,color:T.textSec,marginBottom:12}}>📝 {viewPo.notes}</div>}

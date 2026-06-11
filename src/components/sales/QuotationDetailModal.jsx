@@ -6,11 +6,12 @@
 
 import { useState } from "react";
 import { Btn } from "../ui.jsx";
-import { DocItemsTable } from "../DocItemsTable.jsx";
+import { DocItemsTable, DocTotals } from "../DocItemsTable.jsx";
 import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
+import { docColumnsHTML } from "../../utils/docColumns.js";
 import { displayStatus } from "../../utils/sales/quotations.js";
 import { openSalesDoc } from "../../utils/sales/navDoc.js";
 
@@ -25,18 +26,7 @@ const STATUS_META = {
 
 function buildQuoteHTML(q, config){
   const brand = (config && config.factoryName) || "CLARK";
-  let _n = 0;
-  const rows = (q.items || []).map((it) => it.isSection ? `
-    <tr><td colspan="6" style="background:#F1F5F9;font-weight:800;color:#0369A1">📑 ${escapeHtml(it.title || "")}</td></tr>`
-    : `
-    <tr>
-      <td style="text-align:center">${++_n}</td>
-      <td>${escapeHtml((it.modelNo || "") + (it.description ? " — " + it.description : "") + (it.unit ? " (" + it.unit + ")" : ""))}</td>
-      <td style="text-align:center">${it.qty}</td>
-      <td style="text-align:left">${fmt(it.unitPrice)}</td>
-      <td style="text-align:left">${it.lineDiscount ? "− " + fmt(it.lineDiscount) : "—"}</td>
-      <td style="text-align:left"><b>${fmt(it.lineTotal)}</b></td>
-    </tr>`).join("");
+  /* V21.21.45: نفس جدول الأعمدة الموحّد بالظبط (٩ أعمدة + نسبة الخصم + التفقيط) */
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
     <title>${escapeHtml(q.quoteNo || "عرض سعر")}</title>
     <style>
@@ -44,15 +34,9 @@ function buildQuoteHTML(q, config){
       body{padding:28px;color:#1E293B}
       h1{font-size:22px;margin:0}
       .muted{color:#64748B;font-size:13px}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th,td{border:1px solid #CBD5E1;padding:8px 10px;font-size:13px}
-      th{background:#F1F5F9;text-align:right}
-      .tot{margin-top:14px;width:280px;margin-inline-start:auto}
-      .tot div{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
-      .tot .big{font-weight:800;font-size:17px;border-top:2px solid #1E293B;padding-top:8px;margin-top:4px}
       @media print{body{padding:0}}
     </style></head><body>
-    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
       <div><h1>عرض سعر</h1><div class="muted">${escapeHtml(brand)}</div></div>
       <div style="text-align:left">
         <div style="font-weight:800;font-size:16px">${escapeHtml(q.quoteNo || "")}</div>
@@ -60,16 +44,8 @@ function buildQuoteHTML(q, config){
         <div class="muted">صالح حتى: ${escapeHtml(q.validUntil || "—")}</div>
       </div>
     </div>
-    <div style="margin-top:10px;font-size:14px"><b>العميل:</b> ${escapeHtml(q.customerName || q.customerNameAdHoc || "—")}${q.customerPhone ? " · " + escapeHtml(q.customerPhone) : ""}</div>
-    <table>
-      <thead><tr><th style="width:36px">#</th><th>البند</th><th style="width:60px">كمية</th><th style="width:90px">السعر</th><th style="width:90px">خصم</th><th style="width:100px">الإجمالي</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="tot">
-      <div><span>الإجمالي قبل الخصم</span><span>${fmt(q.subtotal)}</span></div>
-      <div><span>إجمالي الخصومات</span><span>− ${fmt(q.totalDiscount)}</span></div>
-      <div class="big"><span>الإجمالي</span><span>${fmt(q.total)}</span></div>
-    </div>
+    <div style="margin-top:6px;margin-bottom:10px;font-size:14px"><b>العميل:</b> ${escapeHtml(q.customerName || q.customerNameAdHoc || "—")}${q.customerPhone ? " · " + escapeHtml(q.customerPhone) : ""}</div>
+    ${docColumnsHTML(q.items, { headerDiscountPct: q.discountPct, accent: "#0EA5E9" })}
     ${q.notes ? `<div style="margin-top:16px;font-size:13px;color:#475569"><b>ملاحظات:</b> ${escapeHtml(q.notes)}</div>` : ""}
     <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
   </body></html>`;
@@ -124,7 +100,7 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
 
   return (<>
     <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 880, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ position: "sticky", top: 0, background: T.cardSolid, padding: "16px 18px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ fontWeight: 800, fontSize: FS + 2, color: T.text }}>{quote.quoteNo}</div>
@@ -142,16 +118,11 @@ export function QuotationDetailModal({ data, quote, config, canEdit, onEdit, onS
             <div><span style={{ color: T.textMut }}>صالح حتى: </span><span style={{ color: ds === "expired" ? T.err : T.text }}>{quote.validUntil || "—"}</span></div>
           </div>
 
-          {/* البنود — V21.21.42: أعمدة موحّدة + توزيع الخصم الكلي */}
+          {/* البنود — V21.21.45: أعمدة موحّدة + نسبة الخصم + توزيع الخصم الكلي */}
           <DocItemsTable items={quote.items} headerDiscountPct={quote.discountPct} accent="#0EA5E9" />
+          <DocTotals items={quote.items} headerDiscountPct={quote.discountPct} accent="#0EA5E9" />
 
-          {/* الإجماليات */}
-          <div style={{ background: T.bg, borderRadius: 10, padding: 12, border: "1px solid " + T.brd, marginBottom: 12 }}>
-            <Row label="الإجمالي قبل الخصم" value={fmt(quote.subtotal)} />
-            <Row label="إجمالي الخصومات" value={"− " + fmt(quote.totalDiscount)} color={T.err} />
-            <div style={{ height: 1, background: T.brd, margin: "6px 0" }} />
-            <Row label="الإجمالي" value={fmt(quote.total)} big />
-          </div>
+          {/* الإجماليات + التفقيط = DocTotals فوق */}
 
           {/* cross-links (Slice 2+) */}
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
