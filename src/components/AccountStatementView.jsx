@@ -131,7 +131,12 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const doPrint = () => {
     if(!result || !party) return;
     const rowsHtml = [];
-    if(openingOn && (result.openingBalance || fromDate)) rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td>رصيد افتتاحي</td><td></td><td></td><td style="font-weight:700">${fmt(result.openingBalance.toFixed(2))}</td></tr>`);
+    if(openingOn && (result.openingBalance || fromDate)){
+      /* V21.21.57: مدين/دائن في سطر الافتتاحي بالطباعة */
+      const ob = result.openingBalance; const isD = ob > 0.005, isC = ob < -0.005;
+      const tg = isD ? " (مدين)" : isC ? " (دائن)" : " (مُسوّى)";
+      rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td style="text-align:right">رصيد افتتاحي${tg}</td><td>${isD ? fmt(Math.abs(ob).toFixed(2)) : ""}</td><td>${isC ? fmt(Math.abs(ob).toFixed(2)) : ""}</td><td style="font-weight:700">${fmt(ob.toFixed(2))}</td></tr>`);
+    }
     result.rows.forEach(r => {
       rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
       /* V21.21.56: سطر التفاصيل تحت كل حركة في وضع الحساب التفصيلي */
@@ -348,14 +353,24 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                 <th style={th}>مدين</th><th style={th}>دائن</th><th style={th}>الرصيد</th>
               </tr></thead>
               <tbody>
-                {openingOn && (result.openingBalance !== 0 || fromDate) && (
+                {openingOn && (result.openingBalance !== 0 || fromDate) && (() => {
+                  /* V21.21.57: سطر الرصيد الافتتاحي يوضّح مدين/دائن صراحةً —
+                     المبلغ في عمود مدين أو دائن حسب الإشارة + وسم. */
+                  const ob = result.openingBalance;
+                  const isDeb = ob > 0.005, isCred = ob < -0.005;
+                  const tag = isDeb ? "مدين" : isCred ? "دائن" : "مُسوّى";
+                  const tagColor = isDeb ? T.err : isCred ? T.ok : T.textMut;
+                  return (
                   <tr style={{ background: T.bg }}>
                     <td style={td}>{fromDate || "—"}</td>
-                    <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>رصيد افتتاحي</td>
-                    <td style={td}>—</td><td style={td}>—</td><td style={td}>—</td>
-                    <td style={{ ...td, fontWeight: 800 }}>{fmt(result.openingBalance.toFixed(2))}</td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>رصيد افتتاحي <span style={{ fontSize: FS - 3, color: tagColor, fontWeight: 800 }}>({tag})</span></td>
+                    <td style={td}>—</td>
+                    <td style={{ ...td, color: isDeb ? T.text : T.textMut, fontWeight: isDeb ? 800 : 400 }}>{isDeb ? fmt(Math.abs(ob).toFixed(2)) : "—"}</td>
+                    <td style={{ ...td, color: isCred ? T.ok : T.textMut, fontWeight: isCred ? 800 : 400 }}>{isCred ? fmt(Math.abs(ob).toFixed(2)) : "—"}</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{fmt(ob.toFixed(2))}</td>
                   </tr>
-                )}
+                  );
+                })()}
                 {result.rows.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: T.textMut, padding: 24 }}>لا توجد حركات في الفترة المحددة</td></tr>
                 ) : result.rows.map((r, i) => {
