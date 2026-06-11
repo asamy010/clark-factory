@@ -1314,16 +1314,27 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       /* ═══ Count visible secondary items per group to maintain consistent layout ═══ */
       return<div style={{marginBottom:18}}>
         {/* ── PRIMARY ACTIONS (quickActions فقط) ── */}
-        {canEdit&&(!hubView||hubView==="quickActions")&&<>
-          <div className="sales-group-title">⚡ إجراءات سريعة</div>
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(4,1fr)",gap:isMob?8:12,marginBottom:18}}>
-            {primaryBtn(I.scan,"بيع سريع","مسح QR وتسجيل البيع","#10B981","#059669",()=>setQrSale({mode:"sale",custId:null,items:[],note:""}))}
-            {primaryBtn(I.truck,"تسليم جديد","إنشاء جلسة توزيعة","#0EA5E9","#0284C7",()=>{setSelModels({});setSelCusts({});setShowNewSession(true)})}
-            {primaryBtn(I.undo,"مرتجع سريع","مسح QR وتسجيل مرتجع","#EF4444","#DC2626",()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"}))}
-            {/* V14.62: Quick access to receipt confirmation with toggle mode */}
-            {primaryBtn(I.inbox,"تأكيد استلام","مسح QR كسيري أو قطعة","#F59E0B","#D97706",()=>setPendingRcv({items:{},scanMode:"series"}),pendingRcvCount)}
-          </div>
-        </>}
+        {canEdit&&(!hubView||hubView==="quickActions")&&(()=>{
+          /* V21.21.49: توحيد كل الإجراءات السريعة (شاملة أزرار «أدوات أخرى»
+             سابقاً) في صف واحد على الديسكتوب / عمودين على الموبايل، بألوان
+             احترافية مميزة لكل زر. «استعادة توزيعات» تظهر فقط عند وجود توزيعات
+             يتيمة (حفاظاً على ميزة الاسترجاع بعد إزالة كارت «أدوات أخرى»). */
+          const quickBtns=[
+            {key:"sale",   icon:I.scan,        label:"بيع سريع",          sub:"مسح QR وتسجيل البيع",  bg:"#10B981",dark:"#059669",show:true,                          onClick:()=>setQrSale({mode:"sale",custId:null,items:[],note:""})},
+            {key:"session",icon:I.truck,       label:"سجل توزيع جديد",    sub:"إنشاء جلسة توزيعة",    bg:"#0EA5E9",dark:"#0284C7",show:true,                          onClick:()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}},
+            {key:"retScan",icon:I.undo,        label:"مرتجع سريع - Scan", sub:"مسح QR وتسجيل مرتجع",  bg:"#EF4444",dark:"#DC2626",show:true,                          onClick:()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"})},
+            {key:"retFree",icon:I.arrowReturn, label:"مرتجع حر",          sub:"اختيار يدوي للمرتجع",  bg:"#F43F5E",dark:"#E11D48",show:true,                          onClick:()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}},
+            {key:"receive",icon:I.inbox,       label:"تأكيد استلام",       sub:"مسح QR كسيري أو قطعة",  bg:"#F59E0B",dark:"#D97706",show:true,badge:pendingRcvCount,    onClick:()=>setPendingRcv({items:{},scanMode:"series"})},
+            {key:"label",  icon:I.tag,         label:"ليبل - QR",         sub:"طباعة ليبل المنتج",    bg:"#8B5CF6",dark:"#7C3AED",show:stockModels.length>0,          onClick:()=>setCustomLabel("pick")},
+            {key:"recover",icon:I.refresh,     label:"استعادة توزيعات",    sub:"استرجاع جلسات محذوفة", bg:"#0D9488",dark:"#0F766E",show:oList.length>0,badge:oList.length,onClick:recoverAction},
+          ].filter(b=>b.show);
+          return<>
+            <div className="sales-group-title">⚡ إجراءات سريعة</div>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat("+quickBtns.length+",1fr)",gap:isMob?8:10,marginBottom:18}}>
+              {quickBtns.map(b=><div key={b.key} style={{minWidth:0}}>{primaryBtn(b.icon,b.label,b.sub,b.bg,b.dark,b.onClick,b.badge)}</div>)}
+            </div>
+          </>;
+        })()}
 
         {/* V19.76.6: secondary tool groups on a 2-column grid (1 col on mobile) — each
             group is its own rectangle card with title above the buttons, side-by-side
@@ -1351,7 +1362,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(auto-fill,minmax(110px,1fr))",
             gap: 8,
           };
-          const showOtherTools = (stockModels.length > 0 || canEdit || oList.length > 0);
           return <div style={{display:"grid",gridTemplateColumns:(!hubView&&!isMob)?"repeat(2,1fr)":"1fr",gap:12,marginBottom:8}}>
             {/* GROUP 1: CUSTOMERS → تاب نظرة عامة */}
             {(!hubView||hubView==="overview")&&<div style={cardStyle}>
@@ -1387,15 +1397,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
               </div>
             </div>}
-            {/* GROUP 4: OTHER TOOLS → تاب إجراءات سريعة */}
-            {(!hubView||hubView==="quickActions")&&showOtherTools && <div style={cardStyle}>
-              <div style={titleStyle}>🔧 أدوات أخرى</div>
-              <div style={btnsGrid}>
-                {stockModels.length>0&&secBtn(I.tag,"ليبلات QR","#F59E0B",()=>setCustomLabel("pick"))}
-                {canEdit&&secBtn(I.arrowReturn,"مرتجع حر","#EF4444",()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")})}
-                {oList.length>0&&secBtn(I.refresh,"استعادة توزيعات","#EF4444",recoverAction,oList.length)}
-              </div>
-            </div>}
+            {/* V21.21.49: كارت «أدوات أخرى» (GROUP 4) اتشال — أزراره (ليبل QR /
+                مرتجع حر / استعادة توزيعات) اتنقلت لصف الإجراءات السريعة فوق. */}
           </div>;
         })()}
       </div>;
