@@ -18,6 +18,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { r2, fmt } from "./format.js";
+import { tafqitEGP } from "./tafqit.js";
 
 function _lineDiscount(subBefore, raw){
   if(raw.lineDiscount != null && raw.lineDiscount !== "")
@@ -116,5 +117,6 @@ export function docColumnsHTML(items, opts = {}){
       <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصم</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #1E293B;font-size:16px;font-weight:800"><span>الإجمالي بعد الخصم</span><span>${fmt(totals.subAfter)} ج.م</span></div>
-    </div>`;
+    </div>
+    <div style="margin-top:8px;padding:8px 10px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;font-size:12px;font-weight:700;color:#334155">${_esc(tafqitEGP(totals.subAfter))}</div>`;
 }

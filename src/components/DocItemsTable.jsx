@@ -9,9 +9,10 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 import { buildDocColumns } from "../utils/docColumns.js";
+import { tafqitEGP } from "../utils/tafqit.js";
 
-export function DocItemsTable({ items, headerDiscountPct, headerDiscountAmount, accent = "#0EA5E9" }){
-  const { rows } = buildDocColumns(items, { headerDiscountPct, headerDiscountAmount });
+export function DocItemsTable({ items, headerDiscountPct, headerDiscountAmount, accent = "#0EA5E9", tafqit = true }){
+  const { rows, totals } = buildDocColumns(items, { headerDiscountPct, headerDiscountAmount });
   const th = { padding: "7px 6px", fontSize: FS - 4, whiteSpace: "nowrap", fontWeight: 700, color: T.textSec };
   const td = { padding: "7px 6px", fontSize: FS - 3 };
   return (
@@ -46,6 +47,11 @@ export function DocItemsTable({ items, headerDiscountPct, headerDiscountAmount, 
           ))}
         </tbody>
       </table>
+      {tafqit && (
+        <div style={{ padding: "8px 10px", borderTop: "1px solid " + T.brd, background: T.bg, fontSize: FS - 3, fontWeight: 700, color: T.textSec, lineHeight: 1.7 }}>
+          {tafqitEGP(totals.subAfter)}
+        </div>
+      )}
     </div>
   );
 }
