@@ -14,6 +14,8 @@ import { fmt, gIcon, gc, gcons, gf, r2, slay, parseSizes, getSizesFromSet, ltrPh
 import { calcOrder, getStatusColor } from "../utils/orders.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
+import { auth } from "../firebase.js";              /* V21.21.47: admin token for portal-link signing */
+import { showToast } from "../utils/popups.js";      /* V21.21.47: copy/generate feedback */
 import { CostPg } from "./CostPg.jsx";
 import { RepPg } from "./RepPg.jsx";
 
@@ -247,6 +249,7 @@ export function ReportsHub({data,isMob,season,statusCards}){
       {key:"orderProfit",label:"أرباح الأوردر",icon:"📊",color:"#10B981"},
       {key:"topCustomers",label:"أعلى 10 عملاء",icon:"🏆",color:"#F59E0B"},
       {key:"aging",label:"تقرير التحصيل (Aging)",icon:"⏳",color:"#EF4444"},
+      {key:"custDirectory",label:"دليل العملاء + روابط البوابة",icon:"📒",color:"#6366F1"},
     ]},
     {title:"🏦 المالية",color:"#8B5CF6",reports:[
       {key:"monthlyExpenses",label:"المصروفات الشهرية",icon:"📉",color:"#8B5CF6"},
@@ -278,6 +281,7 @@ export function ReportsHub({data,isMob,season,statusCards}){
   if(sub==="orderProfit")return<div>{back}<OrderProfitReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="topCustomers")return<div>{back}<TopCustomersReport data={data} isMob={isMob} season={season}/></div>;
   if(sub==="aging")return<div>{back}<AgingReport data={data} isMob={isMob} season={season}/></div>;
+  if(sub==="custDirectory")return<div>{back}<CustomerDirectoryReport data={data} isMob={isMob}/></div>;
   if(sub==="monthlyExpenses")return<div>{back}<MonthlyExpensesReport data={data} isMob={isMob}/></div>;
   if(sub==="cashflow")return<div>{back}<CashflowReport data={data} isMob={isMob}/></div>;
   if(sub==="laborCost")return<div>{back}<LaborCostReport data={data} isMob={isMob}/></div>;
@@ -294,8 +298,172 @@ export function ReportsHub({data,isMob,season,statusCards}){
   </div>
 }
 
+/* ══ CUSTOMER DIRECTORY + PORTAL LINKS REPORT (V21.21.47) ══
+   دليل العملاء: الاسم · النوع (مكتب/محل/أونلاين/أخرى) · التليفون (LTR صحيح
+   عبر ltrPhone) · العنوان · رابط بوابة العميل (توليد + نسخ + فتح).
+   الروابط تُولّد عبر POST /api/customer-portal-sign (HMAC موقّع، صلاحية
+   90 يوم) — batch بتزامن 5 طلبات زي portalUrlBatch في CampaignsPg. الرابط
+   read-only للعميل ومتجدّد كل توليد. */
+const CUST_TYPE_META = {
+  "مكتب":   { icon: "🏢", color: "#3B82F6" },
+  "محل":    { icon: "🏪", color: "#F59E0B" },
+  "أونلاين": { icon: "🌐", color: "#8B5CF6" },
+  "أخرى":   { icon: "🏷️", color: "#64748B" },
+};
+const custTypeMeta = (t) => CUST_TYPE_META[t] || CUST_TYPE_META["مكتب"];
+
+export function CustomerDirectoryReport({ data, isMob }){
+  const customers = useMemo(() => (data.customers || []).filter(c => c && !c.archived), [data.customers]);
+  const [search, setSearch] = useState("");
+  const [typeF, setTypeF] = useState("");
+  const [links, setLinks] = useState({});   /* { custId: url } — يُملأ عند التوليد */
+  const [gen, setGen] = useState(null);       /* { done, total } أثناء التوليد، أو null */
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return customers
+      .filter(c => {
+        if(typeF && (c.customerType || "مكتب") !== typeF) return false;
+        if(!q) return true;
+        return (c.name || "").toLowerCase().includes(q)
+          || String(c.phone || "").includes(q)
+          || (c.address || "").toLowerCase().includes(q);
+      })
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+  }, [customers, search, typeF]);
+
+  const typeCounts = useMemo(() => {
+    const m = {};
+    customers.forEach(c => { const t = c.customerType || "مكتب"; m[t] = (m[t] || 0) + 1; });
+    return m;
+  }, [customers]);
+
+  /* توليد روابط البوابة للصفوف الظاهرة (اللي لسه مفيش ليها رابط) — تزامن 5 */
+  const generateLinks = async () => {
+    if(gen) return;
+    const ids = rows.map(r => r.id).filter(id => id != null && !links[id]);
+    if(ids.length === 0){ showToast("✓ روابط الصفوف الظاهرة متولّدة بالفعل"); return; }
+    const user = auth.currentUser;
+    if(!user){ showToast("⛔ يرجى تسجيل الدخول"); return; }
+    let token;
+    try { token = await user.getIdToken(); }
+    catch { showToast("⛔ تعذّر التحقق من الدخول"); return; }
+    setGen({ done: 0, total: ids.length });
+    const out = {};
+    const queue = [...ids];
+    let done = 0;
+    const worker = async () => {
+      while(queue.length > 0){
+        const custId = queue.shift();
+        try {
+          const res = await fetch("/api/customer-portal-sign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ custId, adminToken: token }),
+          });
+          if(res.ok){ const j = await res.json(); if(j.url) out[custId] = j.url; }
+        } catch { /* تجاهل الفشل الفردي — الرابط هيفضل فاضي */ }
+        done++; setGen({ done, total: ids.length });
+      }
+    };
+    await Promise.all(Array.from({ length: 5 }, () => worker()));
+    setLinks(prev => ({ ...prev, ...out }));
+    setGen(null);
+    const ok = Object.keys(out).length;
+    showToast(ok === ids.length ? `✓ تم توليد ${ok} رابط` : `⚠️ تم توليد ${ok} من ${ids.length} (الباقي فشل)`);
+  };
+
+  const copyLink = (url) => {
+    try { navigator.clipboard.writeText(url); showToast("✓ تم نسخ الرابط"); }
+    catch { showToast("⛔ تعذّر النسخ — انسخه يدوياً"); }
+  };
+
+  const exportXl = async () => {
+    const aoa = [["#", "العميل", "النوع", "التليفون", "العنوان", "رابط البوابة"]];
+    rows.forEach((c, i) => aoa.push([i + 1, c.name || "", c.customerType || "مكتب", String(c.phone || ""), c.address || "", links[c.id] || ""]));
+    try { await exportExcel(aoa, "دليل-العملاء"); }
+    catch(e){ showToast("⛔ تعذّر التصدير: " + (e?.message || e)); }
+  };
+
+  const printRep = () => {
+    let h = `<h2 style="text-align:center;color:#6366F1;margin:0 0 4px">📒 دليل العملاء + روابط البوابة</h2>`;
+    h += `<div style="text-align:center;font-size:12px;color:#64748b;margin-bottom:10px">${rows.length} عميل — ${new Date().toLocaleDateString("ar-EG")}</div>`;
+    h += `<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#6366F1;color:#fff">` +
+      ["#", "العميل", "النوع", "التليفون", "العنوان", "رابط البوابة"].map(x => `<th style="padding:6px;border:1px solid #cbd5e1">${x}</th>`).join("") +
+      `</tr></thead><tbody>`;
+    rows.forEach((c, i) => {
+      h += `<tr><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${i + 1}</td>` +
+        `<td style="border:1px solid #e2e8f0;padding:5px;font-weight:700">${c.name || ""}</td>` +
+        `<td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${c.customerType || "مكتب"}</td>` +
+        `<td style="border:1px solid #e2e8f0;padding:5px;text-align:center;direction:ltr">${c.phone || "—"}</td>` +
+        `<td style="border:1px solid #e2e8f0;padding:5px">${c.address || "—"}</td>` +
+        `<td style="border:1px solid #e2e8f0;padding:5px;direction:ltr;font-size:9px;word-break:break-all">${links[c.id] || "—"}</td></tr>`;
+    });
+    h += `</tbody></table>`;
+    printPage("دليل العملاء", h, { factoryName: data.factoryName, logo: data.logo });
+  };
+
+  const genDone = rows.length > 0 && rows.every(r => links[r.id]);
+  const linkBtn = { padding: "4px 8px", borderRadius: 7, fontSize: FS - 3, fontWeight: 700, cursor: "pointer", border: "none", whiteSpace: "nowrap", fontFamily: "inherit" };
+
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+      <div>
+        <h1 style={{ fontSize: isMob ? 18 : 24, fontWeight: 800, margin: "0 0 4px", color: "#6366F1" }}>📒 دليل العملاء + روابط البوابة</h1>
+        <div style={{ fontSize: FS - 1, color: T.textSec }}>{customers.length + " عميل — اسم · نوع · تليفون · عنوان · رابط بوابة"}</div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <Btn onClick={generateLinks} disabled={!!gen} style={{ background: "#6366F112", color: "#6366F1", border: "1px solid #6366F140" }}>
+          {gen ? `⏳ توليد ${gen.done}/${gen.total}` : "🔗 توليد الروابط"}
+        </Btn>
+        <Btn onClick={exportXl} style={{ background: "#10B98112", color: "#059669", border: "1px solid #10B98130" }}>📊 Excel</Btn>
+        <Btn onClick={printRep} style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>🖨</Btn>
+      </div>
+    </div>
+
+    {/* فلاتر */}
+    <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ flex: 1, minWidth: 160 }}><Inp value={search} onChange={setSearch} placeholder="🔍 بحث بالاسم / التليفون / العنوان..." /></div>
+      <Sel value={typeF} onChange={setTypeF}>
+        <option value="">كل الأنواع ({customers.length})</option>
+        {Object.keys(CUST_TYPE_META).map(t => <option key={t} value={t}>{custTypeMeta(t).icon + " " + t + " (" + (typeCounts[t] || 0) + ")"}</option>)}
+      </Sel>
+    </div>
+
+    {!genDone && rows.length > 0 && <div style={{ fontSize: FS - 2, color: T.textSec, background: T.bg, border: "1px solid " + T.brd, borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
+      💡 اضغط «🔗 توليد الروابط» لإنشاء روابط البوابة للعملاء الظاهرين (تتولّد على السيرفر وصالحة 90 يوماً). بعدها يظهر زر «نسخ» و«فتح» جنب كل رابط.
+    </div>}
+
+    {rows.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: T.textMut }}>لا يوجد عملاء بهذا الفلتر</div> :
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+          <thead><tr>{["#", "العميل", "النوع", "التليفون", "العنوان", "رابط البوابة"].map(hh => <th key={hh} style={TH}>{hh}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((c, i) => {
+              const meta = custTypeMeta(c.customerType || "مكتب");
+              const url = links[c.id];
+              return <tr key={c.id || i}>
+                <td style={TD}>{i + 1}</td>
+                <td style={{ ...TD, fontWeight: 700, textAlign: "right", color: T.text }}>{c.name || "—"}</td>
+                <td style={TD}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 7, fontSize: FS - 3, fontWeight: 700, background: meta.color + "15", color: meta.color }}>{meta.icon} {c.customerType || "مكتب"}</span></td>
+                <td style={{ ...TD, direction: "ltr", fontFamily: "monospace", whiteSpace: "nowrap" }}>{c.phone ? ltrPhone(c.phone) : <span style={{ color: T.textMut }}>—</span>}</td>
+                <td style={{ ...TD, textAlign: "right", color: c.address ? T.text : T.textMut }}>{c.address || "—"}</td>
+                <td style={TD}>
+                  {url ? <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
+                    <a href={url} target="_blank" rel="noopener noreferrer" title="فتح بوابة العميل في المتصفح" style={{ ...linkBtn, background: "#6366F112", color: "#6366F1", border: "1px solid #6366F140", textDecoration: "none" }}>↗ فتح</a>
+                    <button onClick={() => copyLink(url)} title="نسخ الرابط" style={{ ...linkBtn, background: "#10B98112", color: "#059669", border: "1px solid #10B98130" }}>📋 نسخ</button>
+                  </div> : <span style={{ color: T.textMut, fontSize: FS - 3 }}>— لم يُولّد بعد</span>}
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>}
+  </div>;
+}
+
 /* ══ WORKSHOP FULL ACCOUNT REPORT ══
-   Comprehensive workshop accounting: deliveries by garment type, payments, 
+   Comprehensive workshop accounting: deliveries by garment type, payments,
    timeline of all movements, and full reconciliation per workshop. */
 
 
