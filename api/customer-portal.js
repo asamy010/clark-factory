@@ -19,6 +19,12 @@
 
 import crypto from "crypto";
 import { getDb, setCors, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
+/* V21.21.46: استهلاك الدالة الموحّدة لكشف الحساب — نفس اللي بتغذّي شاشة
+   «كشف حساب» الداخلية (AccountStatementView) عشان رقم البورتال يطابق
+   الكشف الداخلي بالبناء بدل reimplementation منفصل بيدرِف. format.js
+   pure على مستوى الموديول (الـ browser refs كلها جوّا دوال) فالاستيراد
+   آمن في الـ serverless bundle. */
+import { buildAccountStatement } from "../src/utils/accounting/statement.js";
 
 /* Separate secret for customer portal URLs */
 function getPortalSecret() {
@@ -204,7 +210,10 @@ export default async function handler(req, res) {
       const modelImage = o.image || null;
 
       (o.customerDeliveries || []).filter(d => d.custId === custId).forEach(d => {
-        const gross = (Number(d.qty) || 0) * sp;
+        /* V21.21.46: سعر التسليم الخاص (d.price) له الأولوية على sellPrice —
+           مطابقة الكشف الداخلي (statement.js: price = Number(e.price) || sp).
+           كان البورتال بيستخدم sp دايماً → سعر غلط للتسليمات بسعر مخصّص. */
+        const gross = (Number(d.qty) || 0) * (Number(d.price) || sp);
         const dPct = pickDiscPct(d);
         /* V21.9.193: per-delivery effective discount + net value for the
            client UI. V21.9.196: also include _sourceKey + _sourceOrderId
@@ -276,6 +285,17 @@ export default async function handler(req, res) {
       ? await readSplitCollection("checksDays")
       : (config.checks || []));
 
+    /* V21.21.46: تحميل أوامر البيع + الخزنة للوضع التشغيلي.
+       salesOrders → salesOrdersDays (V21.10.1)، treasury → treasuryDays (V16.74).
+       كانوا مش بيتحمّلوا في البورتال إطلاقاً → أوامر البيع ودفعات الخزنة
+       اليتيمة كانت غايبة عن الرصيد. */
+    const allSalesOrders = (config._splitDaysV21101Done
+      ? await readSplitCollection("salesOrdersDays")
+      : (config.salesOrders || []));
+    const allTreasury = (config._splitDaysV1674Done
+      ? await readSplitCollection("treasuryDays")
+      : (config.treasury || []));
+
     /* Customer payments — V18.3: keep method for cash/checks split.
        V21.21.22 FIX: استبعاد custPayments بـ method شيك — الشيكات بتتعدّ من
        data.checks تحت (receivableChecks)، فعدّها هنا كمان = تكرار. مطابقة
@@ -304,127 +324,119 @@ export default async function handler(req, res) {
     receivableChecks.forEach(rc => payments.push(rc));
     payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    /* ── V21.9.196 — Invoice-based aggregation (source of truth) ─────────
-       V21.9.193 walked deliveries and read each entry's `discPct` — but
-       legacy deliveries committed before V21.9.190 don't have discPct
-       stamped even though their invoice's discountPct was correctly
-       updated (e.g. to 40%) via the upsert merge logic. The portal would
-       fall back to customer.discount=10% and report wrong totals.
+    /* ══════════════════════════════════════════════════════════════════
+       V21.21.46 — البورتال = كشف الحساب الداخلي (مصدر حقيقة واحد).
+       ──────────────────────────────────────────────────────────────────
+       ROOT CAUSE: البورتال كان بيعيد حساب الرصيد بنفسه (تجميع بالفواتير
+       Pass 1/2) بطريقة منفصلة عن كشف الحساب الداخلي (الوضع التشغيلي في
+       buildAccountStatement). الطريقتين درِفوا → رصيد البورتال ≠ كشف
+       الحساب. (نفس صنف حادثة V21.9.196/198 + V21.21.22 — كل مرة نرقّع
+       reimplementation تانية بتدرِف من جديد.)
 
-       Fix: walk INVOICES + CREDIT NOTES (the records that were actually
-       billed) for accurate totals. Fall back to delivery/return entries
-       only for those NOT covered by an invoice/CN (legacy direct-post
-       mode, or pending invoices). Mirror of the CustDeliverPg statement
-       refactor in V21.9.196. */
-    const allSalesInvoices = (config._splitDaysV1950Done
-      ? await readSplitCollection("salesInvoicesDays")
-      : (config.salesInvoices || []));
-    const allSalesCreditNotes = (config._splitDaysV2195Done
-      ? await readSplitCollection("salesCreditNotesDays")
-      : (config.salesCreditNotes || []));
-    const customerInvoices = allSalesInvoices.filter(inv =>
-      inv && inv.status !== "void" && String(inv.customerId) === String(custId)
-    );
-    const customerCreditNotes = allSalesCreditNotes.filter(cn =>
-      cn && cn.status !== "void" && String(cn.customerId) === String(custId)
-    );
-    const buildRefKey = (ref) => {
-      if (!ref) return "";
-      if (ref._key) return "k:" + ref._key;
-      return "c:" + (ref.orderId || "") + "|" + (ref.custId || "") + "|" + (ref.sessionId || "");
+       الإصلاح: نستهلك نفس الدالة الموحّدة buildAccountStatement (الوضع
+       التشغيلي) — نفس اللي بتغذّي AccountStatementView (شاشة «كشف حساب»)
+       والمضمونة بالاختبار (statement.test.js) إنها = buildCustomerSummary.
+       الرصيد بقى مطابق بالبناء (by construction)، مش بالتنسيق اليدوي.
+
+       فروقات اتصلحت كنتيجة طبيعية: (أ) أوامر البيع المباشرة بتدخل الرصيد،
+       (ب) دفعات الخزنة اليتيمة بتتخصم، (ج) خصم لكل تسليم بدل خصم الفاتورة
+       (والمسودات مابتختفيش)، (د) سعر التسليم الخاص (d.price) بيُحترم. */
+
+    /* أوامر بيع مباشرة (مش مرايا توزيعة، مش ملغية) — تظهر كصف بيع في سجل
+       الحركات وتدخل الرصيد. التوزيعات نفسها محتسبة من customerDeliveries
+       فوق. مطابقة statement.js gatherCustomerEntries (V21.20.5/V21.21.1).
+       مُعلّمة _isSalesOrder عشان ماتدخلش إحصاءات القطع/التقييم الفعلية. */
+    (allSalesOrders || []).forEach(so => {
+      if (!so || so.status === "cancelled") return;
+      if (so.sourceDistributionId) return;
+      if (String(so.customerId) !== String(custId)) return;
+      const its = (so.items || []).filter(it => it && !it.isSection);
+      const qty = its.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+      const total = Number(so.total) || 0;
+      deliveries.push({
+        date: so.date || "",
+        modelNo: "أمر بيع " + (so.orderNo || ""),
+        modelDesc: its.length + " بند",
+        image: null,
+        qty,
+        sellPrice: 0,
+        value: total,            /* أمر البيع بصافيه — مفيش خصم منفصل */
+        discPct: 0,
+        valueAfterDisc: total,
+        sessionId: "so:" + (so.id || so.orderNo || ""),
+        _isSalesOrder: true,
+      });
+    });
+
+    /* دفعات الخزنة اليتيمة (وارد بعميل من غير صف مقابل في custPayments) —
+       تظهر كدفعة وتُخصم من الرصيد. مطابقة statement.js gatherCustomerPayments
+       (V21.21.30) + buildCustomerSummary. نفس الـ custId المستخدم في فلترة
+       التسليمات فوق (string من الـ URL = customer.id في الداتا الحقيقية). */
+    {
+      const knownTxIds = new Set((allCustPayments || []).map(p => p.treasuryTxId).filter(Boolean));
+      (allTreasury || []).forEach(t => {
+        if (!t || !t.id || t.type !== "in") return;
+        if (t.custId !== custId) return;
+        if (knownTxIds.has(t.id)) return;
+        if (t.sourceType === "check_collect" || t.sourceType === "check_pay") return;
+        payments.push({
+          date: t.date || "",
+          amount: Number(t.amount) || 0,
+          method: t.method || "خزنة",
+          notes: "دفعة (خزنة)",
+        });
+      });
+      payments.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    }
+
+    /* ── الرصيد الموحّد عبر buildAccountStatement (الوضع التشغيلي) ──
+       نمرّر نفس custId اللي اتفلتر بيه التسليمات فوق. في الداتا الحقيقية
+       custId (string من الـ URL) = customer.id (الكشف الداخلي شغّال بيه)،
+       والكشف الداخلي صحيح حسب المستخدم → الفلترة بتطابق. نمرّر customer.id
+       = custId عشان pickDiscPct يلاقي خصم العميل. */
+    const stmtData = {
+      customers: [{ ...customer, id: custId }],
+      orders: allOrders,
+      salesOrders: allSalesOrders || [],
+      custPayments: allCustPayments || [],
+      checks: allChecks || [],
+      treasury: allTreasury || [],
     };
-    const invoicedDeliveryKeys = new Set();
-    customerInvoices.forEach(inv => {
-      (inv.deliveryRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) invoicedDeliveryKeys.add(k); });
-      if (inv.deliveryRef) { const k = buildRefKey(inv.deliveryRef); if (k) invoicedDeliveryKeys.add(k); }
-    });
-    const cnReturnKeys = new Set();
-    customerCreditNotes.forEach(cn => {
-      (cn.returnRefs || []).forEach(ref => { const k = buildRefKey(ref); if (k) cnReturnKeys.add(k); });
-      if (cn.returnRef) { const k = buildRefKey(cn.returnRef); if (k) cnReturnKeys.add(k); }
+    const stmt = buildAccountStatement(stmtData, {
+      partyId: custId, partyType: "customer", mode: "operational",
     });
 
-    /* Pass 1: invoices/credit notes (authoritative) */
-    let totalDelValue = 0;
-    let totalDelValueNet = 0;
-    let totalRetValue = 0;
-    let returnsAfterDiscount = 0;
-    /* V21.9.197: diagnostic accumulators — exposed in summary._debug
-       so we can pinpoint why a customer's portal totals diverge from
-       what the in-app statement shows. */
-    let p1InvSubtotal = 0, p1InvTotal = 0, p1CnSubtotal = 0, p1CnTotal = 0;
-    let p2OrphanDelGross = 0, p2OrphanDelNet = 0, p2OrphanRetGross = 0, p2OrphanRetNet = 0;
-    let p2OrphanDelCount = 0, p2OrphanRetCount = 0;
-    customerInvoices.forEach(inv => {
-      /* V21.21.22 FIX: المسودات مش داخلة الرصيد — مطابقة الكشف المحاسبي
-         (statement.js: e.draft → balance غير محتسب). التسليم المغطّى بمسودة
-         بيفضل في invoicedDeliveryKeys فمايتعدّش تاني في Pass 2. */
-      if(inv.status !== "posted") return;
-      const s = Number(inv.subtotal) || 0;
-      const t = Number(inv.total) || 0;
-      totalDelValue += s;
-      totalDelValueNet += t;
-      p1InvSubtotal += s;
-      p1InvTotal += t;
-    });
-    customerCreditNotes.forEach(cn => {
-      if(cn.status !== "posted") return; /* V21.21.22: المرتجعات المسودة برضه مستبعدة من الرصيد */
-      const s = Number(cn.subtotal) || 0;
-      const t = Number(cn.total) || 0;
-      totalRetValue += s;
-      returnsAfterDiscount += t;
-      p1CnSubtotal += s;
-      p1CnTotal += t;
-    });
-
-    /* Pass 2: orphan deliveries/returns (no matching invoice/CN — fall
-       back to per-entry discPct → customer.discount → 10) */
-    deliveries.forEach(d => {
-      const key = "k:" + (d._sourceKey || "");
-      const altKey = "c:" + (d._sourceOrderId || "") + "|" + (d.custId || custId) + "|" + (d.sessionId || "");
-      if ((d._sourceKey && invoicedDeliveryKeys.has(key)) || invoicedDeliveryKeys.has(altKey)) return;
-      const gross = d.value || 0;
-      const net = (d.valueAfterDisc !== undefined ? d.valueAfterDisc : d.value) || 0;
-      totalDelValue += gross;
-      totalDelValueNet += net;
-      p2OrphanDelGross += gross;
-      p2OrphanDelNet += net;
-      p2OrphanDelCount += 1;
-    });
-    returns.forEach(r => {
-      const key = "k:" + (r._sourceKey || "");
-      if (r._sourceKey && cnReturnKeys.has(key)) return;
-      const gross = r.value || 0;
-      const net = (r.valueAfterDisc !== undefined ? r.valueAfterDisc : r.value) || 0;
-      totalRetValue += gross;
-      returnsAfterDiscount += net;
-      p2OrphanRetGross += gross;
-      p2OrphanRetNet += net;
-      p2OrphanRetCount += 1;
-    });
-
-    const discountAmount = totalDelValue - totalDelValueNet;
-    const salesAfterDiscount = totalDelValueNet - returnsAfterDiscount;
-    const netSales = totalDelValue - totalRetValue; /* legacy gross-net (no discount) — kept for back-compat */
+    /* إجماليات البطاقات — من نفس قوائم العرض (مضمون تطابقها مع الكشف
+       بالبناء: التسليم بسعر السطر + خصم السطر، أوامر البيع بصافيها،
+       والدفعات تشمل الخزنة اليتيمة). */
+    const totalDelValue        = deliveries.reduce((s, d) => s + (Number(d.value) || 0), 0);
+    const totalDelValueNet     = deliveries.reduce((s, d) => s + (d.valueAfterDisc != null ? Number(d.valueAfterDisc) : Number(d.value) || 0), 0);
+    const totalRetValue        = returns.reduce((s, r) => s + (Number(r.value) || 0), 0);
+    const returnsAfterDiscount = returns.reduce((s, r) => s + (r.valueAfterDisc != null ? Number(r.valueAfterDisc) : Number(r.value) || 0), 0);
+    const discountAmount       = totalDelValue - totalDelValueNet;
+    const salesAfterDiscount   = totalDelValueNet - returnsAfterDiscount;
+    const netSales             = totalDelValue - totalRetValue; /* legacy gross-net (no discount) */
     /* Weighted-average effective discount % — display only, NOT a multiplier. */
     const discPct = totalDelValue > 0
       ? Math.round((1 - (totalDelValueNet / totalDelValue)) * 100)
       : Math.max(0, Math.min(100, Number(customer.discount) || 0));
-    /* Mixed-discounts flag: derived from the invoices themselves (more
-       accurate than checking each delivery's stamped discPct). */
+    /* خصومات متفاوتة؟ من نِسَب التسليمات الفعلية (physical only) */
     const hasMixedDiscounts = (() => {
-      if (customerInvoices.length <= 1) return false;
-      const firstPct = Number(customerInvoices[0].discountPct) || 0;
-      for (let i = 1; i < customerInvoices.length; i++) {
-        if ((Number(customerInvoices[i].discountPct) || 0) !== firstPct) return true;
-      }
-      return false;
+      const pcts = deliveries.filter(d => !d._isSalesOrder).map(d => Number(d.discPct) || 0);
+      if (pcts.length <= 1) return false;
+      return pcts.some(p => p !== pcts[0]);
     })();
-    const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+
+    const totalPaid  = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     /* V18.3+V18.23: Split paid into cash (everything except شيك) and checks (incl. pending receivable checks) */
-    const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + p.amount, 0);
-    const cashPaid = totalPaid - checksPaid;
-    const balance = Math.round(salesAfterDiscount - totalPaid);
+    const checksPaid = payments.filter(p => p.method === "شيك").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const cashPaid   = totalPaid - checksPaid;
+
+    /* الرصيد المعروض = رصيد إقفال الكشف الداخلي (canonical / مصدر الحقيقة).
+       displayBalance من قوائم العرض لازم يساويه — لو حصل drift، _debug
+       بيكشفه فوراً (reconcile.match=false). */
+    const displayBalance = Math.round(salesAfterDiscount - totalPaid);
+    const balance = Math.round(stmt.totals.closing);
 
     /* Factory info (public-safe) */
     const factoryName = config.factoryName || "CLARK Factory";
@@ -433,8 +445,11 @@ export default async function handler(req, res) {
     deliveries.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     returns.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    /* V18.7: Customer rating based on retention rate */
-    const piecesDeliveredTotal = deliveries.reduce((s, d) => s + d.qty, 0);
+    /* V18.7: Customer rating based on retention rate.
+       V21.21.46: القطع/التقييم من التسليمات الفعلية فقط — أوامر البيع
+       (_isSalesOrder) قيمة مالية مش قطع مُسلّمة، فلا تدخل عدّ القطع. */
+    const physicalDeliveries = deliveries.filter(d => !d._isSalesOrder);
+    const piecesDeliveredTotal = physicalDeliveries.reduce((s, d) => s + d.qty, 0);
     const piecesReturnedTotal = returns.reduce((s, r) => s + r.qty, 0);
     let rating;
     if (piecesDeliveredTotal <= 0) {
@@ -482,66 +497,48 @@ export default async function handler(req, res) {
         piecesDelivered: piecesDeliveredTotal,
         piecesReturned: piecesReturnedTotal,
         actualSold: piecesDeliveredTotal - piecesReturnedTotal,
-        deliveryCount: deliveries.length,
+        deliveryCount: physicalDeliveries.length,
         orderCount: activeModels.size,
         rating,
-        /* V21.9.197 — diagnostic snapshot. Inspect via DevTools (Network
-           tab → portal request → response → summary._debug). Helps verify
-           whether Pass 1 (invoices) actually loaded data or whether the
-           portal fell through entirely to Pass 2 (orphan deliveries). */
+        /* V21.21.46 — diagnostic snapshot. Inspect via DevTools (Network
+           tab → portal request → response → summary._debug). reconcile.match
+           لازم يكون true (رصيد قوائم العرض = رصيد إقفال الكشف الموحّد). لو
+           false → فيه drift يستحق التحقيق فوراً. */
         _debug: {
           splitFlags: {
+            v1674: !!config._splitDaysV1674Done,
             v1949: !!config._splitDaysV1949Done,
-            v1950: !!config._splitDaysV1950Done,
-            v2195: !!config._splitDaysV2195Done,
+            v21101: !!config._splitDaysV21101Done,
           },
           loaded: {
-            allSalesInvoicesCount: allSalesInvoices.length,
-            allSalesCreditNotesCount: allSalesCreditNotes.length,
-            customerInvoicesCount: customerInvoices.length,
-            customerCreditNotesCount: customerCreditNotes.length,
-            invoicedDeliveryKeysCount: invoicedDeliveryKeys.size,
-            cnReturnKeysCount: cnReturnKeys.size,
+            ordersWithActivity: allOrders.length,
+            salesOrdersCount: (allSalesOrders || []).length,
+            treasuryCount: (allTreasury || []).length,
+            custPaymentsCount: (allCustPayments || []).length,
+            checksCount: (allChecks || []).length,
           },
-          pass1: {
-            invSubtotal: Math.round(p1InvSubtotal),
-            invTotal: Math.round(p1InvTotal),
-            cnSubtotal: Math.round(p1CnSubtotal),
-            cnTotal: Math.round(p1CnTotal),
-            invDiscountAmt: Math.round(p1InvSubtotal - p1InvTotal),
+          statement: {
+            closing: Math.round(stmt.totals.closing),
+            debit: Math.round(stmt.totals.debit),
+            credit: Math.round(stmt.totals.credit),
+            rowCount: stmt.totals.count,
           },
-          pass2: {
-            orphanDelCount: p2OrphanDelCount,
-            orphanRetCount: p2OrphanRetCount,
-            orphanDelGross: Math.round(p2OrphanDelGross),
-            orphanDelNet: Math.round(p2OrphanDelNet),
-            orphanRetGross: Math.round(p2OrphanRetGross),
-            orphanRetNet: Math.round(p2OrphanRetNet),
+          displayDerived: {
+            totalDelValue: Math.round(totalDelValue),
+            totalDelValueNet: Math.round(totalDelValueNet),
+            returnsAfterDiscount: Math.round(returnsAfterDiscount),
+            totalPaid: Math.round(totalPaid),
+            displayBalance,
+            balance,
           },
-          /* Sample first invoice's deliveryRefs so we can verify the
-             match keys against the deliveries' _sourceKey/_sourceOrderId. */
-          sampleInvoiceRefs: customerInvoices[0] ? {
-            invoiceNo: customerInvoices[0].invoiceNo,
-            discountPct: customerInvoices[0].discountPct,
-            subtotal: customerInvoices[0].subtotal,
-            total: customerInvoices[0].total,
-            deliveryRefs: (customerInvoices[0].deliveryRefs || []).slice(0, 3),
-            deliveryRef: customerInvoices[0].deliveryRef || null,
-          } : null,
-          sampleDelivery: deliveries[0] ? {
-            sessionId: deliveries[0].sessionId,
-            _sourceKey: deliveries[0]._sourceKey,
-            _sourceOrderId: deliveries[0]._sourceOrderId,
-            value: deliveries[0].value,
-            valueAfterDisc: deliveries[0].valueAfterDisc,
-            discPct: deliveries[0].discPct,
-          } : null,
+          reconcile: { match: displayBalance === balance, diff: displayBalance - balance },
         },
       },
       activeModels: Array.from(activeModels.values()),
-      /* V21.9.196: strip internal _source* fields from outbound payload
-         (used only for server-side orphan detection above) */
-      deliveries: deliveries.slice(0, 100).map(d => { const { _sourceKey, _sourceOrderId, ...rest } = d; return rest; }),
+      /* V21.21.46: strip internal-only fields from outbound payload
+         (_source* used by legacy orphan detection; _isSalesOrder is a
+         server-side display flag). */
+      deliveries: deliveries.slice(0, 100).map(d => { const { _sourceKey, _sourceOrderId, _isSalesOrder, ...rest } = d; return rest; }),
       returns: returns.slice(0, 50).map(r => { const { _sourceKey, _sourceOrderId, ...rest } = r; return rest; }),
       payments: payments.slice(0, 50),
       generatedAt: new Date().toISOString(),
