@@ -4,15 +4,85 @@
    مشترك بين هَب المبيعات (عملاء) + هَب المشتريات (موردين) + جهات الاتصال.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { Btn, Card, Inp, SearchSel } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt, r2, ltrPhone } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
+import { DocItemsTable } from "./DocItemsTable.jsx";
+import { buildDocColumns } from "../utils/docColumns.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
+
+function _esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+/* HTML مدمج لتفاصيل صف الكشف (للطباعة في وضع الحساب التفصيلي). */
+function detailTableHTML(r, accent){
+  const di = docItemsForRow(r);
+  if(di){
+    if(!di.items.length) return "";
+    const { rows } = buildDocColumns(di.items, { headerDiscountAmount: di.headerDiscountAmount || undefined });
+    const bd = "1px solid #e2e8f0";
+    const body = rows.map(x => x.isSection
+      ? `<tr><td colspan="8" style="background:#f1f5f9;font-weight:700;padding:4px 6px;border:${bd}">📑 ${_esc(x.title)}</td></tr>`
+      : `<tr><td style="padding:3px 5px;border:${bd};text-align:center">${_esc(x.code) || "—"}</td><td style="padding:3px 5px;border:${bd}">${_esc(x.name) || "—"}</td><td style="padding:3px 5px;border:${bd};text-align:center">${_esc(x.unit) || "—"}</td><td style="padding:3px 5px;border:${bd};text-align:center">${fmt(x.qty)}</td><td style="padding:3px 5px;border:${bd};text-align:center">${fmt(x.price)}</td><td style="padding:3px 5px;border:${bd};text-align:center">${fmt(x.subBefore)}</td><td style="padding:3px 5px;border:${bd};text-align:center;color:#dc2626">${x.discountPct > 0 ? x.discountPct + "%" : "—"}</td><td style="padding:3px 5px;border:${bd};text-align:center;font-weight:700">${fmt(x.subAfter)}</td></tr>`
+    ).join("");
+    return `<table style="width:100%;border-collapse:collapse;font-size:10px;margin:3px 0"><thead><tr style="background:${accent}22"><th style="padding:3px 5px;border:${bd}">الكود</th><th style="padding:3px 5px;border:${bd}">اسم الصنف</th><th style="padding:3px 5px;border:${bd}">الوحدة</th><th style="padding:3px 5px;border:${bd}">الكمية</th><th style="padding:3px 5px;border:${bd}">السعر</th><th style="padding:3px 5px;border:${bd}">قبل الخصم</th><th style="padding:3px 5px;border:${bd}">الخصم%</th><th style="padding:3px 5px;border:${bd}">بعد الخصم</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+  const pr = paymentDetailRows(r);
+  if(!pr.length) return "";
+  return `<div style="font-size:10px;color:#334155;padding:3px 0">${pr.map(([k, v]) => `<b>${_esc(k)}:</b> ${_esc(v)}`).join(" &nbsp;·&nbsp; ")}</div>`;
+}
+
+/* V21.21.56: بنود صف الكشف بصيغة docColumns (الكود-الاسم-الوحدة-الكمية-السعر-
+   قبل/نسبة/بعد الخصم) + خصم الرأس. session = تسليم/أمر بيع (خصم per-line)؛
+   invoice = فاتورة/استلام (خصم على الرأس). */
+function docItemsForRow(r){
+  if(!r || !r.detail) return null;
+  if(r.detail.kind === "session"){
+    const items = (r.detail.lines || []).map(l => ({
+      code: l.code || "", modelNo: l.modelNo, description: l.modelDesc || "",
+      unit: l.unit || "قطعة", qty: l.qty, unitPrice: l.price,
+      discountType: "pct", discountValue: l.dPct,
+    }));
+    return { items, headerDiscountAmount: 0 };
+  }
+  const items = r.detail.items || [];
+  /* خصم الرأس: من inv.discount لو متخزّن، وإلا (subtotal − total) للفواتير.
+     الاستلام مفهوش subtotal/total → hd=0 (مجموع البنود = الإجمالي بلا خصم). */
+  const raw = r.raw || {};
+  let hd = Number(raw.discount) || 0;
+  if(!hd && raw.subtotal != null && raw.total != null){
+    const d = r2(Number(raw.subtotal) - Number(raw.total));
+    if(d > 0) hd = d;
+  }
+  return { items, headerDiscountAmount: hd > 0 ? hd : 0 };
+}
+
+/* تفاصيل الدفعة/الحركة (صفوف مفتاح-قيمة) للصفوف اللي مالهاش بنود. */
+function paymentDetailRows(r){
+  const raw = r.raw || {};
+  const out = [];
+  const add = (k, v) => { if(v != null && v !== "" && v !== 0) out.push([k, v]); };
+  const amt = fmt(r2((Number(raw.amount) || Number(raw.total) || Number(r.debit) || Number(r.credit) || 0))) + " ج.م";
+  if(r.type === "check"){
+    add("النوع", "🧾 شيك"); add("رقم الشيك", raw.checkNo || ""); add("البنك", raw.bankName || raw.bank || "");
+    add("المبلغ", amt); add("تاريخ الاستحقاق", raw.dueDate || ""); add("الحالة", raw.status || ""); add("ملاحظات", raw.notes || "");
+  } else if(r.type === "treasury"){
+    add("النوع", "🏦 حركة خزنة"); add("المبلغ", amt); add("الخزنة", raw.account || ""); add("البيان", raw.desc || raw.category || "");
+  } else if(r.type === "credit_note" || r.type === "debit_note"){
+    add("النوع", r.type === "credit_note" ? "🔄 إشعار دائن (مرتجع مبيعات)" : "🔄 إشعار مدين (مرتجع مشتريات)");
+    add("المبلغ", amt); add("الفاتورة المرتبطة", raw.linkedInvoiceNo || ""); add("الحالة", raw.status || ""); add("ملاحظات", raw.notes || "");
+  } else if(r.type === "receipt_paid"){
+    add("النوع", "💵 مدفوع عند الاستلام"); add("المبلغ", amt); add("طريقة الدفع", raw.paymentMethod || ""); add("الخزنة", raw.treasuryAccount || "");
+  } else {
+    add("النوع", "💰 دفعة"); add("الطريقة", raw.method || "نقدي"); add("المبلغ", amt);
+    add("الخزنة", raw.account || raw.treasuryAccount || ""); add("التاريخ", raw.date || r.date || ""); add("ملاحظات", raw.notes || "");
+  }
+  return out;
+}
 
 function balanceLabel(closing, partyType){
   const v = Math.abs(closing);
@@ -35,6 +105,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const [invNo, setInvNo] = useState("");
   const [tf, setTf] = useState({ invoices: true, returns: true, payments: true });
   const [openingOn, setOpeningOn] = useState(true);
+  const [detailed, setDetailed] = useState(false); /* V21.21.56: حساب تفصيلي — الافتراضي عادي */
   const [drill, setDrill] = useState(null); /* row being drilled into */
 
   const party = parties.find(p => String(p.id) === String(partyId)) || (fixedPartyId != null ? parties.find(p => String(p.id) === String(fixedPartyId)) : null);
@@ -63,6 +134,11 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     if(openingOn && (result.openingBalance || fromDate)) rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td>رصيد افتتاحي</td><td></td><td></td><td style="font-weight:700">${fmt(result.openingBalance.toFixed(2))}</td></tr>`);
     result.rows.forEach(r => {
       rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
+      /* V21.21.56: سطر التفاصيل تحت كل حركة في وضع الحساب التفصيلي */
+      if(detailed){
+        const dh = detailTableHTML(r, accent);
+        if(dh) rowsHtml.push(`<tr><td colspan="5" style="padding:4px 12px;background:#f8fafc">${dh}</td></tr>`);
+      }
     });
     const html = `
       <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
@@ -239,6 +315,10 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FS - 1, cursor: "pointer", color: T.text }}>
             <input type="checkbox" checked={openingOn} onChange={e => setOpeningOn(e.target.checked)} /> رصيد افتتاحي
           </label>
+          {/* V21.21.56: حساب تفصيلي — كل صف بينفرد تحته ببنوده وتفاصيله */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FS - 1, cursor: "pointer", color: detailed ? accent : T.text, fontWeight: detailed ? 800 : 600, padding: "3px 10px", borderRadius: 8, background: detailed ? accent + "15" : "transparent", border: "1px solid " + (detailed ? accent + "55" : "transparent") }}>
+            <input type="checkbox" checked={detailed} onChange={e => setDetailed(e.target.checked)} /> 🧾 حساب تفصيلي
+          </label>
           <Btn small ghost onClick={resetFilters} style={{ marginInlineStart: "auto" }}>🔄 reset</Btn>
         </div>
       </Card>
@@ -278,8 +358,12 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                 )}
                 {result.rows.length === 0 ? (
                   <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: T.textMut, padding: 24 }}>لا توجد حركات في الفترة المحددة</td></tr>
-                ) : result.rows.map((r, i) => (
-                  <tr key={i} style={{ opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
+                ) : result.rows.map((r, i) => {
+                  const di = detailed && r.detail ? docItemsForRow(r) : null;
+                  const payRows = detailed && !r.detail ? paymentDetailRows(r) : null;
+                  return (
+                  <Fragment key={i}>
+                  <tr style={{ opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
                     <td style={{ ...td, fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.date || ""}</td>
                     <td style={{ ...td, textAlign: "right" }}>
                       <div style={{ fontWeight: 600 }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</div>
@@ -292,7 +376,25 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                     <td style={{ ...td, color: r.credit ? T.ok : T.textMut }}>{r.credit ? fmt(r.credit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, fontWeight: 800 }}>{r.draft ? "—" : fmt((r.balance || 0).toFixed(2))}</td>
                   </tr>
-                ))}
+                  {detailed && (di || (payRows && payRows.length > 0)) && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: "2px 12px 14px", background: T.bg, borderBottom: "2px solid " + accent + "22" }}>
+                        <div style={{ fontSize: FS - 2, color: accent, fontWeight: 800, margin: "6px 0 8px" }}>📄 {r.desc}{r.sub ? " · " + r.sub : ""}</div>
+                        {di ? (
+                          di.items.length > 0
+                            ? <DocItemsTable items={di.items} headerDiscountAmount={di.headerDiscountAmount || undefined} accent={accent} />
+                            : <div style={{ fontSize: FS - 2, color: T.textMut, padding: 8 }}>لا توجد بنود تفصيلية</div>
+                        ) : (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 8, padding: "10px 12px", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 8 }}>
+                            {payRows.map(([k, v], j) => (<div key={j}><div style={{ fontSize: FS - 3, color: T.textMut }}>{k}</div><div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{v}</div></div>))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot><tr style={{ background: T.accentBg }}>
                 <td colSpan={3} style={{ ...td, textAlign: "left", fontWeight: 800, color: accent }}>الإجمالي ({result.totals.count} حركة)</td>

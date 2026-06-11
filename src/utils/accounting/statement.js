@@ -138,7 +138,8 @@ function gatherCustomerEntries(data, custId, mode){
       if(String(so.customerId) !== String(custId)) return;
       const lines = (so.items || []).filter(it => !(it && it.isSection)).map(it => {
         const q = Number(it.qty) || 0, up = Number(it.unitPrice) || 0;
-        return { modelNo: it.modelNo || it.itemName || it.description || "—", modelDesc: "", qty: q, price: r2(up), gross: r2(q * up), dPct: Number(it.discountValue) || 0, net: r2(Number(it.lineTotal) || 0) };
+        /* V21.21.56: نحمل code + unit للحساب التفصيلي (متوافق رجوعياً — الـ drill القديم بيتجاهلهم) */
+        return { code: it.code || "", unit: it.unit || "", modelNo: it.modelNo || it.itemName || it.description || "—", modelDesc: "", qty: q, price: r2(up), gross: r2(q * up), dPct: Number(it.discountValue) || 0, net: r2(Number(it.lineTotal) || 0) };
       });
       const qty = lines.reduce((s, l) => s + l.qty, 0);
       entries.push({ date: so.date, type: "delivery", ref: so.orderNo, refId: so.id,
