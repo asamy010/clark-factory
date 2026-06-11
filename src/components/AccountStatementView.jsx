@@ -84,6 +84,40 @@ function paymentDetailRows(r){
   return out;
 }
 
+/* عدد القطع لصف (من بنوده). */
+function rowQtyOf(r){
+  if(!r || !r.detail) return 0;
+  if(r.detail.kind === "session") return (r.detail.lines || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  return (r.detail.items || []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+}
+/* هل الصف دفعة بشيك؟ (type=check أو طريقة الدفع شيك). */
+function isCheckRow(r){
+  if(r.type === "check") return true;
+  const m = String((r.raw && (r.raw.method || r.raw.paymentMethod)) || "").toLowerCase();
+  return m.includes("شيك") || m.includes("check");
+}
+/* V21.21.58: ملخّص KPIs من نفس صفوف الكشف المفلترة (يحترم العميل/المورد +
+   التاريخ + النوع + الوضع). صفر mutation — مشتق بحت. */
+function computeStatementKpis(result){
+  const z = { sales: 0, salesQty: 0, returns: 0, returnsQty: 0, cash: 0, check: 0, closing: 0 };
+  if(!result) return z;
+  z.closing = r2(Number(result.totals.closing) || 0);
+  for(const r of result.rows){
+    if(r.draft) continue; /* المسودات مش داخلة الرصيد ولا الإجماليات */
+    const t = r.type;
+    if(t === "return" || t === "credit_note" || t === "debit_note"){
+      z.returns = r2(z.returns + (Number(r.credit) || 0)); z.returnsQty += rowQtyOf(r);
+    } else if(t === "payment" || t === "treasury" || t === "receipt_paid" || t === "check"){
+      if(isCheckRow(r)) z.check = r2(z.check + (Number(r.credit) || 0));
+      else z.cash = r2(z.cash + (Number(r.credit) || 0));
+    } else {
+      /* مستند بيع/شراء (مدين) */
+      z.sales = r2(z.sales + (Number(r.debit) || 0)); z.salesQty += rowQtyOf(r);
+    }
+  }
+  return z;
+}
+
 function balanceLabel(closing, partyType){
   const v = Math.abs(closing);
   if(Math.abs(closing) < 0.01) return { txt: "مُسوّى (صفر)", color: T.textSec };
@@ -128,6 +162,16 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
 
   const resetFilters = () => { setFromDate(""); setToDate(""); setInvNo(""); setTf({ invoices: true, returns: true, payments: true }); setOpeningOn(true); };
 
+  /* V21.21.58: بطاقات KPI ديناميكية من نفس الـ result المفلتر.
+     لون الرصيد النهائي: أخضر = للمصنع (مستحق لنا) · أحمر = على المصنع. */
+  const kpis = useMemo(() => {
+    if(!result) return null;
+    const k = computeStatementKpis(result);
+    const settled = Math.abs(k.closing) < 0.005;
+    const inFav = partyType === "customer" ? k.closing > 0.005 : k.closing < -0.005;
+    return { ...k, balColor: settled ? T.textSec : (inFav ? T.ok : T.err), balTag: settled ? "مُسوّى (صفر)" : (inFav ? "للمصنع" : "على المصنع") };
+  }, [result, partyType]);
+
   const doPrint = () => {
     if(!result || !party) return;
     const rowsHtml = [];
@@ -145,12 +189,27 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
         if(dh) rowsHtml.push(`<tr><td colspan="5" style="padding:4px 12px;background:#f8fafc">${dh}</td></tr>`);
       }
     });
+    /* V21.21.58: بطاقات KPI مبسّطة وصغيرة أعلى الطباعة */
+    const _k = computeStatementKpis(result);
+    const _settled = Math.abs(_k.closing) < 0.005;
+    const _inFav = partyType === "customer" ? _k.closing > 0.005 : _k.closing < -0.005;
+    const _balC = _settled ? "#64748b" : (_inFav ? "#059669" : "#dc2626");
+    const _balTag = _settled ? "مُسوّى" : (_inFav ? "للمصنع" : "على المصنع");
+    const _kc = (title, val, sub, color) => `<div style="flex:1;min-width:88px;border:1px solid #e2e8f0;border-radius:6px;padding:4px 7px;background:#f8fafc"><div style="font-size:8.5px;color:#64748b">${title}</div><div style="font-size:12px;font-weight:800;color:${color || "#0f172a"};direction:ltr;text-align:right">${val}</div>${sub ? `<div style="font-size:8.5px;color:${color || "#64748b"};font-weight:700">${sub}</div>` : ""}</div>`;
+    const kpiBlock = `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0 10px">
+      ${_kc(partyType === "customer" ? "إجمالي المبيعات" : "إجمالي المشتريات", fmt(_k.sales.toFixed(2)), fmt(_k.salesQty) + " قطعة", "#0ea5e9")}
+      ${_kc("إجمالي المرتجعات", fmt(_k.returns.toFixed(2)), fmt(_k.returnsQty) + " قطعة", "#d97706")}
+      ${_kc("دفعات نقدي", fmt(_k.cash.toFixed(2)), "", "#059669")}
+      ${_kc("دفعات شيكات", fmt(_k.check.toFixed(2)), "", "#8b5cf6")}
+      ${_kc("الرصيد النهائي", fmt(_k.closing.toFixed(2)), _balTag, _balC)}
+    </div>`;
     const html = `
       <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">
         ${party.phone ? "تليفون: " + ltrPhone(party.phone) + " · " : ""}${party.address ? "العنوان: " + party.address + " · " : ""}الوضع: ${mode === "accounting" ? "محاسبي" : "تشغيلي"}
         ${fromDate || toDate ? "<br>الفترة: " + (fromDate || "البداية") + " ← " + (toDate || "الآن") : ""}
       </div>
+      ${kpiBlock}
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:${accent};color:#fff">
           <th style="padding:6px;border:1px solid #cbd5e1">التاريخ</th><th style="padding:6px;border:1px solid #cbd5e1">البيان</th>
@@ -345,6 +404,25 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
               {party.phone && <Btn small onClick={doWhatsApp} style={{ background: "#25D36612", color: "#1DA851", border: "1px solid #25D36640" }}>📤 واتساب</Btn>}
             </div>
           </div>
+
+          {/* V21.21.58: بطاقات KPI صغيرة ديناميكية مع الفلتر */}
+          {kpis && (
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(5, minmax(0,1fr))", gap: 8, marginBottom: 12 }}>
+              {[
+                { t: partyType === "customer" ? "🧾 إجمالي المبيعات" : "🧾 إجمالي المشتريات", v: fmt(kpis.sales.toFixed(2)), s: fmt(kpis.salesQty) + " قطعة", c: accent },
+                { t: "↩️ إجمالي المرتجعات", v: fmt(kpis.returns.toFixed(2)), s: fmt(kpis.returnsQty) + " قطعة", c: T.warn },
+                { t: "💵 دفعات نقدي", v: fmt(kpis.cash.toFixed(2)), s: "", c: T.ok },
+                { t: "🧾 دفعات شيكات", v: fmt(kpis.check.toFixed(2)), s: "", c: "#8B5CF6" },
+                { t: "📌 الرصيد النهائي", v: fmt(kpis.closing.toFixed(2)), s: kpis.balTag, c: kpis.balColor, big: true },
+              ].map((c, i) => (
+                <div key={i} style={{ border: "1px solid " + c.c + "33", borderRadius: 10, padding: "8px 10px", background: c.c + "0c", minWidth: 0 }}>
+                  <div style={{ fontSize: FS - 3, color: T.textSec, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.t}</div>
+                  <div style={{ fontSize: FS + (c.big ? 1 : 0), fontWeight: 800, color: c.c, marginTop: 2, direction: "ltr", textAlign: "right" }}>{c.v}</div>
+                  {c.s && <div style={{ fontSize: FS - 3, color: c.c, fontWeight: 700, marginTop: 1 }}>{c.s}</div>}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
