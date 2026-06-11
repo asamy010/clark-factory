@@ -40,31 +40,32 @@ export function ServiceInvoiceModal({ mode, data, upConfig, user, onClose, isMob
     if(isSales){
       return [
         ...(data.orders || []).map(o => ({ value: "order:" + o.id, label: "📋 " + (o.modelNo || "") + (o.modelDesc ? " — " + o.modelDesc : "") })),
-        ...(data.inventoryItems || []).map(i => ({ value: "inventoryItem:" + i.id, label: "📦 " + (i.name || "") + (i.unit ? " (" + i.unit + ")" : "") })),
-        ...(data.generalProducts || []).map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+        ...(data.inventoryItems || []).map(i => ({ value: "inventoryItem:" + i.id, label: "📦 " + (i.code ? i.code + " - " : "") + (i.name || "") + (i.unit ? " (" + i.unit + ")" : "") })),
+        ...(data.generalProducts || []).map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.code ? p.code + " - " : "") + (p.name || p.modelNo || p.id) })),
       ];
     }
     return [
-      ...(data.fabrics || []).map(f => ({ value: "fabric:" + f.id, label: "🧵 " + (f.name || "") + (f.unit ? " (" + f.unit + ")" : "") })),
-      ...(data.accessories || []).map(a => ({ value: "accessory:" + a.id, label: "🧷 " + (a.name || "") + (a.unit ? " (" + a.unit + ")" : "") })),
-      ...(data.generalProducts || []).map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+      ...(data.fabrics || []).map(f => ({ value: "fabric:" + f.id, label: "🧵 " + (f.code ? f.code + " - " : "") + (f.name || "") + (f.unit ? " (" + f.unit + ")" : "") })),
+      ...(data.accessories || []).map(a => ({ value: "accessory:" + a.id, label: "🧷 " + (a.code ? a.code + " - " : "") + (a.name || "") + (a.unit ? " (" + a.unit + ")" : "") })),
+      ...(data.generalProducts || []).map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.code ? p.code + " - " : "") + (p.name || p.modelNo || p.id) })),
     ];
   }, [isSales, data.orders, data.inventoryItems, data.generalProducts, data.fabrics, data.accessories]);
 
   const resolveProduct = (value, cur) => {
     const s = String(value); const ci = s.indexOf(":");
     const sourceType = s.slice(0, ci), sourceId = s.slice(ci + 1);
-    let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice;
+    let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice, code = "";
     const findIn = (arr) => (arr || []).find(x => String(x.id) === String(sourceId));
     /* V21.21.54: في البيع — السعر بياخد نوع تسعير العميل تلقائياً (جملة/قطاعي).
-       في الشراء — السلوك القديم (التكلفة) من غير تغيير. */
+       في الشراء — السلوك القديم (التكلفة) من غير تغيير.
+       V21.21.55: code للعرض «الكود - اسم الصنف» في الفاتورة. */
     const _cust = isSales ? (data.customers || []).find(c => String(c.id) === String(partyId)) : null;
     if(sourceType === "order"){ const o = findIn(data.orders); if(o){ modelNo = o.modelNo || ""; unitPrice = Number(o.sellPrice) || unitPrice; if(!unit) unit = "قطعة"; } }
-    else if(sourceType === "inventoryItem"){ const it = findIn(data.inventoryItems); if(it){ modelNo = it.name || ""; unit = it.unit || unit; unitPrice = (isSales ? salePriceForCustomer(it, "inventoryItem", _cust) : Number(it.price ?? it.sellPrice ?? 0)) || unitPrice; } }
-    else if(sourceType === "fabric"){ const f = findIn(data.fabrics); if(f){ modelNo = f.name || ""; unit = f.unit || unit; unitPrice = (isSales ? salePriceForCustomer(f, "inventoryItem", _cust) : Number(f.avgCost ?? f.price ?? 0)) || unitPrice; } }
-    else if(sourceType === "accessory"){ const a = findIn(data.accessories); if(a){ modelNo = a.name || ""; unit = a.unit || unit; unitPrice = (isSales ? salePriceForCustomer(a, "inventoryItem", _cust) : Number(a.avgCost ?? a.price ?? 0)) || unitPrice; } }
-    else if(sourceType === "generalProduct"){ const p = findIn(data.generalProducts); if(p){ modelNo = p.name || p.modelNo || ""; unit = p.unit || unit; unitPrice = (isSales ? salePriceForCustomer(p, "generalProduct", _cust) : Number(p.price ?? p.cost ?? p.sellPrice ?? 0)) || unitPrice; } }
-    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice };
+    else if(sourceType === "inventoryItem"){ const it = findIn(data.inventoryItems); if(it){ modelNo = it.name || ""; code = it.code || ""; unit = it.unit || unit; unitPrice = (isSales ? salePriceForCustomer(it, "inventoryItem", _cust) : Number(it.price ?? it.sellPrice ?? 0)) || unitPrice; } }
+    else if(sourceType === "fabric"){ const f = findIn(data.fabrics); if(f){ modelNo = f.name || ""; code = f.code || ""; unit = f.unit || unit; unitPrice = (isSales ? salePriceForCustomer(f, "inventoryItem", _cust) : Number(f.avgCost ?? f.price ?? 0)) || unitPrice; } }
+    else if(sourceType === "accessory"){ const a = findIn(data.accessories); if(a){ modelNo = a.name || ""; code = a.code || ""; unit = a.unit || unit; unitPrice = (isSales ? salePriceForCustomer(a, "inventoryItem", _cust) : Number(a.avgCost ?? a.price ?? 0)) || unitPrice; } }
+    else if(sourceType === "generalProduct"){ const p = findIn(data.generalProducts); if(p){ modelNo = p.name || p.modelNo || ""; code = p.code || ""; unit = p.unit || unit; unitPrice = (isSales ? salePriceForCustomer(p, "generalProduct", _cust) : Number(p.price ?? p.cost ?? p.sellPrice ?? 0)) || unitPrice; } }
+    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice, code };
   };
 
   /* صافي السطر (بعد خصم البند) */
@@ -89,7 +90,7 @@ export function ServiceInvoiceModal({ mode, data, upConfig, user, onClose, isMob
       if(it.isSection) return { isSection: true, title: it.title || "" };
       const qty = Number(it.qty) || 1;
       const net = lineNet(it);
-      return { description: it.modelNo || it.description || "", qty, unitPrice: qty > 0 ? net / qty : (Number(it.unitPrice) || 0), unit: it.unit || "", accountId: "", accountName: "" };
+      return { description: it.modelNo || it.description || "", code: it.code || "", qty, unitPrice: qty > 0 ? net / qty : (Number(it.unitPrice) || 0), unit: it.unit || "", accountId: "", accountName: "" };
     });
     const payload = {
       date,

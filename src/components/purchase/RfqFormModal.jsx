@@ -16,6 +16,7 @@ const toEditorItem = (it) => it && it.isSection ? { ...it } : ({
   modelNo: it.modelNo || it.description || "", description: it.description || it.modelNo || "",
   unit: it.unit || "", qty: it.qty ?? 1, unitPrice: it.unitPrice ?? 0,
   discountType: it.discountType || "pct", discountValue: it.discountValue || 0, notes: it.notes || "",
+  code: it.code || "",/* V21.21.55: حافظ على الكود في دورة التعديل */
 });
 
 export function RfqFormModal({ data, editRfq, userName, onSave, onClose, previewNo, isMob = false }){
@@ -36,18 +37,18 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
 
   /* قائمة مصادر الشراء الموحّدة (خامات/إكسسوار/منتج عام) + النص الحر */
   const productOptions = useMemo(() => [
-    ...fabrics.map(f => ({ value: "fabric:" + f.id, label: "🧵 " + (f.name || "") + (f.unit ? " (" + f.unit + ")" : "") })),
-    ...accessories.map(a => ({ value: "accessory:" + a.id, label: "🧷 " + (a.name || "") + (a.unit ? " (" + a.unit + ")" : "") })),
-    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+    ...fabrics.map(f => ({ value: "fabric:" + f.id, label: "🧵 " + (f.code ? f.code + " - " : "") + (f.name || "") + (f.unit ? " (" + f.unit + ")" : "") })),
+    ...accessories.map(a => ({ value: "accessory:" + a.id, label: "🧷 " + (a.code ? a.code + " - " : "") + (a.name || "") + (a.unit ? " (" + a.unit + ")" : "") })),
+    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.code ? p.code + " - " : "") + (p.name || p.modelNo || p.id) })),
   ], [fabrics, accessories, generalProducts]);
   const resolveProduct = (value, cur) => {
     const s = String(value); const ci = s.indexOf(":");
     const sourceType = s.slice(0, ci), sourceId = s.slice(ci + 1);
-    let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice;
-    if(sourceType === "fabric"){ const f = fabrics.find(x => String(x.id) === sourceId); if(f){ modelNo = f.name || ""; unit = f.unit || unit; unitPrice = Number(f.avgCost ?? f.price ?? 0) || unitPrice; } }
-    else if(sourceType === "accessory"){ const a = accessories.find(x => String(x.id) === sourceId); if(a){ modelNo = a.name || ""; unit = a.unit || unit; unitPrice = Number(a.avgCost ?? a.price ?? 0) || unitPrice; } }
-    else if(sourceType === "generalProduct"){ const p = generalProducts.find(x => String(x.id) === sourceId); if(p){ modelNo = p.name || p.modelNo || ""; unit = p.unit || unit; unitPrice = Number(p.price ?? p.cost ?? 0) || unitPrice; } }
-    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice };
+    let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice, code = "";
+    if(sourceType === "fabric"){ const f = fabrics.find(x => String(x.id) === sourceId); if(f){ modelNo = f.name || ""; code = f.code || ""; unit = f.unit || unit; unitPrice = Number(f.avgCost ?? f.price ?? 0) || unitPrice; } }
+    else if(sourceType === "accessory"){ const a = accessories.find(x => String(x.id) === sourceId); if(a){ modelNo = a.name || ""; code = a.code || ""; unit = a.unit || unit; unitPrice = Number(a.avgCost ?? a.price ?? 0) || unitPrice; } }
+    else if(sourceType === "generalProduct"){ const p = generalProducts.find(x => String(x.id) === sourceId); if(p){ modelNo = p.name || p.modelNo || ""; code = p.code || ""; unit = p.unit || unit; unitPrice = Number(p.price ?? p.cost ?? 0) || unitPrice; } }
+    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice, code };/* V21.21.55 */
   };
 
   const afterLine = useMemo(() => r2(items.reduce((s, it) => {

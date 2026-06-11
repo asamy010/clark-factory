@@ -62,26 +62,26 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
      V21.21.54: السعر بياخد نوع تسعير العميل تلقائياً (سعر جملة/قطاعي) لو العميل
      له نوع تسعير والصنف له سعر للنوع ده — وإلا سعر البيع الأساسي (fallback). */
   const resolveSource = (sourceType, sourceId, cur) => {
-    let modelNo = "", description = "", unitPrice = cur?.unitPrice, unit = cur?.unit || "";
+    let modelNo = "", description = "", unitPrice = cur?.unitPrice, unit = cur?.unit || "", code = "";
     const _cust = customers.find(c => c.id === customerId) || null;
     if(sourceType === "order"){
       const o = orders.find(x => x.id === sourceId);
       if(o){ modelNo = o.modelNo || ""; description = o.modelDesc || ""; unitPrice = Number(o.sellPrice) || unitPrice; if(!unit) unit = "قطعة"; }
     } else if(sourceType === "inventoryItem"){
       const it = inventoryItems.find(x => x.id === sourceId);
-      if(it){ modelNo = it.name || ""; description = it.type || ""; unitPrice = salePriceForCustomer(it, "inventoryItem", _cust) || unitPrice; unit = it.unit || unit; }
+      if(it){ modelNo = it.name || ""; description = it.type || ""; code = it.code || ""; unitPrice = salePriceForCustomer(it, "inventoryItem", _cust) || unitPrice; unit = it.unit || unit; }
     } else if(sourceType === "generalProduct"){
       const p = generalProducts.find(x => x.id === sourceId);
-      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; unitPrice = salePriceForCustomer(p, "generalProduct", _cust) || unitPrice; unit = p.unit || unit; }
+      if(p){ modelNo = p.name || p.modelNo || ""; description = p.description || ""; code = p.code || ""; unitPrice = salePriceForCustomer(p, "generalProduct", _cust) || unitPrice; unit = p.unit || unit; }
     }
-    return { modelNo, description, unitPrice, unit };
+    return { modelNo, description, unitPrice, unit, code };/* V21.21.55: code للعرض «الكود - الاسم» */
   };
 
   /* قائمة منتجات موحّدة (كل المصادر) — للبحث الواحد في DocLineEditor */
   const productOptions = useMemo(() => [
     ...orders.map(o => ({ value: "order:" + o.id, label: "📋 " + (o.modelNo || "") + (o.modelDesc ? " — " + o.modelDesc : "") })),
-    ...inventoryItems.map(i => ({ value: "inventoryItem:" + i.id, label: "📦 " + (i.name || "") + (i.unit ? " (" + i.unit + ")" : "") })),
-    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.name || p.modelNo || p.id) })),
+    ...inventoryItems.map(i => ({ value: "inventoryItem:" + i.id, label: "📦 " + (i.code ? i.code + " - " : "") + (i.name || "") + (i.unit ? " (" + i.unit + ")" : "") })),
+    ...generalProducts.map(p => ({ value: "generalProduct:" + p.id, label: "🏷️ " + (p.code ? p.code + " - " : "") + (p.name || p.modelNo || p.id) })),
   ], [orders, inventoryItems, generalProducts]);
   const resolveProduct = (value, cur) => {
     const s = String(value); const ci = s.indexOf(":");

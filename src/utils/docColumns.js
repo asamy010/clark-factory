@@ -44,8 +44,14 @@ export function buildDocColumns(items, opts = {}){
     const price = Number(it.unitPrice != null ? it.unitPrice : it.price) || 0;
     const subBefore = r2(qty * price);
     const lineDiscount = _lineDiscount(subBefore, it);
-    const code = String(it.modelNo || it.code || "");
-    const name = String(it.description || it.modelDesc || it.itemName || it.name || "") || (code ? "" : "—");
+    /* V21.21.55: لو البند له كود صنف حقيقي (الحقل code من كارت الصنف) → الكود في
+       عمود الكود والاسم في عمود الاسم («الكود - اسم الصنف»). غير كده السلوك القديم
+       (للأوامر: modelNo = رقم الموديل في عمود الكود، والوصف في عمود الاسم). */
+    const realCode = String(it.code || "").trim();
+    const code = realCode || String(it.modelNo || "");
+    const name = realCode
+      ? (String(it.modelNo || it.itemName || it.name || it.description || it.modelDesc || "") || "—")
+      : (String(it.description || it.modelDesc || it.itemName || it.name || "") || (code ? "" : "—"));
     const unit = String(it.unit || "");
     norm.push({ isSection: false, code, name, unit, qty, price, subBefore, lineDiscount, _afterLine: r2(subBefore - lineDiscount) });
   }
