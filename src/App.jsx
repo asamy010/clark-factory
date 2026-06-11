@@ -5937,12 +5937,18 @@ export default function App(){
      display-only filter — it touches ZERO financial/leg logic. */
   const _tfStatusById={};
   for(const _t of (config.treasuryTransfers||[])){ if(_t&&_t.id) _tfStatusById[_t.id]=_t.status; }
+  /* V21.21.51: تحويل اتسجّلت له legs في الخزنة = مؤكّد فعلياً حتى لو status رجع
+     "pending" على السيرفر (الـ status write سقط تحت الـ contention بينما legs الـ
+     treasuryDays نجحت — عكس drift الـ V21.9.45). نشتق وجود الـ legs عشان شيلة
+     الموافقة تختفي بعد الـ refresh ولا ترجع تطلب تأكيد تاني. عرض فقط — صفر كتابة. */
+  const _tfHasLegs=new Set();
+  for(const _t of (config.treasury||[])){ if(_t&&_t.transferId) _tfHasLegs.add(_t.transferId); }
   const userNotifs=(config.notifications||[]).filter(n=>n.toEmail===userEmail||n.toEmail==="all").filter(n=>{
     if(n.endedAt)return false;
     /* Transfer-approval request → hide once the transfer is resolved. */
     if(n.transferId&&(n.type==="transfer_pending"||(n.link&&n.link.subType==="transfer_pending"))){
       const _st=_tfStatusById[n.transferId];
-      if(_st==="confirmed"||_st==="rejected")return false;
+      if(_st==="confirmed"||_st==="rejected"||_tfHasLegs.has(n.transferId))return false;
     }
     if(n.expiresAt&&new Date(n.expiresAt)<=_now)return false;
     /* V19.53: per-user dismiss check — primary path */

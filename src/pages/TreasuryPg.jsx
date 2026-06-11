@@ -3591,14 +3591,27 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       {transfers.length===0?<Card><div style={{textAlign:"center",padding:40,color:T.textMut,fontSize:FS-1,lineHeight:1.7}}>لا يوجد تحويلات بعد<br/><span style={{fontSize:FS-3,color:T.textMut}}>التحويلات بـ تتعمل من حركات الخزنة (اختار نوع 'تحويل')</span></div></Card>
       :<Card title={"🔄 سجل التحويلات ("+transfers.length+") — للقراءة فقط"} extra={<span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>للتعديل: من حركات الخزنة</span>}>
         {(()=>{
+          /* V21.21.51 ROOT-CAUSE FIX (اشتقاق وقت العرض — desync-proof، صفر كتابة):
+             تحويل اتأكّد فعلاً (الـ legs اتسجّلت في treasuryDays) لكن status رجع
+             "pending" على السيرفر — لأن تأكيد كذا تحويل في نفس اللحظة بيعمل
+             contention على نفس المستند treasuryTransfersDays/{اليوم}، فالـ
+             transaction بتاع الـ status بيـ throw بينما legs الخزنة (كتابة موازية،
+             id ثابت V21.9.249) بتنجح. ده عكس drift الـ V21.9.45.
+             الحل: نعتبر التحويل مؤكّداً طول ما الـ legs بتاعته موجودة في الخزنة —
+             فالطلب ما يرجعش يظهر للموافقة بعد الـ refresh، وإعادة التأكيد أصلاً
+             آمنة (مفيش تكرار). اشتقاق عرض فقط — صفر mutation مالي. */
+          const _legsByTf=new Map();
+          for(const t of txns){if(t&&t.transferId){const e=_legsByTf.get(t.transferId)||{out:false,in:false};if(t.type==="out")e.out=true;if(t.type==="in")e.in=true;_legsByTf.set(t.transferId,e);}}
+          const _hasAllLegs=(tf)=>{const e=_legsByTf.get(tf.id);if(!e)return false;const needOut=!!tf.fromAccount,needIn=!!tf.toAccount;return(!needOut||e.out)&&(!needIn||e.in)&&(e.out||e.in);};
+          const _isPending=(tf)=>!!tf&&tf.status==="pending"&&!_hasAllLegs(tf);
           /* V16.13: pending first, then confirmed — both sorted newest-first within group */
-          const pending=transfers.filter(t=>t.status==="pending");
-          const confirmed=transfers.filter(t=>t.status!=="pending");
+          const pending=transfers.filter(_isPending);
+          const confirmed=transfers.filter(t=>!_isPending(t));
           const ordered=[...pending,...confirmed];
           return<div style={{display:"flex",flexDirection:"column",gap:6}}>
           {pending.length>0&&isAdmin&&<div style={{padding:"6px 10px",borderRadius:6,background:"#F59E0B15",border:"1px solid #F59E0B40",fontSize:FS-2,color:"#92400E",fontWeight:700,marginBottom:2}}>⏳ {pending.length} طلب{pending.length>1?"ات":""} تحويل بانتظار موافقتك</div>}
           {ordered.map(tf=>{
-            const isPending=tf.status==="pending";
+            const isPending=_isPending(tf);
             const borderColor=isPending?"#F59E0B":T.brd;
             const bgColor=isPending?"#FEF3C7":T.cardSolid;
             return<div key={tf.id} id={"transfer-row-"+tf.id} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+borderColor,background:bgColor,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
