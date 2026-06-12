@@ -204,6 +204,8 @@ import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
 import { WorkshopPortalPage } from "./components/WorkshopPortalPage.jsx";
 /* V21.21.68: Stock portal — public catalog of finished-goods available stock */
 import { StockPortalPage } from "./components/StockPortalPage.jsx";
+/* V21.21.69: Partner portal — public co-owner dashboard via signed URL */
+import { PartnerPortalPage } from "./components/PartnerPortalPage.jsx";
 /* V16.73: Public workshop-delivery confirmation page — same idea as ConfirmPage
    above but for workshops scanning the QR on a 10×15 cm delivery label. Routed
    below at /?wd=1&ord=...&ws=...&idx=...&sig=..., before any login gate. */
@@ -289,6 +291,14 @@ export default function App(){
     const sig=urlParams.get("s")||urlParams.get("sig");
     if(sig){
       return <StockPortalPage params={{sig}}/>;
+    }
+  }
+  /* V21.21.69: Partner portal — public co-owner dashboard.
+     URL: /?partner=1&s=<sig> — checked BEFORE the login gate. */
+  if(urlParams.get("partner")==="1"||urlParams.get("p")==="p"){
+    const sig=urlParams.get("s")||urlParams.get("sig");
+    if(sig){
+      return <PartnerPortalPage params={{sig}}/>;
     }
   }
   /* V16.73: Public workshop-delivery confirmation — opened when a workshop

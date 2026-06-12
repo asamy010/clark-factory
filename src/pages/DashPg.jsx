@@ -10,6 +10,8 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveCo
 import { Badge, Btn, Card } from "../components/ui.jsx";
 import { FS } from "../constants/index.js";
 import { T, TD, TDB, TH } from "../theme.js";
+import { showToast } from "../utils/popups.js";
+import { PartnerPortalLinkModal } from "../components/PartnerPortalLinkModal.jsx";
 import { fmt, r2, dayName } from "../utils/format.js";
 import { calcOrder, calcWsRating, getWsPartnershipTier, getStatusColor, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { computeWorkshopDue, computeWorkshopBalance } from "../utils/accountSummary.js";
@@ -23,6 +25,7 @@ import { DashboardKpis } from "../components/DashboardKpis.jsx";
 
 export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup,setWsAccPopup}){
   const orders=data.orders;
+  const[showPartnerPortal,setShowPartnerPortal]=useState(false);/* V21.21.69: بورتال الشريك */
 
   /* ═══ MEMOIZED COMPUTATIONS ═══ */
   const stats=useMemo(()=>{
@@ -192,6 +195,11 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
   },[orders]);
 
   return<div style={{maxWidth:1400,margin:"0 auto"}}>
+    {/* V21.21.69: زر بورتال الشريك — لوحة لحظية للشريك بإعدادات عرض */}
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+      <button onClick={()=>setShowPartnerPortal(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:10,border:"1px solid #6366F130",background:"#6366F112",color:"#6366F1",fontSize:FS-1,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🤝 لينك الشريك</button>
+    </div>
+    {showPartnerPortal&&<PartnerPortalLinkModal T={T} FS={FS} isMob={isMob} showToast={showToast} onClose={()=>setShowPartnerPortal(false)}/>}
     {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) أعلى لوحة التحكم */}
     <DashboardKpis data={data} isMob={isMob} upConfig={upConfig}/>
     {/* Custom styles for hero section */}
