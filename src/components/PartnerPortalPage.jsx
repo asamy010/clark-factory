@@ -87,8 +87,8 @@ export function PartnerPortalPage({ params }) {
         ? <img src={factory.logo} alt="" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover" }} />
         : <div style={{ width: 44, height: 44, borderRadius: 10, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📊</div>}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 18, fontWeight: 900, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{factory.name || "لوحة الشريك"}</div>
-        <div style={{ fontSize: 12, color: C.mut, fontWeight: 600 }}>لوحة الشريك · {data.activeSeason || "الموسم الحالي"} · بيانات لحظية</div>
+        <div style={{ fontSize: 18, fontWeight: 900, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{factory.name || "لوحة التحكم"}</div>
+        <div style={{ fontSize: 12, color: C.mut, fontWeight: 600 }}>لوحة التحكم · {data.activeSeason || "الموسم الحالي"} · بيانات لحظية</div>
       </div>
     </div>
 

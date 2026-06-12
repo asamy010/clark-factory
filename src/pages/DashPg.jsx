@@ -197,7 +197,7 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
   return<div style={{maxWidth:1400,margin:"0 auto"}}>
     {/* V21.21.69: زر بورتال الشريك — لوحة لحظية للشريك بإعدادات عرض */}
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-      <button onClick={()=>setShowPartnerPortal(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:10,border:"1px solid #6366F130",background:"#6366F112",color:"#6366F1",fontSize:FS-1,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🤝 لينك الشريك</button>
+      <button onClick={()=>setShowPartnerPortal(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:10,border:"1px solid #6366F130",background:"#6366F112",color:"#6366F1",fontSize:FS-1,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📊 لينك لوحة التحكم</button>
     </div>
     {showPartnerPortal&&<PartnerPortalLinkModal T={T} FS={FS} isMob={isMob} showToast={showToast} onClose={()=>setShowPartnerPortal(false)}/>}
     {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) أعلى لوحة التحكم */}

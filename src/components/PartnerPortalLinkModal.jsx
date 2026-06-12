@@ -77,7 +77,7 @@ export function PartnerPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
     finally { setBusy(false); }
   };
 
-  const shareWa = () => window.open("https://wa.me/?text=" + encodeURIComponent("لوحة الشريك 👇\n" + url), "_blank");
+  const shareWa = () => window.open("https://wa.me/?text=" + encodeURIComponent("لوحة التحكم 👇\n" + url), "_blank");
 
   return <div onClick={onClose} style={{
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10001,
@@ -89,8 +89,8 @@ export function PartnerPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
     }}>
       <div style={{ padding: isMob ? "14px 16px" : "16px 20px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#6366F1" }}>🤝 لينك الشريك</div>
-          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>لوحة لحظية للشريك — تختار إيه يتعرض</div>
+          <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#6366F1" }}>📊 لينك لوحة التحكم</div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>لوحة لحظية — تختار إيه يتعرض</div>
         </div>
         <Btn ghost small onClick={onClose}>✕</Btn>
       </div>
@@ -113,7 +113,7 @@ export function PartnerPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
             </div>
 
             {/* visibility toggles */}
-            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 8 }}>إيه اللي يشوفه الشريك؟</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 8 }}>إيه اللي يتعرض في اللوحة؟</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
               {PARTNER_TOGGLES.map(key => {
                 const on = !!vis[key];
