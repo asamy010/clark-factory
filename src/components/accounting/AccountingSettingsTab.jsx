@@ -398,6 +398,7 @@ export function AccountingSettingsTab({data, config, upConfig, coa, T, FS, isMob
     {showSeasonClosing && <SeasonClosingModal
       data={data || config} T={T} FS={FS} isMob={isMob}
       upConfig={upConfig} userName={userName} showToast={showToast}
+      onOpenAccountingClose={() => setShowClosing(true)}
       onClose={() => setShowSeasonClosing(false)}
     />}
 

@@ -14,7 +14,22 @@ import {
   buildOpenOrders,
   buildSeasonClosingSnapshot,
   summarizeSnapshotForRecord,
+  suggestNextSeason,
 } from "../seasonClosing.js";
+
+describe("suggestNextSeason", () => {
+  it("increments the trailing number preserving width", () => {
+    expect(suggestNextSeason("WS26")).toBe("WS27");
+    expect(suggestNextSeason("SS09")).toBe("SS10");
+    expect(suggestNextSeason("2026")).toBe("2027");
+    expect(suggestNextSeason("Q4-2026")).toBe("Q4-2027"); /* last number wins */
+  });
+  it("falls back to -2 when no digits and handles empty", () => {
+    expect(suggestNextSeason("Summer")).toBe("Summer-2");
+    expect(suggestNextSeason("")).toBe("");
+    expect(suggestNextSeason(null)).toBe("");
+  });
+});
 
 describe("buildTreasuryBalances", () => {
   it("aggregates in/out per account and defaults to MAIN CASH", () => {

@@ -12,7 +12,7 @@
 
 import { useState, useMemo } from "react";
 import { Btn, Inp } from "../ui.jsx";
-import { buildSeasonClosingSnapshot, summarizeSnapshotForRecord } from "../../utils/accounting/seasonClosing.js";
+import { buildSeasonClosingSnapshot, summarizeSnapshotForRecord, suggestNextSeason } from "../../utils/accounting/seasonClosing.js";
 import { fmt, gid } from "../../utils/format.js";
 import { cairoDateStr } from "../../utils/serverTime.js";
 import { printPage } from "../../utils/print.js";
@@ -20,11 +20,13 @@ import { ask, tell } from "../../utils/popups.js";
 
 const _amt = (n) => fmt((Number(n) || 0).toFixed(2));
 
-export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, userName, showToast }){
+export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, userName, showToast, onOpenAccountingClose }){
   const d = data || {};
   const [seasonId, setSeasonId] = useState(d.activeSeason || "");
   const [asOfDate, setAsOfDate] = useState(cairoDateStr());
   const [saving, setSaving] = useState(false);
+  const [newSeasonName, setNewSeasonName] = useState(() => suggestNextSeason(d.activeSeason || ""));
+  const [creatingSeason, setCreatingSeason] = useState(false);
 
   /* سجل الإقفال المحفوظ لهذا الموسم (إن وُجد) — idempotent لكل موسم */
   const savedRecord = useMemo(
@@ -69,6 +71,41 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
       await tell("فشل الحفظ", e.message || String(e), { danger: true });
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* ─── فتح وتفعيل الموسم الجديد ───
+     بيضيف الاسم لـ seasons[] ويعمله activeSeason (نفس آلية SettingsPg «إدارة
+     المواسم»). ⚠️ التفعيل بيخلّي التطبيق يحمّل أوامر الموسم الجديد (فاضي في
+     الأول — ده صح لموسم جديد). الأوامر القديمة بتفضل في موسمها (seasons/{old}).
+     تأكيد صريح لأنه تغيير مهم في دورة حياة المواسم (§0.1). */
+  const handleOpenNewSeason = async () => {
+    if(typeof upConfig !== "function" || creatingSeason) return;
+    const name = (newSeasonName || "").trim();
+    if(!name){ await tell("الاسم مطلوب", "اكتب اسم الموسم الجديد", { danger: true }); return; }
+    const existing = Array.isArray(d.seasons) ? d.seasons : [];
+    const alreadyExists = existing.includes(name);
+    const ok = await ask(
+      "فتح وتفعيل الموسم الجديد",
+      `هيتفعّل الموسم «${name}»${alreadyExists ? " (موجود بالفعل)" : " (جديد)"} كموسم نشط.\n\n` +
+      `⚠️ التطبيق هيبدأ يعرض أوامر الموسم الجديد (فاضي في البداية). الأوامر القديمة بتفضل محفوظة في موسم «${d.activeSeason || "—"}».\n\n` +
+      `يُفضّل تحفظ سجل إقفال الموسم الحالي الأول. متأكد تكمل؟`,
+      { confirmText: "فعّل الموسم الجديد", danger: true }
+    );
+    if(!ok) return;
+    setCreatingSeason(true);
+    try {
+      upConfig(cfg => {
+        if(!Array.isArray(cfg.seasons)) cfg.seasons = [];
+        if(!cfg.seasons.includes(name)) cfg.seasons.push(name);
+        cfg.activeSeason = name;
+      });
+      if(typeof showToast === "function") showToast(`✅ تم تفعيل الموسم «${name}»`);
+      onClose();
+    } catch(e){
+      await tell("فشل فتح الموسم", e.message || String(e), { danger: true });
+    } finally {
+      setCreatingSeason(false);
     }
   };
 
@@ -306,6 +343,32 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
                 ))}
               </div>}
         </Section>
+
+        {/* خطوات الإقفال — القفل المحاسبي (معالج موجود) */}
+        {typeof onOpenAccountingClose === "function" && <div style={{ marginTop: 8, marginBottom: 8, padding: "12px 14px", background: T.warn + "08", borderRadius: 10, border: "1px solid " + T.warn + "40" }}>
+          <div style={{ fontSize: FS, fontWeight: 800, color: T.warn, marginBottom: 6 }}>🔒 الإقفال المحاسبي والقفل</div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>
+            بعد ما تحفظ سجل الكشف، شغّل <b>معالج إقفال السنة المالية</b>: بيصفّر الإيرادات/المصروفات
+            ويرحّلها للأرباح المحتجزة، ويقفل الفترة (مفيش قيود جديدة فيها). الخطوة دي قابلة للعكس من «الفترات المُقفلة».
+          </div>
+          <Btn onClick={() => { onClose(); onOpenAccountingClose(); }} style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 800, padding: "9px 18px" }}>
+            🔒 افتح معالج الإقفال المحاسبي
+          </Btn>
+        </div>}
+
+        {/* فتح الموسم الجديد */}
+        {typeof upConfig === "function" && <div style={{ marginTop: 8, marginBottom: 8, padding: "12px 14px", background: T.ok + "08", borderRadius: 10, border: "1px solid " + T.ok + "40" }}>
+          <div style={{ fontSize: FS, fontWeight: 800, color: T.ok, marginBottom: 6 }}>✨ فتح الموسم الجديد</div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>
+            بعد ما تحفظ سجل الإقفال، افتح الموسم الجديد وفعّله. التطبيق هيبدأ موسم جديد بأوامر فاضية — الأوامر القديمة بتفضل محفوظة في موسمها.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <Inp value={newSeasonName} onChange={setNewSeasonName} placeholder="اسم الموسم الجديد (مثال: WS27)" style={{ flex: 1, minWidth: 160 }} />
+            <Btn onClick={handleOpenNewSeason} disabled={creatingSeason} style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 800, padding: "9px 18px" }}>
+              {creatingSeason ? "⏳ تفعيل..." : "✨ أنشئ وفعّل"}
+            </Btn>
+          </div>
+        </div>}
 
         <div style={{ marginTop: 8, padding: "10px 12px", background: T.accent + "08", borderRadius: 8, border: "1px solid " + T.accent + "30", fontSize: FS - 2, color: T.text, lineHeight: 1.7 }}>
           <b style={{ color: T.accent }}>📚 ملاحظة:</b> الكشف ده لقطة لحظية مشتقّة من البيانات الحيّة (للعرض والطباعة) — مفيش أي تعديل على بياناتك.

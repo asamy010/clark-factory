@@ -37,6 +37,19 @@ import { r2 } from "../format.js";
 import { computeDashboardKpis } from "../dashboardKpis.js";
 import { calcOrder, getConfirmedStock } from "../orders.js";
 
+/* ─── اقتراح اسم الموسم الجديد (تزييد الرقم في آخر الاسم) ─── */
+/* WS26 → WS27 · SS09 → SS10 (الحفاظ على عرض الرقم) · 2026 → 2027.
+   لو مفيش رقم في الاسم بنضيف "-2". */
+export function suggestNextSeason(seasonId){
+  const s = String(seasonId || "").trim();
+  if(!s) return "";
+  const m = s.match(/^(.*?)(\d+)(\D*)$/);
+  if(!m) return s + "-2";
+  const prefix = m[1], num = m[2], suffix = m[3];
+  const next = String(Number(num) + 1).padStart(num.length, "0");
+  return prefix + next + suffix;
+}
+
 /* ─── النقدية لكل حساب خزنة ─── */
 /* نفس دلالة TreasuryPg: رصيد الحساب = Σ(in) − Σ(out) لكل t.account.
    الحساب الافتراضي لأي حركة بدون account = "MAIN CASH" (متوافق مع التطبيق). */
