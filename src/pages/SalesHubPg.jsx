@@ -19,6 +19,7 @@ import { fmt } from "../utils/format.js";
 import { invoiceBalance } from "../utils/sales/invoicePayments.js";
 import { computeSalesOverviewTotals } from "../utils/accountSummary.js";
 import { displayStatus } from "../utils/sales/quotations.js";
+import { auth } from "../firebase.js";
 
 const CustDeliverPg   = lazy(() => import("./CustDeliverPg.jsx").then(m => ({ default: m.CustDeliverPg })));
 const QuotationsPg     = lazy(() => import("./sales/QuotationsPg.jsx").then(m => ({ default: m.QuotationsPg })));
@@ -36,6 +37,7 @@ function mapTabToId(tab){
     case "custDeliver":     return "quickActions";
     case "salesQuotations": return "quotations";
     case "salesOrders":     return "orders";
+    case "salesPortalRequests": return "portalRequests";
     case "salesInvoices":   return "invoices";
     case "creditNotes":     return "returns";
     case "sales":
@@ -56,12 +58,28 @@ export function SalesHubPg(props){
   const canDoc = (k) => canViewTab(k);
   const canOps = canViewTab("custDeliver"); // أقسام التسليمات/الجرد/الراكدة
 
+  /* عدد طلبات البورتال المعلّقة (للبادج على التاب) — استدعاء admin خفيف */
+  const [portalPending, setPortalPending] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const u = auth.currentUser; if(!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch("/api/order-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminToken: token, action: "list", status: "pending", limit: 1 }) });
+        const j = await res.json();
+        if(alive && j.ok) setPortalPending(j.pendingCount || 0);
+      } catch(_) {}
+    })();
+    return () => { alive = false; };
+  }, []);
+
   /* قائمة التابات (مفلترة بالصلاحيات) — بالترتيب اللي طلبه Ahmed */
   const tabs = useMemo(() => [
     { id: "overview",    label: "📊 نظرة عامة",            show: true },
     { id: "quotations",  label: "📋 عروض الأسعار",         show: canDoc("salesQuotations"), cnt: (data.salesQuotations || []).length },
     { id: "orders",      label: "📑 أوامر البيع",          show: canDoc("salesOrders"),     cnt: (data.salesOrders || []).length },
-    { id: "portalRequests", label: "🛒 طلبات بورتال",      show: canDoc("salesOrders") || canOps },
+    { id: "portalRequests", label: "🛒 طلبات بورتال",      show: canDoc("salesOrders") || canOps, cnt: portalPending || undefined },
     { id: "invoices",    label: "📤 فواتير البيع",         show: canDoc("salesInvoices"),   cnt: (data.salesInvoices || []).length },
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
     { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
@@ -72,7 +90,7 @@ export function SalesHubPg(props){
     { id: "returnsLog",  label: "↩️ سجل المرتجعات",         show: canOps },
     { id: "audits",      label: "📋 جرد المبيعات",          show: canOps },
     { id: "stale",       label: "⚠️ موديلات راكدة",         show: canOps },
-  ].filter(t => t.show), [data.salesQuotations, data.salesOrders, data.salesInvoices, data.salesCreditNotes, canViewTab]);
+  ].filter(t => t.show), [data.salesQuotations, data.salesOrders, data.salesInvoices, data.salesCreditNotes, canViewTab, portalPending]);
 
   const allowed = (id) => tabs.some(t => t.id === id);
   const firstId = tabs[0]?.id || "overview";
@@ -159,7 +177,7 @@ export function SalesHubPg(props){
         )}
         {active === "quotations" && canDoc("salesQuotations") && <QuotationsPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesQuotations")} />}
         {active === "orders"     && canDoc("salesOrders")     && <SalesOrdersPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
-        {active === "portalRequests" && (canDoc("salesOrders") || canOps) && <PortalRequestsPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
+        {active === "portalRequests" && (canDoc("salesOrders") || canOps) && <PortalRequestsPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} onPendingCount={setPortalPending} />}
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} updOrder={props.updOrder} isMob={isMob} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} upConfig={props.upConfig} user={props.user} />}

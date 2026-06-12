@@ -6089,6 +6089,9 @@ export default function App(){
     }else if(type==="supplier"){
       /* V21.9.146: notification-attached supplier → open PurchasePg + scroll to row */
       navigate("purchase",{supplierId:id});
+    }else if(type==="portalRequest"){
+      /* V21.21.80: طلب بيع من البورتال → تاب «طلبات بورتال» في هَب المبيعات */
+      setTab("salesPortalRequests");
     }else{
       showToast("⚠️ نوع الوجهة غير مدعوم");
     }
@@ -7212,7 +7215,7 @@ export default function App(){
             salesOrders/salesInvoices/creditNotes) للوضع/القسم الصح، فالروابط القديمة
             (navigate/goto-tab/notif-deeplink) كلها بتفتح المكان الصح. الصلاحيات
             محفوظة جوّه الهَب لكل قسم بـ canViewTab. */}
-        {["sales","custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"].includes(tab)
+        {["sales","custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes","salesPortalRequests"].includes(tab)
           && <SalesHubPg tab={tab} data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} user={user} season={season} canViewTab={canViewTab} canEditTab={canEditTab}/>}
         {/* V21.9.115: Contacts page — unified directory. canEdit gated like custDeliver (sales-side). */}
         {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}

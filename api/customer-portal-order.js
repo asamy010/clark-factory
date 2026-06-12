@@ -101,31 +101,40 @@ export default async function handler(req, res) {
     /* كتابة الطلب (daily-split) */
     await appendToSplitDay("orderRequestsDays", entry);
 
-    /* إشعار للمالك/المحاسبين — نفس نمط delivery-confirm (V19.53) */
-    const notifEntry = {
-      id: "ntor_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
-      type: "order_request",
-      msg: "🛒 طلب أوردر جديد من " + (customer.name || "عميل") + " — " + validated.totalQty + " قطعة · " + validated.totalValue + " ج.م",
-      toEmail: "all",
-      link: "orderRequests",
-      custId: customer.id,
-      requestId: reqId,
-      createdAt: nowISO,
-      severity: "info",
-    };
-    try {
-      if (config._splitDaysV1953Done) {
-        await appendToSplitDay("notificationsDays", notifEntry);
-      } else {
-        const configRef = db.collection("factory").doc("config");
-        await db.runTransaction(async (tx) => {
-          const snap = await tx.get(configRef);
-          const data = snap.exists ? snap.data() : {};
-          const list = Array.isArray(data.notifications) ? data.notifications : [];
-          tx.set(configRef, { notifications: [notifEntry, ...list].slice(0, 500) }, { merge: true });
-        });
-      }
-    } catch (e) { console.error("order-request notif failed:", e); /* الطلب اتسجّل برضه */ }
+    /* إشعار للمالك/المستخدمين المحددين — نفس نمط delivery-confirm (V19.53).
+       V21.21.80: لو config.portalNotifyEmails فيه إيميلات → إشعار لكل واحد
+       (الـ client بيفلتر toEmail===userEmail). وإلا "all" (السلوك الافتراضي). */
+    const recipients = Array.isArray(config.portalNotifyEmails)
+      ? config.portalNotifyEmails.filter(e => typeof e === "string" && e.includes("@"))
+      : [];
+    const targets = recipients.length ? recipients : ["all"];
+    const baseMsg = "🛒 طلب أوردر جديد من " + (customer.name || "عميل") + " — " + validated.totalQty + " قطعة · " + validated.totalValue + " ج.م";
+    for (const toEmail of targets) {
+      const notifEntry = {
+        id: "ntor_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
+        type: "order_request",
+        msg: baseMsg,
+        toEmail,
+        link: { type: "portalRequest" },
+        custId: customer.id,
+        requestId: reqId,
+        createdAt: nowISO,
+        severity: "info",
+      };
+      try {
+        if (config._splitDaysV1953Done) {
+          await appendToSplitDay("notificationsDays", notifEntry);
+        } else {
+          const configRef = db.collection("factory").doc("config");
+          await db.runTransaction(async (tx) => {
+            const snap = await tx.get(configRef);
+            const data = snap.exists ? snap.data() : {};
+            const list = Array.isArray(data.notifications) ? data.notifications : [];
+            tx.set(configRef, { notifications: [notifEntry, ...list].slice(0, 500) }, { merge: true });
+          });
+        }
+      } catch (e) { console.error("order-request notif failed:", e); /* الطلب اتسجّل برضه */ }
+    }
 
     return res.status(200).json({
       ok: true,

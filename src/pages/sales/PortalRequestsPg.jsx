@@ -30,7 +30,7 @@ const STATUS_META = {
   rejected: { label: "مرفوض", color: "#DC2626", bg: "#FEE2E2" },
 };
 
-export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit }) {
+export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendingCount }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -38,6 +38,7 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit }) {
   const [filter, setFilter] = useState("pending");
   const [editId, setEditId] = useState("");
   const [draft, setDraft] = useState({});
+  const [showNotifCfg, setShowNotifCfg] = useState(false);
   const userName = user?.displayName || (user?.email || "").split("@")[0] || "";
 
   const call = useCallback(async (payload) => {
@@ -58,9 +59,10 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit }) {
     try {
       const j = await call({ action: "list", status: filter === "all" ? undefined : filter, limit: 300 });
       setRequests(j.requests || []);
+      if (onPendingCount) onPendingCount(j.pendingCount || 0);
     } catch (e) { setError(e.message || String(e)); }
     finally { setLoading(false); }
-  }, [call, filter]);
+  }, [call, filter, onPendingCount]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -170,6 +172,33 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit }) {
       <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>🛒 طلبات بورتال العملاء</div>
       <Btn ghost small onClick={load}>🔄 تحديث</Btn>
     </div>
+
+    {/* مين يوصله إشعار الطلبات الجديدة */}
+    {canEdit && (() => {
+      const users = (data.usersList || []).filter(u => u.email);
+      const curEmails = Array.isArray(data.portalNotifyEmails) ? data.portalNotifyEmails : [];
+      const curLabel = curEmails.length ? curEmails.map(e => { const u = users.find(x => x.email === e); return u?.name || e.split("@")[0]; }).join("، ") : "كل المستخدمين";
+      const toggle = (email) => { const set = new Set(curEmails); if (set.has(email)) set.delete(email); else set.add(email); upConfig(d => { d.portalNotifyEmails = Array.from(set); }); };
+      return <div style={{ marginBottom: 14, border: "1px solid " + T.brd, borderRadius: 10, background: T.bg, overflow: "hidden" }}>
+        <div onClick={() => setShowNotifCfg(s => !s)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer" }}>
+          <span style={{ fontSize: FS }}>🔔</span>
+          <span style={{ fontSize: FS - 1, color: T.textSec, fontWeight: 600 }}>إشعار الطلبات بيوصل لـ: <b style={{ color: T.text }}>{curLabel}</b></span>
+          <span style={{ marginInlineStart: "auto", color: T.textMut, fontSize: FS - 2 }}>{showNotifCfg ? "▲" : "▼ تغيير"}</span>
+        </div>
+        {showNotifCfg && <div style={{ padding: "4px 12px 12px", borderTop: "1px solid " + T.brd, display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FS - 1, color: T.text, cursor: "pointer", paddingTop: 8 }}>
+            <input type="radio" checked={curEmails.length === 0} onChange={() => upConfig(d => { d.portalNotifyEmails = []; })} style={{ width: 16, height: 16, cursor: "pointer" }} />
+            <b>كل المستخدمين</b> <span style={{ color: T.textMut, fontSize: FS - 3 }}>(الافتراضي)</span>
+          </label>
+          {users.length === 0 && <div style={{ fontSize: FS - 2, color: T.textMut }}>مفيش مستخدمين مسجّلين</div>}
+          {users.map(u => <label key={u.email} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FS - 1, color: T.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={curEmails.includes(u.email)} onChange={() => toggle(u.email)} style={{ width: 16, height: 16, cursor: "pointer" }} />
+            {u.name || u.email.split("@")[0]} <span style={{ color: T.textMut, fontSize: FS - 3 }}>· {u.email}{u.role ? " · " + u.role : ""}</span>
+          </label>)}
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>لو محددتش حد، الإشعار بيروح لكل المستخدمين.</div>
+        </div>}
+      </div>;
+    })()}
 
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
       {[["pending", "معلّقة"], ["confirmed", "مؤكّدة"], ["rejected", "مرفوضة"], ["all", "الكل"]].map(([k, lbl]) => (
