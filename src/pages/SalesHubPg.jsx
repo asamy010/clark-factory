@@ -23,6 +23,7 @@ import { displayStatus } from "../utils/sales/quotations.js";
 const CustDeliverPg   = lazy(() => import("./CustDeliverPg.jsx").then(m => ({ default: m.CustDeliverPg })));
 const QuotationsPg     = lazy(() => import("./sales/QuotationsPg.jsx").then(m => ({ default: m.QuotationsPg })));
 const SalesOrdersPg    = lazy(() => import("./sales/SalesOrdersPg.jsx").then(m => ({ default: m.SalesOrdersPg })));
+const PortalRequestsPg = lazy(() => import("./sales/PortalRequestsPg.jsx").then(m => ({ default: m.PortalRequestsPg })));
 const SalesInvoicesPg  = lazy(() => import("./SalesInvoicesPg.jsx").then(m => ({ default: m.SalesInvoicesPg })));
 const CreditNotesPg    = lazy(() => import("./CreditNotesPg.jsx").then(m => ({ default: m.CreditNotesPg })));
 const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
@@ -60,6 +61,7 @@ export function SalesHubPg(props){
     { id: "overview",    label: "📊 نظرة عامة",            show: true },
     { id: "quotations",  label: "📋 عروض الأسعار",         show: canDoc("salesQuotations"), cnt: (data.salesQuotations || []).length },
     { id: "orders",      label: "📑 أوامر البيع",          show: canDoc("salesOrders"),     cnt: (data.salesOrders || []).length },
+    { id: "portalRequests", label: "🛒 طلبات بورتال",      show: canDoc("salesOrders") || canOps },
     { id: "invoices",    label: "📤 فواتير البيع",         show: canDoc("salesInvoices"),   cnt: (data.salesInvoices || []).length },
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
     { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
@@ -157,6 +159,7 @@ export function SalesHubPg(props){
         )}
         {active === "quotations" && canDoc("salesQuotations") && <QuotationsPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesQuotations")} />}
         {active === "orders"     && canDoc("salesOrders")     && <SalesOrdersPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
+        {active === "portalRequests" && (canDoc("salesOrders") || canOps) && <PortalRequestsPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} updOrder={props.updOrder} isMob={isMob} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} upConfig={props.upConfig} user={props.user} />}
