@@ -13,6 +13,7 @@ import { Btn, Card, Sel, Inp } from "../ui.jsx";
 import { AccountSelector } from "./AccountSelector.jsx";
 import { OpeningBalancesModal } from "./OpeningBalancesModal.jsx";
 import { ClosingWizardModal } from "./ClosingWizardModal.jsx";
+import { SeasonClosingModal } from "./SeasonClosingModal.jsx";
 import { ClosedPeriodsCard } from "./ClosedPeriodsCard.jsx";
 import { FailuresCard } from "./FailuresCard.jsx";
 import { CurrenciesCard } from "./CurrenciesCard.jsx";
@@ -46,7 +47,7 @@ const RULE_LABELS = {
   treasuryIncome:      {label:"إيراد عام", icon:"💰", fields:{cashAccount:"حساب الخزينة", incomeAccount:"حساب الإيراد"}},
 };
 
-export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, showToast, userName}){
+export function AccountingSettingsTab({data, config, upConfig, coa, T, FS, isMob, showToast, userName}){
   const userRules = (config.accountingSettings||{}).rules || {};
   const enabled   = (config.accountingSettings||{}).autoPostEnabled !== false;
   const [openRule, setOpenRule] = useState(null);
@@ -56,6 +57,8 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
   /* V18.37: modals for OB + closing */
   const [showOB, setShowOB] = useState(false);
   const [showClosing, setShowClosing] = useState(false);
+  /* V21.21.62 (Phase 1): season closing statement (read-only snapshot) */
+  const [showSeasonClosing, setShowSeasonClosing] = useState(false);
 
   const setRuleField = (ruleKey, fieldKey, accountId) => {
     const acct = coa.find(a => a.id === accountId);
@@ -205,6 +208,19 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
         </div>
       </Card>;
     })()}
+
+    {/* V21.21.62 Section 0a'' (Phase 1): Season Closing Statement (read-only) */}
+    <Card title="📸 كشف إقفال الموسم" style={{marginBottom:16}}>
+      <div style={{fontSize:FS-2, color:T.textSec, marginBottom:14, lineHeight:1.7}}>
+        💡 لقطة شاملة للمركز المالي والتشغيلي عند إقفال الموسم (= السنة المالية):
+        النقدية لكل خزنة · ذمم العملاء والموردين · تقييم المخزون بالتكلفة · ربح الموسم ·
+        الأوامر المفتوحة. الكشف ده هو نفسه <b>كشف إقفال الموسم الحالي</b> = أساس الأرصدة
+        الافتتاحية للموسم الجديد — <b>للعرض والطباعة فقط</b> (مفيش أي تعديل على بياناتك).
+      </div>
+      <Btn primary onClick={() => setShowSeasonClosing(true)} style={{background:T.accent, color:"#fff", border:"none", fontWeight:800, padding:"10px 20px"}}>
+        📸 عرض كشف إقفال الموسم
+      </Btn>
+    </Card>
 
     {/* V18.37 Section 0b: Closing Entries — V18.66 now uses 5-step wizard */}
     <Card title="🔒 إقفال الفترات المالية" style={{marginBottom:16}}>
@@ -378,6 +394,10 @@ export function AccountingSettingsTab({config, upConfig, coa, T, FS, isMob, show
       upConfig={upConfig} userName={userName} showToast={showToast}
       defaultRetainedEarningsCode="3200"
       onClose={() => setShowClosing(false)}
+    />}
+    {showSeasonClosing && <SeasonClosingModal
+      data={data || config} T={T} FS={FS} isMob={isMob}
+      onClose={() => setShowSeasonClosing(false)}
     />}
 
     {/* V19.67: Backfill progress — full-screen overlay modal.

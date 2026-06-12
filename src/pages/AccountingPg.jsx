@@ -209,7 +209,7 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "settings" && <AccountingSettingsTab
-      config={config} upConfig={upConfig} coa={coa}
+      data={data} config={config} upConfig={upConfig} coa={coa}
       T={T} FS={FS} isMob={isMob} showToast={showToast} userName={userName}
     />}
 
