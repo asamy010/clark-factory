@@ -47,7 +47,9 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
 
   const filtered = useMemo(() => {
-    let list = creditNotes;
+    /* V21.21.59: إشعارات الخصم (kind=discount) مش مرتجعات — تتعرض في كشف الحساب
+       فقط، مش في صفحة المرتجعات دي. */
+    let list = creditNotes.filter(c => c && c.kind !== "discount");
     if(from) list = list.filter(c => (c.date||"") >= from);
     if(to)   list = list.filter(c => (c.date||"") <= to);
     if(status !== "all") list = list.filter(c => c.status === status);

@@ -12,6 +12,7 @@ import { fmt, r2, ltrPhone } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
 import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
 import { DocItemsTable } from "./DocItemsTable.jsx";
+import { DiscountModal } from "./sales/DiscountModal.jsx";
 import { buildDocColumns } from "../utils/docColumns.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
@@ -99,13 +100,15 @@ function isCheckRow(r){
 /* V21.21.58: ملخّص KPIs من نفس صفوف الكشف المفلترة (يحترم العميل/المورد +
    التاريخ + النوع + الوضع). صفر mutation — مشتق بحت. */
 function computeStatementKpis(result){
-  const z = { sales: 0, salesQty: 0, returns: 0, returnsQty: 0, cash: 0, check: 0, closing: 0 };
+  const z = { sales: 0, salesQty: 0, returns: 0, returnsQty: 0, cash: 0, check: 0, discount: 0, closing: 0 };
   if(!result) return z;
   z.closing = r2(Number(result.totals.closing) || 0);
   for(const r of result.rows){
     if(r.draft) continue; /* المسودات مش داخلة الرصيد ولا الإجماليات */
     const t = r.type;
-    if(t === "return" || t === "credit_note" || t === "debit_note"){
+    if(t === "discount"){
+      z.discount = r2(z.discount + (Number(r.credit) || 0));
+    } else if(t === "return" || t === "credit_note" || t === "debit_note"){
       z.returns = r2(z.returns + (Number(r.credit) || 0)); z.returnsQty += rowQtyOf(r);
     } else if(t === "payment" || t === "treasury" || t === "receipt_paid" || t === "check"){
       if(isCheckRow(r)) z.check = r2(z.check + (Number(r.credit) || 0));
@@ -128,9 +131,12 @@ function balanceLabel(closing, partyType){
                      : { txt: "رصيد لنا عند المورد: " + fmt(v.toFixed(2)), color: T.ok };
 }
 
-export function AccountStatementView({ data, partyType = "customer", isMob, fixedPartyId }){
+export function AccountStatementView({ data, partyType = "customer", isMob, fixedPartyId, upConfig, user }){
   const parties = partyType === "customer" ? (data.customers || []) : (data.suppliers || []);
   const accent = partyType === "customer" ? "#0EA5E9" : "#D97706";
+  /* V21.21.59: زر الخصم الإضافي — للعملاء فقط ولو فيه صلاحية كتابة (upConfig) */
+  const canDiscount = partyType === "customer" && typeof upConfig === "function";
+  const [showDiscount, setShowDiscount] = useState(false);
 
   const [partyId, setPartyId] = useState(fixedPartyId != null ? fixedPartyId : "");
   const [mode, setMode] = useState("operational"); /* default = يطابق رصيد الشاشات الحالية */
@@ -399,18 +405,20 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
               <div style={{ fontSize: FS, fontWeight: 800, marginTop: 4, color: balanceLabel(result.totals.closing, partyType).color }}>📌 {balanceLabel(result.totals.closing, partyType).txt}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {canDiscount && <Btn small onClick={() => setShowDiscount(true)} style={{ background: "#DB277712", color: "#DB2777", border: "1px solid #DB277740", fontWeight: 700 }}>🏷️ خصم إضافي</Btn>}
               <Btn small onClick={doPrint} style={{ background: T.accentBg, color: T.accent }}>🖨 طباعة</Btn>
               <Btn small onClick={doExcel} style={{ background: "#10B98112", color: "#059669", border: "1px solid #10B98130" }}>📊 Excel</Btn>
               {party.phone && <Btn small onClick={doWhatsApp} style={{ background: "#25D36612", color: "#1DA851", border: "1px solid #25D36640" }}>📤 واتساب</Btn>}
             </div>
           </div>
 
-          {/* V21.21.58: بطاقات KPI صغيرة ديناميكية مع الفلتر */}
+          {/* V21.21.58/59: بطاقات KPI صغيرة ديناميكية مع الفلتر (+ خصومات إضافية للعملاء) */}
           {kpis && (
-            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(5, minmax(0,1fr))", gap: 8, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(auto-fit, minmax(115px,1fr))", gap: 8, marginBottom: 12 }}>
               {[
                 { t: partyType === "customer" ? "🧾 إجمالي المبيعات" : "🧾 إجمالي المشتريات", v: fmt(kpis.sales.toFixed(2)), s: fmt(kpis.salesQty) + " قطعة", c: accent },
                 { t: "↩️ إجمالي المرتجعات", v: fmt(kpis.returns.toFixed(2)), s: fmt(kpis.returnsQty) + " قطعة", c: T.warn },
+                ...(partyType === "customer" ? [{ t: "🏷️ خصومات إضافية", v: fmt(kpis.discount.toFixed(2)), s: "", c: "#DB2777" }] : []),
                 { t: "💵 دفعات نقدي", v: fmt(kpis.cash.toFixed(2)), s: "", c: T.ok },
                 { t: "🧾 دفعات شيكات", v: fmt(kpis.check.toFixed(2)), s: "", c: "#8B5CF6" },
                 { t: "📌 الرصيد النهائي", v: fmt(kpis.closing.toFixed(2)), s: kpis.balTag, c: kpis.balColor, big: true },
@@ -565,6 +573,11 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
             </div>
           </div>
         </div>
+      )}
+
+      {/* V21.21.59: مودال الخصم الإضافي (للعميل المحدّد) */}
+      {showDiscount && canDiscount && (
+        <DiscountModal data={data} upConfig={upConfig} user={user} fixedCustomerId={party ? party.id : null} onClose={() => setShowDiscount(false)} />
       )}
     </div>
   );

@@ -173,12 +173,23 @@ export function buildCustomerSummary(custId, data) {
     salesOrdersNet += Number(so.total) || 0;
   });
 
-  const balance = salesNet + salesOrdersNet - returnsNet - payCash - payCheck - payOther;
+  /* V21.21.59: خصومات إضافية (إشعارات خصم مرحّلة) — تقلّل رصيد العميل.
+     المسودات مستبعدة (زي statement.js). */
+  let discounts = 0;
+  (data.salesCreditNotes || []).forEach(cn => {
+    if(!cn || cn.kind !== "discount") return;
+    if(cn.customerId !== custId) return;
+    if(cn.status !== "posted") return;
+    discounts += Number(cn.total) || 0;
+  });
+
+  const balance = salesNet + salesOrdersNet - returnsNet - payCash - payCheck - payOther - discounts;
 
   return {
     salesGross, discPct, discAmt, salesNet, salesOrdersNet,
     payCash, payCheck, payOther,
     returnsGross, returnsNet,
+    discounts,
     balance,
   };
 }

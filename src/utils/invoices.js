@@ -648,6 +648,17 @@ export function reserveCreditNoteNo(d){
   return `${CREDIT_NOTE_PREFIX}-${year}-${String(next).padStart(4, "0")}`;
 }
 
+/* V21.21.59: ترقيم «إشعار الخصم» (خصم إضافي للعميل) — عدّاد منفصل عن الإشعارات
+   الدائنة العادية عشان السلسلة تبان واضحة في التقارير. */
+export function reserveDiscountNo(d){
+  if(!d.invoiceCounters) d.invoiceCounters = {};
+  if(!d.invoiceCounters.discounts) d.invoiceCounters.discounts = {};
+  const year = new Date().getFullYear();
+  const next = (d.invoiceCounters.discounts[year] || 0) + 1;
+  d.invoiceCounters.discounts[year] = next;
+  return `خصم-${year}-${String(next).padStart(4, "0")}`;
+}
+
 /* V18.65: Resolve the unit price for a customer return.
    Priority order to mirror the actual sale price (fixes V18.51 bug where
    credit notes always used order.sellPrice, ignoring quick-sale custom
@@ -930,7 +941,8 @@ export function findCreditNoteByReturn(data, orderId, custId, key){
 
 /* Stats for credit notes (similar to getInvoiceStats) */
 export function getCreditNoteStats(data, filter){
-  const arr = data.salesCreditNotes || [];
+  /* V21.21.59: استبعاد إشعارات الخصم (kind=discount) — مش مرتجعات. */
+  const arr = (data.salesCreditNotes || []).filter(c => c && c.kind !== "discount");
   let list = arr;
   if(filter){
     if(filter.from) list = list.filter(c => c.date >= filter.from);

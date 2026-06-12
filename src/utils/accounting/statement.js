@@ -29,6 +29,7 @@ const TYPE_GROUP = {
   delivery: "invoices", delivery_disc: "invoices",
   receipt: "invoices", receipt_paid: "payments",
   credit_note: "returns", return: "returns", debit_note: "returns",
+  discount: "returns",
   payment: "payments", check: "payments", treasury: "payments",
 };
 
@@ -85,9 +86,11 @@ function gatherCustomerEntries(data, custId, mode){
     });
     (data.salesCreditNotes || []).forEach(cn => {
       if(cn.customerId !== custId || cn.status === "void") return;
-      entries.push({ date: cn.date, createdAt: cn.createdAt, type: "credit_note", ref: cn.creditNoteNo, refId: cn.id,
-        desc: "مرتجع — إشعار دائن " + (cn.creditNoteNo || ""),
-        sub: cn.linkedInvoiceNo ? "فاتورة " + cn.linkedInvoiceNo : "",
+      /* V21.21.59: إشعار خصم (kind=discount) يتعرض كـ «خصم إضافي» بدل «مرتجع» */
+      const isDisc = cn.kind === "discount";
+      entries.push({ date: cn.date, createdAt: cn.createdAt, type: isDisc ? "discount" : "credit_note", ref: cn.creditNoteNo, refId: cn.id,
+        desc: isDisc ? ("خصم إضافي " + (cn.creditNoteNo || "")) : ("مرتجع — إشعار دائن " + (cn.creditNoteNo || "")),
+        sub: isDisc ? (cn.reason || "خصم إضافي") : (cn.linkedInvoiceNo ? "فاتورة " + cn.linkedInvoiceNo : ""),
         debit: 0, credit: r2(Number(cn.total) || 0), draft: cn.status !== "posted", raw: cn });
     });
   } else {
@@ -146,6 +149,14 @@ function gatherCustomerEntries(data, custId, mode){
         desc: "أمر بيع — " + (so.orderNo || ""),
         sub: fmt(qty) + " قطعة · الإجمالي " + fmt(r2(so.total || 0)),
         debit: r2(so.total || 0), credit: 0, detail: { kind: "session", lines }, raw: so });
+    });
+    /* V21.21.59: إشعارات الخصم الإضافي تظهر في الوضع التشغيلي كمان (تقلّل الرصيد) */
+    (data.salesCreditNotes || []).forEach(cn => {
+      if(!cn || cn.kind !== "discount") return;
+      if(cn.customerId !== custId || cn.status === "void") return;
+      entries.push({ date: cn.date, createdAt: cn.createdAt, type: "discount", ref: cn.creditNoteNo, refId: cn.id,
+        desc: "خصم إضافي " + (cn.creditNoteNo || ""), sub: cn.reason || "خصم إضافي",
+        debit: 0, credit: r2(Number(cn.total) || 0), draft: cn.status !== "posted", raw: cn });
     });
   }
   return entries.concat(gatherCustomerPayments(data, custId));

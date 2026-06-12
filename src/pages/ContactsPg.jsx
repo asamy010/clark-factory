@@ -1326,7 +1326,7 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
           <div style={{display:"flex", justifyContent:"flex-end", marginBottom:8}}>
             <Btn small ghost onClick={() => setShowStatement(null)}>✕ إغلاق</Btn>
           </div>
-          <AccountStatementView data={data} partyType={showStatement.partyType} isMob={isMob} fixedPartyId={showStatement.partyId} />
+          <AccountStatementView data={data} partyType={showStatement.partyType} isMob={isMob} fixedPartyId={showStatement.partyId} upConfig={upConfig} user={user} />
         </div>
       </div>
     )}

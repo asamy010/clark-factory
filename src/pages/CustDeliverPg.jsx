@@ -35,6 +35,7 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
 /* V21.9.105: Universal Tagging — Slice 4b Customer integration. TagPicker
    for edit form, TagFilter + TagChips for list view. Manager+Admin only
    create inline tags (per data-safety §0.1 decision). */
+import { DiscountModal } from "../components/sales/DiscountModal.jsx";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
@@ -364,6 +365,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   };
   /* Customer statement payment form */
   const[payAmt,setPayAmt_]=useState("");const[payDate_,setPayDate_]=useState(cairoDateStr());const[payNote_,setPayNote_]=useState("");const[payMethod,setPayMethod]=useState("كاش");
+  const[showCustDiscount,setShowCustDiscount]=useState(false);/* V21.21.59: خصم إضافي */
   /* V19.11: account selector in customer payment form (used to default-hardcode "SUB CASH",
      which silently routed every customer payment to that one account. Users with multiple
      treasury accounts (MAIN CASH, CIB, etc.) had to delete + re-create from TreasuryPg to
@@ -3028,7 +3030,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         totalValGross += Number(inv.subtotal) || 0;
         totalSalesAfterDisc += Number(inv.total) || 0;
       });
+      let extraDiscTotal = 0; /* V21.21.59: خصومات إضافية (kind=discount) منفصلة عن المرتجعات */
       customerCreditNotes.forEach(cn => {
+        if(cn.kind === "discount"){ extraDiscTotal += Number(cn.total) || 0; return; }
         retVal += Number(cn.subtotal) || 0;
         retValAfterDisc += Number(cn.total) || 0;
       });
@@ -3077,7 +3081,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                                    (matches invoice − credit-note math) */
       const totalGrossAfterDisc = totalSalesAfterDisc;
       const discAmt = totalValGross - totalGrossAfterDisc;
-      const totalAfterDisc = totalGrossAfterDisc - retValAfterDisc;
+      /* V21.21.59: الخصومات الإضافية تقلّل الرصيد (زي المرتجعات في الأثر) بس متّسجّلة منفصلة */
+      const totalAfterDisc = totalGrossAfterDisc - retValAfterDisc - extraDiscTotal;
       const totalVal = totalValGross - retVal; /* legacy alias */
       const discPct = totalValGross > 0
         ? Math.round((1 - (totalGrossAfterDisc / totalValGross)) * 100)
@@ -3447,7 +3452,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{flex:1,minWidth:80}}><label style={{fontSize:FS-3,color:T.textSec}}>ملاحظات</label><input value={payNote_} onChange={e=>setPayNote_(e.target.value)} placeholder="..." style={{display:"block",width:"100%",padding:"6px 8px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text}}/></div>
               <Btn primary small onClick={addCustPayment}>💰 تسجيل</Btn>
             </div>
+            {/* V21.21.59: خصم إضافي — مبلغ يقلّل رصيد العميل (مش دفعة) */}
+            <div style={{marginTop:10,paddingTop:10,borderTop:"1px dashed "+T.brd}}>
+              <Btn small onClick={()=>setShowCustDiscount(true)} style={{background:"#DB277712",color:"#DB2777",border:"1px solid #DB277740",fontWeight:700}}>🏷️ خصم إضافي (يقلّل الرصيد — مش دفعة)</Btn>
+            </div>
           </div>}
+          {showCustDiscount&&<DiscountModal data={data} upConfig={upConfig} user={user} fixedCustomerId={custStatement} onClose={()=>setShowCustDiscount(false)}/>}
           {/* V18.63: Payments log REMOVED — moved to Accounting → دفعات tab.
               The "Add Payment" form above stays as a convenient entry point. */}
 

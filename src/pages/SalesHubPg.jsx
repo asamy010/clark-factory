@@ -159,7 +159,7 @@ export function SalesHubPg(props){
         {active === "orders"     && canDoc("salesOrders")     && <SalesOrdersPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} canEdit={canEditTab("salesOrders")} />}
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} updOrder={props.updOrder} isMob={isMob} user={props.user} />}
-        {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} />}
+        {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} upConfig={props.upConfig} user={props.user} />}
         {active === "reports"    && <>
           {canOps && <CustDeliverPg {...props} hubView="reports" canEdit={canEditTab("custDeliver")} />}
           <ReportsHub isMob={isMob} reports={[
