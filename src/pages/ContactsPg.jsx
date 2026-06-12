@@ -19,6 +19,7 @@
 import { useMemo, useState } from "react";
 import { Btn, Inp, Sel, SearchSel, Card } from "../components/ui.jsx";
 import { AccountStatementView } from "../components/AccountStatementView.jsx";
+import { ImportContactsModal } from "../components/sales/ImportContactsModal.jsx";
 import { T } from "../theme.js";
 import { FS, WS_TYPES } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -1339,6 +1340,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");  /* "all" | type key | "multi" */
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false); /* V21.21.61: استيراد Excel */
   /* V21.9.116: detail panel state. null = closed, otherwise a contact row from buildMergedContacts. */
   const [viewing, setViewing] = useState(null);
   /* V21.9.118: link-existing modal state. null = closed, otherwise the source row. */
@@ -1534,7 +1536,10 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           </div>
         </div>
         {canEdit && (
-          <Btn primary onClick={() => setShowCreate(true)}>+ جهة جديدة</Btn>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn onClick={() => setShowImport(true)} style={{ background: "#10B98115", color: "#059669", border: "1px solid #10B98140", fontWeight: 700 }}>📥 استيراد من Excel</Btn>
+            <Btn primary onClick={() => setShowCreate(true)}>+ جهة جديدة</Btn>
+          </div>
         )}
       </div>
 
@@ -1660,6 +1665,14 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           💡 اضغط على أي صف لعرض التفاصيل + الحساب المالي المدمج (للـ "عميل+مورد"). الـ <strong>🔗 ربط</strong> بجانب الجهات القديمة بـ يضمها للسجل الموحّد + يدمجها مع جهة أخرى (مثلاً نفس الشخص = عميل + مورد).
         </div>
       </Card>
+
+      {showImport && (
+        <ImportContactsModal
+          data={data}
+          user={user}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {showCreate && (
         <ContactCreateModal
