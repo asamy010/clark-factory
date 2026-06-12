@@ -18,6 +18,8 @@ import { postInvoiceMutator } from "../../utils/invoices.js";
 import { autoPost } from "../../utils/accounting/autoPost.js";
 import { SalesOrderDetailModal } from "../../components/sales/SalesOrderDetailModal.jsx";
 import { QuotationFormModal } from "../../components/sales/QuotationFormModal.jsx";
+import { OrderRequestsPanel } from "../../components/sales/OrderRequestsPanel.jsx";
+import { auth } from "../../firebase.js";
 
 const STATUS_META = {
   confirmed:         { label: "مؤكّد",        color: "#0EA5E9", bg: "#0EA5E915" },
@@ -38,10 +40,48 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   const [activeSO, setActiveSO] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editSO, setEditSO] = useState(null);
+  /* V21.21.72: طلبات العملاء من البورتال */
+  const [showRequests, setShowRequests] = useState(false);
+  const [reqPendingCount, setReqPendingCount] = useState(0);
 
   const orders = data.salesOrders || [];
   const customers = data.customers || [];
   const userName = user?.displayName || (user?.email || "").split("@")[0] || "";
+
+  /* عدّ الطلبات المعلّقة عند فتح الشاشة (للبادج) — استدعاء admin خفيف */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const u = auth.currentUser; if(!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch("/api/order-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminToken: token, action: "list", status: "pending", limit: 1 }) });
+        const j = await res.json();
+        if(alive && j.ok) setReqPendingCount(j.pendingCount || 0);
+      } catch(_) {}
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  /* تحويل طلب عميل → فورم أمر بيع معبّأ (بند لكل صنف، sourceType=order).
+     مفيش id → الفورم يتعامل معاه كأمر جديد (createSalesOrderDirectMutator). */
+  const onConvertRequest = (req) => {
+    const prefill = {
+      customerId: req.custId || "",
+      customerName: req.custName || "",
+      customerPhone: req.custPhone || "",
+      items: (req.items || []).map(it => ({
+        sourceType: "order", sourceId: it.orderId,
+        modelNo: it.modelNo || "", description: it.modelDesc || "",
+        unit: "قطعة", qty: it.qty, unitPrice: it.unitPrice,
+        discountType: "pct", discountValue: 0,
+      })),
+      notes: "من طلب عميل عبر البورتال" + (req.note ? " — " + req.note : ""),
+    };
+    setShowRequests(false);
+    setEditSO(prefill);
+    setShowForm(true);
+  };
 
   const filtered = useMemo(() => {
     let list = orders.slice();
@@ -204,6 +244,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
         <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>📑 أوامر البيع</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: FS - 2, color: T.textMut }}>أو بتتولّد من «عروض الأسعار»</span>
+          {canEdit && <Btn onClick={() => setShowRequests(true)} style={{ background: "#6366F112", color: "#6366F1", border: "1px solid #6366F130" }}>🛒 طلبات العملاء{reqPendingCount ? " (" + reqPendingCount + ")" : ""}</Btn>}
           {canEdit && <Btn primary onClick={() => setShowForm(true)} style={{ background: "#0EA5E9" }}>+ أمر بيع جديد</Btn>}
         </div>
       </div>
@@ -265,6 +306,15 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
           })}
           {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{ marginTop: 4, padding: "10px", borderRadius: 10, border: "1px dashed " + T.brd, background: T.bg, color: T.accent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
         </div>
+      )}
+
+      {showRequests && (
+        <OrderRequestsPanel
+          onConvert={onConvertRequest}
+          onClose={() => setShowRequests(false)}
+          onCountChange={setReqPendingCount}
+          isMob={isMob}
+        />
       )}
 
       {showForm && (
