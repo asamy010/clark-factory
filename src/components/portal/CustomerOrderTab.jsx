@@ -100,6 +100,8 @@ export function CustomerOrderTab({ custId, sig, ts }) {
   const [q, setQ] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
+  const [showN, setShowN] = useState(25);   /* pagination — 25 موديل + عرض المزيد */
+  useEffect(() => { setShowN(25); }, [q]);   /* رجوع للأول عند البحث */
 
   const qs = "c=" + encodeURIComponent(custId) + "&sig=" + encodeURIComponent(sig) + (ts ? "&t=" + encodeURIComponent(ts) : "");
 
@@ -197,8 +199,12 @@ export function CustomerOrderTab({ custId, sig, ts }) {
     {!orderable && <div style={{ padding: 24, textAlign: "center", color: MUT, background: "#F8FAFC", borderRadius: 12, border: "1px dashed " + BRD, marginBottom: 12 }}>مفيش أصناف متاحة للطلب حالياً</div>}
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 12 }}>
-      {filtered.map(it => <ModelCard key={it.id} it={it} modelCart={cart[it.id]} onBump={(color, dir) => bumpSeries(it, color, dir)} />)}
+      {filtered.slice(0, showN).map(it => <ModelCard key={it.id} it={it} modelCart={cart[it.id]} onBump={(color, dir) => bumpSeries(it, color, dir)} />)}
     </div>
+
+    {filtered.length > showN && <button onClick={() => setShowN(n => n + 25)} style={{ width: "100%", marginTop: 14, padding: "14px", borderRadius: 12, border: "1px solid #C7D2FE", background: "#EEF2FF", color: AC, fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "inherit" }}>
+      ⬇️ عرض المزيد ({fmt(filtered.length - showN)} موديل متبقي)
+    </button>}
 
     {/* Sticky cart footer */}
     {totals.lines > 0 && <div style={{ position: "fixed", insetInline: 0, bottom: 0, background: "#fff", borderTop: "1px solid " + BRD, boxShadow: "0 -4px 20px rgba(0,0,0,0.08)", padding: "10px 14px", zIndex: 20 }}>

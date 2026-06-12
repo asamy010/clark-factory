@@ -65,6 +65,9 @@ export function CustomerPortalPage({ params }) {
   const [tab, setTab] = useState("summary");
   /* V18.4: Model number filter (applies to models, deliveries, returns tabs) */
   const [modelFilter, setModelFilter] = useState("");
+  /* V21.21.78: pagination لسجل الحركات — 25 + عرض المزيد (وقت تحميل أسرع) */
+  const [txShowN, setTxShowN] = useState(25);
+  useEffect(() => { setTxShowN(25); }, [modelFilter, tab]);
 
   useEffect(() => {
     const load = async () => {
@@ -467,7 +470,7 @@ export function CustomerPortalPage({ params }) {
       </div>}
       {tab === "transactions" && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {filteredTransactions.length === 0 ? <EmptyMsg text={modelFilter ? "لا توجد حركات بهذا الرقم" : "لا توجد حركات"}/> :
-          filteredTransactions.map((t, i) => {
+          filteredTransactions.slice(0, txShowN).map((t, i) => {
             const isReturn = t.kind === "return";
             const color = isReturn ? "#EF4444" : "#059669";
             const bgTint = isReturn ? "#FEF2F2" : "#F0FDF4";
@@ -497,6 +500,9 @@ export function CustomerPortalPage({ params }) {
             </div>;
           })
         }
+        {filteredTransactions.length > txShowN && <button onClick={() => setTxShowN(n => n + 25)} className="no-print" style={{ marginTop: 6, padding: "12px", borderRadius: 12, border: "1px solid #C7D2FE", background: "#EEF2FF", color: "#6366F1", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
+          ⬇️ عرض المزيد ({fmt(filteredTransactions.length - txShowN)} حركة متبقية)
+        </button>}
       </div>}
 
       {/* PAYMENTS — V18.3: 3 summary cards + full transaction log */}
