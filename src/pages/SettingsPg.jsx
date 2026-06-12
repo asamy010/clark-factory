@@ -1677,21 +1677,16 @@ function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMig
 function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,setDirty}){
   const savedJson=useMemo(()=>JSON.stringify({seasons:config.seasons||[],activeSeason:config.activeSeason||""}),[config.seasons,config.activeSeason]);
   const[draft,setDraft]=useState(()=>JSON.parse(savedJson));
-  const[newName,setNewName]=useState("");
   const[pendingDeletes,setPendingDeletes]=useState([]);
   const draftJson=JSON.stringify(draft);
   const isDirty=draftJson!==savedJson||pendingDeletes.length>0;
   useEffect(()=>{if(!isDirty)setDraft(JSON.parse(savedJson))},[savedJson]);/* eslint-disable-line */
   useEffect(()=>{setDirty(isDirty)},[isDirty]);/* eslint-disable-line */
 
-  const addSeasonDraft=()=>{
-    const n=newName.trim();
-    if(!n){showToast("⚠️ ادخل اسم الموسم");return}
-    if(draft.seasons.includes(n)){showToast("⚠️ موسم بنفس الاسم موجود");return}
-    setDraft(p=>({...p,seasons:[...p.seasons,n]}));
-    setNewName("");
-    showToast("✨ أُضيف للمسودة — اضغط حفظ");
-  };
+  /* V21.21.66: إنشاء الموسم الجديد اتنقل لتدفّق «إقفال الموسم» (المحاسبة →
+     الإعدادات → 📸 كشف إقفال الموسم) عشان ياخد لقطة الإقفال + الأرصدة الافتتاحية
+     + ترحيل الأوامر المفتوحة. البطاقة دي بقت للتفعيل/الحذف بس — مفيش مسار إنشاء
+     تاني يتخطّى الإقفال (منع الازدواج). */
   const toggleDelete=(s)=>{
     if(pendingDeletes.includes(s)){setPendingDeletes(p=>p.filter(x=>x!==s))}
     else{
@@ -1727,7 +1722,6 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
     if(!await ask("إلغاء كل التعديلات", "هل تريد إلغاء كل التعديلات؟", {danger:true,confirmText:"إلغاء الكل"}))return;
     setDraft(JSON.parse(savedJson));
     setPendingDeletes([]);
-    setNewName("");
   };
 
   return<Card title={"📅 ادارة المواسم"+(isDirty?" ✨":"")} style={{marginBottom:12,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
@@ -1735,9 +1729,12 @@ function SeasonsCard({config,upConfig,T,FS,showToast,Inp,Btn,Card,requirePass,se
     <CardSubtitle icon="💡">إدارة المواسم في البرنامج. الموسم وحدة تنظيمية تجمع الأوردرات والحركات في فترة زمنية محددة (مثلاً: صيف 2026). كل موسم بياناته منفصلة.</CardSubtitle>
       ✨ تعديلات غير محفوظة — اضغط حفظ للتأكيد
     </div>:null}
-    <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-      <Inp value={newName} onChange={setNewName} placeholder="اسم الموسم (مثال: SS27)" style={{width:220}}/>
-      <Btn primary onClick={addSeasonDraft}>+ موسم جديد</Btn>
+    <div style={{display:"flex",gap:10,marginBottom:16,padding:"12px 14px",background:T.accent+"08",borderRadius:10,border:"1px solid "+T.accent+"30",alignItems:"flex-start"}}>
+      <span style={{fontSize:FS+4,lineHeight:1}}>📸</span>
+      <div style={{fontSize:FS-2,color:T.text,lineHeight:1.7}}>
+        <b style={{color:T.accent}}>إنشاء موسم جديد بقى من تدفّق «إقفال الموسم»</b> — روح <b>المحاسبة ← الإعدادات ← 📸 كشف إقفال الموسم ← ✨ فتح وتفعيل الموسم الجديد</b>.
+        كده الموسم الجديد بياخد لقطة الإقفال + الأرصدة الافتتاحية + ترحيل الأوامر المفتوحة بشكل صحيح. البطاقة دي للتفعيل/الحذف بس.
+      </div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {draft.seasons.map(s=>{
