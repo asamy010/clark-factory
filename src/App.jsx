@@ -202,6 +202,8 @@ import { ConfirmPage } from "./components/ConfirmPage.jsx";
 import { CustomerPortalPage } from "./components/CustomerPortalPage.jsx";
 /* V17.9: Workshop portal — public read-only page for workshops via signed URL */
 import { WorkshopPortalPage } from "./components/WorkshopPortalPage.jsx";
+/* V21.21.68: Stock portal — public catalog of finished-goods available stock */
+import { StockPortalPage } from "./components/StockPortalPage.jsx";
 /* V16.73: Public workshop-delivery confirmation page — same idea as ConfirmPage
    above but for workshops scanning the QR on a 10×15 cm delivery label. Routed
    below at /?wd=1&ord=...&ws=...&idx=...&sig=..., before any login gate. */
@@ -278,6 +280,15 @@ export default function App(){
     const w=urlParams.get("w")||urlParams.get("i"),sig=urlParams.get("sig")||urlParams.get("s"),t=urlParams.get("t")||"";
     if(w&&sig){
       return <WorkshopPortalPage params={{w,sig,t}}/>;
+    }
+  }
+  /* V21.21.68: Stock portal — public catalog of finished-goods available stock.
+     URL: /?stock=1&s=<sig> — checked BEFORE the login gate so customers never
+     see a login prompt (same pattern as customer/workshop portals above). */
+  if(urlParams.get("stock")==="1"||urlParams.get("p")==="s"){
+    const sig=urlParams.get("s")||urlParams.get("sig");
+    if(sig){
+      return <StockPortalPage params={{sig}}/>;
     }
   }
   /* V16.73: Public workshop-delivery confirmation — opened when a workshop

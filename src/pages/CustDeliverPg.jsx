@@ -45,6 +45,7 @@ import { filterByTags } from "../utils/tags.js";
    for an existing customer (cEditId truthy) because attachments need a stable
    entityId before they can be linked. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
+import { StockPortalLinkModal } from "../components/StockPortalLinkModal.jsx";
 import { T, TH, TD, TDB } from "../theme.js";
 /* V19.70.12: html→pdf for WhatsApp delivery receipts */
 import { htmlToPdfBase64, loadPdfLibs } from "../utils/htmlToPdf.js";
@@ -254,6 +255,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const[salesTab,setSalesTab]=useState("sessions");
   /* V16.3: Portal URL popup + Stats toggle */
   const[portalUrlPopup,setPortalUrlPopup]=useState(null);/* {url, custName, loading, error} */
+  const[showStockPortal,setShowStockPortal]=useState(false);/* V21.21.68: بورتال المخزن المتاح */
   const[showCustStats,setShowCustStats]=useState(false);
   /* V18.63: Reset statement tab/filter whenever the user opens a different customer.
      IMPORTANT — must be placed AFTER custStatement is declared (line 84). Putting
@@ -1397,6 +1399,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={titleStyle}>📦 المخزن والجرد</div>
               <div style={btnsGrid}>
                 {secBtn(I.tag,"المنتجات","#10B981",()=>{setProductsPrice(true);setPpSearch("");setPpEdits({})})}
+                {secBtn(I.scan,"لينك المخزن المتاح","#0EA5E9",()=>setShowStockPortal(true))}
                 {secBtn(I.warehouse,"جرد المخزن","#8B5CF6",()=>setInvAudit({items:{},scanning:false}))}
                 {canEdit&&secBtn(I.clipboard,"جرد مبيعات","#F59E0B",()=>{setAuditDate(cairoDateStr());setAuditFrom("");setAuditTo("");setAuditNote("");setShowNewAudit(true)})}
                 {secBtn(I.package,"الكراتين","#0EA5E9",()=>setPkgPopup("list"))}
@@ -6602,6 +6605,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         <div style={{marginTop:12}}><Btn onClick={()=>{printPage("QR — "+custQR.name,"<div style='text-align:center;padding:20px'><h2 style='margin-bottom:10px'>"+custQR.name+"</h2><p style='margin-bottom:16px'>"+ltrPhone(custQR.phone)+"</p><img src='"+custQR.src+"' style='width:200px'/></div>")}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨 طباعة QR</Btn></div>
       </div>
     </div>}
+    {/* V21.21.68: Stock portal link modal */}
+    {showStockPortal&&<StockPortalLinkModal T={T} FS={FS} isMob={isMob} showToast={showToast} onClose={()=>setShowStockPortal(false)}/>}
     {/* V16.3: Portal URL popup */}
     {portalUrlPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}} onClick={()=>setPortalUrlPopup(null)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:22,width:"100%",maxWidth:520,border:"2px solid #8B5CF6",boxShadow:"0 25px 80px rgba(0,0,0,0.4)"}}>
