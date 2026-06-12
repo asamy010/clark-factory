@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from "react";
 import { Stars } from "../utils/rating.jsx";
+import { CustomerOrderTab } from "./portal/CustomerOrderTab.jsx";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const fmtDate = (d) => {
@@ -138,7 +139,7 @@ export function CustomerPortalPage({ params }) {
   const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
   /* V18.4: Corrected balance labels */
   const balanceLabel = summary.balance > 0 ? "💚 مستحق للمصنع" : summary.balance < 0 ? "❤️ مستحق للعميل" : "✓ متعادل";
-  const tabLabels = { summary: "الملخص", transactions: "سجل الحركات", payments: "المدفوعات" };
+  const tabLabels = { summary: "الملخص", transactions: "سجل الحركات", payments: "المدفوعات", order: "اطلب" };
   /* V18.4: Filter helper — case-insensitive substring match on model number */
   const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
   /* V18.5: Merged delivery + returns log, sorted chronologically (descending) */
@@ -297,6 +298,7 @@ export function CustomerPortalPage({ params }) {
         { id: "summary", label: "الملخص", icon: "📋" },
         { id: "transactions", label: "سجل الحركات (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
+        { id: "order", label: "اطلب", icon: "🛒" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
           padding: "7px 12px",
@@ -316,13 +318,16 @@ export function CustomerPortalPage({ params }) {
       )}
     </div>
 
-    {/* Export buttons — V18.5: PDF only (WhatsApp removed per user request) */}
-    <div className="no-print" style={{ padding: "4px 12px 8px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+    {/* Export buttons — V18.5: PDF only (WhatsApp removed per user request).
+        V21.21.73: hidden on the order tab (interactive, not printable). */}
+    {tab !== "order" && <div className="no-print" style={{ padding: "4px 12px 8px", display: "flex", gap: 6, justifyContent: "flex-end" }}>
       <button onClick={() => exportPdf(tabLabels[tab])} style={btnStyle("#EF4444")}>📄 PDF</button>
-    </div>
+    </div>}
 
     {/* Content (printable area gets cloned for print) */}
     <div className="printable" style={{ padding: "4px 12px 40px" }}>
+      {/* V21.21.73: ORDER tab — wholesale store (lazy catalog + cart) */}
+      {tab === "order" && <CustomerOrderTab custId={custId} sig={sig} ts={ts} />}
       {/* SUMMARY */}
       {tab === "summary" && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
