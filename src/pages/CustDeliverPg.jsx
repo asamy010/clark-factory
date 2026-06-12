@@ -23,6 +23,7 @@ import { loadQR, loadJsQR, scanQR } from "../utils/qr.js";
 import { ask, askForm, showToast, tell } from "../utils/popups.js";
 import { printPage, printPkgLabel, printSalesDeliveryLabel, openPrintWindow } from "../utils/print.js";
 import { calcOrder, getConfirmedStock, getConfirmedSeriesStock, getConfirmedBrokenStock, recomputeStatus } from "../utils/orders.js";
+import { computeSoReserved, computeOrderAvail } from "../utils/stockCatalog.js";
 import { buildCustomerSummary, formatCustomerSummaryWA } from "../utils/accountSummary.js";
 import { analyzeCustomer, fmtMonth } from "../utils/customerAnalytics.js";
 import { getCustRating, Stars } from "../utils/rating.jsx";
@@ -506,9 +507,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
 
   const orderCalcs=useMemo(()=>{const m=new Map();orders.forEach(o=>m.set(o.id,calcOrder(o)));return m},[orders]);
   const getCalc=(oid)=>orderCalcs.get(oid)||calcOrder({});
-  /* V21.20.5: كميات أوامر البيع المحجوزة لكل موديل («أمر البيع = بيع» يخصم المتاح). */
-  const soReservedByOrder=useMemo(()=>{const m={};(data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled")return;if(so.sourceDistributionId)return;/* V21.21.1: مرآة توزيعة — التوزيعة بتخصم بالفعل */(so.items||[]).forEach(it=>{if(it&&it.sourceType==="order"&&it.sourceId){m[it.sourceId]=(m[it.sourceId]||0)+(Number(it.qty)||0)}})});return m},[data.salesOrders]);
-  const stockModels=useMemo(()=>orders.filter(o=>{const sd=getConfirmedStock(o);return sd>0}).map(o=>{const sd=getConfirmedStock(o);const sdSer=getConfirmedSeriesStock(o);const sdBrk=getConfirmedBrokenStock(o);const cd=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=(cd-ret)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty:sd,seriesQty:sdSer,brokenQty:sdBrk,custDel:net,avail:sd-net,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:ret}}),[orders,soReservedByOrder]);
+  /* V21.20.5: كميات أوامر البيع المحجوزة لكل موديل («أمر البيع = بيع» يخصم المتاح).
+     V21.21.67: اتنقلت للـ util stockCatalog.js (مصدر حقيقة واحد مع بورتال المخزن). */
+  const soReservedByOrder=useMemo(()=>computeSoReserved(data.salesOrders),[data.salesOrders]);
+  const stockModels=useMemo(()=>orders.filter(o=>getConfirmedStock(o)>0).map(o=>{const{stockQty,avail,delivered,returned}=computeOrderAvail(o,soReservedByOrder);const net=(delivered-returned)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty,seriesQty:getConfirmedSeriesStock(o),brokenQty:getConfirmedBrokenStock(o),custDel:net,avail,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:returned}}),[orders,soReservedByOrder]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
