@@ -17,6 +17,7 @@ import { fmt, gid } from "../../utils/format.js";
 import { cairoDateStr } from "../../utils/serverTime.js";
 import { printPage } from "../../utils/print.js";
 import { ask, tell } from "../../utils/popups.js";
+import { OpenOrdersTransferModal } from "./OpenOrdersTransferModal.jsx";
 
 const _amt = (n) => fmt((Number(n) || 0).toFixed(2));
 
@@ -27,6 +28,7 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
   const [saving, setSaving] = useState(false);
   const [newSeasonName, setNewSeasonName] = useState(() => suggestNextSeason(d.activeSeason || ""));
   const [creatingSeason, setCreatingSeason] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
 
   /* سجل الإقفال المحفوظ لهذا الموسم (إن وُجد) — idempotent لكل موسم */
   const savedRecord = useMemo(
@@ -217,7 +219,8 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
   const pr = snap.profit || {};
   const seasonOptions = Array.isArray(d.seasons) ? d.seasons : (d.activeSeason ? [d.activeSeason] : []);
 
-  return <div className="pop-overlay" style={{
+  return <>
+  <div className="pop-overlay" style={{
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10001,
     display: "flex", alignItems: "center", justifyContent: "center", padding: isMob ? 4 : 16,
   }} onClick={onClose}>
@@ -344,6 +347,22 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
               </div>}
         </Section>
 
+        {/* ترحيل الأوامر المفتوحة للموسم الجديد (Phase 2) */}
+        {typeof upConfig === "function" && snap.openOrdersCount > 0 && <div style={{ marginTop: 8, marginBottom: 8, padding: "12px 14px", background: T.warn + "08", borderRadius: 10, border: "1px solid " + T.warn + "40" }}>
+          <div style={{ fontSize: FS, fontWeight: 800, color: T.warn, marginBottom: 6 }}>🚚 ترحيل الأوامر المفتوحة للموسم الجديد</div>
+          <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>
+            انقل الأوامر المفتوحة ({snap.openOrdersCount}) من «{d.activeSeason || "—"}» للموسم الجديد «{(newSeasonName || "").trim() || "—"}» — تختار اللي يترحّل.
+            <b> نقل كامل (مش نسخ)</b>، بنسخة احتياطية شاملة إجبارية قبله. <b>اعمله قبل تفعيل الموسم الجديد</b> (والموسم الحالي لسه نشط).
+          </div>
+          <Btn onClick={() => {
+            const to = (newSeasonName || "").trim();
+            if(!to || to === (d.activeSeason || "")){ tell("الموسم الجديد مطلوب", "اكتب اسم موسم جديد مختلف في قسم «فتح الموسم الجديد» بالأسفل أولاً", { danger: true }); return; }
+            setShowTransfer(true);
+          }} style={{ background: T.warn, color: "#fff", border: "none", fontWeight: 800, padding: "9px 18px" }}>
+            🚚 اختر وارحّل الأوامر المفتوحة
+          </Btn>
+        </div>}
+
         {/* خطوات الإقفال — القفل المحاسبي (معالج موجود) */}
         {typeof onOpenAccountingClose === "function" && <div style={{ marginTop: 8, marginBottom: 8, padding: "12px 14px", background: T.warn + "08", borderRadius: 10, border: "1px solid " + T.warn + "40" }}>
           <div style={{ fontSize: FS, fontWeight: 800, color: T.warn, marginBottom: 6 }}>🔒 الإقفال المحاسبي والقفل</div>
@@ -371,10 +390,17 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, user
         </div>}
 
         <div style={{ marginTop: 8, padding: "10px 12px", background: T.accent + "08", borderRadius: 8, border: "1px solid " + T.accent + "30", fontSize: FS - 2, color: T.text, lineHeight: 1.7 }}>
-          <b style={{ color: T.accent }}>📚 ملاحظة:</b> الكشف ده لقطة لحظية مشتقّة من البيانات الحيّة (للعرض والطباعة) — مفيش أي تعديل على بياناتك.
-          هو نفسه كشف إقفال الموسم الحالي = أساس الأرصدة الافتتاحية للموسم الجديد. القفل المحاسبي وإنشاء الموسم الجديد في مراحل لاحقة من نفس الميزة.
+          <b style={{ color: T.accent }}>📚 خطوات الإقفال الكامل:</b> ① اعرض/اطبع الكشف ② 💾 احفظ السجل
+          ③ 🚚 رحّل الأوامر المفتوحة للموسم الجديد ④ 🔒 الإقفال المحاسبي والقفل ⑤ ✨ فعّل الموسم الجديد.
+          الكشف لقطة مشتقّة من البيانات الحيّة (مفيش تعديل) = أساس الأرصدة الافتتاحية للموسم الجديد.
         </div>
       </div>
     </div>
-  </div>;
+  </div>
+  {showTransfer && <OpenOrdersTransferModal
+    data={d} fromSeason={d.activeSeason || ""} toSeason={(newSeasonName || "").trim()}
+    T={T} FS={FS} isMob={isMob} userName={userName} showToast={showToast} upConfig={upConfig}
+    onClose={() => setShowTransfer(false)}
+  />}
+  </>;
 }
