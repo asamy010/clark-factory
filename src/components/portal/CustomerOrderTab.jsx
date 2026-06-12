@@ -1,27 +1,94 @@
 /* ═══════════════════════════════════════════════════════════════
-   CLARK — Customer Portal · Order tab (V21.21.74)
+   CLARK — Customer Portal · Order tab (V21.21.77)
 
    تاب «🛒 اطلب» في بورتال العميل — ستور جملة:
-     - يجيب كتالوج المتاح lazy من /api/customer-portal-catalog.
-     - صورة الموديل + المقاسات + حجم السيري + سعر الجملة + المتاح.
-     - V21.21.74: زرّ + بيضيف **سيري كامل** (= عدد المقاسات قطعة واحدة).
-       والعميل بيطلب **كل لون بعدده** (صورة اللون لو متاحة، وإلا swatch).
+     - صورة الموديل الافتراضية أولاً، ولما العميل يضغط على لون → الصورة
+       الرئيسية تتغيّر لصورة اللون ده (V21.21.77) عشان يشوفه كويس.
+     - زرّ + بيضيف سيري كامل (= عدد المقاسات). والعميل بيطلب كل لون بعدده.
+     - كاش داخل الجلسة (catalog + cart) عشان التنقّل بين التابات مايعيدش التحميل.
      - «إرسال الطلب» → /api/customer-portal-order (طلب/Lead — المالك يأكّد).
 
-   standalone، mobile-first. كل التحقق النهائي server-side (السعر/المتاح/
-   محاذاة السيري من الكتالوج) — ده مجرد واجهة.
+   standalone، mobile-first. كل التحقق النهائي server-side.
    ═══════════════════════════════════════════════════════════════ */
 
 import { useEffect, useMemo, useState } from "react";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const AC = "#6366F1", GR = "#059669", MUT = "#94A3B8", BRD = "#E2E8F0", TXT = "#0F172A", SEC = "#475569";
+const stepBtn = (disabled) => ({ width: 28, height: 28, borderRadius: 8, border: "1px solid " + BRD, background: disabled ? "#F8FAFC" : "#fff", color: disabled ? MUT : AC, fontSize: 17, fontWeight: 800, cursor: disabled ? "default" : "pointer", lineHeight: 1, fontFamily: "inherit", flexShrink: 0 });
 
-/* كاش داخل الجلسة (module-level) — لما العميل يبدّل تاب ويرجع، المكوّن بيتعمله
-   remount لكن بيهيدريت من الكاش فوراً (مفيش fetch تاني، مفيش «تحميل من الأول»).
-   الكارت كمان بيتحفظ عشان مايضيعش. زر 🔄 بيجيب المتاح المحدّث. */
+/* كاش داخل الجلسة (module-level) — التنقّل بين التابات مايعيدش التحميل/الصور. */
 const catalogCache = {};  /* { [custId]: { items } } */
 const cartCache = {};      /* { [custId]: cart } */
+
+/* ── كارت موديل واحد — بمعاينة لون محلية (الصورة الرئيسية تتغيّر حسب اللون) ── */
+function ModelCard({ it, modelCart, onBump }) {
+  const soon = it.status === "soon";
+  const s = Math.max(1, Number(it.seriesSize) || 1);
+  const cap = Math.floor((Number(it.avail) || 0) / s) * s;
+  const mt = Object.values(modelCart || {}).reduce((a, b) => a + b, 0);
+  const colors = (it.colors && it.colors.length) ? it.colors : [{ name: "", hex: "", image: "" }];
+  const byName = useMemo(() => { const m = {}; (it.colors || []).forEach(c => { m[c.name] = c; }); return m; }, [it.colors]);
+
+  /* اللون المعروض حالياً ("" = صورة الموديل الافتراضية) */
+  const [pColor, setPColor] = useState("");
+  const activeColor = pColor ? byName[pColor] : null;
+  const mainImg = (activeColor && activeColor.image) ? activeColor.image : (it.image || "");
+  const hasColorImgs = (it.colors || []).some(c => c.image);
+
+  return <div style={{ background: "#fff", border: "1px solid " + (mt ? AC : BRD), borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: mt ? "0 0 0 2px " + AC + "22" : "0 1px 3px rgba(0,0,0,0.04)" }}>
+    <div style={{ width: "100%", aspectRatio: "3/4", background: "#F1F5F9", position: "relative" }}>
+      {mainImg
+        ? <img key={mainImg} src={mainImg} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: MUT }}>👕</div>}
+      <div style={{ position: "absolute", top: 6, insetInlineStart: 6, background: soon ? "#D97706" : GR, color: "#fff", fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 20 }}>
+        {soon ? "قريباً" : "متاح " + fmt(it.avail) + (s > 1 ? " (" + Math.floor(it.avail / s) + " سيري)" : "")}
+      </div>
+      {mt > 0 && <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, background: AC, color: "#fff", fontSize: 11, fontWeight: 900, padding: "2px 9px", borderRadius: 20 }}>{mt}</div>}
+      {activeColor && <div style={{ position: "absolute", bottom: 6, insetInlineStart: 6, background: "rgba(15,23,42,0.78)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: "50%", background: activeColor.hex || "#fff", display: "inline-block" }} />{activeColor.name}
+      </div>}
+    </div>
+    <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: TXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelNo}</div>
+      {it.modelDesc && <div style={{ fontSize: 11, color: SEC, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 10, color: MUT }}>
+        {it.sizesLabel && <span>📏 {it.sizesLabel}</span>}
+        {s > 1 && <span>🧵 سيري {s} قطعة</span>}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginTop: 2 }}>
+        <span style={{ fontSize: 16, fontWeight: 900, color: TXT, direction: "ltr" }}>{fmt(it.price)}</span>
+        <span style={{ fontSize: 10, color: MUT, fontWeight: 700 }}>ج.م / قطعة</span>
+      </div>
+      {hasColorImgs && <div style={{ fontSize: 9, color: AC, fontWeight: 700 }}>👆 اضغط على اللون لرؤيته</div>}
+      {!soon && <div style={{ marginTop: 4 }}>
+        {colors.map(col => {
+          const key = col.name || "";
+          const cur = (modelCart || {})[key] || 0;
+          const canAdd = mt + s <= cap;
+          const isPrev = pColor === key && !!col.name;
+          const preview = () => { if (col.name) setPColor(p => p === key ? "" : key); };
+          return <div key={key || "_"} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderTop: "1px dashed " + BRD, borderRadius: 8, background: isPrev ? AC + "0F" : "transparent" }}>
+            <div onClick={preview} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, cursor: col.name ? "pointer" : "default" }}>
+              {col.image
+                ? <img src={col.image} alt="" loading="lazy" style={{ width: 30, height: 30, borderRadius: 7, objectFit: "cover", flexShrink: 0, border: "2px solid " + (isPrev ? AC : BRD) }} />
+                : <div style={{ width: 30, height: 30, borderRadius: 7, background: col.hex || "#F1F5F9", flexShrink: 0, border: "2px solid " + (isPrev ? AC : BRD) }} />}
+              <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: isPrev ? AC : TXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.name || "الكمية"}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+              <button onClick={() => onBump(key, -1)} disabled={cur <= 0} style={stepBtn(cur <= 0)}>−</button>
+              <div style={{ minWidth: 48, textAlign: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: cur ? TXT : MUT, lineHeight: 1 }}>{cur}</div>
+                {s > 1 && cur > 0 && <div style={{ fontSize: 9, color: MUT }}>{cur / s} سيري</div>}
+              </div>
+              <button onClick={() => { onBump(key, +1); if (col.name) setPColor(key); }} disabled={!canAdd} style={stepBtn(!canAdd)}>+</button>
+            </div>
+          </div>;
+        })}
+      </div>}
+    </div>
+  </div>;
+}
 
 export function CustomerOrderTab({ custId, sig, ts }) {
   const cached = catalogCache[custId];
@@ -48,21 +115,17 @@ export function CustomerOrderTab({ custId, sig, ts }) {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
-  /* حفظ الكارت في الكاش عشان مايضيعش عند التنقّل بين التابات */
   useEffect(() => { cartCache[custId] = cart; }, [cart, custId]);
-
-  const seriesSize = (it) => Math.max(1, Number(it.seriesSize) || 1);
-  const availSeries = (it) => { const s = seriesSize(it); return Math.floor((Number(it.avail) || 0) / s) * s; };
-  const modelTotal = (it) => Object.values(cart[it.id] || {}).reduce((a, b) => a + b, 0);
 
   /* تعيين كمية لون (بالقطع) — تقريب لمضاعف سيري + قصّ على المتبقّي المتاح */
   const setColorQty = (it, colorName, pieces) => {
-    const s = seriesSize(it), cap = availSeries(it);
+    const s = Math.max(1, Number(it.seriesSize) || 1);
+    const cap = Math.floor((Number(it.avail) || 0) / s) * s;
     setCart(c => {
       const model = { ...(c[it.id] || {}) };
       let v = Math.max(0, Math.floor(Number(pieces) || 0));
       v = Math.floor(v / s) * s;
-      const others = Object.entries(model).reduce((sum, [k, q]) => k === colorName ? sum : sum + q, 0);
+      const others = Object.entries(model).reduce((sum, [k, qv]) => k === colorName ? sum : sum + qv, 0);
       if (others + v > cap) v = Math.max(0, cap - others);
       if (v > 0) model[colorName] = v; else delete model[colorName];
       const n = { ...c };
@@ -72,7 +135,7 @@ export function CustomerOrderTab({ custId, sig, ts }) {
   };
   const bumpSeries = (it, colorName, dir) => {
     const cur = (cart[it.id] || {})[colorName] || 0;
-    setColorQty(it, colorName, cur + dir * seriesSize(it));
+    setColorQty(it, colorName, cur + dir * Math.max(1, Number(it.seriesSize) || 1));
   };
 
   const totals = useMemo(() => {
@@ -134,55 +197,7 @@ export function CustomerOrderTab({ custId, sig, ts }) {
     {!orderable && <div style={{ padding: 24, textAlign: "center", color: MUT, background: "#F8FAFC", borderRadius: 12, border: "1px dashed " + BRD, marginBottom: 12 }}>مفيش أصناف متاحة للطلب حالياً</div>}
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 12 }}>
-      {filtered.map(it => {
-        const soon = it.status === "soon";
-        const s = seriesSize(it);
-        const cap = availSeries(it);
-        const mt = modelTotal(it);
-        const colors = (it.colors && it.colors.length) ? it.colors : [{ name: "", hex: "", image: "" }];
-        const colorRow = (col) => {
-          const key = col.name || "";
-          const cur = (cart[it.id] || {})[key] || 0;
-          const canAdd = mt + s <= cap;
-          return <div key={key || "_"} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px dashed " + BRD }}>
-            {col.image
-              ? <img src={col.image} alt="" loading="lazy" style={{ width: 30, height: 30, borderRadius: 7, objectFit: "cover", flexShrink: 0, border: "1px solid " + BRD }} />
-              : <div style={{ width: 30, height: 30, borderRadius: 7, background: col.hex || "#F1F5F9", border: "1px solid " + BRD, flexShrink: 0 }} />}
-            <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: TXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.name || "الكمية"}</div>
-            {!soon && <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-              <button onClick={() => bumpSeries(it, key, -1)} disabled={cur <= 0} style={stepBtn(cur <= 0)}>−</button>
-              <div style={{ minWidth: 48, textAlign: "center" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: cur ? TXT : MUT, lineHeight: 1 }}>{cur}</div>
-                {s > 1 && cur > 0 && <div style={{ fontSize: 9, color: MUT }}>{cur / s} سيري</div>}
-              </div>
-              <button onClick={() => bumpSeries(it, key, +1)} disabled={!canAdd} style={stepBtn(!canAdd)}>+</button>
-            </div>}
-          </div>;
-        };
-        return <div key={it.id} style={{ background: "#fff", border: "1px solid " + (mt ? AC : BRD), borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: mt ? "0 0 0 2px " + AC + "22" : "0 1px 3px rgba(0,0,0,0.04)" }}>
-          <div style={{ width: "100%", aspectRatio: "3/4", background: "#F1F5F9", position: "relative" }}>
-            {it.image ? <img src={it.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: MUT }}>👕</div>}
-            <div style={{ position: "absolute", top: 6, insetInlineStart: 6, background: soon ? "#D97706" : GR, color: "#fff", fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 20 }}>
-              {soon ? "قريباً" : "متاح " + fmt(it.avail) + (s > 1 ? " (" + Math.floor(it.avail / s) + " سيري)" : "")}
-            </div>
-            {mt > 0 && <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, background: AC, color: "#fff", fontSize: 11, fontWeight: 900, padding: "2px 9px", borderRadius: 20 }}>{mt}</div>}
-          </div>
-          <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: TXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelNo}</div>
-            {it.modelDesc && <div style={{ fontSize: 11, color: SEC, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 10, color: MUT }}>
-              {it.sizesLabel && <span>📏 {it.sizesLabel}</span>}
-              {s > 1 && <span>🧵 سيري {s} قطعة</span>}
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginTop: 2 }}>
-              <span style={{ fontSize: 16, fontWeight: 900, color: TXT, direction: "ltr" }}>{fmt(it.price)}</span>
-              <span style={{ fontSize: 10, color: MUT, fontWeight: 700 }}>ج.م / قطعة</span>
-            </div>
-            {!soon && <div style={{ marginTop: 4 }}>{colors.map(colorRow)}</div>}
-          </div>
-        </div>;
-      })}
+      {filtered.map(it => <ModelCard key={it.id} it={it} modelCart={cart[it.id]} onBump={(color, dir) => bumpSeries(it, color, dir)} />)}
     </div>
 
     {/* Sticky cart footer */}
@@ -202,8 +217,4 @@ export function CustomerOrderTab({ custId, sig, ts }) {
       </div>
     </div>}
   </div>;
-
-  function stepBtn(disabled) {
-    return { width: 28, height: 28, borderRadius: 8, border: "1px solid " + BRD, background: disabled ? "#F8FAFC" : "#fff", color: disabled ? MUT : AC, fontSize: 17, fontWeight: 800, cursor: disabled ? "default" : "pointer", lineHeight: 1, fontFamily: "inherit", flexShrink: 0 };
-  }
 }
