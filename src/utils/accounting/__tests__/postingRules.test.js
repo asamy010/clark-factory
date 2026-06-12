@@ -37,6 +37,7 @@ import {
   buildInvoiceVoidEntry,
   buildCreditNotePostedEntry,
   buildCreditNoteCogsEntry,
+  buildDiscountPostedEntry,
   buildDebitNotePostedEntry,
 } from "../postingRules.js";
 
@@ -475,5 +476,29 @@ describe("buildCreditNotePostedEntry / buildDebitNotePostedEntry", () => {
   it("غير المرحّل → null", () => {
     expect(buildCreditNotePostedEntry({ status: "draft", total: 100 }, CUSTOMER, ORDER, TEST_COA, null)).toBeNull();
     expect(buildDebitNotePostedEntry({ status: "draft", total: 100 }, null, TEST_COA, null)).toBeNull();
+  });
+});
+
+describe("buildDiscountPostedEntry (خصم إضافي)", () => {
+  it("خصم إضافي: مدين خصم مسموح به (4110) / دائن عملاء (1210)", () => {
+    const dn = {
+      id: "disc1", creditNoteNo: "خصم-2026-0001", kind: "discount", status: "posted",
+      date: "2026-06-12", subtotal: 500, discount: 0, total: 500,
+      customerName: "عميل", reason: "خصم آخر الموسم", items: [],
+    };
+    const e = buildDiscountPostedEntry(dn, CUSTOMER, TEST_COA, null);
+    expectBalanced(e);
+    expect(e.sourceType).toBe("salesDiscount");
+    expect(e.sourceId).toBe("disc1");
+    expect(e.lines[0].accountCode).toBe("4110");/* Dr خصم مسموح به */
+    expect(e.lines[0].debit).toBe(500);
+    expect(e.lines[1].accountCode).toBe("1210");/* Cr عملاء */
+    expect(e.lines[1].credit).toBe(500);
+    expect(e.lines[1].partyId).toBe(CUSTOMER.id);
+  });
+
+  it("غير المرحّل أو صفر → null", () => {
+    expect(buildDiscountPostedEntry({ status: "draft", total: 100 }, CUSTOMER, TEST_COA, null)).toBeNull();
+    expect(buildDiscountPostedEntry({ status: "posted", total: 0 }, CUSTOMER, TEST_COA, null)).toBeNull();
   });
 });

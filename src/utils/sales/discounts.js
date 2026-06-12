@@ -13,7 +13,7 @@
 
 import { r2 } from "../format.js";
 import { nowISO } from "../serverTime.js";
-import { reserveDiscountNo, postCreditNoteMutator } from "../invoices.js";
+import { reserveDiscountNo, postCreditNoteMutator, voidCreditNoteMutator } from "../invoices.js";
 import { autoPost } from "../accounting/autoPost.js";
 
 /* هل الإشعار ده «إشعار خصم» (مش مرتجع)؟ */
@@ -64,25 +64,65 @@ export async function createCustomerDiscount(data, upConfig, input, customer, us
     await upConfig(d => { postCreditNoteMutator(d, cn.id, userName); });
     const postedCN = { ...cn, status: "posted", postedAt: nowISO(), postedBy: userName || "" };
 
-    /* 3) قيد محاسبي — نفس مسار الإشعار الدائن، order=null → بدون COGS */
-    let ref = null;
+    /* 3) قيد محاسبي مخصّص — Dr خصم مسموح به (4110) / Cr عملاء (1210). بدون COGS. */
+    let posted = false;
     try {
-      const res = await autoPost.creditNotePosted(data, postedCN, customer || null, null, userName);
-      if(res && res.main && res.main.ok && res.main.entry){
-        ref = { date: res.main.entry.date, entryId: res.main.entry.id, refNo: res.main.entry.refNo };
-      }
+      const res = await autoPost.discountPosted(data, postedCN, customer || null, userName);
+      posted = !!(res && res.ok);
     } catch(e){ console.warn("[createCustomerDiscount] autoPost failed:", e?.message || e); }
 
-    /* 4) خزن postedJournalRef (لو اترحّل) */
-    if(ref){
+    /* 4) خزن مرجع القيد (للإلغاء لاحقاً — العكس بيتلاقى بـ date+sourceType+sourceId).
+       _buildAndPost ما بيرجّعش الـ entry فبنبني المرجع من القيم المعروفة. */
+    if(posted){
       await upConfig(d => {
         const idx = (d.salesCreditNotes || []).findIndex(c => c.id === cn.id);
-        if(idx >= 0) d.salesCreditNotes[idx].postedJournalRef = ref;
+        if(idx >= 0) d.salesCreditNotes[idx].postedJournalRef = { date: cn.date, sourceType: "salesDiscount", sourceId: cn.id };
       });
     }
     return { ok: true, cn: postedCN };
   } catch(e){
     console.error("[createCustomerDiscount] failed:", e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/* إلغاء خصم — بيفضل في السجل (status=void، للأرشيف) + بيعكس القيد المحاسبي.
+   الخصم الملغى مش بيأثّر على الرصيد (مستبعد من الكشف والملخص). */
+export async function voidCustomerDiscount(data, upConfig, discountNote, userName){
+  try {
+    if(!discountNote || discountNote.kind !== "discount") return { ok: false, error: "ليس إشعار خصم" };
+    if(discountNote.status === "void") return { ok: true }; /* ملغى بالفعل */
+    /* اعكس القيد أولاً (بيتلاقى بـ date+sourceType+sourceId) */
+    try { await autoPost.discountVoided(data, discountNote, userName); }
+    catch(e){ console.warn("[voidCustomerDiscount] reverse failed:", e?.message || e); }
+    /* علّمه ملغى */
+    await upConfig(d => { voidCreditNoteMutator(d, discountNote.id, userName, "إلغاء خصم إضافي"); });
+    return { ok: true };
+  } catch(e){
+    console.error("[voidCustomerDiscount] failed:", e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/* حذف خصم نهائياً — بيشيل السجل بالكامل + بيعكس القيد المحاسبي (لو لسه مرحّل). */
+export async function deleteCustomerDiscount(data, upConfig, discountNote, userName){
+  try {
+    if(!discountNote || discountNote.kind !== "discount") return { ok: false, error: "ليس إشعار خصم" };
+    /* اعكس القيد لو لسه مرحّل (لو ملغى قبل كده، القيد متعكوس بالفعل) */
+    if(discountNote.status === "posted"){
+      try { await autoPost.discountVoided(data, discountNote, userName); }
+      catch(e){ console.warn("[deleteCustomerDiscount] reverse failed:", e?.message || e); }
+    }
+    /* شيل السجل نهائياً */
+    await upConfig(d => {
+      if(Array.isArray(d.salesCreditNotes)){
+        const i = d.salesCreditNotes.findIndex(c => c.id === discountNote.id);
+        if(i >= 0) d.salesCreditNotes.splice(i, 1);
+      }
+    });
+    return { ok: true };
+  } catch(e){
+    console.error("[deleteCustomerDiscount] failed:", e);
     return { ok: false, error: e?.message || String(e) };
   }
 }

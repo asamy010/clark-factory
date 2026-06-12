@@ -32,6 +32,8 @@ import {
   buildSalesInvoicePostedEntry, buildSalesInvoiceCogsEntry,
   buildPurchaseInvoicePostedEntry, buildInvoiceVoidEntry,
   buildCreditNotePostedEntry, buildCreditNoteCogsEntry,
+  /* V21.21.60: خصم إضافي للعميل */
+  buildDiscountPostedEntry,
   /* V19.40: purchase returns */
   buildDebitNotePostedEntry,
 } from "./postingRules.js";
@@ -342,6 +344,23 @@ export const autoPost = {
     if(!creditNote.postedJournalRef) return Promise.resolve({ok:false, skipped:"no-original-ref"});
     const ref = creditNote.postedJournalRef;
     return _reverse(sourceType, sourceType, creditNote.id, ref.date, "إلغاء إشعار دائن "+creditNote.creditNoteNo, createdBy);
+  },
+
+  /* V21.21.60 — Post an additional customer discount.
+     Dr خصم مسموح به (4110) / Cr عملاء (1210). No COGS. */
+  discountPosted(config, discountNote, customer, createdBy){
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    return _buildAndPost("salesDiscount", "salesDiscount", buildDiscountPostedEntry, [discountNote, customer, getCoa(config), getRules(config)], config, createdBy);
+  },
+
+  /* V21.21.60 — Reverse a discount's journal entry when voided/deleted.
+     Reversal locates the entry by date+sourceType+sourceId, so we don't rely
+     on postedJournalRef (which _buildAndPost doesn't return). Graceful no-op
+     if accounting is disabled or no matching entry exists. */
+  discountVoided(config, discountNote, createdBy){
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    const date = (discountNote.postedJournalRef && discountNote.postedJournalRef.date) || discountNote.date;
+    return _reverse("salesDiscount", "salesDiscount", discountNote.id, date, "إلغاء خصم إضافي "+(discountNote.creditNoteNo||""), createdBy);
   },
 
   /* V19.40 — Post a debit note (purchase return).

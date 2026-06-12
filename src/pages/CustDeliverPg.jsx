@@ -36,6 +36,7 @@ import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../compo
    for edit form, TagFilter + TagChips for list view. Manager+Admin only
    create inline tags (per data-safety §0.1 decision). */
 import { DiscountModal } from "../components/sales/DiscountModal.jsx";
+import { DiscountsManager } from "../components/sales/DiscountsManager.jsx";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
@@ -3457,6 +3458,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>setShowCustDiscount(true)} style={{background:"#DB277712",color:"#DB2777",border:"1px solid #DB277740",fontWeight:700}}>🏷️ خصم إضافي (يقلّل الرصيد — مش دفعة)</Btn>
             </div>
           </div>}
+          {/* V21.21.60: قائمة الخصومات الإضافية للعميل + إلغاء/حذف */}
+          {canEdit&&<DiscountsManager data={data} upConfig={upConfig} user={user} customerId={custStatement} accent="#DB2777"/>}
           {showCustDiscount&&<DiscountModal data={data} upConfig={upConfig} user={user} fixedCustomerId={custStatement} onClose={()=>setShowCustDiscount(false)}/>}
           {/* V18.63: Payments log REMOVED — moved to Accounting → دفعات tab.
               The "Add Payment" form above stays as a convenient entry point. */}

@@ -758,6 +758,37 @@ export function buildCreditNotePostedEntry(creditNote, customer, order, coa, rul
   };
 }
 
+/* V21.21.60 — خصم إضافي للعميل (sales discount).
+   قيد: Dr خصم مسموح به (4110) / Cr عملاء (1210).
+   حساب مقابل-إيراد مخصّص للخصومات (مش «مرتجع مبيعات»). مفيش COGS (مفيش بضاعة).
+   الكائن بيتخزّن في salesCreditNotes بعلامة kind:"discount" — بيستخدم total فقط. */
+export function buildDiscountPostedEntry(discountNote, customer, coa, rules){
+  if(!discountNote || discountNote.status !== "posted") return null;
+  const r = resolveRules(rules);
+  const net = _r2(Number(discountNote.total) || 0);
+  if(net <= 0) return null;
+
+  const dc = ensureLeaf(coa, r.sale.discountAccount, "الخصم المسموح به"); /* 4110 */
+  const ar = ensureLeaf(coa, r.sale.customerAccount, "العملاء");          /* 1210 */
+  const date = discountNote.date || new Date().toISOString().split("T")[0];
+  const cnNo = discountNote.creditNoteNo || "";
+
+  return {
+    date,
+    sourceType: "salesDiscount",
+    sourceId: discountNote.id,
+    narration: `خصم إضافي ${cnNo} للعميل ${discountNote.customerName || ""}`,
+    lines: [
+      {accountId:dc.id, accountCode:dc.code, accountName:dc.name, debit:net, credit:0,
+       note: discountNote.reason || "خصم إضافي"},
+      {accountId:ar.id, accountCode:ar.code, accountName:ar.name, debit:0, credit:net,
+       partyId:customer?.id||discountNote.customerId, partyName:customer?.name||discountNote.customerName,
+       note:`خصم إضافي ${cnNo}`},
+    ],
+    partyHint: {kind:"customer", id:customer?.id||discountNote.customerId, name:customer?.name||discountNote.customerName},
+  };
+}
+
 /* COGS reversal companion for a credit note */
 export function buildCreditNoteCogsEntry(creditNote, order, coa, rules, config){
   if(!creditNote || creditNote.status !== "posted") return null;

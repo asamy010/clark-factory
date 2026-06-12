@@ -13,6 +13,7 @@ import { showToast } from "../utils/popups.js";
 import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
 import { DocItemsTable } from "./DocItemsTable.jsx";
 import { DiscountModal } from "./sales/DiscountModal.jsx";
+import { DiscountsManager } from "./sales/DiscountsManager.jsx";
 import { buildDocColumns } from "../utils/docColumns.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
@@ -431,6 +432,9 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
               ))}
             </div>
           )}
+
+          {/* V21.21.60: إدارة الخصومات الإضافية (إلغاء/حذف) */}
+          {canDiscount && <DiscountsManager data={data} upConfig={upConfig} user={user} customerId={party.id} accent="#DB2777" />}
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
