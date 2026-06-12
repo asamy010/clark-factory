@@ -12,22 +12,65 @@
 
 import { useState, useMemo } from "react";
 import { Btn, Inp } from "../ui.jsx";
-import { buildSeasonClosingSnapshot } from "../../utils/accounting/seasonClosing.js";
-import { fmt } from "../../utils/format.js";
+import { buildSeasonClosingSnapshot, summarizeSnapshotForRecord } from "../../utils/accounting/seasonClosing.js";
+import { fmt, gid } from "../../utils/format.js";
 import { cairoDateStr } from "../../utils/serverTime.js";
 import { printPage } from "../../utils/print.js";
+import { ask, tell } from "../../utils/popups.js";
 
 const _amt = (n) => fmt((Number(n) || 0).toFixed(2));
 
-export function SeasonClosingModal({ data, T, FS, isMob, onClose }){
+export function SeasonClosingModal({ data, T, FS, isMob, onClose, upConfig, userName, showToast }){
   const d = data || {};
   const [seasonId, setSeasonId] = useState(d.activeSeason || "");
   const [asOfDate, setAsOfDate] = useState(cairoDateStr());
+  const [saving, setSaving] = useState(false);
+
+  /* سجل الإقفال المحفوظ لهذا الموسم (إن وُجد) — idempotent لكل موسم */
+  const savedRecord = useMemo(
+    () => (Array.isArray(d.seasonClosings) ? d.seasonClosings : []).find(r => r && r.seasonId === seasonId) || null,
+    [d.seasonClosings, seasonId]
+  );
 
   const snap = useMemo(
     () => buildSeasonClosingSnapshot(d, { seasonId, asOfDate }),
     [d, seasonId, asOfDate]
   );
+
+  /* ─── حفظ سجل الإقفال (مُلخّص فقط — بدون مصفوفات per-party، §10 1MB safety) ───
+     idempotent لكل موسم: إعادة الحفظ بتستبدل السجل القديم (لو ضفت/عدّلت حركات
+     بعد الإقفال تقدر تحدّث اللقطة). صفر تأثير على أي بيانات تانية. */
+  const handleSaveRecord = async () => {
+    if(typeof upConfig !== "function" || saving) return;
+    if(!seasonId.trim()){ await tell("الموسم مطلوب", "حدد اسم الموسم قبل الحفظ", { danger: true }); return; }
+    const isUpdate = !!savedRecord;
+    const ok = await ask(
+      isUpdate ? "تحديث سجل الإقفال" : "حفظ سجل الإقفال",
+      isUpdate
+        ? `فيه سجل إقفال محفوظ للموسم «${seasonId}» بتاريخ ${savedRecord.asOfDate || "—"}. التحديث هيستبدله باللقطة الحالية (حتى ${asOfDate}). متأكد؟`
+        : `هيتحفظ سجل إقفال (مُلخّص الأرقام) للموسم «${seasonId}» حتى تاريخ ${asOfDate}. ده مجرد سجل للعرض/الأرشفة — مفيش قفل محاسبي ولا تعديل على بياناتك.`,
+      { confirmText: isUpdate ? "تحديث" : "حفظ" }
+    );
+    if(!ok) return;
+    setSaving(true);
+    try {
+      const rec = summarizeSnapshotForRecord(snap);
+      rec.id = savedRecord?.id || gid();
+      rec.savedAt = new Date().toISOString();
+      rec.savedBy = userName || "";
+      upConfig(cfg => {
+        if(!Array.isArray(cfg.seasonClosings)) cfg.seasonClosings = [];
+        cfg.seasonClosings = cfg.seasonClosings.filter(r => r && r.seasonId !== rec.seasonId);
+        cfg.seasonClosings.push(rec);
+        cfg.seasonClosings.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
+      });
+      if(typeof showToast === "function") showToast(isUpdate ? "✅ تم تحديث سجل الإقفال" : "✅ تم حفظ سجل الإقفال");
+    } catch(e){
+      await tell("فشل الحفظ", e.message || String(e), { danger: true });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   /* ─── طباعة احترافية بنفس قالب التقارير (letterhead + Save as PDF) ─── */
   const doPrint = () => {
@@ -169,8 +212,20 @@ export function SeasonClosingModal({ data, T, FS, isMob, onClose }){
           <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>حتى تاريخ</label>
           <Inp type="date" value={asOfDate} onChange={setAsOfDate} />
         </div>
-        <Btn small onClick={doPrint} style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800, padding: "9px 18px" }}>🖨 طباعة / PDF</Btn>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Btn small onClick={doPrint} style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800, padding: "9px 16px" }}>🖨 طباعة / PDF</Btn>
+          {typeof upConfig === "function" && <Btn small onClick={handleSaveRecord} disabled={saving} style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 800, padding: "9px 16px" }}>
+            {saving ? "⏳ حفظ..." : savedRecord ? "🔄 تحديث السجل" : "💾 حفظ السجل"}
+          </Btn>}
+        </div>
       </div>
+
+      {/* Saved-record banner */}
+      {savedRecord && <div style={{ padding: "8px 16px", background: T.ok + "10", borderBottom: "1px solid " + T.brd, fontSize: FS - 2, color: T.ok, fontWeight: 700, flexShrink: 0 }}>
+        ✓ سجل إقفال محفوظ لـ «{savedRecord.seasonId}» حتى {savedRecord.asOfDate || "—"}
+        {savedRecord.savedBy ? " · بواسطة " + savedRecord.savedBy : ""}
+        {savedRecord.savedAt ? " · " + savedRecord.savedAt.slice(0, 10) : ""}
+      </div>}
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: isMob ? 12 : 16 }}>
