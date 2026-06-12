@@ -18,7 +18,8 @@
    pure تماماً (مفيش browser refs) → آمن للاستيراد في الـ serverless bundle.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { calcOrder, getConfirmedStock } from "./orders.js";
+import { calcOrder, getConfirmedStock, getConfirmedSeriesStock } from "./orders.js";
+import { getSizesFromSet } from "./format.js";
 
 /* المحجوز بأوامر البيع لكل أمر — نسخة طبق الأصل من
    CustDeliverPg.jsx soReservedByOrder (V21.20.5/V21.21.1). */
@@ -47,9 +48,27 @@ export function computeOrderAvail(o, soReserved){
   return { stockQty: sd, avail: sd - net, delivered: cd, returned: ret, reserved };
 }
 
+/* إثراء اختياري لصنف الكتالوج بالسيريهات والمقاسات (للبورتال التفصيلي).
+   opts.includeSeries → seriesQty (السيري المتاح). opts.sizeSets → sizes/sizesLabel
+   (من order.sizeSetId عبر getSizesFromSet). كله pure/server-safe. */
+function enrichItem(item, ord, o) {
+  if (o.includeSeries) {
+    try { item.seriesQty = getConfirmedSeriesStock(ord); } catch (_) {}
+  }
+  if (Array.isArray(o.sizeSets)) {
+    try {
+      const r = getSizesFromSet(ord, { sizeSets: o.sizeSets });
+      item.sizes = r.sizes || [];
+      item.sizesLabel = r.label || "";
+    } catch (_) { item.sizes = []; item.sizesLabel = ""; }
+  }
+  return item;
+}
+
 /* كتالوج المخزن الجاهز للعرض/البورتال.
    opts.includeProduction=true → يضيف أصناف «تحت التشغيل/قريباً»
-   (مقصوصة لكن لسه مفيش مخزون جاهز متاح — مش مقفولة ولا مباعة بالكامل). */
+   (مقصوصة لكن لسه مفيش مخزون جاهز متاح — مش مقفولة ولا مباعة بالكامل).
+   opts.includeSeries / opts.sizeSets → إثراء بالسيريهات والمقاسات. */
 export function buildStockCatalog(data, opts){
   const d = data || {};
   const o = opts || {};
@@ -67,13 +86,13 @@ export function buildStockCatalog(data, opts){
       sellPrice: Number(ord.sellPrice) || 0,
     };
     if(avail > 0){
-      items.push({ ...base, status: "available", avail, stockQty });
+      items.push(enrichItem({ ...base, status: "available", avail, stockQty }, ord, o));
     } else if(o.includeProduction){
       let cut = 0;
       try { cut = Number(calcOrder(ord).cutQty) || 0; } catch(_) {}
       /* مقصوص لكن المخزون المؤكّد لسه أقل من المقصوص → شغّال/قريباً */
       if(cut > 0 && stockQty < cut){
-        items.push({ ...base, status: "soon", avail: 0, stockQty, expected: cut });
+        items.push(enrichItem({ ...base, status: "soon", avail: 0, stockQty, expected: cut }, ord, o));
       }
     }
   });

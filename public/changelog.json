@@ -1,5 +1,23 @@
 [
  {
+  "version": "V21.21.71",
+  "date": "2026-06-12",
+  "types": [
+   "architectural"
+  ],
+  "title": "🛒 طلبات العملاء — Phase 1+2: الأساس (طبقة بيانات + endpoints)",
+  "changes": [
+   {
+    "type": "architectural",
+    "text": "أساس ميزة «طلب أوردر من بورتال العميل» (ستور جملة): util تحقّق نقي orderRequests.js (يتحقق من الكميات ضد المتاح الفعلي server-side، السعر من الكتالوج مش من العميل، حارس إساءة) + توسعة stockCatalog بالسيريهات والمقاسات. Endpoints: customer-portal-catalog (كتالوج المتاح للعميل)، customer-portal-order (كتابة الطلب كـ Lead + إشعار للمالك)، order-requests (قائمة/تأكيد/رفض admin-only)."
+   },
+   {
+    "type": "architectural",
+    "text": "مبدأ الأمان: الجانب العام يعمل «طلب» فقط — مايلمسش المخزون ولا الفلوس. الطلبات في orderRequestsDays (daily-split، server-only عبر admin SDK — مفيش تعريض client). الواجهات (تاب العميل + شاشة مراجعة المالك) في المراحل الجاية. 7 اختبارات جديدة، build نظيف + 249 اختبار ناجح."
+   }
+  ]
+ },
+ {
   "version": "V21.21.70",
   "date": "2026-06-12",
   "types": [

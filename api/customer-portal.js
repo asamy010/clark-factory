@@ -60,7 +60,7 @@ function signCustomerIdHex(custId) {
   return crypto.createHmac("sha256", getPortalSecret()).update("portal:" + custId).digest("hex");
 }
 
-function verifyCustomerSig(custId, sig, ts) {
+export function verifyCustomerSig(custId, sig, ts) {
   if (!custId || !sig) return false;
   /* V19.64: Timestamped link — verify expiry then HMAC. Preferred format for new links. */
   if (ts) {
