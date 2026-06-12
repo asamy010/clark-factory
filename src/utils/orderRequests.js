@@ -10,13 +10,15 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 const MAX_LINES = 60;        /* حد بنود الطلب — حماية من الإساءة */
-const MAX_QTY_PER_LINE = 100000;
 
 /* تحقق وتطبيع طلب عميل ضد كتالوج المتاح (المبني server-side).
-   requested: [{ id, qty }] من العميل (id = orderId، qty مطلوبة).
-   catalogItems: ناتج buildStockCatalog (فيه id/avail/sellPrice/modelNo...).
-   يرجّع { ok, items, totalQty, totalValue, rejected } — الكمية مقصوصة على
-   المتاح، والسعر من الكتالوج (مش من العميل). */
+   requested: [{ id, colors:[{color,qty}] }] — أو legacy [{ id, qty }].
+   catalogItems: ناتج buildStockCatalog (id/avail/sellPrice/seriesSize/colors...).
+   قواعد:
+   - الكمية بالسيري: كل سطر لون بيتقرّب لأسفل لأقرب مضاعف seriesSize.
+   - إجمالي الموديل مقصوص على المتاح الفعلي (سيري-محاذى) — مايثقش في العميل.
+   - السعر من الكتالوج، ومعلومات اللون (hex/صورة) من الكتالوج.
+   يرجّع { ok, items, totalQty, totalValue, rejected }. */
 export function validateOrderRequest(requested, catalogItems) {
   const byId = new Map();
   (Array.isArray(catalogItems) ? catalogItems : []).forEach(it => {
@@ -31,32 +33,55 @@ export function validateOrderRequest(requested, catalogItems) {
   for (const r of list) {
     if (!r || r.id == null) continue;
     const cat = byId.get(String(r.id));
-    let qty = Math.floor(Number(r.qty) || 0);
     if (!cat || cat.status !== "available") {
       rejected.push({ id: r && r.id, reason: "غير متاح" });
       continue;
     }
-    if (qty <= 0) { rejected.push({ id: r.id, reason: "كمية غير صالحة" }); continue; }
-    /* قصّ الكمية على المتاح الفعلي (مايثقش في كمية العميل) */
-    const avail = Math.max(0, Number(cat.avail) || 0);
-    if (qty > avail) qty = avail;
-    if (qty <= 0) { rejected.push({ id: r.id, reason: "نفد المتاح" }); continue; }
-    if (qty > MAX_QTY_PER_LINE) qty = MAX_QTY_PER_LINE;
 
+    const seriesSize = Math.max(1, Number(cat.seriesSize) || 1);
+    const avail = Math.max(0, Number(cat.avail) || 0);
+    const availSeries = Math.floor(avail / seriesSize) * seriesSize; /* أكبر مضاعف سيري ≤ المتاح */
     const unitPrice = Number(cat.sellPrice) || 0;
-    const lineValue = qty * unitPrice;
-    totalQty += qty;
+    const colorMeta = new Map((Array.isArray(cat.colors) ? cat.colors : []).map(c => [String(c.name), c]));
+
+    /* سطور الألوان — أو سطر واحد بدون لون لو الطلب legacy (qty مباشرة) */
+    let colorLines = Array.isArray(r.colors) ? r.colors : [{ color: "", qty: r.qty }];
+
+    let modelTotal = 0, requestedTotal = 0;
+    const outColors = [];
+    for (const cl of colorLines.slice(0, 40)) {
+      let q = Math.max(0, Math.floor(Number(cl && cl.qty) || 0));
+      requestedTotal += q;
+      if (seriesSize > 1) q = Math.floor(q / seriesSize) * seriesSize; /* تقريب لأسفل لمضاعف سيري */
+      const remaining = availSeries - modelTotal;                       /* قصّ على المتبقّي المتاح */
+      if (q > remaining) q = Math.max(0, remaining);
+      if (q <= 0) continue;
+      modelTotal += q;
+      const name = (cl && cl.color != null) ? String(cl.color) : "";
+      const meta = colorMeta.get(name);
+      outColors.push({ color: name, hex: meta ? meta.hex : "", image: meta ? meta.image : "", qty: q });
+    }
+
+    if (modelTotal <= 0) {
+      rejected.push({ id: r.id, reason: avail <= 0 ? "نفد المتاح" : "كمية غير صالحة" });
+      continue;
+    }
+
+    const lineValue = modelTotal * unitPrice;
+    totalQty += modelTotal;
     totalValue += lineValue;
     items.push({
       orderId: cat.id,
       modelNo: cat.modelNo || "—",
       modelDesc: cat.modelDesc || "",
       image: cat.image || "",
-      qty,
-      unitPrice,
-      lineValue,
       sizesLabel: cat.sizesLabel || "",
-      requestedQty: Math.floor(Number(r.qty) || 0), /* الأصلي قبل القصّ — للشفافية */
+      seriesSize,
+      unitPrice,
+      colors: outColors,
+      qty: modelTotal,
+      lineValue,
+      requestedQty: requestedTotal, /* الأصلي قبل القصّ — للشفافية */
     });
   }
 

@@ -48,9 +48,32 @@ export function computeOrderAvail(o, soReserved){
   return { stockQty: sd, avail: sd - net, delivered: cd, returned: ret, reserved };
 }
 
-/* إثراء اختياري لصنف الكتالوج بالسيريهات والمقاسات (للبورتال التفصيلي).
-   opts.includeSeries → seriesQty (السيري المتاح). opts.sizeSets → sizes/sizesLabel
-   (من order.sizeSetId عبر getSizesFromSet). كله pure/server-safe. */
+/* مفاتيح الأقمشة A..H — كل واحد له مصفوفة ألوان order["colors"+k] (§4). */
+const FAB_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+/* تجميع ألوان الأوردر عبر كل مفاتيح الأقمشة (مع إزالة التكرار بالاسم).
+   الصورة من order.shopify_meta.color_images[name].url لو متاحة، وإلا swatch. */
+function getOrderColors(ord) {
+  const imgs = (ord && ord.shopify_meta && ord.shopify_meta.color_images) || {};
+  const seen = new Map();
+  FAB_KEYS.forEach(k => {
+    const arr = ord["colors" + k];
+    if (Array.isArray(arr)) arr.forEach(c => {
+      const name = (typeof c === "string" ? c : (c && c.color) || "").trim();
+      if (!name || seen.has(name)) return;
+      seen.set(name, {
+        name,
+        hex: (typeof c === "object" && c.colorHex) ? c.colorHex : "",
+        image: (imgs[name] && imgs[name].url) ? imgs[name].url : "",
+      });
+    });
+  });
+  return Array.from(seen.values());
+}
+
+/* إثراء اختياري لصنف الكتالوج بالسيريهات والمقاسات والألوان (للبورتال التفصيلي).
+   opts.includeSeries → seriesQty (السيري المتاح). opts.sizeSets → sizes/sizesLabel/
+   seriesSize (عدد القطع/سيري). opts.includeColors → colors[]. كله pure/server-safe. */
 function enrichItem(item, ord, o) {
   if (o.includeSeries) {
     try { item.seriesQty = getConfirmedSeriesStock(ord); } catch (_) {}
@@ -60,7 +83,11 @@ function enrichItem(item, ord, o) {
       const r = getSizesFromSet(ord, { sizeSets: o.sizeSets });
       item.sizes = r.sizes || [];
       item.sizesLabel = r.label || "";
-    } catch (_) { item.sizes = []; item.sizesLabel = ""; }
+      item.seriesSize = Math.max(1, Number(r.expectedCount) || (r.sizes ? r.sizes.length : 0) || 1);
+    } catch (_) { item.sizes = []; item.sizesLabel = ""; item.seriesSize = 1; }
+  }
+  if (o.includeColors) {
+    try { item.colors = getOrderColors(ord); } catch (_) { item.colors = []; }
   }
   return item;
 }

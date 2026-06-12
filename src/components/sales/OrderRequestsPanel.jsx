@@ -127,12 +127,23 @@ export function OrderRequestsPanel({ onConvert, onClose, isMob, onCountChange })
                 </div>
                 {/* items */}
                 <div style={{ padding: "8px 12px" }}>
-                  {(req.items || []).map((it, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0", fontSize: FS - 2, color: T.textSec, borderBottom: i < req.items.length - 1 ? "1px dashed " + T.brd : "none" }}>
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <b style={{ color: T.text }}>{it.modelNo}</b>{it.sizesLabel ? " · " + it.sizesLabel : ""}{it.requestedQty > it.qty ? <span style={{ color: T.warn }}> (طلب {it.requestedQty}، متاح {it.qty})</span> : ""}
-                    </span>
-                    <span style={{ whiteSpace: "nowrap", fontWeight: 700, color: T.text }}>{it.qty} × {fmt(it.unitPrice)}</span>
-                  </div>)}
+                  {(req.items || []).map((it, i) => {
+                    const cols = Array.isArray(it.colors) ? it.colors.filter(c => c.color) : [];
+                    return <div key={i} style={{ padding: "6px 0", borderBottom: i < req.items.length - 1 ? "1px dashed " + T.brd : "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: FS - 2 }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSec }}>
+                          <b style={{ color: T.text }}>{it.modelNo}</b>{it.sizesLabel ? " · " + it.sizesLabel : ""}{it.seriesSize > 1 ? " · سيري " + it.seriesSize : ""}{it.requestedQty > it.qty ? <span style={{ color: T.warn }}> (طلب {it.requestedQty})</span> : ""}
+                        </span>
+                        <span style={{ whiteSpace: "nowrap", fontWeight: 700, color: T.text }}>{it.qty} × {fmt(it.unitPrice)}</span>
+                      </div>
+                      {cols.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>
+                        {cols.map((c, ci) => <span key={ci} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FS - 4, background: T.bg, border: "1px solid " + T.brd, borderRadius: 20, padding: "2px 9px 2px 4px", color: T.textSec, fontWeight: 600 }}>
+                          {c.image ? <img src={c.image} alt="" style={{ width: 16, height: 16, borderRadius: 4, objectFit: "cover" }} /> : <span style={{ width: 13, height: 13, borderRadius: "50%", background: c.hex || "#ccc", display: "inline-block", border: "1px solid " + T.brd }} />}
+                          {c.color} <b style={{ color: T.text }}>×{c.qty}</b>
+                        </span>)}
+                      </div>}
+                    </div>;
+                  })}
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 6, borderTop: "1px solid " + T.brd }}>
                     <span style={{ fontSize: FS - 2, color: T.textMut }}>{req.totalQty} قطعة</span>
                     <span style={{ fontSize: FS, fontWeight: 900, color: T.text }}>{fmt(req.totalValue)} ج.م</span>

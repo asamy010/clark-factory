@@ -57,7 +57,7 @@ export default async function handler(req, res) {
 
     const allItems = buildStockCatalog(
       { orders, salesOrders },
-      { includeProduction: true, includeSeries: true, sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [] }
+      { includeProduction: true, includeSeries: true, includeColors: true, sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [] }
     );
 
     /* تعقيم: نخلّي id (للسلّة) + الحقول المعروضة. */
@@ -70,8 +70,10 @@ export default async function handler(req, res) {
       avail: i.status === "available" ? i.avail : 0,
       expected: i.status === "soon" ? (i.expected || 0) : 0,
       seriesQty: i.seriesQty || 0,
+      seriesSize: Math.max(1, Number(i.seriesSize) || 1),
       sizesLabel: i.sizesLabel || "",
       sizes: i.sizes || [],
+      colors: Array.isArray(i.colors) ? i.colors : [],
       price: i.sellPrice,
     }));
 

@@ -74,7 +74,7 @@ export default async function handler(req, res) {
 
     const catalog = buildStockCatalog(
       { orders, salesOrders },
-      { includeProduction: false, includeSeries: true, sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [] }
+      { includeProduction: false, includeSeries: true, includeColors: true, sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [] }
     );
 
     const validated = validateOrderRequest(reqItems, catalog);

@@ -70,12 +70,19 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
       customerId: req.custId || "",
       customerName: req.custName || "",
       customerPhone: req.custPhone || "",
-      items: (req.items || []).map(it => ({
-        sourceType: "order", sourceId: it.orderId,
-        modelNo: it.modelNo || "", description: it.modelDesc || "",
-        unit: "قطعة", qty: it.qty, unitPrice: it.unitPrice,
-        discountType: "pct", discountValue: 0,
-      })),
+      /* سطر لكل لون (لو فيه ألوان) — عشان المالك يشوف التفصيل في أمر البيع */
+      items: (req.items || []).flatMap(it => {
+        const cols = (Array.isArray(it.colors) && it.colors.filter(c => c.color).length)
+          ? it.colors.filter(c => c.color)
+          : [{ color: "", qty: it.qty }];
+        return cols.map(cl => ({
+          sourceType: "order", sourceId: it.orderId,
+          modelNo: it.modelNo || "",
+          description: (it.modelDesc || "") + (cl.color ? " — " + cl.color : ""),
+          unit: "قطعة", qty: cl.qty, unitPrice: it.unitPrice,
+          discountType: "pct", discountValue: 0,
+        }));
+      }),
       notes: "من طلب عميل عبر البورتال" + (req.note ? " — " + req.note : ""),
     };
     setShowRequests(false);
