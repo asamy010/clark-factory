@@ -15,6 +15,27 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, readSplitCollection, verifyAdminToken } from "./_firebase.js";
+import { buildStockCatalog } from "../src/utils/stockCatalog.js";
+import { validateOrderRequest } from "../src/utils/orderRequests.js";
+
+/* بناء كتالوج المتاح الحالي (موسم نشط + أوامر بيع) — لإعادة التحقق عند التعديل */
+async function loadActiveCatalog(db, config) {
+  const activeSeason = config.activeSeason;
+  const orders = [];
+  if (activeSeason) {
+    try {
+      const snaps = await db.collection("seasons").doc(activeSeason).collection("orders").get();
+      snaps.forEach(doc => { const o = doc.data(); if (o && o.id) orders.push(o); });
+    } catch (e) { /* تجاهل */ }
+  }
+  const salesOrders = config._splitDaysV21101Done
+    ? await readSplitCollection("salesOrdersDays")
+    : (config.salesOrders || []);
+  return buildStockCatalog(
+    { orders, salesOrders },
+    { includeProduction: false, includeSeries: true, includeColors: true, sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [] }
+  );
+}
 
 async function setStatus(db, date, requestId, patch) {
   if (!date || !requestId) throw new Error("requestId و date مطلوبين");
@@ -63,6 +84,25 @@ export default async function handler(req, res) {
         salesOrderId: body.salesOrderId || null,
       });
       return res.status(200).json({ ok: true, request: updated });
+    }
+
+    if (action === "update") {
+      /* تعديل المالك للكميات — إعادة تحقق ضد المتاح الحالي (قصّ + محاذاة سيري) */
+      const reqItems = Array.isArray(body.items) ? body.items : [];
+      if (reqItems.length === 0) return res.status(400).json({ ok: false, error: "مفيش بنود" });
+      const cfgSnap = await db.collection("factory").doc("config").get();
+      const config = cfgSnap.exists ? cfgSnap.data() : {};
+      const catalog = await loadActiveCatalog(db, config);
+      const validated = validateOrderRequest(reqItems, catalog);
+      if (!validated.ok) return res.status(400).json({ ok: false, error: "مفيش بنود متاحة بعد التعديل", rejected: validated.rejected });
+      const updated = await setStatus(db, body.date, body.requestId, {
+        items: validated.items,
+        totalQty: validated.totalQty,
+        totalValue: validated.totalValue,
+        editedAt: new Date().toISOString(),
+        editedBy: auth.email || "",
+      });
+      return res.status(200).json({ ok: true, request: updated, rejected: validated.rejected });
     }
 
     if (action === "reject") {
