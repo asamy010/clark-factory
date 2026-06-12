@@ -11,7 +11,7 @@
    بيعيد استخدام buildStockCatalog (مصدر الحقيقة الموحّد).
    ═══════════════════════════════════════════════════════════════ */
 
-import { getDb, setCors, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, readPartitionedCollection, readPartitionedDoc } from "./_firebase.js";
 import { verifyCustomerSig } from "./customer-portal.js";
 import { buildStockCatalog } from "../src/utils/stockCatalog.js";
 
@@ -34,11 +34,14 @@ export default async function handler(req, res) {
     if (!configSnap.exists) return res.status(500).json({ ok: false, error: "البيانات غير متاحة" });
     const config = configSnap.data();
 
-    /* العميل لازم موجود وغير موقوف */
-    const customers = config._partitionedV1957Done
-      ? await readPartitionedCollection("customersDocs")
-      : (config.customers || []);
-    const customer = customers.find(c => String(c.id) === String(custId));
+    /* العميل لازم موجود وغير موقوف — V21.21.76: قراءة مستند العميل مباشرة (perf) */
+    let customer = null;
+    if (config._partitionedV1957Done) {
+      customer = await readPartitionedDoc("customersDocs", custId);
+      if (!customer) { const all = await readPartitionedCollection("customersDocs"); customer = all.find(c => String(c.id) === String(custId)) || null; }
+    } else {
+      customer = (config.customers || []).find(c => String(c.id) === String(custId)) || null;
+    }
     if (!customer) return res.status(404).json({ ok: false, error: "العميل غير موجود" });
     if (customer.archived) return res.status(403).json({ ok: false, error: "🔒 تم إيقاف التعامل، تواصل مع المصنع", archived: true });
 
@@ -77,6 +80,9 @@ export default async function handler(req, res) {
       price: i.sellPrice,
     }));
 
+    /* كاش خاص بالمتصفح 30ث — يخفّف إعادة التحميل عند ريفرش الصفحة (الكاش
+       داخل الجلسة في العميل بيغطّي التنقّل بين التابات). */
+    res.setHeader("Cache-Control", "private, max-age=30");
     return res.status(200).json({
       ok: true,
       factory: { name: config.factoryName || "CLARK", logo: config.logo || "" },

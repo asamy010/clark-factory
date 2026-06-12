@@ -159,6 +159,21 @@ export async function readPartitionedCollection(collectionName) {
   }
 }
 
+/* V21.21.76: read ONE doc from a byId-partitioned collection directly (perf).
+   مستندات customersDocs/suppliersDocs/… مفهرسة بالـ id، فبدل ما نقرأ كل
+   المجموعة عشان عنصر واحد (هدر شديد على البورتال)، نقرأ المستند مباشرة.
+   بيرجّع null لو مش موجود — والـ caller يقدر يعمل fallback scan دفاعياً. */
+export async function readPartitionedDoc(collectionName, id) {
+  if (id == null) return null;
+  try {
+    const snap = await getDb().collection(collectionName).doc(String(id)).get();
+    return snap.exists ? (snap.data() || null) : null;
+  } catch (err) {
+    console.error("[api:readPartitionedDoc] failed for", collectionName, id, err);
+    return null;
+  }
+}
+
 /* ── HMAC token helpers ── */
 export function getSecret() {
   const s = process.env.DELIVERY_CONFIRM_SECRET;

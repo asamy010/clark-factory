@@ -14,7 +14,7 @@
    - حارس إساءة: حد للطلبات المعلّقة لكل عميل في اليوم.
    ═══════════════════════════════════════════════════════════════ */
 
-import { getDb, setCors, readSplitCollection, readPartitionedCollection, appendToSplitDay } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, readPartitionedCollection, readPartitionedDoc, appendToSplitDay } from "./_firebase.js";
 import { verifyCustomerSig } from "./customer-portal.js";
 import { buildStockCatalog } from "../src/utils/stockCatalog.js";
 import { validateOrderRequest, buildOrderRequestEntry } from "../src/utils/orderRequests.js";
@@ -42,10 +42,14 @@ export default async function handler(req, res) {
     if (!configSnap.exists) return res.status(500).json({ ok: false, error: "البيانات غير متاحة" });
     const config = configSnap.data();
 
-    const customers = config._partitionedV1957Done
-      ? await readPartitionedCollection("customersDocs")
-      : (config.customers || []);
-    const customer = customers.find(c => String(c.id) === String(custId));
+    /* V21.21.76: قراءة مستند العميل مباشرة (perf) بدل مسح كل العملاء */
+    let customer = null;
+    if (config._partitionedV1957Done) {
+      customer = await readPartitionedDoc("customersDocs", custId);
+      if (!customer) { const all = await readPartitionedCollection("customersDocs"); customer = all.find(c => String(c.id) === String(custId)) || null; }
+    } else {
+      customer = (config.customers || []).find(c => String(c.id) === String(custId)) || null;
+    }
     if (!customer) return res.status(404).json({ ok: false, error: "العميل غير موجود" });
     if (customer.archived) return res.status(403).json({ ok: false, error: "🔒 تم إيقاف التعامل، تواصل مع المصنع" });
 

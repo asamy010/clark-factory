@@ -17,11 +17,18 @@ import { useEffect, useMemo, useState } from "react";
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const AC = "#6366F1", GR = "#059669", MUT = "#94A3B8", BRD = "#E2E8F0", TXT = "#0F172A", SEC = "#475569";
 
+/* كاش داخل الجلسة (module-level) — لما العميل يبدّل تاب ويرجع، المكوّن بيتعمله
+   remount لكن بيهيدريت من الكاش فوراً (مفيش fetch تاني، مفيش «تحميل من الأول»).
+   الكارت كمان بيتحفظ عشان مايضيعش. زر 🔄 بيجيب المتاح المحدّث. */
+const catalogCache = {};  /* { [custId]: { items } } */
+const cartCache = {};      /* { [custId]: cart } */
+
 export function CustomerOrderTab({ custId, sig, ts }) {
-  const [loading, setLoading] = useState(true);
+  const cached = catalogCache[custId];
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState("");
-  const [items, setItems] = useState([]);
-  const [cart, setCart] = useState({});       /* { orderId: { colorName: qtyPieces } } */
+  const [items, setItems] = useState(() => (cached ? cached.items : []));
+  const [cart, setCart] = useState(() => cartCache[custId] || {});   /* { orderId: { colorName: qtyPieces } } */
   const [note, setNote] = useState("");
   const [q, setQ] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -29,17 +36,20 @@ export function CustomerOrderTab({ custId, sig, ts }) {
 
   const qs = "c=" + encodeURIComponent(custId) + "&sig=" + encodeURIComponent(sig) + (ts ? "&t=" + encodeURIComponent(ts) : "");
 
-  const load = async () => {
+  const load = async (force) => {
+    if (!force && catalogCache[custId]) { setItems(catalogCache[custId].items); setLoading(false); return; }
     setLoading(true); setError("");
     try {
       const r = await fetch("/api/customer-portal-catalog?" + qs);
       const j = await r.json();
       if (!r.ok || !j.ok) setError(j.error || "خطأ في التحميل");
-      else setItems(j.items || []);
+      else { setItems(j.items || []); catalogCache[custId] = { items: j.items || [] }; }
     } catch (e) { setError("فشل الاتصال بالخادم"); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  /* حفظ الكارت في الكاش عشان مايضيعش عند التنقّل بين التابات */
+  useEffect(() => { cartCache[custId] = cart; }, [cart, custId]);
 
   const seriesSize = (it) => Math.max(1, Number(it.seriesSize) || 1);
   const availSeries = (it) => { const s = seriesSize(it); return Math.floor((Number(it.avail) || 0) / s) * s; };
@@ -93,7 +103,7 @@ export function CustomerOrderTab({ custId, sig, ts }) {
       });
       const j = await r.json();
       if (!r.ok || !j.ok) { alert(j.error || "فشل إرسال الطلب"); }
-      else { setDone(j); setCart({}); setNote(""); }
+      else { setDone(j); setCart({}); cartCache[custId] = {}; setNote(""); }
     } catch (e) { alert("فشل الاتصال بالخادم"); }
     finally { setSubmitting(false); }
   };
@@ -115,8 +125,11 @@ export function CustomerOrderTab({ custId, sig, ts }) {
   const orderable = items.some(i => i.status === "available");
 
   return <div style={{ paddingBottom: totals.lines ? 130 : 20 }}>
-    <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ابحث عن موديل..."
-      style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 12, border: "1px solid " + BRD, fontSize: 15, marginBottom: 12, fontFamily: "inherit" }} />
+    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ابحث عن موديل..."
+        style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "10px 14px", borderRadius: 12, border: "1px solid " + BRD, fontSize: 15, fontFamily: "inherit" }} />
+      <button onClick={() => load(true)} title="تحديث المتاح" style={{ flexShrink: 0, width: 44, borderRadius: 12, border: "1px solid " + BRD, background: "#fff", color: AC, fontSize: 17, cursor: "pointer", fontFamily: "inherit" }}>🔄</button>
+    </div>
 
     {!orderable && <div style={{ padding: 24, textAlign: "center", color: MUT, background: "#F8FAFC", borderRadius: 12, border: "1px dashed " + BRD, marginBottom: 12 }}>مفيش أصناف متاحة للطلب حالياً</div>}
 

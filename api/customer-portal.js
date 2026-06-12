@@ -18,7 +18,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import crypto from "crypto";
-import { getDb, setCors, readSplitCollection, readPartitionedCollection } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, readPartitionedCollection, readPartitionedDoc } from "./_firebase.js";
 /* V21.21.46: استهلاك الدالة الموحّدة لكشف الحساب — نفس اللي بتغذّي شاشة
    «كشف حساب» الداخلية (AccountStatementView) عشان رقم البورتال يطابق
    الكشف الداخلي بالبناء بدل reimplementation منفصل بيدرِف. format.js
@@ -126,14 +126,18 @@ export default async function handler(req, res) {
     }
     const config = configSnap.data();
     /* V19.57 HOTFIX: customers moved out of factory/config to customersDocs/* via byId
-       partitioning. Read from there if migration done; fallback to config for pre-V19.57. */
-    const customers = config._partitionedV1957Done
-      ? await readPartitionedCollection("customersDocs")
-      : (config.customers || []);
-    /* V16.12: Defensive String() compare — custId from URL is always a string,
-       but legacy data may have numeric c.id (or vice-versa). The strict ===
-       compare would silently fail to find the customer. */
-    const customer = customers.find(c => String(c.id) === String(custId));
+       partitioning. V21.21.76 PERF: read the ONE customer doc directly (was scanning
+       ALL customers — major portal-open lag). Fallback scan دفاعياً لو doc-id مختلف. */
+    let customer = null;
+    if (config._partitionedV1957Done) {
+      customer = await readPartitionedDoc("customersDocs", custId);
+      if (!customer) {
+        const all = await readPartitionedCollection("customersDocs");
+        customer = all.find(c => String(c.id) === String(custId)) || null;
+      }
+    } else {
+      customer = (config.customers || []).find(c => String(c.id) === String(custId)) || null;
+    }
     if (!customer) {
       return res.status(404).json({ error: "العميل غير موجود" });
     }
