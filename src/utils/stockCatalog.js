@@ -60,8 +60,10 @@ function _fabricHasColors(ord, k) {
 /* ألوان الأوردر = ألوان **خامة المصدر الواحدة** (نفس تاب «لون/مقاس»
    ColorSizeMatrixTab + شوبيفاي) — مش دمج كل الخامات. المصدر:
    shopify_meta.color_source_fabric، وإلا أول خامة ليها ألوان، وإلا "A".
-   الصورة من color_images[name].url لو متاحة، وإلا swatch (colorHex). */
-function getOrderColors(ord) {
+   الصورة من color_images[name].url لو متاحة، وإلا swatch (colorHex).
+   V21.21.87: exported — تاب «طلبات البورتال» بيستخدمه لإثراء ألوان الطلب
+   بالصور/الـ hex من نفس مصدر تاب لون/مقاس. */
+export function getOrderColors(ord) {
   const imgs = (ord && ord.shopify_meta && ord.shopify_meta.color_images) || {};
   let sourceKey = ord && ord.shopify_meta && ord.shopify_meta.color_source_fabric;
   if (!sourceKey || !_fabricHasColors(ord, sourceKey)) {

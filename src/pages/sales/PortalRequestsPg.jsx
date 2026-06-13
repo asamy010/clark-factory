@@ -12,13 +12,14 @@
      - ✅ علّم مؤكّد / ❌ رفض.
    ═══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Btn, Card } from "../../components/ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { ask, showToast } from "../../utils/popups.js";
 import { auth } from "../../firebase.js";
 import { createSalesOrderDirectMutator } from "../../utils/sales/salesOrders.js";
+import { getOrderColors } from "../../utils/stockCatalog.js";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("ar-EG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return d || ""; } };
@@ -40,6 +41,30 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
   const [draft, setDraft] = useState({});
   const [showNotifCfg, setShowNotifCfg] = useState(false);
   const userName = user?.displayName || (user?.email || "").split("@")[0] || "";
+
+  /* V21.21.87: الطلب بيخزّن {color, qty} بس (الـ submit بيرمي hex/image).
+     نثري ألوان الطلب client-side من الأوردر الحيّ بنفس مصدر تاب «لون/مقاس»
+     (getOrderColors = خامة المصدر الواحدة + الصور) → الصورة تظهر مكان مربع
+     اللون لو موجودة، وإلا اللون عادي. مفتاح الخريطة: اسم اللون lowercase. */
+  const colorMetaByOrder = useMemo(() => {
+    const out = {};
+    (data?.orders || []).forEach(o => {
+      if (!o || !o.id) return;
+      const m = {};
+      getOrderColors(o).forEach(c => { m[String(c.name || "").trim().toLowerCase()] = { hex: c.hex || "", image: c.image || "" }; });
+      out[o.id] = m;
+    });
+    return out;
+  }, [data?.orders]);
+
+  /* أضف hex/image لكل لون في عنصر الطلب من مصدر الأوردر (بالاسم). */
+  const enrichCols = useCallback((it) => {
+    const meta = colorMetaByOrder[it.orderId] || {};
+    return (Array.isArray(it.colors) ? it.colors : []).map(c => {
+      const hit = meta[String(c.color || "").trim().toLowerCase()] || {};
+      return { ...c, hex: c.hex || hit.hex || "", image: c.image || hit.image || "" };
+    });
+  }, [colorMetaByOrder]);
 
   const call = useCallback(async (payload) => {
     const u = auth.currentUser;
@@ -232,7 +257,8 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
             {/* items */}
             <div style={{ padding: "8px 12px" }}>
               {(req.items || []).map((it, i) => {
-                const allCols = (Array.isArray(it.colors) && it.colors.length) ? it.colors : [{ color: "", hex: "", image: "", qty: it.qty }];
+                const enriched = enrichCols(it);   /* V21.21.87: hex/image من الأوردر */
+                const allCols = enriched.length ? enriched : [{ color: "", hex: "", image: "", qty: it.qty }];
                 const cols = allCols.filter(c => c.color);
                 const step = Math.max(1, Number(it.seriesSize) || 1);
                 return <div key={i} style={{ padding: "8px 0", borderBottom: i < req.items.length - 1 ? "1px dashed " + T.brd : "none" }}>
