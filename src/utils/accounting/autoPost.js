@@ -36,6 +36,8 @@ import {
   buildDiscountPostedEntry,
   /* V19.40: purchase returns */
   buildDebitNotePostedEntry,
+  /* V21.21.85: تسوية فرق صرف العملة الأجنبية */
+  buildFxSettlementEntry,
 } from "./postingRules.js";
 import { isDateLocked, getLockReason } from "./periodLock.js";
 import { resolveUnitCost } from "./unitCost.js";
@@ -316,6 +318,14 @@ export const autoPost = {
   purchaseInvoicePosted(config, invoice, supplier, createdBy){
     if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
     return _buildAndPost("purchaseInvoice", "purchaseInvoice", buildPurchaseInvoicePostedEntry, [invoice, supplier, getCoa(config), getRules(config)], config, createdBy);
+  },
+
+  /* V21.21.85 — تسوية فرق صرف لفاتورة مشتريات أجنبية (إجراء مستقل).
+     opts = { settleRate, fcAmount, settlementId, date }. الفرق يترحّل لـ
+     4910 (مكسب) / 5910 (خسارة) مقابل حساب الموردين. */
+  fxSettlement(config, invoice, opts, supplier, createdBy){
+    if(!isEnabled(config)) return Promise.resolve({ok:false, skipped:"disabled"});
+    return _buildAndPost("fxSettlement", "fxSettlement", buildFxSettlementEntry, [invoice, opts, supplier, getCoa(config), getRules(config)], config, createdBy);
   },
 
   /* V18.50 — Reverse an invoice's journal entries when it's voided.

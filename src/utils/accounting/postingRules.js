@@ -703,6 +703,57 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.21.85 — تسوية فرق صرف لفاتورة مشتريات بعملة أجنبية.
+   لما تُسوّى/تُدفع فاتورة أجنبية بسعر صرف مختلف عن سعر الفاتورة، الفرق
+   بالجنيه = fcAmount × (سعر التسوية − سعر الفاتورة):
+     • فرق موجب (سعر التسوية أعلى → دفعت جنيه أكتر) = خسارة فرق صرف.
+       Dr 5910 (خسائر) / Cr 2110 (موردون) — التزام المورد بالجنيه زاد.
+     • فرق سالب (سعر التسوية أقل) = مكسب فرق صرف.
+       Dr 2110 (موردون) / Cr 4910 (مكاسب) — التزام المورد بالجنيه قلّ.
+   الدائن/المدين بالجنيه دايماً؛ بُعد العملة metadata على سطر الموردون.
+   opts = { settleRate, fcAmount, settlementId, date }
+   ═══════════════════════════════════════════════════════════════════════ */
+export function buildFxSettlementEntry(invoice, opts, supplier, coa, rules){
+  if(!invoice) return null;
+  const o = opts || {};
+  const invRate = Number(invoice.fxRate) || 0;
+  const sRate   = Number(o.settleRate) || 0;
+  const fcAmt   = Number(o.fcAmount) || 0;
+  if(!invoice.currency || invoice.currency === "EGP") return null;
+  if(!(invRate > 0) || !(sRate > 0) || !(fcAmt > 0)) return null;
+  const diff = _r2(fcAmt * (sRate - invRate));   /* جنيه، موجب = خسارة */
+  if(diff === 0) return null;
+
+  const r = resolveRules(rules);
+  const ap  = ensureLeaf(coa, r.purchaseInvoice?.supplierAccount || "2110", "موردون خامات");
+  const fxg = r.fxGainLoss || { gainAccount: "4910", lossAccount: "5910" };
+  const isLoss = diff > 0;
+  const fxAcc = ensureLeaf(coa, isLoss ? fxg.lossAccount : fxg.gainAccount,
+                           isLoss ? "فرق صرف عملة (خسائر)" : "فرق صرف عملة (مكاسب)");
+  const amt = _r2(Math.abs(diff));
+  const date = o.date || new Date().toISOString().split("T")[0];
+
+  const apLine = {accountId:ap.id, accountCode:ap.code, accountName:ap.name,
+                  partyId:supplier?.id||invoice.supplierId, partyName:supplier?.name||invoice.supplierName,
+                  fcAmount:_r2(fcAmt), fcCurrency:invoice.currency, fxRate:sRate,
+                  note:"تسوية فرق صرف فاتورة "+invoice.invoiceNo};
+  const fxLine = {accountId:fxAcc.id, accountCode:fxAcc.code, accountName:fxAcc.name,
+                  note:"فرق صرف "+invoice.currency+" "+invRate+"→"+sRate};
+  const lines = isLoss
+    ? [{...fxLine, debit:amt, credit:0}, {...apLine, debit:0, credit:amt}]
+    : [{...apLine, debit:amt, credit:0}, {...fxLine, debit:0, credit:amt}];
+
+  return {
+    date,
+    sourceType: "fxSettlement",
+    sourceId: invoice.id + ":fx:" + (o.settlementId || Date.now().toString(36)),
+    narration: "تسوية فرق صرف — فاتورة "+invoice.invoiceNo+" ("+invoice.currency+" "+invRate+"→"+sRate+")",
+    lines,
+    partyHint: {kind:"supplier", id:supplier?.id||invoice.supplierId, name:supplier?.name||invoice.supplierName},
+  };
+}
+
 /* Build a REVERSAL entry for an invoice being voided.
    Takes the original entry and produces its mirror (debits become credits).
    Caller is responsible for posting both — voiding the original and

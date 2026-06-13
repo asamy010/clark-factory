@@ -16,6 +16,7 @@ import {
   getInvoiceStats, buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
 } from "../utils/invoices.js";
 import { InvoiceDetailModal } from "./SalesInvoicesPg.jsx";
+import { FxSettlementModal } from "../components/purchase/FxSettlementModal.jsx";
 import { consumePendingPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
@@ -38,6 +39,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
   const [partyId, setPartyId] = useState("");
   const [search, setSearch]   = useState("");
   const [activeInvoice, setActiveInvoice] = useState(null);
+  const [fxInvoice, setFxInvoice] = useState(null);/* V21.21.85: تسوية فرق صرف */
   /* V18.85: Service invoice modal */
   const [showServiceModal, setShowServiceModal] = useState(false);
   /* V19.39: Multi-select for bulk posting */
@@ -305,6 +307,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
               {inv.discount > 0 && <div style={{fontSize:FS-3, color:T.textMut}}>خصم {fmt(inv.discount.toFixed(0))}</div>}
             </div>
             <span style={{padding:"4px 10px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:meta.bg, color:meta.color, border:"1px solid "+meta.color+"30"}}>{meta.label}</span>
+            {inv.status==="posted" && inv.currency && inv.currency!=="EGP" && Number(inv.fcTotal)>0 && <button onClick={e => { e.stopPropagation(); setFxInvoice(inv); }} title="تسوية فرق صرف" style={{background:"#0EA5E912", color:"#0EA5E9", border:"1px solid #0EA5E933", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS, fontWeight:700}}>💱</button>}
             {isDraft && <button onClick={e => { e.stopPropagation(); handleDelete(inv); }} title="حذف المسودة" style={{background:"#EF444412", color:"#EF4444", border:"1px solid #EF444433", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS}}>🗑</button>}
           </div>;
         })}
@@ -319,6 +322,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       isMob={isMob}
       user={user}
     />}
+    {fxInvoice && <FxSettlementModal invoice={fxInvoice} data={data} upConfig={upConfig} user={user} onClose={() => setFxInvoice(null)} />}
     {/* V18.85: Service invoice modal */}
     {showServiceModal && <ServiceInvoiceModal
       mode="purchase" data={data} upConfig={upConfig} user={user} isMob={isMob}

@@ -39,6 +39,7 @@ import {
   buildCreditNoteCogsEntry,
   buildDiscountPostedEntry,
   buildDebitNotePostedEntry,
+  buildFxSettlementEntry,
 } from "../postingRules.js";
 
 const CUSTOMER = { id: "c1", name: "عميل اختبار", discount: 0 };
@@ -512,5 +513,43 @@ describe("buildDiscountPostedEntry (خصم إضافي)", () => {
   it("غير المرحّل أو صفر → null", () => {
     expect(buildDiscountPostedEntry({ status: "draft", total: 100 }, CUSTOMER, TEST_COA, null)).toBeNull();
     expect(buildDiscountPostedEntry({ status: "posted", total: 0 }, CUSTOMER, TEST_COA, null)).toBeNull();
+  });
+});
+
+/* ═══ V21.21.85: تسوية فرق صرف فاتورة مشتريات أجنبية ═══ */
+describe("buildFxSettlementEntry", () => {
+  const INV = { id: "pi9", invoiceNo: "PI-009", supplierName: "مورد", supplierId: "s1", currency: "USD", fxRate: 50, fcTotal: 200 };
+  const SUP = { id: "s1", name: "مورد" };
+
+  it("سعر أعلى = خسارة: Dr 5910 / Cr موردون، بالجنيه + بُعد العملة", () => {
+    /* fcAmount=200, 50→51 → فرق = 200×1 = 200 خسارة */
+    const e = buildFxSettlementEntry(INV, { settleRate: 51, fcAmount: 200, settlementId: "x1" }, SUP, TEST_COA, null);
+    expectBalanced(e);
+    const fx = e.lines.find(l => l.accountCode === "5910");
+    const ap = e.lines.find(l => l.accountCode === "2110");
+    expect(fx.debit).toBe(200);
+    expect(ap.credit).toBe(200);
+    expect(ap.fcCurrency).toBe("USD");
+    expect(ap.fxRate).toBe(51);
+  });
+
+  it("سعر أقل = مكسب: Dr موردون / Cr 4910", () => {
+    /* 50→48 → فرق = 200×(−2) = −400 مكسب */
+    const e = buildFxSettlementEntry(INV, { settleRate: 48, fcAmount: 200, settlementId: "x2" }, SUP, TEST_COA, null);
+    expectBalanced(e);
+    const fx = e.lines.find(l => l.accountCode === "4910");
+    const ap = e.lines.find(l => l.accountCode === "2110");
+    expect(fx.credit).toBe(400);
+    expect(ap.debit).toBe(400);
+  });
+
+  it("نفس السعر = null (مفيش فرق)", () => {
+    expect(buildFxSettlementEntry(INV, { settleRate: 50, fcAmount: 200, settlementId: "x3" }, SUP, TEST_COA, null)).toBeNull();
+  });
+
+  it("فاتورة بالجنيه أو بيانات ناقصة = null", () => {
+    expect(buildFxSettlementEntry({ ...INV, currency: "EGP" }, { settleRate: 51, fcAmount: 200 }, SUP, TEST_COA, null)).toBeNull();
+    expect(buildFxSettlementEntry(INV, { settleRate: 0, fcAmount: 200 }, SUP, TEST_COA, null)).toBeNull();
+    expect(buildFxSettlementEntry(INV, { settleRate: 51, fcAmount: 0 }, SUP, TEST_COA, null)).toBeNull();
   });
 });

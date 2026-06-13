@@ -33,6 +33,7 @@ export const TEST_COA = [
   acct("4110", "الخصم المسموح به", "revenue"),
   acct("4120", "مرتجع المبيعات", "revenue"),
   acct("4900", "إيرادات أخرى", "revenue"),
+  acct("4910", "فرق صرف عملة (مكاسب)", "revenue"),/* V21.21.85 */
   acct("5130", "تكلفة البضاعة المباعة", "expense"),
   acct("5140", "مرتجع المشتريات", "expense"),
   acct("5210", "رواتب ثابتة", "expense"),
@@ -41,6 +42,7 @@ export const TEST_COA = [
   acct("5290", "مصروفات عمومية أخرى", "expense"),
   acct("5310", "إيجار", "expense"),
   acct("5390", "مصروفات إدارية أخرى", "expense"),
+  acct("5910", "فرق صرف عملة (خسائر)", "expense"),/* V21.21.85 */
 ];
 
 export const sumDr = (entry) =>
