@@ -421,6 +421,39 @@ export function getEffectiveRoleKeys(config){
   return getEffectiveRoles(config).map(r => r.key);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.21.91 — resolveUserRole: single source of truth لحلّ دور المستخدم.
+
+   كان فيه نسخ متفرّقة في App.jsx بتحسب الدور بمنطق فيه باگان:
+
+   ① حساسية حالة أحرف الإيميل: الإيميل بيتخزّن lowercase في usersList، لكن
+      المقارنة كانت `u.email === user.email` بـ===؛ أي اختلاف في الحالة
+      (إيميل Firebase فيه كابيتال) → اللوكاب يفشل → الدور يرجع "viewer" →
+      المستخدم مايستلمش أي صلاحية مهما الأدمن يعمل. (السبب الجذري للباگ.)
+
+   ② الأسبقية: الكود كان بيقرأ config.users[uid] الأول، لكن واجهة الإعدادات
+      بتكتب على usersList بس (مابتكتبش config.users[uid] إطلاقاً). فلو فيه
+      entry قديم في config.users[uid] → تعديلات الأدمن بتتجاهَل.
+
+   الحل: usersList (اللي الإعدادات بتديره) هو المرجع لو المستخدم موجود فيه؛
+   وإلا fallback لـ config.users[uid] (legacy/uid) ثم "viewer". المقارنة
+   case-insensitive على الطرفين. */
+export function resolveUserRole(config, user){
+  if(!config || !user) return "viewer";
+  const email = String(user.email || "").trim().toLowerCase();
+  if(email){
+    const byEmail = (Array.isArray(config.usersList) ? config.usersList : [])
+      .find(u => String((u && u.email) || "").trim().toLowerCase() === email);
+    if(byEmail && byEmail.role) return byEmail.role;
+  }
+  const uid = user.uid;
+  if(uid && config.users && config.users[uid]){
+    const r = config.users[uid];
+    return (typeof r === "string") ? r : ((r && r.role) || "viewer");
+  }
+  return "viewer";
+}
+
 /* Effective DEFAULT_PERMS lookup — returns built-in defaults for built-in
    roles, OR the snapshot stored on a custom role. Custom roles ALWAYS have
    a defaults snapshot (created at the time the role was added). If somehow

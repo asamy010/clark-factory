@@ -138,6 +138,7 @@ import {
   getHrSubPermWithCustoms as getHrSubPermFromRegistry,
   validatePermsRegistry,
   getEffectiveRoleMeta,
+  resolveUserRole,
 } from "./utils/permissions.js";
 /* Run the linter once at module load: emits console warnings if TABS in
    LoginScreen drift from PERMISSION_TABS in the registry. Catches bugs
@@ -5678,7 +5679,10 @@ export default function App(){
        (a) Firebase Auth users not in config.users / config.usersList → fell through to "admin"
        (b) A temporary config-load race could also drop a real user to the default
      Both paths now return "viewer" — admins must be explicitly added to usersList. */
-  const getUserRole=()=>{if(config.users&&config.users[user?.uid]){const r=config.users[user.uid];return typeof r==="string"?r:r?.role||"viewer"}const byEmail=(config.usersList||[]).find(u=>u.email===user?.email);if(byEmail)return byEmail.role;return"viewer"};
+  /* V21.21.91: موحّد عبر resolveUserRole — case-insensitive + usersList
+     (المُدار من الإعدادات) أسبق من config.users[uid]. أصلح باگ «الصلاحية
+     مش بتشتغل» (تفاصيل في src/utils/permissions.js). */
+  const getUserRole=()=>resolveUserRole(config,user);
   const userRole=getUserRole();const canEdit=userRole==="admin"||userRole==="manager";
   /* V21.9.61: stable ref to userRole so the health-check evaluate() loop
      (declared earlier in the body, runs on a 15s interval) can read the
