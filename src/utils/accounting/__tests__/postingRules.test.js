@@ -414,6 +414,18 @@ describe("buildPurchaseInvoicePostedEntry", () => {
   it("إجمالي صفر → null", () => {
     expect(buildPurchaseInvoicePostedEntry({ id: "pi3", status: "posted", total: 0 }, null, TEST_COA, null)).toBeNull();
   });
+
+  it("V21.21.84: فاتورة بعملة أجنبية → بُعد العملة على السطور + توازن بالجنيه", () => {
+    const inv = { id: "pi4", invoiceNo: "PI-004", status: "posted", date: "2026-06-13", total: 10000, supplierName: "مورد",
+      currency: "USD", fxRate: 50, fcTotal: 200 };
+    const e = buildPurchaseInvoicePostedEntry(inv, { id: "s1", name: "مورد" }, TEST_COA, null);
+    expectBalanced(e);                       /* الدائن/المدين بالجنيه */
+    expect(e.lines[0].debit).toBe(10000);    /* مخزون بالجنيه */
+    expect(e.lines[0].fcAmount).toBe(200);   /* بُعد الدولار */
+    expect(e.lines[0].fcCurrency).toBe("USD");
+    expect(e.lines[0].fxRate).toBe(50);
+    expect(e.lines[1].fcAmount).toBe(200);   /* موردون بالدولار */
+  });
 });
 
 describe("buildInvoiceVoidEntry", () => {

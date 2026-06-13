@@ -611,6 +611,11 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
   const ap     = ensureLeaf(coa, r.purchaseInvoice?.supplierAccount || "2110", "موردون خامات");
   const date = invoice.date || new Date().toISOString().split("T")[0];
   const isService = invoice.subtype === "service";
+  /* V21.21.84: لو الفاتورة بعملة أجنبية، نرفق بُعد العملة على سطور القيد
+     (الدائن/المدين بالجنيه دايماً؛ posting.js بيحتفظ بالحقول دي metadata). */
+  const fc = (invoice.currency && invoice.currency !== "EGP" && Number(invoice.fcTotal) > 0)
+    ? { fcAmount: _r2(Number(invoice.fcTotal) || 0), fcCurrency: invoice.currency, fxRate: Number(invoice.fxRate) || 0 }
+    : null;
 
   /* V18.85: For service invoices, debit per-line accountId (expense accounts).
      Lines without accountId fall back to a generic مصاريف عمومية account.
@@ -660,6 +665,7 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
     }
     lines.push({accountId:ap.id, accountCode:ap.code, accountName:ap.name, debit:0, credit:total,
                 partyId:supplier?.id||invoice.supplierId, partyName:supplier?.name||invoice.supplierName,
+                ...(fc||{}),
                 note:"فاتورة "+invoice.invoiceNo});
     return {
       date,
@@ -686,9 +692,11 @@ export function buildPurchaseInvoicePostedEntry(invoice, supplier, coa, rules){
     narration: `فاتورة مشتريات ${invoice.invoiceNo} من ${invoice.supplierName||""}`,
     lines: [
       {accountId:invAcc.id, accountCode:invAcc.code, accountName:invAcc.name, debit:total, credit:0,
+       ...(fc||{}),
        note:`فاتورة ${invoice.invoiceNo}`},
       {accountId:ap.id, accountCode:ap.code, accountName:ap.name, debit:0, credit:total,
        partyId:supplier?.id||invoice.supplierId, partyName:supplier?.name||invoice.supplierName,
+       ...(fc||{}),
        note:`فاتورة ${invoice.invoiceNo}`},
     ],
     partyHint: {kind:"supplier", id:supplier?.id||invoice.supplierId, name:supplier?.name||invoice.supplierName},
