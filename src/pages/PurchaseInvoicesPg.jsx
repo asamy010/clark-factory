@@ -292,6 +292,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
               <div style={{fontFamily:"monospace", fontSize:FS-1, fontWeight:800, color:T.accent}}>
                 {inv.invoiceNo}
                 {inv.subtype==="service" && <span style={{marginInlineStart:6,fontSize:FS-3,padding:"1px 5px",borderRadius:4,background:"#8B5CF620",color:"#8B5CF6",fontWeight:700}}>🛠 خدمات</span>}
+                {inv.currency && inv.currency!=="EGP" && <span title={"بعملة "+inv.currency+" × "+(inv.fxRate||0)+" — الإجمالي الأجنبي: "+(inv.fcTotal||0)+" "+inv.currency} style={{marginInlineStart:6,fontSize:FS-3,padding:"1px 6px",borderRadius:4,background:"#0EA5E920",color:"#0EA5E9",fontWeight:700}}>💱 {inv.currency} × {inv.fxRate||0}</span>}
               </div>
               <div style={{fontSize:FS-3, color:T.textMut, fontFamily:"monospace"}}>{inv.date}</div>
             </div>

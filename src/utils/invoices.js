@@ -320,8 +320,11 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
     qty:      Number(it.qty) || 0,
     unitPrice:Number(it.unitPrice) || Number(it.price) || 0,
     lineTotal:r2((Number(it.qty)||0) * (Number(it.unitPrice)||Number(it.price)||0)),/* V19.66 */
+    /* V21.21.83: عملة أجنبية metadata (للعرض + فرق الصرف عند الدفع) */
+    ...(it.fcPrice ? { fcUnitPrice: Number(it.fcPrice)||0, fcLineTotal: r2((Number(it.qty)||0) * (Number(it.fcPrice)||0)) } : {}),
   }));
   const incomingDiscount = r2(Number(receipt.discount) || 0);
+  const inCur = receipt.currency || "EGP";   /* V21.21.83 */
 
   if(existing){
     /* Merge: bump qty if same itemType+itemId+unitPrice matches an existing line,
@@ -329,6 +332,9 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
        orderId+unitPrice. Items that share an item but differ in price stay
        on separate lines (price history matters for accounting). */
     if(!Array.isArray(existing.items)) existing.items = [];
+    /* V21.21.83: لو عملة الاستلام مختلفة عن عملة الفاتورة → مختلطة، نلغي
+       تتبّع العملة على الفاتورة (تفضل بالجنيه — العملة الوظيفية). */
+    const mixed = (existing.currency || "EGP") !== inCur;
     for(const inc of incomingItems){
       const matched = existing.items.find(it =>
         it.itemType === inc.itemType &&
@@ -338,6 +344,7 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
       if(matched){
         matched.qty = (Number(matched.qty) || 0) + inc.qty;
         matched.lineTotal = r2(matched.qty * Number(matched.unitPrice));/* V19.66 */
+        if(!mixed && inc.fcUnitPrice){ matched.fcUnitPrice = inc.fcUnitPrice; matched.fcLineTotal = r2(matched.qty * inc.fcUnitPrice); }
       } else {
         existing.items.push(inc);
       }
@@ -352,6 +359,16 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
     existing.discount = r2((Number(existing.discount) || 0) + incomingDiscount);
     existing.total = r2(existing.subtotal - existing.discount);
     existing.discountPct = existing.subtotal > 0 ? r2(existing.discount / existing.subtotal * 100) : 0;
+    /* V21.21.83: تحديث/إلغاء حقول العملة الأجنبية */
+    if(mixed){
+      delete existing.currency; delete existing.fxRate; delete existing.fcSubtotal; delete existing.fcTotal;
+      existing.items.forEach(it => { delete it.fcUnitPrice; delete it.fcLineTotal; });
+    } else if(inCur !== "EGP"){
+      existing.currency = inCur;
+      existing.fxRate = Number(receipt.fxRate) || existing.fxRate || 0;
+      existing.fcSubtotal = r2(existing.items.reduce((s, it) => s + (Number(it.fcLineTotal) || 0), 0));
+      existing.fcTotal = existing.fcSubtotal;
+    }
     /* Append receipt notes if the new receipt has any */
     if(receipt.notes && receipt.notes.trim()){
       existing.notes = existing.notes
@@ -365,6 +382,9 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
   const invoiceNo = reserveInvoiceNo(d, "purchase");
   const subtotal = r2(incomingItems.reduce((s, it) => s + it.lineTotal, 0));/* V19.66 */
   const total = r2(subtotal - incomingDiscount);
+  /* V21.21.83: عملة الفاتورة الأجنبية (إن وُجدت) — الجنيه يفضل الوظيفي */
+  const _foreign = inCur !== "EGP";
+  const fcSubtotal = _foreign ? r2(incomingItems.reduce((s, it) => s + (Number(it.fcLineTotal) || 0), 0)) : 0;
   const inv = {
     id: "pinv_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,7),
     invoiceNo,
@@ -379,6 +399,7 @@ export function upsertPurchaseInvoiceFromReceipt(d, receipt, supplier, userName)
     discountPct: subtotal > 0 ? r2(incomingDiscount / subtotal * 100) : 0,
     discount: incomingDiscount,
     total,
+    ...(_foreign ? { currency: inCur, fxRate: Number(receipt.fxRate) || 0, fcSubtotal, fcTotal: fcSubtotal } : {}),
     status: "draft",
     notes: receipt.notes || "",
     createdAt: new Date().toISOString(),

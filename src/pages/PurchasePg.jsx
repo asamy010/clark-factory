@@ -566,14 +566,16 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
      ربط كل سطر بسطر أمر الشراء (_poLineId) عشان تتبّع الاستلام الجزئي. */
   const convertPoToReceipt=(p)=>{
     const prog=poLineProgress(p,purchaseReceipts);
+    const _foreign=p.currency&&p.currency!=="EGP";/* V21.21.83: عملة أجنبية */
     setRcpt({
       supplierId:p.supplierId,supplierName:p.supplierName,date:today,
       items:(p.items||[]).filter(it=>!it.isSection).map(it=>{
         const lp=prog[it.id]||{ordered:Number(it.qty)||0,received:0,remaining:Number(it.qty)||0};
-        return {id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:lp.remaining,unit:it.unit,price:it.price,amount:r2(lp.remaining*(Number(it.price)||0)),notes:it.notes||"",_fromPo:p.id,_poLineId:it.id,_orderedQty:lp.ordered,_receivedBefore:lp.received};
+        return {id:gid(),itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:lp.remaining,unit:it.unit,price:it.price,amount:r2(lp.remaining*(Number(it.price)||0)),notes:it.notes||"",_fromPo:p.id,_poLineId:it.id,_orderedQty:lp.ordered,_receivedBefore:lp.received,...(it.fcPrice?{fcPrice:Number(it.fcPrice)||0,fcAmount:r2(lp.remaining*(Number(it.fcPrice)||0))}:{})};
       }),
       paymentMethod:"credit",treasuryAccount:"",paidAmount:0,notes:"من أمر الشراء "+p.poNo,
-      checkBank:"",checkNo:"",checkDueDate:"",_poId:p.id,_poNo:p.poNo
+      checkBank:"",checkNo:"",checkDueDate:"",_poId:p.id,_poNo:p.poNo,
+      ...(_foreign?{currency:p.currency,fxRate:Number(p.fxRate)||0}:{})
     });
     setViewPo(null);
     setSubTab("receipts");
@@ -802,12 +804,16 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         qty:Number(it.qty)||0,unit:it.unit||"",
         price:Number(it.price)||0,amount:Number(it.amount)||0,
         notes:it.notes||"",
+        /* V21.21.83: العملة الأجنبية metadata (fcAmount يتناسب مع الكمية المستلمة) */
+        ...(it.fcPrice?{fcPrice:Number(it.fcPrice)||0,fcAmount:r2((Number(it.qty)||0)*(Number(it.fcPrice)||0))}:{}),
         ...(it._poLineId?{_poLineId:it._poLineId}:{}),...(it._fromPo?{_fromPo:it._fromPo}:{}) /* V21.21.7: تتبّع الاستلام الجزئي لكل بند */
       })),
       totalAmount:r2(totalAmount),paidAmount:r2(paidAmt),
       paymentMethod:rcpt.paymentMethod,paymentStatus,
       treasuryAccount:rcpt.paymentMethod==="cash"?rcpt.treasuryAccount:"",
       notes:rcpt.notes||"",
+      /* V21.21.83: عملة الاستلام (الجنيه = الوظيفية؛ الأجنبي metadata) */
+      ...(rcpt.currency&&rcpt.currency!=="EGP"?{currency:rcpt.currency,fxRate:Number(rcpt.fxRate)||0,fcTotalAmount:r2(validItems.reduce((s,it)=>s+((Number(it.qty)||0)*(Number(it.fcPrice)||0)),0))}:{}),
       createdBy:userName,createdAt:new Date().toISOString()
     };
     

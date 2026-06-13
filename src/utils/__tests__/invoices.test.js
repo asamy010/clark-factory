@@ -15,6 +15,7 @@ import {
   postInvoiceMutator,
   voidInvoiceMutator,
   deleteDraftInvoiceMutator,
+  upsertPurchaseInvoiceFromReceipt,
 } from "../invoices.js";
 
 const ORDER = { id: "o1", modelNo: "M-100", sellPrice: 200 };
@@ -146,5 +147,46 @@ describe("deleteDraftInvoiceMutator — تسلسل الحذف (§14.2)", () => {
     };
     deleteDraftInvoiceMutator(d, "inv1", "sales");
     expect(d.salesOrders[0].status).toBe("delivered");
+  });
+});
+
+/* ═══ V21.21.83: فاتورة مشتريات بعملة أجنبية (الجنيه وظيفي + الأجنبي metadata) ═══ */
+describe("upsertPurchaseInvoiceFromReceipt — العملة الأجنبية", () => {
+  const SUP = { id: "s1", name: "مورد" };
+  it("استلام بالدولار: الفاتورة بالجنيه + metadata أجنبي", () => {
+    const d = { purchaseInvoices: [], invoiceCounters: {} };
+    const receipt = {
+      id: "r1", receiptNo: "REC-1", supplierId: "s1", date: "2026-06-13",
+      currency: "USD", fxRate: 50,
+      items: [{ itemType: "fabric", itemId: "f1", itemName: "قماش", qty: 2, price: 5000, fcPrice: 100 }],
+    };
+    const { invoice, isNew } = upsertPurchaseInvoiceFromReceipt(d, receipt, SUP, "tester");
+    expect(isNew).toBe(true);
+    expect(invoice.total).toBe(10000);      /* جنيه = 2 × 5000 */
+    expect(invoice.currency).toBe("USD");
+    expect(invoice.fxRate).toBe(50);
+    expect(invoice.fcTotal).toBe(200);       /* دولار = 2 × 100 */
+    expect(invoice.items[0].fcLineTotal).toBe(200);
+  });
+  it("استلام بالجنيه: مفيش حقول عملة أجنبية", () => {
+    const d = { purchaseInvoices: [], invoiceCounters: {} };
+    const receipt = { id: "r2", receiptNo: "REC-2", supplierId: "s1", date: "2026-06-13",
+      items: [{ itemType: "fabric", itemId: "f1", itemName: "قماش", qty: 1, price: 500 }] };
+    const { invoice } = upsertPurchaseInvoiceFromReceipt(d, receipt, SUP, "tester");
+    expect(invoice.total).toBe(500);
+    expect(invoice.currency).toBeUndefined();
+    expect(invoice.fcTotal).toBeUndefined();
+  });
+  it("دمج عملتين مختلفتين → الفاتورة تفضل بالجنيه بدون تتبّع عملة", () => {
+    const d = { purchaseInvoices: [], invoiceCounters: {} };
+    const usd = { id: "r3", receiptNo: "REC-3", supplierId: "s1", date: "2026-06-13", currency: "USD", fxRate: 50,
+      items: [{ itemType: "fabric", itemId: "f1", itemName: "قماش", qty: 2, price: 5000, fcPrice: 100 }] };
+    const eur = { id: "r4", receiptNo: "REC-4", supplierId: "s1", date: "2026-06-13", currency: "EUR", fxRate: 55,
+      items: [{ itemType: "accessory", itemId: "a1", itemName: "زرار", qty: 1, price: 2200, fcPrice: 40 }] };
+    upsertPurchaseInvoiceFromReceipt(d, usd, SUP, "tester");
+    const { invoice } = upsertPurchaseInvoiceFromReceipt(d, eur, SUP, "tester");
+    expect(invoice.total).toBe(12200);       /* جنيه إجمالي صحيح */
+    expect(invoice.currency).toBeUndefined(); /* عملات مختلطة → ملغي */
+    expect(invoice.items.every(it => it.fcLineTotal === undefined)).toBe(true);
   });
 });
