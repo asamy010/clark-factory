@@ -575,6 +575,11 @@ export const SUB_TABS = {
   salesOrders: [
     { key: "portalRequests", label: "🛒 طلبات البورتال", inheritFrom: "salesOrders" },
   ],
+  purchase: [
+    { key: "purchaseSuppliers",  label: "👥 الموردون", inheritFrom: "purchase" },
+    { key: "purchaseStock",      label: "📦 المخزن",   inheritFrom: "purchase" },
+    { key: "purchaseCategories", label: "🏷️ الأصناف",  inheritFrom: "purchase" },
+  ],
 };
 
 /* كل المفاتيح الفرعية مسطّحة (للتحقق/التكرار) */

@@ -7238,7 +7238,7 @@ export default function App(){
             المفاتيح القديمة (purchase/purchaseInvoices/debitNotes) للتاب الصح،
             فالروابط القديمة شغّالة. الصلاحيات محفوظة لكل تاب بـ canViewTab. */}
         {["purchases","purchase","purchaseInvoices","debitNotes"].includes(tab)
-          && <PurchaseHubPg tab={tab} data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} user={user} userRole={userRole} canViewTab={canViewTab} canEditTab={canEditTab}/>}
+          && <PurchaseHubPg tab={tab} data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} user={user} userRole={userRole} canViewTab={canViewTab} canEditTab={canEditTab} canViewSub={canViewSub} canEditSub={canEditSub}/>}
         {tab==="warehouse"&&<WarehousePg data={data} upConfig={upConfig} updOrder={updOrder} isMob={isMob} isTab={isTab} canEdit={canEditTab("warehouse")} statusCards={statusCards} user={user} userRole={userRole}/>}
         {/* V19.81.0: Pieces lookup — scan QR → see lifecycle.
             V19.86.0: also receives upSales + updOrder so SellTab can create

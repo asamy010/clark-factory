@@ -52,6 +52,14 @@ export function PurchaseHubPg(props){
   const canInv   = canViewTab("purchaseInvoices");
   const canDN    = canViewTab("debitNotes");
   const canRfq   = canViewTab("purchaseRfq");
+  /* V21.21.94 Phase 3: تابات داخلية (موردون/مخزن/أصناف) — بترث «purchase»
+     إلا لو فيه override. fallback = السلوك الحالي بالظبط. */
+  const noop2 = (_s, fb) => fb;
+  const canViewSub = props.canViewSub || noop2;
+  const canEditSub = props.canEditSub || noop2;
+  const SUB_OF = { suppliers: "purchaseSuppliers", stock: "purchaseStock", categories: "purchaseCategories" };
+  const canViewPurchView = (v) => { const sk = SUB_OF[v]; return sk ? canViewSub(sk, canPurch ? "view" : "hide") : canPurch; };
+  const canEditPurchView = (v) => { const sk = SUB_OF[v]; return sk ? canEditSub(sk, canEditTab("purchase") ? "edit" : "view") : canEditTab("purchase"); };
 
   const tabs = useMemo(() => [
     { id: "overview",   label: "📊 نظرة عامة",        show: true },
@@ -62,10 +70,10 @@ export function PurchaseHubPg(props){
     { id: "debitNotes", label: "↪️ إشعارات مدينة",    show: canDN,    cnt: (data.purchaseDebitNotes || []).length },
     { id: "ledger",     label: "📊 كشف محاسبي",       show: canInv || canPurch },
     { id: "reports",    label: "📈 تقارير",            show: canPurch || canInv },
-    { id: "suppliers",  label: "👥 الموردون",         show: canPurch, cnt: (data.suppliers || []).length },
-    { id: "stock",      label: "📦 المخزن",           show: canPurch },
-    { id: "categories", label: "🏷️ الأصناف",          show: canPurch, cnt: (data.itemCategories || []).length },
-  ].filter(t => t.show), [data.purchaseRfqs, data.purchaseOrders, data.purchaseReceipts, data.purchaseInvoices, data.purchaseDebitNotes, data.suppliers, data.itemCategories, canViewTab]);
+    { id: "suppliers",  label: "👥 الموردون",         show: canViewPurchView("suppliers"), cnt: (data.suppliers || []).length },
+    { id: "stock",      label: "📦 المخزن",           show: canViewPurchView("stock") },
+    { id: "categories", label: "🏷️ الأصناف",          show: canViewPurchView("categories"), cnt: (data.itemCategories || []).length },
+  ].filter(t => t.show), [data.purchaseRfqs, data.purchaseOrders, data.purchaseReceipts, data.purchaseInvoices, data.purchaseDebitNotes, data.suppliers, data.itemCategories, canViewTab, props.canViewSub]);
 
   const allowed = (id) => tabs.some(t => t.id === id);
   const firstId = tabs[0]?.id || "overview";
@@ -150,8 +158,8 @@ export function PurchaseHubPg(props){
           { id: "inv-materials", icon: "🧵", title: "تقييم المخزون — الخامات والإكسسوار", desc: "قيمة أرصدة الخامات والإكسسوار بالتكلفة (متوسط التكلفة ‖ السعر)", color: "#D97706", render: () => <InventoryValuationReport data={data} kind="materials" isMob={isMob} /> },
         ]} />}
         {/* أقسام PurchasePg تشارك instance واحد (hubView={active}) — مفيش remount عند التبديل */}
-        {PURCH_VIEWS.includes(active) && canPurch
-          && <PurchasePg data={data} upConfig={props.upConfig} isMob={isMob} isTab={props.isTab} canEdit={canEditTab("purchase")} user={props.user} userRole={props.userRole} hubView={active} />}
+        {PURCH_VIEWS.includes(active) && canViewPurchView(active)
+          && <PurchasePg data={data} upConfig={props.upConfig} isMob={isMob} isTab={props.isTab} canEdit={canEditPurchView(active)} user={props.user} userRole={props.userRole} hubView={active} />}
       </Suspense>
     </div>
   );
