@@ -8,7 +8,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, r2 } from "../../utils/format.js";
 import { ask, showToast } from "../../utils/popups.js";
-import { nextRfqNo, validateRfq } from "../../utils/purchase/rfq.js";
+import { nextRfqNo, validateRfq, PURCHASE_CURRENCIES, CURRENCY_LABELS } from "../../utils/purchase/rfq.js";
 import { DocLineEditor } from "../sales/DocLineEditor.jsx";
 
 const toEditorItem = (it) => it && it.isSection ? { ...it } : ({
@@ -32,6 +32,9 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
   const [notes, setNotes] = useState(editRfq?.notes || "");
   /* V21.21.43: خصم كلي على مستوى الطلب (فوق خصومات البنود) */
   const [discountPct, setDiscountPct] = useState(editRfq?.discountPct || 0);
+  /* V21.21.82: عملة + سعر صرف (الجنيه = العملة الوظيفية) */
+  const [currency, setCurrency] = useState(editRfq?.currency || "EGP");
+  const [fxRate, setFxRate] = useState(editRfq?.fxRate && editRfq.fxRate !== 1 ? String(editRfq.fxRate) : "");
 
   const supOpts = suppliers.map(s => ({ value: s.id, label: s.name + (s.phone ? " — " + s.phone : "") }));
 
@@ -60,6 +63,11 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
   const _pct = Math.min(Math.max(Number(discountPct) || 0, 0), 100);
   const headerDisc = r2(afterLine * (_pct / 100));
   const total = r2(afterLine - headerDisc);
+  /* V21.21.82: المكافئ بالجنيه */
+  const _foreign = currency !== "EGP";
+  const _rate = _foreign ? (Number(fxRate) || 0) : 1;
+  const totalEGP = r2(total * _rate);
+  const curSym = CURRENCY_LABELS[currency] || currency;
 
   const handleSave = () => {
     const sup = suppliers.find(s => String(s.id) === String(supplierId));
@@ -75,6 +83,8 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
         .filter(it => it.isSection ? String(it.title || "").trim() : (String(it.modelNo || it.description || "").trim() || Number(it.qty) > 0)),
       notes: notes.trim(),
       discountPct: _pct,
+      currency,                                       /* V21.21.82 */
+      fxRate: _foreign ? (Number(fxRate) || 0) : 1,
       requestedBy: userName || "",
     };
     const v = validateRfq(payload);
@@ -110,6 +120,20 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
             <div><label style={lbl}>مهلة الرد (صالح حتى)</label><Inp type="date" value={validUntil} onChange={setValidUntil} /></div>
           </div>
 
+          {/* V21.21.82: العملة + سعر الصرف (الأسعار بتتدخل بالعملة المختارة) */}
+          <div style={{ display: "grid", gridTemplateColumns: _foreign ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={lbl}>العملة</label>
+              <select value={currency} onChange={e => setCurrency(e.target.value)} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid " + T.brd, background: T.cardSolid, color: T.text, fontFamily: "inherit", fontSize: FS - 1 }}>
+                {PURCHASE_CURRENCIES.map(c => <option key={c} value={c}>{c} — {CURRENCY_LABELS[c] || c}</option>)}
+              </select>
+            </div>
+            {_foreign && <div>
+              <label style={lbl}>سعر الصرف (1 {currency} = ؟ ج.م)</label>
+              <Inp type="number" value={fxRate} onChange={setFxRate} placeholder="مثال: 50" />
+            </div>}
+          </div>
+
           {/* البنود — محرّر Odoo-style */}
           <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, marginBottom: 6 }}>الأصناف المطلوب تسعيرها</div>
           <div style={{ marginBottom: 14 }}>
@@ -133,9 +157,14 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
               <span style={{ fontSize: FS, fontWeight: 700, color: T.err, direction: "ltr" }}>{headerDisc > 0 ? "− " + fmt(headerDisc.toFixed(2)) : "—"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #D9770630" }}>
-              <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>الإجمالي التقديري</span>
-              <span style={{ fontSize: FS + 4, fontWeight: 800, color: "#D97706", direction: "ltr" }}>{fmt(total.toFixed(2))}</span>
+              <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>الإجمالي التقديري{_foreign ? " (" + currency + ")" : ""}</span>
+              <span style={{ fontSize: FS + 4, fontWeight: 800, color: "#D97706", direction: "ltr" }}>{fmt(total.toFixed(2))}{_foreign ? " " + currency : ""}</span>
             </div>
+            {/* V21.21.82: المكافئ بالجنيه */}
+            {_foreign && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px dashed " + T.brd }}>
+              <span style={{ fontSize: FS - 1, color: T.textSec }}>= بالجنيه {_rate > 0 ? "(× " + _rate + ")" : ""}</span>
+              <span style={{ fontSize: FS + 1, fontWeight: 800, color: _rate > 0 ? "#059669" : T.err, direction: "ltr" }}>{_rate > 0 ? fmt(totalEGP.toFixed(2)) + " ج.م" : "اكتب سعر الصرف"}</span>
+            </div>}
           </div>
         </div>
 

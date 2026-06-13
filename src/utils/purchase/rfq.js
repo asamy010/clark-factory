@@ -31,6 +31,10 @@ const RFQ_PREFIX = "طلب"; /* عربي حسب نمط عروض الأسعار *
 
 export const RFQ_STATUSES = ["draft", "sent", "received", "converted", "rejected", "expired"];
 
+/* V21.21.82: عملات الشراء المدعومة (الجنيه = العملة الوظيفية). */
+export const PURCHASE_CURRENCIES = ["EGP", "USD", "EUR", "SAR", "AED", "CNY", "TRY"];
+export const CURRENCY_LABELS = { EGP: "ج.م", USD: "$ دولار", EUR: "€ يورو", SAR: "ريال سعودي", AED: "درهم", CNY: "¥ يوان", TRY: "ليرة تركية" };
+
 /* ── Counter ── */
 export function nextRfqNo(data){
   const year = new Date().getFullYear();
@@ -66,8 +70,15 @@ export function recalcRfqTotals(rfq){
   /* V21.21.43: خصم كلي على مستوى الرأس (discountPct) فوق خصومات البنود. */
   const discountPct = Math.min(Math.max(Number(rfq.discountPct) || 0, 0), 100);
   const headerDiscount = r2(afterLine * (discountPct / 100));
-  /* subtotal محفوظ كإجمالي-بعد-خصم-البنود (متوافق مع القديم) · total = بعد الخصم الكلي */
-  return { ...rfq, items, subtotal: afterLine, discountPct, headerDiscount, total: r2(afterLine - headerDiscount) };
+  const total = r2(afterLine - headerDiscount);
+  /* V21.21.82: عملة متعددة — الجنيه هو العملة الوظيفية، والعملة الأجنبية +
+     سعر الصرف metadata. الأسعار في البنود بالعملة المختارة؛ المكافئ بالجنيه
+     = total × fxRate (للعرض + للتحويل لأمر شراء بالجنيه). */
+  const currency = rfq.currency || "EGP";
+  const fxRate = currency === "EGP" ? 1 : Math.max(0, Number(rfq.fxRate) || 0);
+  return { ...rfq, items, subtotal: afterLine, discountPct, headerDiscount, total,
+    currency, fxRate,
+    subtotalEGP: r2(afterLine * (fxRate || 1)), totalEGP: r2(total * (fxRate || 1)) };
 }
 
 /* ── Validation ── */
@@ -77,6 +88,8 @@ export function validateRfq(q){
   const hasSupplier = (q.supplierId && String(q.supplierId).trim()) || (q.supplierNameAdHoc && q.supplierNameAdHoc.trim());
   if(!hasSupplier) errors.push("اختر مورد أو اكتب اسم مورد");
   if(!q.date || !/^\d{4}-\d{2}-\d{2}$/.test(q.date)) errors.push("تاريخ الطلب غير صالح");
+  /* V21.21.82: لو العملة مش جنيه لازم سعر صرف موجب */
+  if(q.currency && q.currency !== "EGP" && !(Number(q.fxRate) > 0)) errors.push("اكتب سعر صرف صحيح للعملة الأجنبية");
   const items = Array.isArray(q.items) ? q.items : [];
   const realItems = items.filter(it => !(it && it.isSection));
   if(realItems.length === 0) errors.push("أضف بند واحد على الأقل");
@@ -120,6 +133,8 @@ export function saveRfqMutator(d, payload, userName){
       items: payload.items || prev.items,
       notes: payload.notes ?? prev.notes,
       requestedBy: payload.requestedBy ?? prev.requestedBy,
+      currency: payload.currency ?? prev.currency,        /* V21.21.82 */
+      fxRate: payload.fxRate ?? prev.fxRate,
       updatedAt: nowIso,
       updatedBy: userName || "",
     });
@@ -138,6 +153,8 @@ export function saveRfqMutator(d, payload, userName){
     supplierPhone: payload.supplierPhone || "",
     supplierNameAdHoc: payload.supplierNameAdHoc || "",
     items: payload.items || [],
+    currency: payload.currency || "EGP",   /* V21.21.82 */
+    fxRate: payload.fxRate || 1,
     status: "draft",
     notes: payload.notes || "",
     requestedBy: payload.requestedBy || userName || "",
@@ -212,6 +229,14 @@ export function convertRfqToPurchaseOrderMutator(d, rfqId, userName){
   const maxNum = existing.reduce((m, r) => { const n = Number((r.poNo || "").split("-").pop()) || 0; return n > m ? n : m; }, 0);
   const poNo = prefix + year + "-" + String(maxNum + 1).padStart(3, "0");
 
+  /* V21.21.82: العملة الأجنبية تتحوّل لجنيه عند التحويل لأمر شراء (الجنيه هو
+     العملة الوظيفية في باقي السلسلة: استلام/فاتورة/خزنة/محاسبة). المبلغ
+     الأجنبي + السعر يتحفظوا كـ metadata (fcPrice/fcAmount/currency/fxRate)
+     للعرض ولحساب فرق الصرف لاحقاً. */
+  const currency = q.currency || "EGP";
+  const fxRate = currency === "EGP" ? 1 : (Math.max(0, Number(q.fxRate) || 0) || 1);
+  const foreign = currency !== "EGP";
+
   /* بنحمّل الربط بالمخزون (itemType/itemId) للأمر عشان الاستلام يزوّد المخزون صح.
      الخصم بيتبني داخل السعر الصافي (PO مفيهوش حقل خصم). الأقسام بتتشال. */
   const items = (q.items || []).filter(it => !(it && it.isSection)).map(it => {
@@ -219,19 +244,22 @@ export function convertRfqToPurchaseOrderMutator(d, rfqId, userName){
     const sub = qty * up;
     const dVal = Number(it.discountValue) || 0;
     const disc = it.discountType === "amount" ? Math.min(Math.max(dVal, 0), sub) : sub * (Math.min(Math.max(dVal, 0), 100) / 100);
-    const net = r2(sub - disc);
+    const net = r2(sub - disc);              /* صافي البند بالعملة الأجنبية */
+    const netEGP = r2(net * fxRate);          /* المكافئ بالجنيه */
     return {
       itemType: (it.sourceType && it.sourceType !== "service") ? it.sourceType : "",
       itemId: it.sourceId || "",
       itemName: it.modelNo || it.description || "",
       qty,
       unit: it.unit || "",
-      price: qty > 0 ? r2(net / qty) : net,
-      amount: net,
+      price: qty > 0 ? r2(netEGP / qty) : netEGP,   /* بالجنيه (العملة الوظيفية) */
+      amount: netEGP,
+      ...(foreign ? { fcPrice: qty > 0 ? r2(net / qty) : net, fcAmount: net } : {}),
       notes: it.notes || "",
     };
   });
-  const totalAmount = r2(items.reduce((s, it) => s + (it.amount || 0), 0));
+  const totalAmount = r2(items.reduce((s, it) => s + (it.amount || 0), 0));        /* جنيه */
+  const fcTotalAmount = foreign ? r2(items.reduce((s, it) => s + (it.fcAmount || 0), 0)) : 0;
 
   const poId = "po_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
   const po = {
@@ -240,7 +268,8 @@ export function convertRfqToPurchaseOrderMutator(d, rfqId, userName){
     supplierName: q.supplierName || q.supplierNameAdHoc || "",
     date: new Date().toISOString().split("T")[0],
     items, totalAmount,
-    notes: (q.notes ? q.notes + " — " : "") + "محوّل من طلب عروض أسعار " + (q.rfqNo || ""),
+    ...(foreign ? { currency, fxRate, fcTotalAmount } : {}),
+    notes: (q.notes ? q.notes + " — " : "") + "محوّل من طلب عروض أسعار " + (q.rfqNo || "") + (foreign ? ` (${currency} × ${fxRate})` : ""),
     createdBy: userName || "", createdAt: nowIso,
     _fromRfqId: q.id, _fromRfqNo: q.rfqNo || "",
   };

@@ -47,3 +47,56 @@ describe("recalcRfqTotals — الخصم الكلي (V21.21.43)", () => {
     expect(recalcRfqTotals({ discountPct: -5, items: [{ qty: 1, unitPrice: 100 }] }).total).toBe(100);
   });
 });
+
+/* ═══ V21.21.82: عملة متعددة + سعر صرف ═══ */
+import { convertRfqToPurchaseOrderMutator } from "../rfq.js";
+
+describe("recalcRfqTotals — عملة + سعر صرف", () => {
+  it("الافتراضي EGP بسعر 1، والمكافئ = الإجمالي", () => {
+    const r = recalcRfqTotals({ items: [{ qty: 2, unitPrice: 100 }] });
+    expect(r.currency).toBe("EGP");
+    expect(r.fxRate).toBe(1);
+    expect(r.total).toBe(200);
+    expect(r.totalEGP).toBe(200);
+  });
+  it("USD بسعر 50: totalEGP = total × 50", () => {
+    const r = recalcRfqTotals({ currency: "USD", fxRate: 50, items: [{ qty: 2, unitPrice: 100 }] });
+    expect(r.currency).toBe("USD");
+    expect(r.fxRate).toBe(50);
+    expect(r.total).toBe(200);       /* بالدولار */
+    expect(r.totalEGP).toBe(10000);  /* بالجنيه */
+  });
+});
+
+describe("convertRfqToPurchaseOrderMutator — يحوّل لجنيه + يحفظ الأجنبي", () => {
+  it("PO يتسجّل بالجنيه (× السعر) مع metadata الأجنبي", () => {
+    const d = {
+      purchaseRfqs: [recalcRfqTotals({
+        id: "rfq_1", rfqNo: "طلب-1", currency: "USD", fxRate: 50,
+        supplierId: "s1", supplierName: "مورد",
+        items: [{ qty: 2, unitPrice: 100, sourceType: "fabric", sourceId: "f1", modelNo: "قماش" }],
+      })],
+      purchaseOrders: [],
+    };
+    const res = convertRfqToPurchaseOrderMutator(d, "rfq_1", "tester");
+    expect(res.ok).toBe(true);
+    const po = d.purchaseOrders[0];
+    expect(po.totalAmount).toBe(10000);     /* جنيه = 200 × 50 */
+    expect(po.fcTotalAmount).toBe(200);     /* دولار */
+    expect(po.currency).toBe("USD");
+    expect(po.fxRate).toBe(50);
+    expect(po.items[0].amount).toBe(10000); /* جنيه */
+    expect(po.items[0].fcAmount).toBe(200); /* دولار */
+  });
+  it("EGP عادي: مفيش حقول عملة أجنبية على الـ PO", () => {
+    const d = {
+      purchaseRfqs: [recalcRfqTotals({ id: "rfq_2", rfqNo: "طلب-2", supplierId: "s1", items: [{ qty: 1, unitPrice: 500 }] })],
+      purchaseOrders: [],
+    };
+    convertRfqToPurchaseOrderMutator(d, "rfq_2", "tester");
+    const po = d.purchaseOrders[0];
+    expect(po.totalAmount).toBe(500);
+    expect(po.currency).toBeUndefined();
+    expect(po.items[0].fcAmount).toBeUndefined();
+  });
+});
