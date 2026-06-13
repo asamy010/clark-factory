@@ -20,6 +20,20 @@ const stepBtn = (disabled) => ({ width: 28, height: 28, borderRadius: 8, border:
 /* كاش داخل الجلسة (module-level) — التنقّل بين التابات مايعيدش التحميل/الصور. */
 const catalogCache = {};  /* { [custId]: { items } } */
 const cartCache = {};      /* { [custId]: cart } */
+const inflight = {};       /* { [custId]: true } — منع تكرار الـ prefetch */
+
+/* V21.21.86: تحميل مُسبق للكتالوج في الخلفية (يُنادى من البورتال عند الفتح)
+   عشان تاب «اطلب» يفتح فوراً بدون تحميل. fire-and-forget، يكتب في الكاش. */
+export function prefetchOrderCatalog(custId, sig, ts) {
+  if (!custId || !sig || catalogCache[custId] || inflight[custId]) return;
+  inflight[custId] = true;
+  const qs = "c=" + encodeURIComponent(custId) + "&sig=" + encodeURIComponent(sig) + (ts ? "&t=" + encodeURIComponent(ts) : "");
+  fetch("/api/customer-portal-catalog?" + qs)
+    .then(r => r.json())
+    .then(j => { if (j && j.ok) catalogCache[custId] = { items: j.items || [] }; })
+    .catch(() => {})
+    .finally(() => { delete inflight[custId]; });
+}
 
 /* ── كارت موديل واحد — بمعاينة لون محلية (الصورة الرئيسية تتغيّر حسب اللون) ── */
 function ModelCard({ it, modelCart, onBump }) {

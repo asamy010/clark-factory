@@ -153,11 +153,19 @@ export default async function handler(req, res) {
     const activeSeason = config.activeSeason;
     const allOrders = [];
 
-    /* Try orders in all seasons */
+    /* Try orders in all seasons. V21.21.86 PERF: اقرأ كل المواسم بالتوازي
+       (كانت متسلسلة await ورا await → بطء فتح البورتال مع تعدّد المواسم). */
     const seasons = config.seasons || [];
-    for (const season of seasons) {
-      try {
-        const snaps = await db.collection("seasons").doc(season).collection("orders").get();
+    const seasonResults = await Promise.all(
+      seasons.map(season =>
+        db.collection("seasons").doc(season).collection("orders").get()
+          .then(snaps => ({ season, snaps }))
+          .catch(() => ({ season, snaps: null }))  /* موسم بدون collection — تخطّى */
+      )
+    );
+    for (const { season, snaps } of seasonResults) {
+      if (!snaps) continue;
+      {
         snaps.forEach(doc => {
           const o = doc.data();
           /* Only include orders that have activity with this customer */
@@ -180,8 +188,6 @@ export default async function handler(req, res) {
             allOrders.push({ ...o, id: o.id || doc.id, _docId: doc.id, season });
           }
         });
-      } catch (e) {
-        /* Season without orders collection — skip silently */
       }
     }
 
@@ -282,23 +288,14 @@ export default async function handler(req, res) {
     /* V19.51 HOTFIX: custPayments + checks moved out of factory/config in V19.49.
        Read from custPaymentsDays/* and checksDays/* (day-split collections) instead.
        Falls back to config arrays for backward compat (pre-V19.49 deployments). */
-    const allCustPayments = (config._splitDaysV1949Done
-      ? await readSplitCollection("custPaymentsDays")
-      : (config.custPayments || []));
-    const allChecks = (config._splitDaysV1949Done
-      ? await readSplitCollection("checksDays")
-      : (config.checks || []));
-
-    /* V21.21.46: تحميل أوامر البيع + الخزنة للوضع التشغيلي.
-       salesOrders → salesOrdersDays (V21.10.1)، treasury → treasuryDays (V16.74).
-       كانوا مش بيتحمّلوا في البورتال إطلاقاً → أوامر البيع ودفعات الخزنة
-       اليتيمة كانت غايبة عن الرصيد. */
-    const allSalesOrders = (config._splitDaysV21101Done
-      ? await readSplitCollection("salesOrdersDays")
-      : (config.salesOrders || []));
-    const allTreasury = (config._splitDaysV1674Done
-      ? await readSplitCollection("treasuryDays")
-      : (config.treasury || []));
+    /* V21.21.86 PERF: اقرأ المجموعات الأربعة بالتوازي (كانت 4 awaits متسلسلة).
+       salesOrders → salesOrdersDays (V21.10.1)، treasury → treasuryDays (V16.74). */
+    const [allCustPayments, allChecks, allSalesOrders, allTreasury] = await Promise.all([
+      config._splitDaysV1949Done ? readSplitCollection("custPaymentsDays") : Promise.resolve(config.custPayments || []),
+      config._splitDaysV1949Done ? readSplitCollection("checksDays")       : Promise.resolve(config.checks || []),
+      config._splitDaysV21101Done ? readSplitCollection("salesOrdersDays") : Promise.resolve(config.salesOrders || []),
+      config._splitDaysV1674Done ? readSplitCollection("treasuryDays")     : Promise.resolve(config.treasury || []),
+    ]);
 
     /* Customer payments — V18.3: keep method for cash/checks split.
        V21.21.22 FIX: استبعاد custPayments بـ method شيك — الشيكات بتتعدّ من

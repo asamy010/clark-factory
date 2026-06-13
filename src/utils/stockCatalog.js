@@ -51,24 +51,36 @@ export function computeOrderAvail(o, soReserved){
 /* مفاتيح الأقمشة A..H — كل واحد له مصفوفة ألوان order["colors"+k] (§4). */
 const FAB_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
-/* تجميع ألوان الأوردر عبر كل مفاتيح الأقمشة (مع إزالة التكرار بالاسم).
-   الصورة من order.shopify_meta.color_images[name].url لو متاحة، وإلا swatch. */
+/* هل الخامة k ليها ألوان فعلية؟ */
+function _fabricHasColors(ord, k) {
+  const arr = ord["colors" + k];
+  return Array.isArray(arr) && arr.some(c => String((typeof c === "string" ? c : (c && (c.color || c.n || c.name))) || "").trim());
+}
+
+/* ألوان الأوردر = ألوان **خامة المصدر الواحدة** (نفس تاب «لون/مقاس»
+   ColorSizeMatrixTab + شوبيفاي) — مش دمج كل الخامات. المصدر:
+   shopify_meta.color_source_fabric، وإلا أول خامة ليها ألوان، وإلا "A".
+   الصورة من color_images[name].url لو متاحة، وإلا swatch (colorHex). */
 function getOrderColors(ord) {
   const imgs = (ord && ord.shopify_meta && ord.shopify_meta.color_images) || {};
-  const seen = new Map();
-  FAB_KEYS.forEach(k => {
-    const arr = ord["colors" + k];
-    if (Array.isArray(arr)) arr.forEach(c => {
-      const name = (typeof c === "string" ? c : (c && c.color) || "").trim();
-      if (!name || seen.has(name)) return;
-      seen.set(name, {
-        name,
-        hex: (typeof c === "object" && c.colorHex) ? c.colorHex : "",
-        image: (imgs[name] && imgs[name].url) ? imgs[name].url : "",
-      });
+  let sourceKey = ord && ord.shopify_meta && ord.shopify_meta.color_source_fabric;
+  if (!sourceKey || !_fabricHasColors(ord, sourceKey)) {
+    sourceKey = FAB_KEYS.find(k => _fabricHasColors(ord, k)) || "A";
+  }
+  const arr = ord["colors" + sourceKey];
+  const seen = new Set();
+  const out = [];
+  if (Array.isArray(arr)) arr.forEach(c => {
+    const name = (typeof c === "string" ? c : (c && c.color) || "").trim();
+    if (!name || seen.has(name.toLowerCase())) return;
+    seen.add(name.toLowerCase());
+    out.push({
+      name,
+      hex: (typeof c === "object" && c.colorHex) ? c.colorHex : "",
+      image: (imgs[name] && imgs[name].url) ? imgs[name].url : "",
     });
   });
-  return Array.from(seen.values());
+  return out;
 }
 
 /* إثراء اختياري لصنف الكتالوج بالسيريهات والمقاسات والألوان (للبورتال التفصيلي).

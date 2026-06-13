@@ -124,3 +124,24 @@ describe("buildStockKpis", () => {
     expect(k.soonModels).toBe(1);
   });
 });
+
+/* ═══ V21.21.86: ألوان من خامة المصدر الواحدة (مش دمج كل الخامات) ═══ */
+describe("buildStockCatalog — includeColors من خامة المصدر", () => {
+  const colorRaw = (extra) => ({
+    colorsA: [{ color: "أحمر", colorHex: "#f00" }, { color: "أزرق", colorHex: "#00f" }],
+    colorsB: [{ color: "أخضر", colorHex: "#0f0" }],
+    ...extra,
+  });
+
+  it("بياخد ألوان الخامة المصدر (color_source_fabric) بس", () => {
+    const data = { orders: [mkOrder({ id: "o1", confirmed: 50, _raw: colorRaw({ shopify_meta: { color_source_fabric: "B" } }) })], salesOrders: [] };
+    const cat = buildStockCatalog(data, { includeColors: true });
+    expect((cat[0].colors || []).map(c => c.name)).toEqual(["أخضر"]);   /* خامة B بس — مش مدمجة مع A */
+  });
+
+  it("بدون مصدر محدد → أول خامة ليها ألوان (A)", () => {
+    const data = { orders: [mkOrder({ id: "o1", confirmed: 50, _raw: colorRaw({}) })], salesOrders: [] };
+    const cat = buildStockCatalog(data, { includeColors: true });
+    expect((cat[0].colors || []).map(c => c.name)).toEqual(["أحمر", "أزرق"]);  /* A بس */
+  });
+});

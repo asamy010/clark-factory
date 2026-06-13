@@ -19,7 +19,7 @@
 
 import { useEffect, useState } from "react";
 import { Stars } from "../utils/rating.jsx";
-import { CustomerOrderTab } from "./portal/CustomerOrderTab.jsx";
+import { CustomerOrderTab, prefetchOrderCatalog } from "./portal/CustomerOrderTab.jsx";
 
 const fmt = (n) => (n == null ? "0" : Math.round(Number(n)).toLocaleString("en-US"));
 const fmtDate = (d) => {
@@ -68,6 +68,10 @@ export function CustomerPortalPage({ params }) {
   /* V21.21.78: pagination لسجل الحركات — 25 + عرض المزيد (وقت تحميل أسرع) */
   const [txShowN, setTxShowN] = useState(25);
   useEffect(() => { setTxShowN(25); }, [modelFilter, tab]);
+
+  /* V21.21.86: حمّل كتالوج تاب «اطلب» في الخلفية فور فتح البورتال (endpoint
+     منفصل عن البورتال — مايبطّأش تحميله) عشان التاب يفتح فوراً بدون انتظار. */
+  useEffect(() => { if (custId && sig) prefetchOrderCatalog(custId, sig, ts); }, [custId, sig, ts]);
 
   useEffect(() => {
     const load = async () => {
