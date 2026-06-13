@@ -115,7 +115,7 @@ export default async function handler(req, res) {
         type: "order_request",
         msg: baseMsg,
         toEmail,
-        link: { type: "portalRequest" },
+        link: { type: "portalRequest", label: "فتح طلبات بورتال" },
         custId: customer.id,
         requestId: reqId,
         createdAt: nowISO,

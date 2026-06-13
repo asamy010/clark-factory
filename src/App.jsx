@@ -6039,8 +6039,10 @@ export default function App(){
      Excludes system-generated types like delivery_confirmed/delivery_issue (those go to bell). */
   const subBarNotifs=userNotifs.filter(n=>{
     const t=n.type;
-    /* V21.9.254: surface due-check alerts in the side notification list too. */
-    return t==="تذكير"||t==="طلب"||t==="مهمة"||t==="مهمة عاجلة"||t==="check_alert";
+    /* V21.9.254: surface due-check alerts in the side notification list too.
+       V21.21.81: + طلبات بيع البورتال (order_request) تظهر في البانل الجانبية
+       (الإشعارات النشطة) بشكل منفصل وواضح — مش في الجرس بس. */
+    return t==="تذكير"||t==="طلب"||t==="مهمة"||t==="مهمة عاجلة"||t==="check_alert"||t==="order_request";
   });
   /* Helper: format time-remaining for an expiring notification. Returns "1س 23د" / "45د" / "آخر اليوم" / null. */
   const formatRemaining=(n)=>{
@@ -6103,6 +6105,7 @@ export default function App(){
     "مهمة":       {icon:"📌",bg:"#EFF6FF",border:"#BFDBFE",text:"#2563EB"},
     "مهمة عاجلة": {icon:"🔴",bg:"#FEF2F2",border:"#FECACA",text:"#DC2626"},
     "check_alert": {icon:"🧾",bg:"#ECFEFF",border:"#A5F3FC",text:"#0E7490"},
+    "order_request": {icon:"🛒",bg:"#EEF2FF",border:"#C7D2FE",text:"#4F46E5"},
   };
 
   /* V19.48: Live ticker is wired at top of component (before early returns) for hook-order stability. */
