@@ -132,13 +132,13 @@ import { LoginScreen, TABS } from "./components/LoginScreen.jsx";
    V19.48: Switched to WithCustoms variants so admin-defined custom roles work
    end-to-end (tab gating + label rendering + permissions evaluation). */
 import {
-  effectivePermWithCustoms as effectivePermFromRegistry,
-  canEditPermWithCustoms as canEditPermFromRegistry,
-  canViewPermWithCustoms as canViewPermFromRegistry,
-  getHrSubPermWithCustoms as getHrSubPermFromRegistry,
   validatePermsRegistry,
   getEffectiveRoleMeta,
   resolveUserRole,
+  effectivePermForUser as effectivePermForUserRegistry,
+  canEditPermForUser as canEditPermForUserRegistry,
+  canViewPermForUser as canViewPermForUserRegistry,
+  getHrSubPermForUser as getHrSubPermForUserRegistry,
 } from "./utils/permissions.js";
 /* Run the linter once at module load: emits console warnings if TABS in
    LoginScreen drift from PERMISSION_TABS in the registry. Catches bugs
@@ -5698,10 +5698,12 @@ export default function App(){
      thin wrapper that delegates to the registry's pure functions. The runtime linter
      emits console warnings at startup if TABS in LoginScreen drift from PERMISSION_TABS.
      V19.48: Pass full config (not just permissions) so custom roles get resolved. */
-  const getTabPerm=(tabKey)=>effectivePermFromRegistry(userRole,tabKey,config);
-  const getHrSubPerm=(subKey)=>getHrSubPermFromRegistry(userRole,subKey,config);
-  const canEditTab=(tabKey)=>canEditPermFromRegistry(userRole,tabKey,config);
-  const canViewTab=(tabKey)=>canViewPermFromRegistry(userRole,tabKey,config);
+  /* V21.21.92 Phase 2: user-aware — تجاوز المستخدم (usersList[i].perms)
+     يكسب على الدور؛ من غير تجاوز = سلوك الدور بالظبط (متوافق رجعياً). */
+  const getTabPerm=(tabKey)=>effectivePermForUserRegistry(config,user,tabKey);
+  const getHrSubPerm=(subKey)=>getHrSubPermForUserRegistry(config,user,subKey);
+  const canEditTab=(tabKey)=>canEditPermForUserRegistry(config,user,tabKey);
+  const canViewTab=(tabKey)=>canViewPermForUserRegistry(config,user,tabKey);
   /* V21.14.3: المفاتيح المجمّعة (هَب المبيعات/المشتريات) مش مفاتيح صلاحيات حقيقية.
      canViewPage بيتعامل معاها = يقدر يشوف لو أي قسم جوّاها مسموح. كان السبب في
      الصفحة البيضاء للمحاسبين: canViewTab("sales")/("purchases") بترجّع hide

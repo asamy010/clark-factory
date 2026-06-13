@@ -509,6 +509,59 @@ export function getHrSubPermWithCustoms(role, subKey, config){
   return "hide";
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.21.92 — Phase 2: تجاوز الصلاحيات لكل مستخدم (per-user override).
+
+   التخزين: على entry المستخدم في usersList (نفس المصدر اللي الإعدادات
+   بتديره + اللي Phase 1 خلّاه المرجع):
+     usersList[i].perms = { [tabKey]: "edit"|"view"|"hide" | {hr subs}, ... }
+   غياب المفتاح (أو "inherit") = يرث من الدور. السلوك متوافق رجعياً تماماً:
+   مستخدم من غير perms = نفس حساب الدور بالظبط (مفيش تغيير).
+
+   الأسبقية: admin دايماً كامل (V18.61 — مايتقفلش) ← ثم تجاوز المستخدم ←
+   ثم صلاحية الدور (effectivePermWithCustoms). */
+
+/* القيمة الخام للتجاوز لتابٍ معيّن (string | object | null=يرث). */
+export function getUserPermOverride(config, user, tabKey){
+  if(!config || !user) return null;
+  const email = String(user.email || "").trim().toLowerCase();
+  if(!email) return null;
+  const entry = (Array.isArray(config.usersList) ? config.usersList : [])
+    .find(u => String((u && u.email) || "").trim().toLowerCase() === email);
+  if(!entry || !entry.perms || typeof entry.perms !== "object") return null;
+  const v = entry.perms[tabKey];
+  if(v === undefined || v === null || v === "inherit") return null;
+  return v;
+}
+
+/* الصلاحية الفعّالة لمستخدمٍ بعينه (تجاوز المستخدم يكسب، وإلا الدور). */
+export function effectivePermForUser(config, user, tabKey){
+  const role = resolveUserRole(config, user);
+  if(role === "admin") return DEFAULT_PERMS.admin[tabKey] || "edit";  /* غير قابل للتجاوز */
+  const override = getUserPermOverride(config, user, tabKey);
+  if(override != null) return override;
+  return effectivePermWithCustoms(role, tabKey, config);
+}
+
+export function canEditPermForUser(config, user, tabKey){
+  const p = effectivePermForUser(config, user, tabKey);
+  if(typeof p === "object") return Object.values(p).some(v => v === "edit");
+  return p === "edit";
+}
+
+export function canViewPermForUser(config, user, tabKey){
+  const p = effectivePermForUser(config, user, tabKey);
+  if(typeof p === "object") return Object.values(p).some(v => v !== "hide");
+  return p !== "hide";
+}
+
+export function getHrSubPermForUser(config, user, subKey){
+  const hrPerm = effectivePermForUser(config, user, "hr");
+  if(typeof hrPerm === "string") return hrPerm;
+  if(hrPerm && typeof hrPerm === "object") return hrPerm[subKey] || "hide";
+  return "hide";
+}
+
 /* Preset color palette for custom-role color picker */
 export const ROLE_COLOR_PALETTE = [
   "#0EA5E9", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4",

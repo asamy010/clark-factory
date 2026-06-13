@@ -39,6 +39,15 @@ export function PermissionsInspectorModal({user, config, permissions, onClose, i
   const role = user?.role || "viewer";
   const allRoleMeta = getEffectiveRoleMeta(cfg);
   const roleMeta = allRoleMeta[role] || ROLE_META.viewer;
+  /* V21.21.92: عكس تجاوز المستخدم (usersList[i].perms) في «الصلاحيات الفعلية»
+     عشان مايضلّلش الأدمن إن التجاوز مش شغّال. admin دايماً بالدور (كامل). */
+  const permFor = (tabKey) => {
+    if(role !== "admin" && user && user.perms && typeof user.perms === "object"){
+      const ov = user.perms[tabKey];
+      if(ov === "edit" || ov === "view" || ov === "hide" || (ov && typeof ov === "object")) return ov;
+    }
+    return effectivePermWithCustoms(role, tabKey, cfg);
+  };
 
   /* Group tabs by their `group` field for visual clustering */
   const groupedTabs = PERMISSION_TABS.reduce((acc, t) => {
@@ -62,7 +71,7 @@ export function PermissionsInspectorModal({user, config, permissions, onClose, i
   /* Compute summary counts */
   let editCount = 0, viewCount = 0, hideCount = 0;
   PERMISSION_TABS.forEach(t => {
-    const p = effectivePermWithCustoms(role, t.key, cfg);
+    const p = permFor(t.key);
     if(typeof p === "object"){
       /* HR object — count its sub-perms */
       Object.values(p).forEach(v => {
@@ -130,7 +139,7 @@ export function PermissionsInspectorModal({user, config, permissions, onClose, i
             <table style={{width:"100%", borderCollapse:"collapse", fontSize:FS-1}}>
               <tbody>
                 {tabs.map(tab => {
-                  const p = effectivePermWithCustoms(role, tab.key, cfg);
+                  const p = permFor(tab.key);
                   if(typeof p === "object"){
                     /* HR — render parent + sub-rows */
                     return <PermissionRowGroup key={tab.key} tab={tab} hrPerms={p}/>;

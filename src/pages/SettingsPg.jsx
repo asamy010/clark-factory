@@ -33,6 +33,7 @@ import {
 import { syncRoleScopesToFirestore, computeRoleScopes } from "../utils/syncRoleScopes.js";
 /* V19.44: Inspector — admin tool to see what a user can actually do */
 import { PermissionsInspectorModal } from "../components/PermissionsInspectorModal.jsx";
+import { UserPermsModal } from "../components/settings/UserPermsModal.jsx";
 /* V19.45: Custom roles manager — admin UI to create/edit/delete custom roles */
 import { CustomRolesManager } from "../components/CustomRolesManager.jsx";
 /* V19.46: Write self-test diagnostic — round-trip write/read/delete test
@@ -3927,6 +3928,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
      ("why can't user X save receipts?") without trial and error. */
   const[inspectorOpen,setInspectorOpen]=useState(false);
   const[inspectorUser,setInspectorUser]=useState(null);
+  const[userPermsRow,setUserPermsRow]=useState(null); /* V21.21.92: تجاوز لكل مستخدم */
   const[createErr,setCreateErr]=useState("");const[createOk,setCreateOk]=useState("");const[creating,setCreating]=useState(false);
   const[clearConfirm,setClearConfirm]=useState(false);
   const[atSelUser,setAtSelUser]=useState("");const[atEditIdx,setAtEditIdx]=useState(null);const[nfEditUser,setNfEditUser]=useState("");
@@ -4303,7 +4305,7 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
               }
             }
             x.role=v;
-          }))}>{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel>}</td><td style={TD}><div style={{display:"flex",gap:6,alignItems:"center"}}><Btn small ghost onClick={()=>{setInspectorUser(u);setInspectorOpen(true)}} style={{fontSize:FS-3,padding:"4px 8px"}} title="عرض الصلاحيات الفعلية">🔍 فحص</Btn>{isAdminRow?<span title="لا يمكن حذف مدير النظام" style={{padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-2,fontWeight:600,cursor:"not-allowed"}}>🔒</span>:(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{
+          }))}>{effectiveRoles.map(r=><option key={r.key} value={r.key}>{r.icon} {r.label}{r.isCustom?" (مخصص)":""}</option>)}</Sel>}</td><td style={TD}><div style={{display:"flex",gap:6,alignItems:"center"}}><Btn small ghost onClick={()=>{setInspectorUser(u);setInspectorOpen(true)}} style={{fontSize:FS-3,padding:"4px 8px"}} title="عرض الصلاحيات الفعلية">🔍 فحص</Btn>{!isAdminRow&&<Btn small ghost onClick={()=>requirePass(()=>setUserPermsRow(u))} style={{fontSize:FS-3,padding:"4px 8px",color:(u.perms&&Object.keys(u.perms).length>0)?"#D97706":undefined}} title="صلاحيات خاصة لهذا المستخدم (تكسر الدور)">🔐 خاص{u.perms&&Object.keys(u.perms).length>0?" ("+Object.keys(u.perms).length+")":""}</Btn>}{isAdminRow?<span title="لا يمكن حذف مدير النظام" style={{padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px dashed "+T.brd,color:T.textMut,fontSize:FS-2,fontWeight:600,cursor:"not-allowed"}}>🔒</span>:(()=>{const hasTasks=(Array.isArray(config.tasks)?config.tasks:[]).some(t=>t.toEmail===u.email&&!t.done);return<DelBtn onConfirm={()=>requirePass(()=>upConfig(d=>{
             /* Defensive last-admin guard at delete path too. Even though admin rows
                show 🔒 instead of DelBtn, custom roles or edge cases could surface this. */
             const target=(d.usersList||[]).find(z=>z.email===u.email);
@@ -4333,6 +4335,12 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
         config={config}
         onClose={()=>{setInspectorOpen(false);setInspectorUser(null)}}
         isMob={isMob}
+      />}
+      {userPermsRow&&<UserPermsModal
+        userRow={userPermsRow}
+        config={config}
+        upConfig={upConfig}
+        onClose={()=>setUserPermsRow(null)}
       />}
     </Card>
     {/* Send Notifications */}
