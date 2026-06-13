@@ -57,11 +57,17 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
     return out;
   }, [data?.orders]);
 
-  /* أضف hex/image لكل لون في عنصر الطلب من مصدر الأوردر (بالاسم). */
+  /* أضف hex/image لكل لون في عنصر الطلب من مصدر الأوردر (بالاسم).
+     V21.21.89: كمان نفلتر لألوان **خامة المصدر** بس (نشيل ألوان من خامات
+     تانية زي الأبيض من خامة B اللي اتخزّنت في طلبات قديمة قبل V21.21.86).
+     الفلترة بس لو الأوردر ليه ألوان مصدر معروفة (مايبقاش فاضي → نشيل الكل). */
   const enrichCols = useCallback((it) => {
-    const meta = colorMetaByOrder[it.orderId] || {};
-    return (Array.isArray(it.colors) ? it.colors : []).map(c => {
-      const hit = meta[String(c.color || "").trim().toLowerCase()] || {};
+    const meta = colorMetaByOrder[it.orderId];
+    const cols = Array.isArray(it.colors) ? it.colors : [];
+    const hasSource = meta && Object.keys(meta).length > 0;
+    const kept = hasSource ? cols.filter(c => meta[String(c.color || "").trim().toLowerCase()]) : cols;
+    return kept.map(c => {
+      const hit = (meta && meta[String(c.color || "").trim().toLowerCase()]) || {};
       return { ...c, hex: c.hex || hit.hex || "", image: c.image || hit.image || "" };
     });
   }, [colorMetaByOrder]);
