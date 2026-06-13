@@ -30,6 +30,9 @@ import { StageProgressModal } from "../components/StageProgressModal.jsx";
 import { DefaultModelImg } from "../components/DefaultModelImg.jsx";
 import { ShopifyPushModal } from "../components/ShopifyPushModal.jsx";
 import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
+/* V21.21.90: حجوزات البورتال (عرض فقط) */
+import { auth } from "../firebase.js";
+import { fetchPortalReservations, reservedQtyForOrder } from "../utils/sales/portalReservations.js";
 
 export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,canEditWarehouse,statusCards,goHome,upConfig,user}){
   /* V21.9.59 (Reported Bug — أمين المخزن مش بـ يقدر يسجل استلامات):
@@ -48,6 +51,23 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const order=data.orders.find(o=>o.id===sel);const[editing,setEditing]=useState(false);
   const userName=user?.displayName||user?.email?.split("@")[0]||"";
   const[detQ,setDetQ]=useState("");const[detSt,setDetSt]=useState("الكل");const[waSent,setWaSent]=useState({});const[waPopup,setWaPopup]=useState(null);
+  /* V21.21.90: حجوزات البورتال (عرض فقط) — الطلبات المؤكّدة غير المتحوّلة
+     لأمر بيع، مجمّعة حسب الأوردر. جلب مرة واحدة من الـ admin API (نفس نمط
+     SalesHubPg). مايقلّلش المتاح — تنبيه عرضي بس. الإلغاء بيشيله عند الجلب. */
+  const[reservByOrder,setReservByOrder]=useState({});
+  const[reservPopup,setReservPopup]=useState(null); /* {order, list} */
+  useEffect(()=>{
+    let alive=true;
+    (async()=>{
+      try{
+        const u=auth.currentUser; if(!u) return;
+        const token=await u.getIdToken();
+        const by=await fetchPortalReservations(token);  /* كاش بـ TTL */
+        if(alive) setReservByOrder(by);
+      }catch(_){/* غير أدمن أو شبكة — تجاهل (مفيش حجوزات تظهر) */}
+    })();
+    return ()=>{alive=false;};
+  },[sel]);
   /* V21.9.108: order tag filter state (Slice 7 of Universal Tagging). */
   const[orderTagFilter,setOrderTagFilter]=useState([]);
   const[orderTagFilterMode,setOrderTagFilterMode]=useState("OR");
@@ -553,6 +573,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 <div style={{padding:"8px 4px",textAlign:"center",borderInlineStart:"1px solid "+T.brd,borderInlineEnd:"1px solid "+T.brd}}>
                   <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>مخزن</div>
                   <div style={{fontSize:FS+4,fontWeight:900,color:T.purple||"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{getConfirmedStock(o)}</div>
+                  {/* V21.21.90: شارة الحجز بطلبات البورتال (عرض فقط) */}
+                  {(()=>{const rq=reservedQtyForOrder(reservByOrder,o.id);return rq>0?<div onClick={e=>{e.stopPropagation();setReservPopup({order:o,list:reservByOrder[o.id]||[]});}} title="تفاصيل الحجز" style={{marginTop:4,display:"inline-block",fontSize:FS-5,fontWeight:800,color:"#D97706",background:"#FEF3C7",border:"1px solid #F59E0B40",borderRadius:6,padding:"1px 6px",cursor:"pointer"}}>🔖 محجوز {rq}</div>:null;})()}
                 </div>
                 <div style={{padding:"8px 4px",textAlign:"center"}}>
                   <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>تكلفة{_hasExtra?" *":""}</div>
@@ -639,6 +661,30 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {filtered.length>0&&filtered.length<=detVis&&filtered.length>25&&<div style={{display:"flex",justifyContent:"center",marginTop:14}}>
         <Btn onClick={()=>setDetVis(25)} style={{padding:"6px 14px",fontSize:FS-2,background:T.bg,color:T.textMut,border:"1px solid "+T.brd}}>⬆ عرض الـ 25 الأولى فقط</Btn>
       </div>}
+
+    {/* V21.21.90: بوب اب تفاصيل حجوزات البورتال (عرض فقط) */}
+    {reservPopup&&(()=>{const ro=reservPopup.order;const list=reservPopup.list||[];const tot=list.reduce((s,r)=>s+(Number(r.qty)||0),0);
+      return <div onClick={()=>setReservPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"min(440px,100%)",maxHeight:"80vh",overflow:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:T.cardSolid}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>🔖 محجوز بطلبات البورتال — {tot} قطعة</div>
+            <Btn ghost small onClick={()=>setReservPopup(null)}>✕</Btn>
+          </div>
+          <div style={{padding:14}}>
+            <div style={{fontSize:FS-2,color:T.textSec,marginBottom:8}}>موديل <b style={{color:T.accent}}>{ro.modelNo}</b> — حجز عرضي (مايقلّلش المتاح، بيتلغي لما الطلب يترفض/يرجع معلّق)</div>
+            {list.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut}}>مفيش حجوزات</div>:list.map((r,i)=>(
+              <div key={i} style={{padding:"8px 0",borderBottom:i<list.length-1?"1px dashed "+T.brd:"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:FS-1,fontWeight:800,color:T.text}}>{r.custName}</span>
+                  <span style={{fontSize:FS,fontWeight:900,color:"#D97706"}}>×{r.qty}</span>
+                </div>
+                <div style={{fontSize:FS-4,color:T.textMut}}>{r.custPhone||"—"} · {r.date}</div>
+                {r.colors&&r.colors.length>0&&<div style={{fontSize:FS-4,color:T.textSec,marginTop:2}}>{r.colors.map(c=>c.color+"×"+c.qty).join("، ")}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>;})()}
 
     {waPopup&&(()=>{const wo=waPopup.order;const wt=waPopup.t||calcOrder(wo);const timeline=getOrderTimeline(wo,wt);const hasTimeline=!!timeline;
       /* V21.9.15 ROOT-CAUSE FIX (WhatsApp image attachment regression on mobile):
