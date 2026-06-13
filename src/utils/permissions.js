@@ -562,6 +562,43 @@ export function getHrSubPermForUser(config, user, subKey){
   return "hide";
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.21.93 — Phase 3: صلاحيات التابات الداخلية (sub-tabs).
+
+   كل تاب داخلي ليه مفتاح فرعي مستقل (مش في PERMISSION_TABS). افتراضياً
+   **بيورّث القسم الأصلي** (inheritFrom) = السلوك الحالي بالظبط، فمفيش
+   regression؛ الأدمن يقدر يكسره صراحة (إظهار/عرض/إخفاء) لكل مستخدم أو دور.
+
+   SUB_TABS: مجمّعة تحت مفتاح القسم الأب (للعرض في الإعدادات).
+   inheritFrom = مفتاح الصلاحية اللي بيورّث منها لو مفيش override. */
+export const SUB_TABS = {
+  salesOrders: [
+    { key: "portalRequests", label: "🛒 طلبات البورتال", inheritFrom: "salesOrders" },
+  ],
+};
+
+/* كل المفاتيح الفرعية مسطّحة (للتحقق/التكرار) */
+export const ALL_SUB_TABS = Object.values(SUB_TABS).flat();
+
+/* صلاحية تاب داخلي لمستخدمٍ بعينه. أسبقية: admin كامل ← تجاوز المستخدم على
+   المفتاح الفرعي ← تجاوز الدور على المفتاح الفرعي ← fallbackLevel (السلوك
+   الحالي = يرث القسم؛ بيحسبه الـ hub ويمرّره). */
+export function resolveSubPermForUser(config, user, subKey, fallbackLevel){
+  const role = resolveUserRole(config, user);
+  if(role === "admin") return "edit";
+  const ov = getUserPermOverride(config, user, subKey);
+  if(ov === "edit" || ov === "view" || ov === "hide") return ov;
+  const rp = config && config.permissions && config.permissions[role] && config.permissions[role][subKey];
+  if(rp === "edit" || rp === "view" || rp === "hide") return rp;
+  return fallbackLevel || "hide";
+}
+export function canViewSubForUser(config, user, subKey, fallbackLevel){
+  return resolveSubPermForUser(config, user, subKey, fallbackLevel) !== "hide";
+}
+export function canEditSubForUser(config, user, subKey, fallbackLevel){
+  return resolveSubPermForUser(config, user, subKey, fallbackLevel) === "edit";
+}
+
 /* Preset color palette for custom-role color picker */
 export const ROLE_COLOR_PALETTE = [
   "#0EA5E9", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4",

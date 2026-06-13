@@ -12,7 +12,7 @@ import { Btn } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { showToast } from "../../utils/popups.js";
-import { PERMISSION_TABS, effectivePermWithCustoms, getEffectiveRoleMeta } from "../../utils/permissions.js";
+import { PERMISSION_TABS, SUB_TABS, effectivePermWithCustoms, getEffectiveRoleMeta } from "../../utils/permissions.js";
 
 /* مستويات التجاوز (null = يرث من الدور) */
 const LEVELS = [
@@ -43,9 +43,10 @@ export function UserPermsModal({ userRow, config, upConfig, onClose }) {
   const [draft, setDraft] = useState(() => {
     const out = {};
     const src = (userRow.perms && typeof userRow.perms === "object") ? userRow.perms : {};
-    PERMISSION_TABS.forEach(t => {
-      const v = src[t.key];
-      if (v === "edit" || v === "view" || v === "hide") out[t.key] = v;
+    const keys = [...PERMISSION_TABS.map(t => t.key), ...Object.values(SUB_TABS).flat().map(s => s.key)];
+    keys.forEach(k => {
+      const v = src[k];
+      if (v === "edit" || v === "view" || v === "hide") out[k] = v;
     });
     return out;
   });
@@ -65,6 +66,28 @@ export function UserPermsModal({ userRow, config, upConfig, onClose }) {
       if (level == null) delete next[tabKey]; else next[tabKey] = level;
       return next;
     });
+  };
+
+  /* صف صلاحية واحد (تاب أو تاب داخلي). inheritWord: «حسب الدور» للتاب،
+     «حسب الأصل» للتاب الداخلي. baseline: نص الصلاحية الموروثة (تلميح). */
+  const renderRow = (key, label, inheritWord, baseline, indent) => {
+    const cur = draft[key] || null;
+    return <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", paddingInlineStart: indent ? 18 : 0, borderBottom: "1px dashed " + T.brd }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: FS - 1, fontWeight: indent ? 600 : 700, color: indent ? T.textSec : T.text }}>{label}</div>
+      </div>
+      <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+        {LEVELS.map(lv => {
+          const on = (lv.key || null) === cur;
+          const isInherit = lv.key == null;
+          return <button key={String(lv.key)} onClick={() => setLevel(key, lv.key)} title={isInherit ? ("يرث: " + baseline) : lv.label}
+            style={{ padding: "4px 8px", borderRadius: 7, fontSize: FS - 3, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+              border: "1px solid " + (on ? lv.color : T.brd), background: on ? lv.bg : "transparent", color: on ? lv.color : T.textMut, whiteSpace: "nowrap" }}>
+            {isInherit ? (inheritWord + " (" + baseline + ")") : lv.label}
+          </button>;
+        })}
+      </div>
+    </div>;
   };
 
   const save = () => {
@@ -102,24 +125,10 @@ export function UserPermsModal({ userRow, config, upConfig, onClose }) {
           <div key={gk} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: FS - 2, fontWeight: 800, color: T.textMut, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>{gk}</div>
             {tabs.map(t => {
-              const baseline = roleBaselineLabel(effectivePermWithCustoms(role, t.key, config));
-              const cur = draft[t.key] || null;
-              return <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px dashed " + T.brd }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>{t.icon ? t.icon + " " : ""}{t.label}</div>
-                </div>
-                <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
-                  {LEVELS.map(lv => {
-                    const on = (lv.key || null) === cur;
-                    const isInherit = lv.key == null;
-                    return <button key={String(lv.key)} onClick={() => setLevel(t.key, lv.key)} title={isInherit ? ("يرث: " + baseline) : lv.label}
-                      style={{ padding: "4px 8px", borderRadius: 7, fontSize: FS - 3, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
-                        border: "1px solid " + (on ? lv.color : T.brd), background: on ? lv.bg : "transparent", color: on ? lv.color : T.textMut,
-                        whiteSpace: "nowrap" }}>
-                      {isInherit ? (lv.label + " (" + baseline + ")") : lv.label}
-                    </button>;
-                  })}
-                </div>
+              const subs = SUB_TABS[t.key] || [];
+              return <div key={t.key}>
+                {renderRow(t.key, (t.icon ? t.icon + " " : "") + t.label, "حسب الدور", roleBaselineLabel(effectivePermWithCustoms(role, t.key, config)), false)}
+                {subs.map(s => renderRow(s.key, "↳ " + s.label, "حسب الأصل", roleBaselineLabel(effectivePermWithCustoms(role, s.inheritFrom || t.key, config)), true))}
               </div>;
             })}
           </div>

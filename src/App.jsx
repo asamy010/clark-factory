@@ -139,6 +139,8 @@ import {
   canEditPermForUser as canEditPermForUserRegistry,
   canViewPermForUser as canViewPermForUserRegistry,
   getHrSubPermForUser as getHrSubPermForUserRegistry,
+  canViewSubForUser as canViewSubForUserRegistry,
+  canEditSubForUser as canEditSubForUserRegistry,
 } from "./utils/permissions.js";
 /* Run the linter once at module load: emits console warnings if TABS in
    LoginScreen drift from PERMISSION_TABS in the registry. Catches bugs
@@ -5704,6 +5706,9 @@ export default function App(){
   const getHrSubPerm=(subKey)=>getHrSubPermForUserRegistry(config,user,subKey);
   const canEditTab=(tabKey)=>canEditPermForUserRegistry(config,user,tabKey);
   const canViewTab=(tabKey)=>canViewPermForUserRegistry(config,user,tabKey);
+  /* V21.21.93 Phase 3: تابات داخلية — fallback = السلوك الحالي (يرث القسم). */
+  const canViewSub=(subKey,fallbackLevel)=>canViewSubForUserRegistry(config,user,subKey,fallbackLevel);
+  const canEditSub=(subKey,fallbackLevel)=>canEditSubForUserRegistry(config,user,subKey,fallbackLevel);
   /* V21.14.3: المفاتيح المجمّعة (هَب المبيعات/المشتريات) مش مفاتيح صلاحيات حقيقية.
      canViewPage بيتعامل معاها = يقدر يشوف لو أي قسم جوّاها مسموح. كان السبب في
      الصفحة البيضاء للمحاسبين: canViewTab("sales")/("purchases") بترجّع hide
@@ -7225,7 +7230,7 @@ export default function App(){
             (navigate/goto-tab/notif-deeplink) كلها بتفتح المكان الصح. الصلاحيات
             محفوظة جوّه الهَب لكل قسم بـ canViewTab. */}
         {["sales","custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes","salesPortalRequests"].includes(tab)
-          && <SalesHubPg tab={tab} data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} user={user} season={season} canViewTab={canViewTab} canEditTab={canEditTab}/>}
+          && <SalesHubPg tab={tab} data={data} upConfig={upConfig} upSales={upSales} upTasks={upTasks} updOrder={updOrder} isMob={isMob} isTab={isTab} user={user} season={season} canViewTab={canViewTab} canEditTab={canEditTab} canViewSub={canViewSub} canEditSub={canEditSub}/>}
         {/* V21.9.115: Contacts page — unified directory. canEdit gated like custDeliver (sales-side). */}
         {tab==="contacts"&&<ContactsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("custDeliver")||canEditTab("purchase")} user={user}/>}
         {/* V21.12.0: Purchase Hub — تايل «مشتريات» واحد بيجمع أوامر الشراء +

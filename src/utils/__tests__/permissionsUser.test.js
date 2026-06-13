@@ -50,3 +50,32 @@ describe("per-user overrides", () => {
     expect(canEditPermForUser(cfg, { email: "U@X.COM", uid: "u1" }, "warehouse")).toBe(true);
   });
 });
+
+/* ═══ V21.21.93 Phase 3: sub-tab perms (inherit-by-default) ═══ */
+import { resolveSubPermForUser, canViewSubForUser, canEditSubForUser } from "../permissions.js";
+
+describe("sub-tab permissions (inherit-by-default)", () => {
+  it("من غير override = fallback (السلوك الحالي = يرث القسم)", () => {
+    const cfg = mkConfig("manager");
+    expect(resolveSubPermForUser(cfg, USER, "portalRequests", "view")).toBe("view");
+    expect(canViewSubForUser(cfg, USER, "portalRequests", "view")).toBe(true);
+    expect(canViewSubForUser(cfg, USER, "portalRequests", "hide")).toBe(false);
+  });
+
+  it("تجاوز المستخدم على المفتاح الفرعي يكسب على الـ fallback", () => {
+    const cfg = mkConfig("manager", { portalRequests: "hide" });
+    expect(canViewSubForUser(cfg, USER, "portalRequests", "view")).toBe(false);  /* اتخفى رغم إن القسم متاح */
+    const cfg2 = mkConfig("viewer", { portalRequests: "edit" });
+    expect(canEditSubForUser(cfg2, USER, "portalRequests", "hide")).toBe(true);  /* اتفتح رغم إن الأصل مخفي */
+  });
+
+  it("تجاوز الدور (config.permissions[role][subKey]) يكسب على الـ fallback", () => {
+    const cfg = { usersList: [{ email: "u@x.com", role: "manager" }], permissions: { manager: { portalRequests: "hide" } } };
+    expect(canViewSubForUser(cfg, USER, "portalRequests", "view")).toBe(false);
+  });
+
+  it("admin دايماً edit للتاب الداخلي (مايتقفلش)", () => {
+    const cfg = mkConfig("admin", { portalRequests: "hide" });
+    expect(resolveSubPermForUser(cfg, USER, "portalRequests", "hide")).toBe("edit");
+  });
+});
