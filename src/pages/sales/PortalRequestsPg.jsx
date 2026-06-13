@@ -107,6 +107,22 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
     if (ok) setStatus(req, "reject", "");
   };
 
+  /* V21.21.88: رجوع المؤكّد لـ«معلّق». السيرفر بيرفض لو الطلب اتحوّل لأمر بيع
+     (مايتعملش تحويل تاني → خصم مخزون مزدوج). مايلمسش المخزن. */
+  const reopen = async (req) => {
+    if (busy) return;
+    if (req.salesOrderId) { showToast("⚠️ الطلب اتحوّل لأمر بيع " + req.salesOrderId + " — احذف أمر البيع الأول"); return; }
+    const ok = await ask("رجوع لمعلّق", "هترجّع طلب " + (req.custName || "العميل") + " لحالة «معلّق» تاني؟ (مش بيأثر على المخزن)");
+    if (!ok) return;
+    setBusy(req.id);
+    try {
+      await call({ action: "reopen", requestId: req.id, date: req.date });
+      showToast("↩ رجع معلّق");
+      await load();
+    } catch (e) { showToast("⛔ " + (e.message || "فشل")); }
+    finally { setBusy(""); }
+  };
+
   const whatsapp = (req) => {
     const digits = String(req.custPhone || "").replace(/[^0-9]/g, "");
     if (!digits) { showToast("⚠️ مفيش رقم تليفون للعميل"); return; }
@@ -118,6 +134,7 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
   /* ── تحويل لأمر بيع (بالإجمالي — سطر لكل موديل، الألوان في الوصف) ── */
   const convertToSO = async (req) => {
     if (!canEdit) { showToast("⚠️ مالكش صلاحية إنشاء أوامر بيع"); return; }
+    if (req.salesOrderId) { showToast("⚠️ الطلب اتحوّل لأمر بيع " + req.salesOrderId + " قبل كده — مش هيتكرر"); return; }
     const colorNote = (it) => {
       const cols = (it.colors || []).filter(c => c.color);
       return cols.length ? cols.map(c => c.color + "×" + c.qty).join("، ") : "";
@@ -321,6 +338,12 @@ export function PortalRequestsPg({ data, upConfig, isMob, user, canEdit, onPendi
                 {canEdit && <button disabled={busy === req.id} onClick={() => reject(req)} style={{ flex: "0 0 auto", padding: "9px 12px", borderRadius: 8, border: "1px solid " + T.err + "33", background: T.err + "10", color: T.err, fontWeight: 700, fontSize: FS - 1, cursor: "pointer", fontFamily: "inherit" }}>❌</button>}
               </div>
             )}
+            {/* V21.21.88: أكشنز المؤكّد — رجوع لمعلّق + تحويل لأمر بيع (لو لسه ماتحوّلش) */}
+            {req.status === "confirmed" && <div style={{ display: "flex", gap: 6, padding: "8px 12px", borderTop: "1px solid " + T.brd, flexWrap: "wrap" }}>
+              <button onClick={() => whatsapp(req)} style={{ flex: "1 1 auto", padding: "9px", borderRadius: 8, border: "1px solid #25D36640", background: "#25D36612", color: "#1DA851", fontWeight: 700, fontSize: FS - 1, cursor: "pointer", fontFamily: "inherit" }}>📞 واتساب</button>
+              {canEdit && !req.salesOrderId && <button disabled={busy === req.id} onClick={() => convertToSO(req)} style={{ flex: "1 1 auto", padding: "9px", borderRadius: 8, border: "none", background: "#0EA5E9", color: "#fff", fontWeight: 800, fontSize: FS - 1, cursor: "pointer", fontFamily: "inherit" }}>🧾 حوّل لأمر بيع</button>}
+              {canEdit && !req.salesOrderId && <button disabled={busy === req.id} onClick={() => reopen(req)} style={{ flex: "0 0 auto", padding: "9px 14px", borderRadius: 8, border: "1px solid #D9770640", background: "#D9770612", color: "#D97706", fontWeight: 700, fontSize: FS - 1, cursor: "pointer", fontFamily: "inherit" }}>↩ رجّع معلّق</button>}
+            </div>}
           </Card>;
         })}
       </div>}

@@ -8,6 +8,7 @@
      - "list"    → قائمة طلبات العملاء (status? + limit) من orderRequestsDays.
      - "confirm" → تعليم الطلب مؤكّد (بعد ما المالك يعمل مسودة أمر البيع
                    client-side). Body: { requestId, date, salesOrderId? }.
+     - "reopen"  → رجوع المؤكّد لـ«معلّق». ممنوع لو متحوّل لأمر بيع.
      - "reject"  → تعليم الطلب مرفوض. Body: { requestId, date, reason? }.
 
    ملاحظة: تحويل الطلب لمسودة أمر بيع بيحصل client-side (الجانب الموثوق)
@@ -37,7 +38,7 @@ async function loadActiveCatalog(db, config) {
   );
 }
 
-async function setStatus(db, date, requestId, patch) {
+async function setStatus(db, date, requestId, patch, precondition) {
   if (!date || !requestId) throw new Error("requestId و date مطلوبين");
   const ref = db.collection("orderRequestsDays").doc(String(date));
   return db.runTransaction(async (tx) => {
@@ -46,6 +47,7 @@ async function setStatus(db, date, requestId, patch) {
     const entries = Array.isArray(snap.data().entries) ? snap.data().entries : [];
     const idx = entries.findIndex(e => e && e.id === requestId);
     if (idx < 0) throw new Error("الطلب غير موجود");
+    if (precondition) precondition(entries[idx]);   /* V21.21.88: حارس قبل التعديل */
     entries[idx] = { ...entries[idx], ...patch };
     tx.set(ref, { entries }, { merge: true });
     return entries[idx];
@@ -103,6 +105,22 @@ export default async function handler(req, res) {
         editedBy: auth.email || "",
       });
       return res.status(200).json({ ok: true, request: updated, rejected: validated.rejected });
+    }
+
+    if (action === "reopen") {
+      /* V21.21.88: رجوع المؤكّد لـ«معلّق». ممنوع لو الطلب اتحوّل لأمر بيع
+         (salesOrderId) — عشان مايتعملش تحويل تاني → خصم مخزون مزدوج. الطريق
+         الصحيح لإلغاء طلب متحوّل: حذف أمر البيع نفسه (بيرجّع المخزون). */
+      const updated = await setStatus(db, body.date, body.requestId, {
+        status: "pending",
+        handledAt: null,
+        handledBy: null,
+        reopenedAt: new Date().toISOString(),
+        reopenedBy: auth.email || "",
+      }, (entry) => {
+        if (entry.salesOrderId) throw new Error("الطلب اتحوّل لأمر بيع " + entry.salesOrderId + " — احذف أمر البيع الأول من تاب أوامر البيع");
+      });
+      return res.status(200).json({ ok: true, request: updated });
     }
 
     if (action === "reject") {
