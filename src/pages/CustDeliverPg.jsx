@@ -1651,7 +1651,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{"📊 "+activeSess.date+" — جدول التوزيع"+(isSessClosed?" 🔒":"")}</div>
             <div style={{display:"flex",gap:4}}>
               {sessCanEdit&&<Btn small onClick={()=>setAddCustPick({sessId:activeSess.id,sel:{},filter:""})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="اضافة عميل">+ عميل</Btn>}
-              {sessCanEdit&&<Btn small onClick={()=>{const existing=new Set(activeSess.modelIds);const avail=stockModels.filter(m=>m.stockQty>0&&!existing.has(m.id));if(avail.length===0){showToast("⚠️ لا توجد موديلات متاحة");return}setAddCustPick({sessId:activeSess.id,sel:{},filter:"",_type:"model",_avail:avail})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="اضافة موديل">+ موديل</Btn>}
+              {sessCanEdit&&<Btn small onClick={()=>{const existing=new Set(activeSess.modelIds);const perOrder=stockModels.filter(m=>m.stockQty>0&&!existing.has(m.id));/* V21.22.13: تجميع الـ picker بالموديل — تختار موديل ويضيف كل أوامره */const grp={};perOrder.forEach(m=>{const k=m.modelNo||m.id;if(!grp[k])grp[k]={id:"MDL:"+k,modelNo:m.modelNo,modelDesc:m.modelDesc,orderIds:[],totalAvail:0};grp[k].orderIds.push(m.id);grp[k].totalAvail+=(Number(m.avail)||0)});const avail=Object.values(grp);if(avail.length===0){showToast("⚠️ لا توجد موديلات متاحة");return}setAddCustPick({sessId:activeSess.id,sel:{},filter:"",_type:"model",_avail:avail})}} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="اضافة موديل">+ موديل</Btn>}
               <Btn small onClick={()=>printSession(activeSess.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
               <Btn ghost small onClick={()=>closeMatrix()} title="إغلاق">✕</Btn>
             </div>
@@ -2604,9 +2604,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const selCount=Object.values(addCustPick.sel).filter(Boolean).length;
       if(isModel){
         const mAvail=addCustPick._avail||[];const filtered=mAvail.filter(m=>{if(!addCustPick.filter?.trim())return true;const q=addCustPick.filter.trim().toLowerCase();return(m.modelNo||"").includes(q)||(m.modelDesc||"").toLowerCase().includes(q)});
-        const doAddModels=()=>{const ids=Object.entries(addCustPick.sel).filter(([,v])=>v).map(([k])=>k);if(ids.length===0){showToast("⚠️ اختار موديل واحد على الأقل");return}
-          upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===addCustPick.sessId);if(si>=0){ids.forEach(id=>{if(!d.custDeliverySessions[si].modelIds.includes(id))d.custDeliverySessions[si].modelIds.push(id)})}});
-          showToast("✅ تم اضافة "+ids.length+" موديل");setAddCustPick(null)};
+        const doAddModels=()=>{const selModels=(addCustPick._avail||[]).filter(m=>addCustPick.sel[m.id]);if(selModels.length===0){showToast("⚠️ اختار موديل واحد على الأقل");return}
+          /* V21.22.13: كل موديل مختار → أضف كل أوامره (orderIds) للتوزيعة؛ الـ grid بيجمّعهم */
+          const orderIds=[];selModels.forEach(m=>(m.orderIds||[]).forEach(oid=>orderIds.push(oid)));
+          upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===addCustPick.sessId);if(si>=0){orderIds.forEach(id=>{if(!d.custDeliverySessions[si].modelIds.includes(id))d.custDeliverySessions[si].modelIds.push(id)})}});
+          showToast("✅ تم اضافة "+selModels.length+" موديل ("+orderIds.length+" تشغيل)");setAddCustPick(null)};
         return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setAddCustPick(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -2618,7 +2620,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
               {filtered.map(m=><div key={m.id} onClick={()=>setAddCustPick(p=>({...p,sel:{...p.sel,[m.id]:!p.sel[m.id]}}))} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,cursor:"pointer",border:"1px solid "+(addCustPick.sel[m.id]?"#8B5CF640":T.brd),background:addCustPick.sel[m.id]?"#8B5CF608":"transparent"}}>
                 <span style={{fontSize:16}}>{addCustPick.sel[m.id]?"☑":"☐"}</span>
-                <div style={{flex:1}}><div style={{fontWeight:700,color:addCustPick.sel[m.id]?"#8B5CF6":T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></div>
+                <div style={{flex:1}}><div style={{fontWeight:700,color:addCustPick.sel[m.id]?"#8B5CF6":T.accent}}>{m.modelNo}{m.orderIds&&m.orderIds.length>1&&<span style={{marginInlineStart:5,fontSize:FS-3,color:"#8B5CF6"}} title={m.orderIds.length+" تشغيلات"}>⧉{m.orderIds.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}{m.totalAvail!=null?" • متاح: "+m.totalAvail:""}</div></div>
                 <span style={{fontWeight:700,color:T.ok,fontSize:FS-1}}>{m.avail+" قطعة"}</span>
               </div>)}
             </div>}
