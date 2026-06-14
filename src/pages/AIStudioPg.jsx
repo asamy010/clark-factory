@@ -23,9 +23,28 @@ import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, CHILD_AGES, FRAMINGS,
-  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, REALISM_LEVELS,
-  mergePresets, buildStudioPrompt, buildEditPrompt, buildRealismSuffix, describeStudioOptions,
+  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
+  mergePresets, buildStudioPrompt, buildEditPrompt, buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
+
+/* رسم توضيحي مبسّط لتأثير العدسة (عمق الميدان/الخلفية) */
+function CamDiagram({ type, on }){
+  const s = on ? "#fff" : "#94a3b8";
+  const figure = <g fill="none" stroke={s} strokeWidth="2.2"><circle cx="32" cy="15" r="5" /><path d="M23 39 q9 -17 18 0" /></g>;
+  let scene = null;
+  if(type === "bokeh") scene = <g fill={s}><circle cx="14" cy="19" r="9" opacity="0.18" /><circle cx="50" cy="15" r="11" opacity="0.13" /><circle cx="46" cy="33" r="7" opacity="0.2" /></g>;
+  else if(type === "balanced") scene = <g fill={s}><circle cx="13" cy="18" r="6" opacity="0.16" /><circle cx="51" cy="20" r="6" opacity="0.16" /></g>;
+  else if(type === "wide") scene = <g stroke={s} strokeWidth="1.5" fill="none" opacity="0.45"><line x1="4" y1="40" x2="60" y2="40" /><rect x="6" y="22" width="8" height="16" /><rect x="50" y="20" width="8" height="18" /></g>;
+  else if(type === "film") scene = <g fill={s} opacity="0.45">{[[10,10],[52,12],[14,34],[50,33],[30,8],[8,24],[56,26],[36,38]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1.3" />)}</g>;
+  else if(type === "deep") scene = <g stroke={s} strokeWidth="1" opacity="0.3">{[12,24,40,52].map(x=><line key={x} x1={x} y1="6" x2={x} y2="40" />)}</g>;
+  return (
+    <svg viewBox="0 0 64 46" width="58" height="42" style={{ borderRadius: 8, background: on ? T.accent : T.bg, border: "1px solid " + (on ? T.accent : T.brd), flexShrink: 0 }}>
+      {type === "auto"
+        ? <text x="32" y="30" textAnchor="middle" fontSize="20" fontWeight="800" fill={s}>A</text>
+        : <>{scene}{figure}</>}
+    </svg>
+  );
+}
 
 function modelImages(model){
   const out = [];
@@ -68,6 +87,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [realismOn, setRealismOn] = useState(true);
   const [realismLevel, setRealismLevel] = useState("medium");
   const [cameraId, setCameraId] = useState("dslr85");
+  const [camStyle, setCamStyle] = useState("pro");
   const [storageFolder, setStorageFolder] = useState((model && model.modelNo) || "");
   const [customOn, setCustomOn] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
@@ -137,8 +157,15 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
   const useCustom = (customOn || isReference) && customPrompt.trim();
-  const realismSuffix = () => realismOn ? (" " + buildRealismSuffix(realismLevel, cameraId, shotType === "model" || shotType === "reference")) : "";
-  const effPrompt = (o) => (useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib)) + realismSuffix();
+  /* لاحقة تقنية: نمط التصوير + العدسة + معزّز الواقعية — بتتلصق على أي برومبت */
+  const techSuffix = () => {
+    let s = "";
+    const st = stylePromptOf(camStyle); if(st) s += " " + st + ".";
+    const cam = cameraPromptOf(cameraId); if(cam) s += " " + cam + ".";
+    if(realismOn) s += " " + buildRealismSuffix(realismLevel, shotType === "model" || shotType === "reference");
+    return s;
+  };
+  const effPrompt = (o) => (useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib)) + techSuffix();
 
   const setShot = (id) => {
     setShotType(id);
@@ -271,7 +298,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const enhanceRealism = async (res) => {
     setBusy(true); setBatchMsg("✨ تحسين الواقعية...");
     const pr = buildEditPrompt("Re-render this exact image as a believable real photograph. " +
-      buildRealismSuffix("strong", cameraId, shotType === "model" || shotType === "reference") +
+      (cameraPromptOf(cameraId) ? cameraPromptOf(cameraId) + ". " : "") +
+      buildRealismSuffix("strong", shotType === "model" || shotType === "reference") +
       " Keep the same subject, garment, pose and composition identical.");
     const r = await generateModelImage({ modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [res.url], prompt: pr, aspectRatio, imageSize, tier }, user);
     setBusy(false); setBatchMsg("");
@@ -673,14 +701,30 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
                 <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
               </div>
-              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + كاميرا/عدسة + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
-              {realismOn && <>
-                {chipRow("القوة", REALISM_LEVELS, realismLevel, setRealismLevel)}
-                <div>
-                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الكاميرا / العدسة</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{CAMERA_PRESETS.map(c => <Chip key={c.id} on={cameraId === c.id} onClick={() => setCameraId(c.id)}>{c.label}</Chip>)}</div>
-                </div>
-              </>}
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
+              {realismOn && chipRow("القوة", REALISM_LEVELS, realismLevel, setRealismLevel)}
+            </div>
+
+            {/* camera settings — with visual diagrams */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
+              {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
+              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+                {CAMERA_PRESETS.map(c => {
+                  const on = cameraId === c.id;
+                  return (
+                    <div key={c.id} onClick={() => setCameraId(c.id)} style={{ cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: 9, borderRadius: 10, border: "1px solid " + (on ? T.accent : T.brd), background: on ? T.accent + "0D" : T.bg }}>
+                      <CamDiagram type={c.diagram} on={on} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: FS - 1, fontWeight: 800, color: on ? T.accent : T.text }}>{c.label}</div>
+                        <div style={{ fontSize: FS - 4, color: T.textMut, lineHeight: 1.5 }}>{c.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* output settings */}
