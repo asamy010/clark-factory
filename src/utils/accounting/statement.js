@@ -22,6 +22,17 @@
 
 import { r2, fmt } from "../format.js";
 
+/* V21.22.20: وصف واضح لحركات «تحميل حساب» في كشف الطرفين (عرض فقط — مفيش
+   تغيير في حساب الرصيد؛ الإشارة بتتحدّد من amount زي أي دفعة). */
+function transferDesc(p, fallback){
+  if(p && p.method === "تحميل حساب"){
+    if(p.transferSide === "from") return "تحميل حساب — نقل إلى " + ((p.transferTo && p.transferTo.name) || "طرف آخر");
+    if(p.transferSide === "to")   return "تحميل حساب — وارد من " + ((p.transferFrom && p.transferFrom.name) || "طرف آخر");
+    return "تحميل حساب";
+  }
+  return fallback;
+}
+
 /* تصنيف نوع الحركة لفلتر النوع (فواتير/مرتجعات/دفعات) */
 const TYPE_GROUP = {
   sales_invoice: "invoices", sales_invoice_disc: "invoices",
@@ -42,7 +53,7 @@ function gatherCustomerPayments(data, custId){
     const m = (p.method || "").toLowerCase();
     if(m.includes("شيك") || m.includes("check")) return;
     out.push({ date: p.date, createdAt: p.createdAt, type: "payment", ref: p.id, refId: p.id,
-      desc: "دفعة " + (p.method || "نقدي"), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
+      desc: transferDesc(p, "دفعة " + (p.method || "نقدي")), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
   });
   /* شيكات القبض (دفعة عميل) */
   (data.checks || []).forEach(c => {
@@ -187,7 +198,7 @@ function gatherSupplierEntries(data, supId, mode){
     (data.supplierPayments || []).forEach(p => {
       if(p.supplierId !== supId) return;
       entries.push({ date: p.date, createdAt: p.createdAt, type: "payment", ref: p.id, refId: p.id,
-        desc: "دفعة للمورد " + (p.method ? "(" + p.method + ")" : ""), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
+        desc: transferDesc(p, "دفعة للمورد " + (p.method ? "(" + p.method + ")" : "")), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
     });
   } else {
     /* operational — استلامات + المدفوع عند الاستلام + دفعات مستقلة */
@@ -202,7 +213,7 @@ function gatherSupplierEntries(data, supId, mode){
     (data.supplierPayments || []).forEach(p => {
       if(p.supplierId !== supId || p.receiptId) return; /* المرتبطة باستلام اتعدّت فوق */
       entries.push({ date: p.date, createdAt: p.createdAt, type: "payment", ref: p.id, refId: p.id,
-        desc: "دفعة للمورد " + (p.method ? "(" + p.method + ")" : ""), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
+        desc: transferDesc(p, "دفعة للمورد " + (p.method ? "(" + p.method + ")" : "")), debit: 0, credit: r2(Number(p.amount) || 0), raw: p });
     });
     /* V21.21.21 FIX: مرتجعات المشتريات (إشعارات مدينة) لازم تظهر في الوضع
        التشغيلي كمان — كانت بتظهر في المحاسبي بس. تُحتسب (مش draft) لتطابق

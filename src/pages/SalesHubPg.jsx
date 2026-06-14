@@ -28,6 +28,7 @@ const PortalRequestsPg = lazy(() => import("./sales/PortalRequestsPg.jsx").then(
 const SalesInvoicesPg  = lazy(() => import("./SalesInvoicesPg.jsx").then(m => ({ default: m.SalesInvoicesPg })));
 const CreditNotesPg    = lazy(() => import("./CreditNotesPg.jsx").then(m => ({ default: m.CreditNotesPg })));
 const AccountStatementView = lazy(() => import("../components/AccountStatementView.jsx").then(m => ({ default: m.AccountStatementView })));
+const AccountTransferPg = lazy(() => import("./sales/AccountTransferPg.jsx").then(m => ({ default: m.AccountTransferPg })));
 const InventoryValuationReport = lazy(() => import("../components/reports/InventoryValuationReport.jsx").then(m => ({ default: m.InventoryValuationReport })));
 const ReportsHub = lazy(() => import("../components/reports/ReportsHub.jsx").then(m => ({ default: m.ReportsHub })));
 
@@ -93,6 +94,7 @@ export function SalesHubPg(props){
     { id: "invoices",    label: "📤 فواتير البيع",         show: canDoc("salesInvoices"),   cnt: (data.salesInvoices || []).length },
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
     { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
+    { id: "transfer",    label: "💱 تحميل حساب",            show: canDoc("salesInvoices") || canOps },
     { id: "reports",     label: "📈 تقارير",                show: canOps || canDoc("salesInvoices") },
     { id: "warehouse",   label: "📦 المخزن والجرد",         show: canOps },
     { id: "quickActions",label: "⚡ إجراءات سريعة",         show: canOps },
@@ -191,6 +193,7 @@ export function SalesHubPg(props){
         {active === "invoices"   && canDoc("salesInvoices")   && <SalesInvoicesPg data={data} upConfig={props.upConfig} isMob={isMob} user={props.user} />}
         {active === "returns"    && canDoc("creditNotes")     && <CreditNotesPg data={data} upConfig={props.upConfig} updOrder={props.updOrder} isMob={isMob} user={props.user} />}
         {active === "ledger"     && <AccountStatementView data={data} partyType="customer" isMob={isMob} upConfig={props.upConfig} user={props.user} />}
+        {active === "transfer"   && <AccountTransferPg data={data} upConfig={props.upConfig} user={props.user} isMob={isMob} canEdit={canEditTab("salesInvoices") || canEditTab("custDeliver")} />}
         {active === "reports"    && <>
           {canOps && <CustDeliverPg {...props} hubView="reports" canEdit={canEditTab("custDeliver")} />}
           <ReportsHub isMob={isMob} reports={[

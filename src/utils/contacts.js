@@ -25,8 +25,9 @@
    through the standard upConfig() flow.
    ═══════════════════════════════════════════════════════════════ */
 
-import { normalizePhone } from "./format.js";
+import { normalizePhone, r2 } from "./format.js";
 import { getDeleteBlocker } from "./dataIntegrity.js";
+import { buildCustomerSummary, buildSupplierSummary } from "./accountSummary.js";
 
 /* ── Type taxonomy ─────────────────────────────────────────────
    4 main types per the §0.1 design decision (see CLAUDE.md when
@@ -510,6 +511,194 @@ export function settleContactCrossAccount(seed, data, user){
   };
 
   return { patch, settlementId, custPayment, supPayment };
+}
+
+/* ── Generalized account transfer «تحميل حساب» (V21.22.20) ──────────
+   نقل رصيد طرف (الطرف الأول/المصدر) بالكامل أو جزئياً إلى طرف آخر
+   (الطرف التاني/الوجهة) — والطرفان أي مزيج من عميل/مورد (مش لازم نفس
+   الجهة زي مقاصة).
+
+   الحالة الأساسية اللي طلبها Ahmed: مورد بيسدّد حسابات عملاء من رصيده —
+   فبيقلّ رصيد العميل (المدين) ورصيد المورد (الدائن عليّ) في نفس الوقت.
+   نفس آلية «مقاصة» بالظبط (دفعتان مقابلتان، مفيش حركة خزنة) لكن لطرفين
+   مختلفين.
+
+   ── نموذج الإشارة الموحّد ──
+   نعرّف «المستحَق لنا» (owedToUs) لكل طرف:
+     • عميل:  owedToUs = +balance  (رصيد موجب = العميل مدين لنا).
+     • مورد:  owedToUs = −balance  (رصيد المورد الموجب = نحن مدينون له).
+
+   التحويل ينقل مقدار موجّب من «المستحَق لنا» من المصدر للوجهة مع الحفاظ
+   على الإشارة — فيصفّر المصدر ويزود/يقلّل الوجهة حسب طبيعة المصدر:
+     • المصدر:  deltaOwed = −X   (يقرّب رصيده للصفر)
+     • الوجهة:  deltaOwed = +X   (يمتص نفس الالتزام الموجّه)
+
+   تحويل deltaOwed لمبلغ دفعة في كل طرف (الدفعة الموجبة بـتـقلّل الرصيد):
+     • عميل:  custPayment.amount  = −deltaOwed   (تقلّل الرصيد بالموجب)
+     • مورد:  supplierPayment.amount = +deltaOwed (تقلّل المستحق للمورد)
+
+   النتيجة لكل الحالات الأربع (عميل↔مورد بأي اتجاه + عميل↔عميل + مورد↔مورد):
+     مصدر عميل  → custPayment.amount     = +X   (يصفّره)
+     مصدر مورد  → supplierPayment.amount = −X   (يصفّره؛ X سالب فالمبلغ موجب)
+     وجهة عميل  → custPayment.amount     = −X
+     وجهة مورد  → supplierPayment.amount = +X
+   X = sign(srcOwed) × المقدار الموجب المختار. الطرف المماثل النوع للمصدر
+   بيـ get مبلغ سالب (دفعة عكسية) للحفاظ على الإشارة — صحيح حسابياً في كل
+   الملخّصات/الكشوف (كلها balance −= amount). */
+export function partyAccountBalance(type, id, data){
+  if(type === "customer"){ const s = buildCustomerSummary(id, data); return s ? r2(s.balance) : 0; }
+  if(type === "supplier"){ const s = buildSupplierSummary(id, data); return s ? r2(s.balance) : 0; }
+  return 0;
+}
+
+function _ownedToUs(type, bal){ return type === "customer" ? bal : -bal; }
+
+function _partyName(type, id, data){
+  if(type === "customer"){ const c = (data.customers || []).find(x => String(x.id) === String(id)); return (c && c.name) || ""; }
+  if(type === "supplier"){ const s = (data.suppliers || []).find(x => String(x.id) === String(id)); return (s && s.name) || ""; }
+  return "";
+}
+
+export function transferPartyBalance(seed, data, user){
+  const { fromType, fromId, toType, toId, amount, date, notes } = seed || {};
+  if(!fromType || fromId == null) throw new Error("TRANSFER_FROM_REQUIRED");
+  if(!toType || toId == null) throw new Error("TRANSFER_TO_REQUIRED");
+  if(fromType === toType && String(fromId) === String(toId)) throw new Error("TRANSFER_SAME_PARTY");
+  if(fromType !== "customer" && fromType !== "supplier") throw new Error("TRANSFER_FROM_TYPE");
+  if(toType !== "customer" && toType !== "supplier") throw new Error("TRANSFER_TO_TYPE");
+
+  const fromBal = partyAccountBalance(fromType, fromId, data);
+  const srcOwed = _ownedToUs(fromType, fromBal);
+  const maxMag = r2(Math.abs(srcOwed));
+  if(maxMag <= 0) throw new Error("TRANSFER_SOURCE_ZERO");
+
+  /* المقدار الموجب المطلوب نقله — افتراضي = الرصيد الكامل (تصفير المصدر) */
+  let mag = amount == null || amount === "" ? maxMag : r2(Math.abs(Number(amount) || 0));
+  if(mag <= 0) throw new Error("TRANSFER_AMOUNT_INVALID");
+  if(mag > maxMag + 0.001) throw new Error("TRANSFER_AMOUNT_OVER_MAX");
+  if(mag > maxMag) mag = maxMag; /* clamp float drift */
+
+  const X = (srcOwed < 0 ? -1 : 1) * mag; /* الالتزام الموجّه المنقول */
+
+  const fromName = _partyName(fromType, fromId, data);
+  const toName = _partyName(toType, toId, data);
+  const cleanDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().split("T")[0];
+  const cleanNotes = String(notes || "").trim() ||
+    ("تحميل حساب: من " + (fromName || fromType) + " إلى " + (toName || toType));
+  const uid = (user && (user.uid || user.email)) || "";
+  const now = Date.now();
+  const transferId = "xfer_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  const nowISO = new Date(now).toISOString();
+
+  const common = {
+    date: cleanDate,
+    note: cleanNotes,
+    method: "تحميل حساب",
+    by: uid,
+    createdAt: nowISO,
+    transferId,
+    transferFrom: { type: fromType, id: String(fromId), name: fromName },
+    transferTo: { type: toType, id: String(toId), name: toName },
+  };
+
+  /* مبلغ كل رِجل (الموجب = يقلّل الرصيد) */
+  const fromAmt = r2(fromType === "customer" ? X : -X);  /* يصفّر المصدر */
+  const toAmt   = r2(toType   === "customer" ? -X : X);  /* يمتص الالتزام في الوجهة */
+
+  const custPays = [];
+  const supPays = [];
+  const mkCust = (id, nm, amt, side) => ({
+    id: "cp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 5) + "_" + side,
+    custId: String(id), custName: nm, amount: amt, transferSide: side, ...common,
+  });
+  const mkSup = (id, nm, amt, side) => ({
+    id: "sp_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 5) + "_" + side,
+    supplierId: String(id), supplierName: nm, amount: amt, transferSide: side, ...common,
+  });
+
+  if(fromType === "customer") custPays.push(mkCust(fromId, fromName, fromAmt, "from"));
+  else supPays.push(mkSup(fromId, fromName, fromAmt, "from"));
+  if(toType === "customer") custPays.push(mkCust(toId, toName, toAmt, "to"));
+  else supPays.push(mkSup(toId, toName, toAmt, "to"));
+
+  const patch = {};
+  if(custPays.length) patch.custPayments = [...(Array.isArray(data && data.custPayments) ? data.custPayments : []), ...custPays];
+  if(supPays.length)  patch.supplierPayments = [...(Array.isArray(data && data.supplierPayments) ? data.supplierPayments : []), ...supPays];
+
+  const toBal = partyAccountBalance(toType, toId, data);
+  return { patch, transferId, magnitude: mag, signedTransfer: X, custPays, supPays,
+    preview: { fromBal, fromAfter: r2(fromBal - fromAmt), toBal, toAfter: r2(toBal - toAmt) } };
+}
+
+/* معاينة حيّة لتحميل حساب (للـ UI) — نفس حساب transferPartyBalance لكن
+   بترجّع أرقام بس (مفيش records، مفيش throw) عشان الـ validation اللحظي. */
+export function previewPartyTransfer(seed, data){
+  const { fromType, fromId, toType, toId, amount } = seed || {};
+  const base = { ok: false, fromBal: 0, fromAfter: 0, toBal: 0, toAfter: 0, maxMag: 0, magnitude: 0 };
+  if(!fromType || fromId == null || !toType || toId == null) return { ...base, error: "INCOMPLETE" };
+  if(fromType === toType && String(fromId) === String(toId)) return { ...base, error: "SAME_PARTY" };
+
+  const fromBal = partyAccountBalance(fromType, fromId, data);
+  const toBal = partyAccountBalance(toType, toId, data);
+  const srcOwed = _ownedToUs(fromType, fromBal);
+  const maxMag = r2(Math.abs(srcOwed));
+  if(maxMag <= 0) return { ...base, fromBal, toBal, error: "SOURCE_ZERO" };
+
+  let mag = amount == null || amount === "" ? maxMag : r2(Math.abs(Number(amount) || 0));
+  let error = "";
+  if(mag <= 0) error = "AMOUNT_INVALID";
+  else if(mag > maxMag + 0.001) error = "AMOUNT_OVER_MAX";
+  if(mag > maxMag) mag = maxMag;
+
+  const X = (srcOwed < 0 ? -1 : 1) * mag;
+  const fromAmt = r2(fromType === "customer" ? X : -X);
+  const toAmt   = r2(toType   === "customer" ? -X : X);
+  return {
+    ok: !error, error,
+    fromBal, fromAfter: r2(fromBal - fromAmt),
+    toBal, toAfter: r2(toBal - toAmt),
+    maxMag, magnitude: mag,
+  };
+}
+
+/* عكس تحميل حساب — يشيل رِجلَي التحويل بالـ transferId من الدفعتين. */
+export function reversePartyTransfer(transferId, data){
+  if(!transferId) throw new Error("TRANSFER_ID_REQUIRED");
+  const cps = Array.isArray(data && data.custPayments) ? data.custPayments : [];
+  const sps = Array.isArray(data && data.supplierPayments) ? data.supplierPayments : [];
+  const removedCust = cps.filter(p => p && p.transferId === transferId).length;
+  const removedSup  = sps.filter(p => p && p.transferId === transferId).length;
+  if(removedCust + removedSup === 0) throw new Error("TRANSFER_NOT_FOUND");
+  return {
+    patch: {
+      custPayments: cps.filter(p => !(p && p.transferId === transferId)),
+      supplierPayments: sps.filter(p => !(p && p.transferId === transferId)),
+    },
+    removedCust, removedSup,
+  };
+}
+
+/* قائمة تحويلات «تحميل حساب» (مجمّعة بالـ transferId) — للعرض/العكس. */
+export function listAccountTransfers(data){
+  const cps = Array.isArray(data && data.custPayments) ? data.custPayments : [];
+  const sps = Array.isArray(data && data.supplierPayments) ? data.supplierPayments : [];
+  const byId = {};
+  const push = (p) => {
+    if(!p || p.method !== "تحميل حساب" || !p.transferId) return;
+    if(!byId[p.transferId]) byId[p.transferId] = {
+      transferId: p.transferId, date: p.date, createdAt: p.createdAt,
+      from: p.transferFrom, to: p.transferTo, note: p.note, by: p.by, legs: [],
+    };
+    byId[p.transferId].legs.push(p);
+  };
+  cps.forEach(push); sps.forEach(push);
+  return Object.values(byId)
+    .map(t => {
+      const fromLeg = t.legs.find(l => l.transferSide === "from");
+      t.magnitude = fromLeg ? r2(Math.abs(Number(fromLeg.amount) || 0)) : 0;
+      return t;
+    })
+    .sort((a, b) => String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || "")));
 }
 
 /* ── Duplicate detection (V21.9.122, Phase 5c) ────────────────────
