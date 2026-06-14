@@ -1,16 +1,15 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · aiStudioPresets.js (V21.23.2 — استوديو الموديلات Phase 2b)
+   CLARK · aiStudioPresets.js (V21.23.3 — استوديو الموديلات Phase 2c)
    ───────────────────────────────────────────────────────────────────────
    مكتبة خيارات التوليد + باني البرومبت. الافتراضيات هنا، والمخصّصة بتاعت
-   المستخدم بتتخزّن في factory/config.aiStudioPresets وبتتدمج معاها (mergePresets).
+   المستخدم في factory/config.aiStudioPresets وبتتدمج (mergePresets).
 
-   نوع اللقطة (shotType) — إضافة احترافية للـ e-commerce:
-     • model  = موديل لابس الطقم (try-on، الافتراضي)
-     • ghost  = مانيكان شبح (invisible mannequin — شكل القطعة بدون شخص)
-     • flat   = فرش مسطّح (flat-lay من فوق)
-
-   كل preset: { id, label(عربي), prompt(إنجليزي للموديل) }. النماذج بتفهم
-   الإنجليزي أدق في التلبيس، فالـ prompt إنجليزي والـ label عربي.
+   نوع اللقطة (shotType):
+     • model     = موديل لابس الطقم (try-on، الافتراضي)
+     • reference = موديل مرجعي: Image1 (موديل) + Image2 (قطعة) → تبديل القطعة
+                   مع قفل الهوية/الوقفة/الخلفية/الإضاءة (برومبت Ahmed الاحترافي)
+     • ghost     = مانيكان شبح (invisible mannequin)
+     • flat      = فرش مسطّح (flat-lay)
    ═══════════════════════════════════════════════════════════════════════ */
 
 export const AR_RATIOS = [
@@ -34,9 +33,10 @@ export const TIERS = [
 ];
 
 export const SHOT_TYPES = [
-  { id: "model", label: "🧍 موديل لابس" },
-  { id: "ghost", label: "👕 مانيكان شبح" },
-  { id: "flat",  label: "🧺 فرش مسطّح" },
+  { id: "model",     label: "🧍 موديل لابس" },
+  { id: "reference", label: "👯 موديل مرجعي" },
+  { id: "ghost",     label: "👕 مانيكان شبح" },
+  { id: "flat",      label: "🧺 فرش مسطّح" },
 ];
 
 export const GENDERS = [
@@ -84,9 +84,65 @@ export const FRAMINGS = [
   { id: "three", label: "٣/٤ جسم",  prompt: "three-quarter body shot, from the knees up" },
 ];
 
+export const SKIN_TONES = [
+  { id: "any",    label: "تلقائي",  prompt: "" },
+  { id: "light",  label: "فاتح",    prompt: "light fair skin tone" },
+  { id: "medium", label: "قمحي",    prompt: "medium olive skin tone" },
+  { id: "tan",    label: "أسمر",    prompt: "tan brown skin tone" },
+  { id: "dark",   label: "داكن",    prompt: "deep dark skin tone" },
+];
+
+export const LIGHTINGS = [
+  { id: "soft",     label: "استوديو ناعم", prompt: "soft even studio lighting" },
+  { id: "natural",  label: "طبيعي",        prompt: "natural daylight" },
+  { id: "dramatic", label: "درامي",        prompt: "dramatic directional lighting with soft shadows" },
+  { id: "golden",   label: "ذهبي",         prompt: "warm golden-hour lighting" },
+];
+
+/* برومبت التلبيس بموديل مرجعي (Image1=موديل، Image2=قطعة) — صياغة Ahmed الاحترافية */
+export const REFERENCE_TRYON_PROMPT =
+`INSTRUCTIONS (Read Carefully):
+You will receive two images:
+Image 1: the reference model + exact pose + studio/background + camera angle + lens look + lighting style.
+Image 2: the garment item to be applied.
+
+TASK:
+Apply the garment from Image 2 onto the model in Image 1 as a high-end virtual try-on.
+
+IDENTITY & POSE LOCK (MUST NOT CHANGE):
+- Preserve the model's exact identity from Image 1: facial features, skin tone, hair, age, body proportions, expression, gaze direction, and all visible anatomy.
+- Preserve the exact pose and body posture from Image 1 with no re-posing.
+- Preserve the exact framing and crop from Image 1.
+
+CAMERA / LENS / ANGLE LOCK (MUST MATCH IMAGE 1):
+- Keep the same camera angle, camera height, and perspective as Image 1.
+- Keep the same focal length / lens character and depth-of-field look as Image 1.
+- Do not change zoom, distortion, or perspective geometry.
+
+LIGHTING & STUDIO LOCK (MUST MATCH IMAGE 1):
+- Keep the same studio/background from Image 1 exactly (same color, gradients, shadows, floor contact, and backdrop continuity).
+- Keep the same lighting setup from Image 1: direction, softness, highlight roll-off, and shadow density.
+- Preserve realistic contact shadows and natural fabric shading consistent with Image 1.
+
+GARMENT APPLICATION RULES (IMAGE 2):
+- Use only the garment from Image 2 and fit it naturally onto the model from Image 1.
+- Maintain realistic fabric behavior: correct drape, tension, folds, seam lines, thickness, and gravity.
+- Ensure correct sizing and alignment to the body (shoulders/waist/hips/chest) and natural layering if needed.
+- Keep edges clean with no warping, melting, double collars, duplicated sleeves, or texture stretching.
+
+STRICT POLICY:
+- Do NOT add new logos, prints, text, patterns, accessories, props, or extra garments not present in Image 2.
+- Do NOT change the model's shoes, hair, or face.
+
+REALISM & QUALITY:
+- Photorealistic output, high detail, natural skin and fabric texture. Upscale and enhance overall quality.
+- No cartoon/anime/illustration look. No blur, no artifacts, no AI deformation, no extra limbs, no jewelry unless already present in Image 1.
+
+OUTPUT:
+Return one final image only: the model from Image 1 wearing the garment from Image 2, with everything else identical to Image 1.`;
+
 const byId = (arr, id) => (arr || []).find(x => x && x.id === id) || null;
 
-/* دمج الافتراضيات مع المخصّصة من cfg.aiStudioPresets */
 export function mergePresets(data){
   const c = (data && data.aiStudioPresets) || {};
   const safe = (a) => Array.isArray(a) ? a.filter(x => x && x.id && x.label) : [];
@@ -99,16 +155,18 @@ export function mergePresets(data){
 
 const PRESERVE = "Preserve the garment's fabric texture, colors, patterns, prints, logos and every design detail with high fidelity — do not redesign or alter the clothing.";
 
-/* يبني البرومبت النهائي (إنجليزي) حسب نوع اللقطة + الخيارات + ملاحظات */
 export function buildStudioPrompt(opts, lib){
   const o = opts || {};
   const poses = (lib && lib.poses) || POSES;
   const backgrounds = (lib && lib.backgrounds) || BACKGROUNDS;
   const shot = o.shotType || "model";
+  if(shot === "reference"){
+    const notes = String(o.notes || "").trim();
+    return REFERENCE_TRYON_PROMPT + (notes ? "\n\nAdditional requirements: " + notes : "");
+  }
   const bg = byId(backgrounds, o.backgroundId) || backgrounds[0] || BACKGROUNDS[0];
   const notes = String(o.notes || "").trim();
   let lines;
-
   if(shot === "ghost"){
     lines = [
       "Generate a professional ghost-mannequin (invisible mannequin) e-commerce product photograph of the EXACT garment(s) shown in the reference image(s).",
@@ -128,38 +186,42 @@ export function buildStudioPrompt(opts, lib){
     const age = isChild ? byId(CHILD_AGES, o.ageId) : null;
     const pose = byId(poses, o.poseId) || poses[0] || POSES[0];
     const framing = byId(FRAMINGS, o.framingId) || FRAMINGS[0];
-    const subject = (age ? (age.prompt + " ") : "") + gender.prompt;
+    const skin = byId(SKIN_TONES, o.skinToneId);
+    const light = byId(LIGHTINGS, o.lightingId);
+    const subject = (age ? (age.prompt + " ") : "") + gender.prompt + (skin && skin.prompt ? " with " + skin.prompt : "");
     lines = [
       "Generate a photorealistic professional fashion-catalog photograph of " + subject + " fashion model wearing the EXACT garment(s) shown in the reference image(s).",
       PRESERVE, (framing.prompt || "") + ".", (pose.prompt || "") + ".", (bg.prompt || "") + ".",
+      light && light.prompt ? (light.prompt + ".") : "",
       "Photorealistic skin and natural proportions, sharp focus on the outfit, professional studio fashion photography, high detail, no text, no watermark.",
-    ];
+    ].filter(Boolean);
   }
   if(notes) lines.push("Additional requirements: " + notes);
   return lines.join(" ");
 }
 
-/* برومبت تعديل صورة مولّدة (refine) — بياخد الصورة كمصدر + تعليمات المستخدم */
 export function buildEditPrompt(instruction){
   return "Edit the provided image as follows: " + String(instruction || "").trim() +
     ". Keep the same subject, garment identity, fabric and colors unless the instruction explicitly changes them. " +
     "Photorealistic, high detail, professional photography, no text, no watermark.";
 }
 
-/* وصف عربي مختصر للخيارات (للعرض) */
 export function describeStudioOptions(opts, lib){
   const o = opts || {};
   const shot = o.shotType || "model";
   const backgrounds = (lib && lib.backgrounds) || BACKGROUNDS;
   const poses = (lib && lib.poses) || POSES;
+  if(shot === "reference") return "موديل مرجعي (تبديل القطعة)";
   const bgL = (byId(backgrounds, o.backgroundId) || backgrounds[0] || BACKGROUNDS[0]).label;
   if(shot === "ghost") return "مانيكان شبح · " + bgL;
   if(shot === "flat")  return "فرش مسطّح · " + bgL;
   const gender = byId(GENDERS, o.genderId) || GENDERS[0];
   const isChild = gender.id === "girl" || gender.id === "boy";
   const age = isChild ? byId(CHILD_AGES, o.ageId) : null;
+  const skin = byId(SKIN_TONES, o.skinToneId);
   return [
     (age ? age.label + " — " : "") + gender.label,
+    skin && skin.id !== "any" ? skin.label : "",
     (byId(FRAMINGS, o.framingId) || FRAMINGS[0]).label,
     (byId(poses, o.poseId) || poses[0] || POSES[0]).label,
     bgL,

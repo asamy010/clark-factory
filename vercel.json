@@ -4,7 +4,8 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/ai-image/generate.js": { "maxDuration": 60 }
+    "api/ai-image/generate.js": { "maxDuration": 60 },
+    "api/ai-image/analyze-prompt.js": { "maxDuration": 30 }
   },
   "crons": [
     {

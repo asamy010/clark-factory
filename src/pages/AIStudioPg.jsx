@@ -20,9 +20,10 @@ import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
 import { ask, showToast } from "../utils/popups.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
-import { generateModelImage } from "../utils/aiImageClient.js";
+import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, CHILD_AGES, FRAMINGS,
+  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT,
   mergePresets, buildStudioPrompt, buildEditPrompt, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
 
@@ -61,7 +62,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [poseId, setPoseId] = useState("front");
   const [backgroundId, setBackgroundId] = useState("studio_white");
   const [framingId, setFramingId] = useState("full");
+  const [skinToneId, setSkinToneId] = useState("any");
+  const [lightingId, setLightingId] = useState("soft");
   const [notes, setNotes] = useState("");
+  const [customOn, setCustomOn] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
   const [count, setCount] = useState(1);
   const [multiPose, setMultiPose] = useState(false);
   const [selPoses, setSelPoses] = useState([]);
@@ -87,8 +93,21 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const colorNames = useMemo(() => modelColorNames(curModel), [curModel]);
   const gallery = (curModel && Array.isArray(curModel.aiImages)) ? curModel.aiImages : [];
   const isModelShot = shotType === "model";
+  const isReference = shotType === "reference";
   const isChild = genderId === "girl" || genderId === "boy";
-  const opts = { shotType, genderId, ageId, poseId, backgroundId, framingId, notes };
+  const opts = { shotType, genderId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
+  /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
+     «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
+  const useCustom = (customOn || isReference) && customPrompt.trim();
+  const effPrompt = (o) => useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib);
+
+  const setShot = (id) => {
+    setShotType(id);
+    if(id === "reference" && !customPrompt.trim()){ setCustomPrompt(REFERENCE_TRYON_PROMPT); setCustomOn(true); }
+  };
+  /* وضع موديل مرجعي: sources[0] = Image1 (الموديل) · الباقي = Image2 (القطعة) */
+  const setRefModel = (url) => { if(url) setSources(p => [url, ...p.slice(1)]); };
+  const clearRefModel = () => setSources(p => p.slice(1));
 
   const pickModel = (id) => {
     const m = (Array.isArray(models) ? models : []).find(x => String(x.id) === String(id)) || null;
@@ -106,7 +125,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   /* ── التوليد ── */
   const callOnce = async (o, srcUrls) => {
-    const pr = buildStudioPrompt(o, lib);
+    const pr = effPrompt(o);
     const r = await generateModelImage({
       modelId: (curModel && curModel.id) || "studio", sourceImageUrls: srcUrls,
       prompt: pr, aspectRatio, imageSize, tier,
@@ -128,6 +147,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   const generate = async () => {
     if(sources.length === 0){ showToast("⚠️ أضف صورة مصدر واحدة على الأقل (القطعة)"); return; }
+    if(isReference && sources.length < 2){ showToast("⚠️ وضع «موديل مرجعي» محتاج صورة موديل (Image 1) + صورة قطعة (Image 2)"); return; }
     let jobs;
     if(isModelShot && multiPose && selPoses.length > 0) jobs = selPoses.map(pid => ({ ...opts, poseId: pid }));
     else { const n = Math.max(1, Math.min(4, Number(count) || 1)); jobs = Array.from({ length: n }, () => ({ ...opts })); }
@@ -144,6 +164,30 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       if(!e) break;
     }
     setBusy(false); setBatchMsg("");
+  };
+
+  const runAnalyze = async () => {
+    const p = customPrompt.trim();
+    if(!p){ showToast("⚠️ اكتب برومبت الأول"); return; }
+    setAnalyzing(true);
+    const r = await analyzePrompt({ prompt: p, options: {
+      genders: GENDERS, ages: CHILD_AGES, backgrounds: lib.backgrounds,
+      framings: FRAMINGS, poses: lib.poses, skinTones: SKIN_TONES, lightings: LIGHTINGS,
+    } }, user);
+    setAnalyzing(false);
+    if(!r || !r.ok || !r.fields){ showToast("⛔ " + ((r && r.error) || "فشل التحليل")); return; }
+    const f = r.fields;
+    const has = (arr, id) => Array.isArray(arr) && arr.some(x => x.id === id);
+    if(has(GENDERS, f.genderId)) setGenderId(f.genderId);
+    if(has(CHILD_AGES, f.ageId)) setAgeId(f.ageId);
+    if(has(lib.backgrounds, f.backgroundId)) setBackgroundId(f.backgroundId);
+    if(has(FRAMINGS, f.framingId)) setFramingId(f.framingId);
+    if(has(lib.poses, f.poseId)) setPoseId(f.poseId);
+    if(has(SKIN_TONES, f.skinToneId)) setSkinToneId(f.skinToneId);
+    if(has(LIGHTINGS, f.lightingId)) setLightingId(f.lightingId);
+    if(f.extraNotes && String(f.extraNotes).trim()) setNotes(n => (n ? n + " · " : "") + String(f.extraNotes).trim());
+    if(shotType === "reference" || shotType === "ghost" || shotType === "flat") setShotType("model");
+    showToast("✓ " + (f.summary || "تم تحليل البرومبت وتطبيق الإعدادات"));
   };
 
   const doEdit = async () => {
@@ -311,37 +355,72 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* shot type */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع اللقطة</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{SHOT_TYPES.map(s => <Chip key={s.id} on={shotType === s.id} onClick={() => setShotType(s.id)}>{s.label}</Chip>)}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{SHOT_TYPES.map(s => <Chip key={s.id} on={shotType === s.id} onClick={() => setShot(s.id)}>{s.label}</Chip>)}</div>
             </div>
 
             {/* sources */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 8 }}>🧵 صور المصدر (القطعة/العينة) — لغاية ٥</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                {sources.map(u => (
-                  <div key={u} style={{ position: "relative", width: 70, height: 90, borderRadius: 10, overflow: "hidden", border: "1px solid " + T.brd }}>
-                    <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    <span onClick={() => removeSource(u)} style={{ position: "absolute", top: 2, insetInlineEnd: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, cursor: "pointer" }}>✕</span>
+              {isReference ? (
+                <>
+                  <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>🖼️ صور «موديل مرجعي»</div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>صورة الموديل (من النت/أي مصدر) + صورة القطعة بتاعتك — البرنامج بيبدّل القطعة على الموديل ويحافظ على كل التفاصيل.</div>
+                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🧍 الموديل المرجعي (Image 1)</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    {sources[0] ? (
+                      <div style={{ position: "relative", width: 80, height: 104, borderRadius: 10, overflow: "hidden", border: "2px solid " + T.accent }}>
+                        <img src={sources[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <span onClick={clearRefModel} style={{ position: "absolute", top: 2, insetInlineEnd: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, cursor: "pointer" }}>✕</span>
+                      </div>
+                    ) : (
+                      <ImagePickButton data={data} imagesOnly onFile={async f => { try { const { url } = await uploadImageToStorage("ai-sources", (curModel && curModel.id) || "studio", f); setRefModel(url); } catch(err){ showToast("⛔ فشل رفع الموديل" + (err?.message ? " — " + err.message : "")); } }} onPickUrl={url => setRefModel(url)}
+                        triggerStyle={{ width: 80, height: 104, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, textAlign: "center" }}>+ موديل</ImagePickButton>
+                    )}
                   </div>
-                ))}
-                {sources.length < 5 && (
-                  <ImagePickButton data={data} multiple imagesOnly onFiles={onSourceFiles} onPickMany={(recs) => recs.forEach(r => addSource(r.downloadURL || r.url))}
-                    triggerStyle={{ width: 70, height: 90, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, textAlign: "center" }}>+ أضف</ImagePickButton>
-                )}
-              </div>
-              {availFromModel.length > 0 && (
-                <div>
-                  <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 4 }}>من صور الموديل:</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {availFromModel.map(u => <img key={u} src={u} alt="" onClick={() => addSource(u)} title="إضافة كمصدر" style={{ width: 46, height: 58, objectFit: "cover", borderRadius: 8, border: "1px solid " + (sources.includes(u) ? T.accent : T.brd), cursor: "pointer", opacity: sources.includes(u) ? 0.5 : 1 }} />)}
+                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🧵 القطعة (Image 2)</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {sources.slice(1).map(u => (
+                      <div key={u} style={{ position: "relative", width: 70, height: 90, borderRadius: 10, overflow: "hidden", border: "1px solid " + T.brd }}>
+                        <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <span onClick={() => removeSource(u)} style={{ position: "absolute", top: 2, insetInlineEnd: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, cursor: "pointer" }}>✕</span>
+                      </div>
+                    ))}
+                    {sources.length < 5 && (
+                      <ImagePickButton data={data} multiple imagesOnly onFiles={onSourceFiles} onPickMany={(recs) => recs.forEach(r => addSource(r.downloadURL || r.url))}
+                        triggerStyle={{ width: 70, height: 90, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, textAlign: "center" }}>+ قطعة</ImagePickButton>
+                    )}
                   </div>
-                </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 8 }}>🧵 صور المصدر (القطعة/العينة) — لغاية ٥</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    {sources.map(u => (
+                      <div key={u} style={{ position: "relative", width: 70, height: 90, borderRadius: 10, overflow: "hidden", border: "1px solid " + T.brd }}>
+                        <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <span onClick={() => removeSource(u)} style={{ position: "absolute", top: 2, insetInlineEnd: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, cursor: "pointer" }}>✕</span>
+                      </div>
+                    ))}
+                    {sources.length < 5 && (
+                      <ImagePickButton data={data} multiple imagesOnly onFiles={onSourceFiles} onPickMany={(recs) => recs.forEach(r => addSource(r.downloadURL || r.url))}
+                        triggerStyle={{ width: 70, height: 90, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, textAlign: "center" }}>+ أضف</ImagePickButton>
+                    )}
+                  </div>
+                  {availFromModel.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 4 }}>من صور الموديل:</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {availFromModel.map(u => <img key={u} src={u} alt="" onClick={() => addSource(u)} title="إضافة كمصدر" style={{ width: 46, height: 58, objectFit: "cover", borderRadius: 8, border: "1px solid " + (sources.includes(u) ? T.accent : T.brd), cursor: "pointer", opacity: sources.includes(u) ? 0.5 : 1 }} />)}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
             {/* options */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
+              {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1) والبرومبت بيقفلها. عدّل البرومبت من قسم «✍️ البرومبت» تحت لو محتاج.</div>}
               {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId)}
               {isModelShot && isChild && chipRow("العمر", CHILD_AGES, ageId, setAgeId)}
               {isModelShot && (
@@ -359,14 +438,42 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 </div>
               )}
               {isModelShot && chipRow("الإطار", FRAMINGS, framingId, setFramingId)}
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الخلفية</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{lib.backgrounds.map(it => <Chip key={it.id} on={backgroundId === it.id} onClick={() => setBackgroundId(it.id)}>{it.label}{it.custom ? " ✦" : ""}</Chip>)}</div>
-              </div>
+              {isModelShot && chipRow("لون البشرة", SKIN_TONES, skinToneId, setSkinToneId)}
+              {isModelShot && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId)}
+              {!isReference && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الخلفية</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{lib.backgrounds.map(it => <Chip key={it.id} on={backgroundId === it.id} onClick={() => setBackgroundId(it.id)}>{it.label}{it.custom ? " ✦" : ""}</Chip>)}</div>
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>ملاحظات إضافية (اختياري)</div>
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="مثلاً: ابتسامة، إضاءة دافئة، حذاء أبيض..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 46, outline: "none" }} />
               </div>
+            </div>
+
+            {/* custom prompt + analyze */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت {isReference ? "(مرجعي)" : "الحر"}</span>
+                {!isReference && <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>}
+              </div>
+              {(customOn || isReference) ? (
+                <>
+                  <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} rows={isReference ? 8 : 5} placeholder="اكتب البرومبت الكامل (الإنجليزي أدق)..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 90, outline: "none", lineHeight: 1.6 }} />
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    <Btn small onClick={() => setCustomPrompt(REFERENCE_TRYON_PROMPT)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>📋 قالب التلبيس المرجعي</Btn>
+                    <Btn small onClick={runAnalyze} disabled={analyzing} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>{analyzing ? "⏳ تحليل..." : "🔎 تحليل البرومبت"}</Btn>
+                    {customPrompt && <Btn small onClick={() => setCustomPrompt("")} style={{ background: T.err + "10", color: T.err, border: "1px solid " + T.err + "30" }}>مسح</Btn>}
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6, lineHeight: 1.6 }}>🔎 «تحليل» بيقرأ البرومبت ويظبط الشيبس (السن/الخلفية/لون البشرة/الإضاءة) تلقائياً.</div>
+                </>
+              ) : (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: FS - 2, color: T.textMut }}>اكتب برومبت كامل بنفسك بدل الخيارات.</span>
+                  <Btn small onClick={() => setCustomOn(true)} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>✍️ فعّل البرومبت الحر</Btn>
+                </div>
+              )}
             </div>
 
             {/* library */}
@@ -427,7 +534,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>عدد الصور</div><Sel value={String(count)} onChange={v => setCount(Number(v))}>{[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}</Sel></div>
             </div>
 
-            <Btn primary onClick={generate} disabled={busy || sources.length === 0} style={{ fontSize: FS + 1, padding: "13px 0", fontWeight: 800 }}>
+            <Btn primary onClick={generate} disabled={busy || sources.length === 0 || (isReference && sources.length < 2)} style={{ fontSize: FS + 1, padding: "13px 0", fontWeight: 800 }}>
               {busy ? "⏳ جاري التوليد..." : "🪄 توليد الصورة" + (isModelShot && multiPose && selPoses.length > 0 ? " (" + selPoses.length + " وقفة)" : (Number(count) > 1 ? " (" + count + ")" : ""))}
             </Btn>
           </div>
