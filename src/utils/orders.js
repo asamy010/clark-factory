@@ -733,6 +733,37 @@ export function mkOrder(){
   return o
 }
 
+/* V21.22.0 (المرحلة ٣): بناء أمر تشغيل من موديل (snapshot الوصفة).
+   الأمر ياخد id/PO/حالة/تاريخ جديدة + modelId للربط بالموديل المصدر.
+   الألوان تتنسخ كـ palette (الكميات يكتبها المستخدم — layers/pcsPerLayer).
+   ⚠️ snapshot مش reference: تعديل الموديل لاحقاً مايغيّرش الأمر ده. */
+export function buildOrderFromModel(model){
+  const o=mkOrder();
+  if(!model||typeof model!=="object") return o;
+  o.modelId=model.id;
+  o.modelNo=model.modelNo||"";
+  o.modelDesc=model.modelDesc||"";
+  o.sizeSetId=model.sizeSetId||"";
+  o.sizeLabel=model.sizeLabel||"";
+  o.orderPieces=Array.isArray(model.orderPieces)?[...model.orderPieces]:[];
+  o.image=model.image||"";
+  o.imageStoragePath=model.imageStoragePath||"";
+  o.instructions=model.instructions||"";
+  o.marker=model.marker||"";
+  o.accItems=JSON.parse(JSON.stringify(model.accItems||[]));
+  FKEYS.forEach(k=>{
+    o["fabric"+k]=model["fabric"+k]||"";
+    o["cons"+k]=model["cons"+k]||0;
+    o["fabricPieces"+k]=Array.isArray(model["fabricPieces"+k])?[...model["fabricPieces"+k]]:[];
+    o["fabric"+k+"Label"]=model["fabric"+k+"Label"]||"";
+    o["fabric"+k+"Price"]=model["fabric"+k+"Price"]||0;
+    o["fabric"+k+"Unit"]=model["fabric"+k+"Unit"]||"";
+    const cols=Array.isArray(model["colors"+k])?model["colors"+k]:[];
+    o["colors"+k]=cols.map(c=>({color:(c&&c.color)||"",colorHex:(c&&c.colorHex)||"",layers:Number(c&&c.layers)||0,pcsPerLayer:Number(c&&c.pcsPerLayer)||0,qty:Number(c&&c.qty)||0}));
+  });
+  return o;
+}
+
 /* Validate order form - returns array of error messages.
    V21.9.79 (Bug #5 + #7 in cutting audit):
    - Defensive `||""` on modelNo/modelDesc to handle legacy/migration data

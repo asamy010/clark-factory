@@ -11,7 +11,7 @@ import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDB, TDL, TH } from "../theme.js";
 import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
 import { nowISO, cairoDateStr } from "../utils/serverTime.js";
-import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, buildOrderFromModel, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
@@ -142,6 +142,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[stageProgressOrder,setStageProgressOrder]=useState(null);/* V19.0: order to show in stage-progress modal */
   const[wsOpOrder,setWsOpOrder]=useState(null);/* V21.13: order to show in التشغيل (workshops) popup من البطاقة */
   const[showNew,setShowNew]=useState(false);
+  /* V21.22.0 (المرحلة ٣): إنشاء أمر تشغيل من موديل */
+  const[pickModel,setPickModel]=useState(false);const[modelQ,setModelQ]=useState("");const[fromModel,setFromModel]=useState(null);
   /* V16.37: mobile-only overflow menu — collapses secondary actions into a list */
   const[showActionsMenu,setShowActionsMenu]=useState(false);
   const[dupInit,setDupInit]=useState(null);
@@ -247,6 +249,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
 
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
+  /* V21.22.0: أمر تشغيل من موديل (الوصفة متعبّية، المستخدم يكتب الكميات بس) */
+  if(fromModel)return<OrdForm data={data} initial={fromModel} onSave={o=>{addOrder(o);setFromModel(null);showToast("✓ تم إنشاء أمر التشغيل من الموديل")}} onCancel={()=>setFromModel(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
 
   if(!order){
     const filteredPreTag=data.orders.filter(o=>{
@@ -286,11 +290,45 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <h2 style={{fontSize:isMob?FS+3:FS+6,fontWeight:900,margin:0,color:T.text,letterSpacing:"-0.5px"}}>التصنيع</h2>
           <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>إدارة أوامر الإنتاج والتسليم</div>
         </div>
-        {canEdit&&<Btn primary onClick={()=>setShowNew(true)} style={{display:"flex",alignItems:"center",gap:6}}>
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>أمر قص جديد</span>
-        </Btn>}
+        {canEdit&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {/* V21.22.0: أمر من موديل (snapshot الوصفة، اكتب الكميات بس) */}
+          <Btn onClick={()=>{setModelQ("");setPickModel(true)}} style={{display:"flex",alignItems:"center",gap:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>🧩 <span>أمر من موديل</span></Btn>
+          <Btn primary onClick={()=>setShowNew(true)} style={{display:"flex",alignItems:"center",gap:6}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>أمر قص جديد</span>
+          </Btn>
+        </div>}
       </div>
+
+      {/* V21.22.0: منتقي الموديل — يبني أمر تشغيل من الوصفة */}
+      {pickModel&&<div onClick={()=>setPickModel(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"min(560px,100%)",maxHeight:"82vh",display:"flex",flexDirection:"column",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>🧩 اختر موديل لأمر التشغيل</div>
+            <Btn ghost small onClick={()=>setPickModel(false)}>✕</Btn>
+          </div>
+          <div style={{padding:"10px 14px"}}>
+            <input value={modelQ} onChange={e=>setModelQ(e.target.value)} placeholder="🔍 ابحث برقم/وصف الموديل..." style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}/>
+          </div>
+          <div style={{padding:"0 14px 14px",overflow:"auto",flex:1}}>
+            {(()=>{const ms=Array.isArray(data.models)?data.models:[];const s=modelQ.trim().toLowerCase();const fl=s?ms.filter(m=>((m.modelNo||"")+" "+(m.modelDesc||"")).toLowerCase().includes(s)):ms;
+              if(ms.length===0)return<div style={{textAlign:"center",padding:30,color:T.textSec,lineHeight:1.7}}>مفيش موديلات لسه.<br/>أضف موديل من زر «🧩 الموديلات» فوق الأول.</div>;
+              if(fl.length===0)return<div style={{textAlign:"center",padding:24,color:T.textMut}}>مفيش نتائج</div>;
+              return fl.map(m=>{const cols=[];const seen=new Set();FKEYS.forEach(k=>(m["colors"+k]||[]).forEach(c=>{const n=((c&&c.color)||"").trim();if(n&&!seen.has(n)){seen.add(n);cols.push({n,h:(c&&c.colorHex)||"#cbd5e1"})}}));
+                return<div key={m.id} onClick={()=>{setFromModel(buildOrderFromModel(m));setPickModel(false)}} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 12px",borderRadius:10,border:"1px solid "+T.brd,marginBottom:8,cursor:"pointer",background:T.bg}} onMouseEnter={e=>e.currentTarget.style.background="#8B5CF60A"} onMouseLeave={e=>e.currentTarget.style.background=T.bg}>
+                  {m.image?<img src={m.image} alt="" style={{width:44,height:56,objectFit:"cover",borderRadius:8,flexShrink:0,border:"1px solid "+T.brd}}/>:<div style={{width:44,height:56,borderRadius:8,background:T.cardSolid,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🧩</div>}
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontWeight:800,color:T.text}}>{m.modelNo||"—"}</div>
+                    <div style={{fontSize:FS-2,color:T.textSec,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelDesc||""}</div>
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>{cols.slice(0,8).map((c,i)=><span key={i} title={c.n} style={{width:13,height:13,borderRadius:"50%",background:c.h,border:"1px solid rgba(0,0,0,0.15)"}}/>)}{m.sizeLabel&&<span style={{fontSize:FS-3,color:T.accent,fontWeight:700,marginInlineStart:4}}>{m.sizeLabel}</span>}</div>
+                  </div>
+                  <span style={{color:"#8B5CF6",fontWeight:800,fontSize:FS-1,flexShrink:0}}>اختيار ›</span>
+                </div>;
+              });
+            })()}
+          </div>
+        </div>
+      </div>}
 
       {/* V19.67: HERO STATS (4 KPI cards) removed per user request — clean layout.
           The status chips row below still surfaces الكل/متأخر/per-status counts. */}
