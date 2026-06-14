@@ -37,6 +37,7 @@
 export const PERMISSION_TABS = [
   { key: "dashboard",        label: "لوحة التحكم",       icon: "📊", group: "core" },
   { key: "details",          label: "التصنيع",         icon: "✂️", group: "core" },
+  { key: "aiStudio",         label: "AI Studio",          icon: "🪄", group: "core" },
   { key: "external",         label: "تشغيل خارجي",        icon: "🏗️", group: "production" },
   { key: "reports",          label: "التقارير",            icon: "📑", group: "core" },
   { key: "tasks",            label: "المهام",              icon: "✅", group: "core" },

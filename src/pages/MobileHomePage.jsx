@@ -33,6 +33,7 @@ const HOME_BUTTONS = [
   { key: "__quickTreasury", label: "حركة خزنة سريعة",   icon: "💵", color: "#0D9488", special: true },
   { key: "salesInvoices",   label: "فواتير",            icon: "🧾", color: "#3B82F6" },
   { key: "details",         label: "التصنيع",         icon: "✂️", color: "#8B5CF6" },
+  { key: "aiStudio",        label: "AI Studio",         icon: "🪄", color: "#A855F7" },
   { key: "purchase",        label: "مشتريات",            icon: "🛍️", color: "#F59E0B" },
 ];
 

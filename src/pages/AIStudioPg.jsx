@@ -1,17 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · AIStudioPg.jsx (V21.23.0 — استوديو الموديلات Phase 2a)
+   CLARK · AIStudioPg.jsx (V21.23.1 — استوديو الموديلات، زر أساسي في الهوم)
    ───────────────────────────────────────────────────────────────────────
    تلبيس الموديلات (virtual try-on) بـ Nano Banana Pro من داخل التطبيق:
-   اختر صور المصدر (القطعة/العينة) + خيارات (وقفة/عمر/جنس/خلفية/إطار) + برومبت
-   → توليد → احفظ الناتج كصورة الموديل/لون أو في المستندات.
+   اختر موديل (اختياري) + صور المصدر (القطعة/العينة) + خيارات (وقفة/عمر/جنس/
+   خلفية/إطار) + برومبت → توليد → احفظ الناتج كصورة الموديل/لون أو في المستندات.
 
-   كل التوليد server-side (api/ai-image/generate). هنا UI بس. الصور بتتخزّن
-   على Storage وبترجّع URL — بتترِبط بالموديل عبر replaceModel أو بالمستندات
-   عبر upConfig (documentsTree).
+   بيشتغل بطريقتين:
+   - زر «AI Studio» في الهوم: بدون موديل محدد → فيه منتقي موديلات (اختياري).
+   - زر «🪄» على بطاقة موديل: الموديل محدد سلفاً.
+
+   كل التوليد server-side (api/ai-image/generate). هنا UI بس.
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useMemo } from "react";
-import { Btn, Sel } from "../components/ui.jsx";
+import { Btn, Sel, SearchSel } from "../components/ui.jsx";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
@@ -27,6 +29,7 @@ import {
 /* كل صور الموديل المتاحة كمصدر (رئيسية + ألوان) */
 function modelImages(model){
   const out = [];
+  if(!model) return out;
   if(model.image) out.push(model.image);
   const ci = (model.shopify_meta && model.shopify_meta.color_images) || {};
   Object.values(ci).forEach(v => { const u = v && (v.url || v); if(u) out.push(u); });
@@ -38,6 +41,7 @@ function modelImages(model){
 /* أسماء ألوان الموديل (لحفظ الناتج كصورة لون) */
 function modelColorNames(model){
   const seen = new Set(); const out = [];
+  if(!model) return out;
   FKEYS.forEach(k => (model["colors" + k] || []).forEach(c => {
     const n = ((c && c.color) || "").trim();
     if(n && !seen.has(n)){ seen.add(n); out.push(n); }
@@ -45,8 +49,9 @@ function modelColorNames(model){
   return out;
 }
 
-export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, onClose }){
-  const [sources, setSources] = useState(() => { const m = modelImages(model || {}); return m.slice(0, 1); });
+export function AIStudioPg({ model, models, data, upConfig, user, isMob, replaceModel, onClose }){
+  const [curModel, setCurModel] = useState(model || null);
+  const [sources, setSources] = useState(() => modelImages(model || null).slice(0, 1));
   const [tier, setTier] = useState("pro");
   const [aspectRatio, setAspectRatio] = useState("3:4");
   const [imageSize, setImageSize] = useState("2K");
@@ -60,19 +65,32 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
   const [results, setResults] = useState([]); /* [{url, storagePath, model, ts}] */
   const [saveColor, setSaveColor] = useState("");
 
-  const availFromModel = useMemo(() => modelImages(model || {}), [model]);
-  const colorNames = useMemo(() => modelColorNames(model || {}), [model]);
+  /* منتقي موديلات (يظهر لما نفتح من الهوم — models متوفّرة والموديل مش مثبّت) */
+  const showPicker = Array.isArray(models) && models.length > 0 && !model;
+  const modelOpts = useMemo(() => (Array.isArray(models) ? models : [])
+    .filter(m => m && m.id).map(m => ({ value: String(m.id), label: (m.modelNo || "—") + (m.modelDesc ? " — " + m.modelDesc : "") })),
+    [models]);
+
+  const availFromModel = useMemo(() => modelImages(curModel), [curModel]);
+  const colorNames = useMemo(() => modelColorNames(curModel), [curModel]);
   const isChild = genderId === "girl" || genderId === "boy";
 
   const opts = { genderId, ageId, poseId, backgroundId, framingId, notes };
   const prompt = useMemo(() => buildStudioPrompt(opts), [genderId, ageId, poseId, backgroundId, framingId, notes]);
   const optsDesc = describeStudioOptions(opts);
 
+  const pickModel = (id) => {
+    const m = (Array.isArray(models) ? models : []).find(x => String(x.id) === String(id)) || null;
+    setCurModel(m);
+    setSaveColor("");
+    setSources(modelImages(m).slice(0, 1));
+  };
+
   const addSource = (url) => { if(!url) return; setSources(p => p.includes(url) ? p : [...p, url].slice(0, 5)); };
   const removeSource = (url) => setSources(p => p.filter(u => u !== url));
   const onSourceFiles = async (files) => {
     for(const f of files){
-      try { const { url } = await uploadImageToStorage("ai-sources", model?.id || "studio", f); addSource(url); }
+      try { const { url } = await uploadImageToStorage("ai-sources", (curModel && curModel.id) || "studio", f); addSource(url); }
       catch(err){ showToast("⛔ فشل رفع صورة المصدر" + (err?.message ? " — " + err.message : "")); }
     }
   };
@@ -89,7 +107,7 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
     const r = await runWithProgress({
       label: "توليد صورة الموديل", type: "ai-image-generate",
       fn: (jobId) => generateModelImage({
-        modelId: model?.id || "studio", sourceImageUrls: sources, prompt,
+        modelId: (curModel && curModel.id) || "studio", sourceImageUrls: sources, prompt,
         aspectRatio, imageSize, tier, jobId,
       }, user),
     });
@@ -104,18 +122,20 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
 
   /* ── حفظ الناتج ── */
   const saveAsModelImage = (res) => {
-    if(!replaceModel || !model){ showToast("⚠️ مش متاح"); return; }
-    replaceModel(model.id, { ...model, image: res.url, imageStoragePath: res.storagePath || "" });
+    if(!replaceModel || !curModel){ showToast("⚠️ اختر موديل الأول"); return; }
+    replaceModel(curModel.id, { ...curModel, image: res.url, imageStoragePath: res.storagePath || "" });
+    setCurModel(p => ({ ...p, image: res.url, imageStoragePath: res.storagePath || "" }));
     showToast("✓ اتحفظت كصورة الموديل الرئيسية");
   };
   const saveAsColorImage = (res) => {
-    if(!replaceModel || !model) return;
+    if(!replaceModel || !curModel) return;
     if(!saveColor){ showToast("⚠️ اختر اللون الأول"); return; }
-    const next = JSON.parse(JSON.stringify(model));
+    const next = JSON.parse(JSON.stringify(curModel));
     if(!next.shopify_meta) next.shopify_meta = {};
     if(!next.shopify_meta.color_images) next.shopify_meta.color_images = {};
     next.shopify_meta.color_images[saveColor] = { url: res.url, alt: saveColor, source: "ai" };
-    replaceModel(model.id, next);
+    replaceModel(curModel.id, next);
+    setCurModel(next);
     showToast("✓ اتحفظت كصورة لون «" + saveColor + "»");
   };
   const saveToDocuments = (res) => {
@@ -123,7 +143,7 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
     const by = (user && (user.displayName || user.email)) || "";
     const fileRec = {
       id: "aidoc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
-      name: "ai_" + ((model && model.modelNo) || "studio") + "_" + new Date(res.ts).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png",
+      name: "ai_" + ((curModel && curModel.modelNo) || "studio") + "_" + new Date(res.ts).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png",
       folderId: "", storagePath: res.storagePath || "", downloadURL: res.url,
       contentType: "image/png", size: 0, uploadedBy: by, uploadedAt: now, source: "ai-studio",
     };
@@ -143,11 +163,11 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
       border: "1px solid " + (on ? T.accent : T.brd), whiteSpace: "nowrap",
     }}>{children}</span>
   );
-  const chipRow = (label, items, val, setVal, getId = (x) => x.id, getLabel = (x) => x.label) => (
+  const chipRow = (label, items, val, setVal) => (
     <div style={{ marginBottom: 10 }}>
       <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>{label}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {items.map(it => <Chip key={getId(it)} on={val === getId(it)} onClick={() => setVal(getId(it))}>{getLabel(it)}</Chip>)}
+        {items.map(it => <Chip key={it.id} on={val === it.id} onClick={() => setVal(it.id)}>{it.label}</Chip>)}
       </div>
     </div>
   );
@@ -159,12 +179,22 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           <Btn small onClick={onClose} style={{ background: T.cardSolid, border: "1px solid " + T.brd, color: T.text }}>‹ رجوع</Btn>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: FS + 4, fontWeight: 900, color: T.text }}>🪄 استوديو الموديلات</div>
+            <div style={{ fontSize: FS + 4, fontWeight: 900, color: T.text }}>🪄 AI Studio — استوديو الموديلات</div>
             <div style={{ fontSize: FS - 1, color: T.textSec, marginTop: 2 }}>
-              {model ? ("موديل: " + (model.modelNo || "—") + (model.modelDesc ? " — " + model.modelDesc : "")) : "توليد حرّ"}
+              {curModel ? ("موديل: " + (curModel.modelNo || "—") + (curModel.modelDesc ? " — " + curModel.modelDesc : "")) : "توليد حرّ — اختر موديل لو عاوز تحفظ النتيجة عليه"}
             </div>
           </div>
         </div>
+
+        {/* model picker (home mode) */}
+        {showPicker && (
+          <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, marginBottom: 8 }}>🧩 اختر موديل (اختياري — عشان صوره تنزل كمصدر وتقدر تحفظ النتيجة عليه)</div>
+            <div style={{ maxWidth: 420 }}>
+              <SearchSel value={curModel ? String(curModel.id) : ""} onChange={pickModel} options={modelOpts} showAllOnFocus maxResults={8} placeholder="🔍 ابحث عن موديل..." />
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.1fr 1fr", gap: 16 }}>
           {/* ── left: inputs ── */}
@@ -247,7 +277,7 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {colorNames.length > 0 && (
+                  {curModel && colorNames.length > 0 && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>حفظ كصورة لون:</span>
                       <Sel value={saveColor} onChange={setSaveColor}>
@@ -260,8 +290,8 @@ export function AIStudioPg({ model, data, upConfig, user, isMob, replaceModel, o
                     <div key={res.ts} style={{ border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg }}>
                       <img src={res.url} alt="" style={{ width: "100%", display: "block", maxHeight: 460, objectFit: "contain", background: "#000" }} />
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
-                        {model && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ صورة الموديل</Btn>}
-                        {model && replaceModel && colorNames.length > 0 && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 صورة لون</Btn>}
+                        {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ صورة الموديل</Btn>}
+                        {curModel && replaceModel && colorNames.length > 0 && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 صورة لون</Btn>}
                         <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ المستندات</Btn>
                         <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️ تنزيل</Btn></a>
                       </div>

@@ -163,6 +163,7 @@ import { SyncProgressOverlay } from "./components/SyncProgressOverlay.jsx";
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
 const ModelsPg = lazyNamed(() => import("./pages/ModelsPg.jsx"), "ModelsPg");/* V21.22.0 */
+const AIStudioPg = lazyNamed(() => import("./pages/AIStudioPg.jsx"), "AIStudioPg");/* V21.23.1 — AI Studio (home tile) */
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
 const DetPg = lazyNamed(() => import("./pages/DetPg.jsx"), "DetPg");
 const ExtProdPg = lazyNamed(() => import("./pages/ExtProdPg.jsx"), "ExtProdPg");
@@ -7226,6 +7227,7 @@ export default function App(){
         <ChunkErrorBoundary>
         <Suspense fallback={<PageLoader/>}>
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
+        {tab==="aiStudio"&&<AIStudioPg model={null} models={models} data={data} upConfig={upConfig} user={user} isMob={isMob} replaceModel={replaceModel} onClose={goHome}/>}
         {tab==="details"&&<div>
           {/* V21.21.99: hub التصنيع — ٣ أزرار رئيسية (الشريط يختفي وأمر مفتوح) */}
           {!sel&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
