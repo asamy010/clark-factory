@@ -13,7 +13,7 @@ import { OrdForm } from "./OrdForm.jsx";
 import { mkOrder } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
-import { ask } from "../utils/popups.js";
+import { ask, tell } from "../utils/popups.js";
 import { gIcon } from "../utils/format.js";
 
 /* كل ألوان الموديل (palette) عبر كل الأقمشة A→H — أسماء فريدة + hex. */
@@ -57,7 +57,20 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
   }
 
   const onDelete = async (m) => {
-    if(!await ask("حذف الموديل", "حذف الموديل \"" + (m.modelNo || "") + "\"؟\n(مايأثرش على أوامر التشغيل القديمة — هي بتاخد نسخة من بياناتها).", { danger: true, confirmText: "حذف" })) return;
+    /* V21.22.2 — منع حذف موديل مرتبط بأوامر تشغيل (سلامة المرجع — زي باقي
+       كيانات CLARK). الأوامر بتاخد snapshot فبتفضل سليمة، بس مايصحّش نسيب
+       الـ modelId معلّق على موديل محذوف. */
+    const linked = (Array.isArray(data.orders) ? data.orders : []).filter(o => o && String(o.modelId) === String(m.id));
+    if(linked.length > 0){
+      const sample = linked.slice(0, 4).map(o => o.poNumber || o.modelNo || o.id).filter(Boolean).join("، ");
+      await tell("لا يمكن حذف الموديل",
+        "الموديل \"" + (m.modelNo || "") + "\" مرتبط بـ " + linked.length + " أمر تشغيل" +
+        (sample ? " (" + sample + (linked.length > 4 ? "…" : "") + ")" : "") +
+        ".\n\nاحذف أوامر التشغيل دي الأول، أو سيب الموديل زي ما هو.",
+        { type: "warning" });
+      return;
+    }
+    if(!await ask("حذف الموديل", "حذف الموديل \"" + (m.modelNo || "") + "\"؟", { danger: true, confirmText: "حذف" })) return;
     delModel(m.id);
   };
 
