@@ -10,7 +10,7 @@
 /* V19.50: Single source of truth for the app version. Used in topbar pills
    (desktop + mobile), the console marker on module load, and the About modal.
    Bump this constant once and the version label is consistent everywhere. */
-export const APP_VERSION = "V21.22.15";
+export const APP_VERSION = "V21.22.16";
 
 /* V19.80.3: extended fabric slots A→H (was A→E) so users can add more fabrics
    sequentially via the new "+ إضافة خامة" button in OrdForm. Existing orders
@@ -37,7 +37,7 @@ export const COLORS_DB = [
 
 /* ── Theme System ── */
 export const THEMES = {
-  light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#0EA5E9",accentBg:"#E0F2FE",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
+  light:{name:"فاتح",bg:"#EFF6FF",card:"rgba(255,255,255,0.9)",cardSolid:"#FFF",glass:"rgba(255,255,255,0.6)",brd:"rgba(148,163,184,0.2)",brdStrong:"rgba(148,163,184,0.4)",text:"#1E293B",textSec:"#64748B",textMut:"#94A3B8",accent:"#2E7BED",accentBg:"#E8F1FF",ok:"#10B981",err:"#EF4444",warn:"#F59E0B",purple:"#8B5CF6",shadow:"0 2px 12px rgba(0,0,0,0.04)",sidebarBg:"#FFF",inputBg:"#FFF",bodyBg:"#EFF6FF"},
   pink:{name:"بينك",bg:"#FFF0F5",card:"rgba(255,255,255,0.95)",cardSolid:"#FFF5F8",glass:"rgba(255,240,245,0.7)",brd:"rgba(236,72,153,0.15)",brdStrong:"rgba(236,72,153,0.3)",text:"#4A1942",textSec:"#9D4E8C",textMut:"#C084A8",accent:"#DB2777",accentBg:"#FCE7F3",ok:"#059669",err:"#E11D48",warn:"#D97706",purple:"#A855F7",shadow:"0 2px 12px rgba(236,72,153,0.08)",sidebarBg:"#FFF5F8",inputBg:"#FFF",bodyBg:"#FFF0F5"},
   odoo:{name:"بيربل",bg:"#EFEDF0",card:"rgba(255,255,255,0.95)",cardSolid:"#FFFFFF",glass:"rgba(255,255,255,0.7)",brd:"rgba(113,75,103,0.12)",brdStrong:"rgba(113,75,103,0.25)",text:"#2C2C33",textSec:"#6B7280",textMut:"#9CA3AF",accent:"#714B67",accentBg:"#F3EDF2",ok:"#21B799",err:"#D94F70",warn:"#E4A93F",purple:"#714B67",shadow:"0 2px 10px rgba(113,75,103,0.06)",sidebarBg:"#FFFFFF",inputBg:"#FFFFFF",bodyBg:"#EFEDF0",navBg:"#714B67",navText:"#FFFFFF"}
 };

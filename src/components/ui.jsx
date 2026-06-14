@@ -41,7 +41,7 @@ export function LoadingBtn({loading,loadingText,children,onClick,disabled,primar
   const bg=ghost?"transparent":danger?T.err:primary?T.accent:T.bg;
   const fg=ghost?T.text:danger?"#fff":primary?"#fff":T.text;
   const bd=ghost?"1px solid "+T.brd:danger?"none":primary?"none":"1px solid "+T.brd;
-  return<button onClick={onClick} disabled={isDisabled} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:isDisabled?"default":"pointer",fontFamily:"inherit",opacity:isDisabled?(loading?0.85:0.5):1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,...(sx||{})}} {...rest}>
+  return<button className="clark-btn" onClick={onClick} disabled={isDisabled} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:isDisabled?"default":"pointer",fontFamily:"inherit",opacity:isDisabled?(loading?0.85:0.5):1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,...(sx||{})}} {...rest}>
     {loading&&<Spinner size="small" color={fg} inline/>}
     <span>{loading&&loadingText?loadingText:children}</span>
   </button>;
@@ -70,17 +70,17 @@ export function Btn({children,on,primary,danger,ghost,onClick,small,disabled,sty
   if(danger){bg=T.err+"12";fg=T.err;bd="1px solid "+T.err+"30"}
   if(ghost){bg="transparent";bd="none";fg=T.textSec}
   const mob=typeof window!=="undefined"&&window.innerWidth<768;
-  return<button onClick={onClick} disabled={disabled} title={title} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
+  return<button className="clark-btn" onClick={onClick} disabled={disabled} title={title} style={{padding:small?(mob?"6px 12px":"4px 10px"):(mob?"9px 18px":"7px 16px"),borderRadius:8,fontSize:small?FS-2:FS,fontWeight:600,background:bg,color:fg,border:bd,cursor:disabled?"default":"pointer",fontFamily:"inherit",opacity:disabled?0.5:1,boxShadow:primary?"0 2px 8px "+T.accent+"33":"none",minHeight:mob?36:undefined,...(sx||{})}}>{children}</button>
 }
 
 export function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
   const isNum=type==="number";
   const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
-  return<input type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"0":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+  return<input className="clark-inp" type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"0":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
 }
 
 export function Sel({value,onChange,children}){
-  return<select value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
+  return<select className="clark-sel" value={value==null?"":value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.cardSolid,color:T.text,boxSizing:"border-box"}}>{children}</select>
 }
 
 export function SearchSel({value,onChange,options,placeholder,maxResults,showAllOnFocus,sx,allowCustom,onCustom}){
@@ -162,7 +162,7 @@ export function SearchSel({value,onChange,options,placeholder,maxResults,showAll
 
 /* ──────── Card / MetricCard / PBar / DelBtn ──────── */
 export function Card({id,children,title,extra,accent,style:sx}){
-  return<div id={id} style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
+  return<div id={id} className="clark-card" style={{background:T.cardSolid,borderRadius:12,border:"1px solid "+T.brd,boxShadow:T.shadow,overflow:"visible",...(sx||{})}}>
     {(title||extra)&&<div style={{padding:"10px 16px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",background:accent||T.bg,borderRadius:"12px 12px 0 0"}}><span style={{fontSize:FS+1,fontWeight:700,color:accent?"#fff":T.text}}>{title}</span>{extra}</div>}
     <div style={{padding:14}}>{children}</div>
   </div>

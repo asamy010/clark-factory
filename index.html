@@ -71,6 +71,25 @@
       .warn-card{flex-direction:column!important;align-items:stretch!important}
     }
     @media(max-width:900px) and (orientation:landscape){#landscape-block{display:flex!important}}
+    /* ═══ V21.22.16 — ثيم الديسكتوب «انحناءات احترافي» (Glassmorphism) ═══
+       ديسكتوب فقط (min-width:769px). الموبايل يفضل بالستايل الحالي. خلفية
+       باستيل متدرّجة + كروت بانحناءات كبيرة وظل أزرق ناعم + أزرار/حقول
+       مدوّرة. ما بنلمسش خلفيات الكروت (عشان الكروت الملوّنة تفضل سليمة). */
+    @media(min-width:769px){
+      body{background:
+        radial-gradient(1100px 560px at 88% -12%,#DCEBFF 0%,transparent 58%),
+        radial-gradient(880px 480px at -5% 112%,#E3F6FF 0%,transparent 55%),
+        linear-gradient(135deg,#E9F1FC,#F4F9FF 45%,#EAF3FD)!important;
+        background-attachment:fixed!important}
+      .clark-app{background:transparent!important}
+      .clark-card{border-radius:22px!important;box-shadow:0 12px 40px rgba(46,123,237,.12)!important;border:1px solid rgba(46,123,237,.10)!important}
+      .clark-btn{border-radius:12px!important}
+      .clark-inp,.clark-sel{border-radius:12px!important}
+      ::-webkit-scrollbar{width:12px;height:12px}
+      ::-webkit-scrollbar-thumb{background:rgba(46,123,237,.28);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
+      ::-webkit-scrollbar-thumb:hover{background:rgba(46,123,237,.45);background-clip:padding-box}
+      ::-webkit-scrollbar-track{background:transparent}
+    }
     #landscape-block{display:none;position:fixed;inset:0;background:#1E293B;z-index:999999;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-family:'Cairo',sans-serif;text-align:center}
     #landscape-block .icon{font-size:48px;animation:rotatePhone 2s ease infinite}
     @keyframes rotatePhone{0%,100%{transform:rotate(0deg)}50%{transform:rotate(-90deg)}}</style>
