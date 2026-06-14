@@ -836,7 +836,15 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const custDelRetMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let del=0,ret=0;orders.forEach(o=>{del+=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);ret+=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0)});m.set(c.id,{del,ret})});return m},[orders,config.customers]);
   const getDeliveredForSess=(custId,sessId,orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId&&d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
   const getRemainingForSess=(custId,sessId,orderId,grid)=>{const planned=Number(grid[orderId+"_"+custId])||0;const delivered=getDeliveredForSess(custId,sessId,orderId);return Math.max(0,planned-delivered)};
-  const getCustTotal=(custId)=>custTotalsMap.get(custId)||orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0);
+  /* V21.22.8 ROOT-CAUSE FIX (بوب اب العملاء بطيء جداً + بيتباطأ مع الوقت):
+     الكود القديم كان `custTotalsMap.get(custId) || orders.reduce(...)`.
+     custTotalsMap فيه كل عميل (مبني من config.customers)، لكن `|| scan`
+     بـ falsy: لو إجمالي العميل = 0 (شائع جداً) → .get() ترجّع 0 (falsy) →
+     يقع على السكان الغالي O(orders×deliveries) لكل عميل صفري، جوه render
+     loop البوب اب، على كل رندر → O(عملاء×أوامر×تسليمات). كل ما الأوامر
+     تزيد البطء يزيد. الحل: lookup بيحترم 0 (الـ Map فيه كل العملاء أصلاً؛
+     الـ scan احتياطي فقط لـ id مش موجود — نادر). */
+  const getCustTotal=(custId)=>{const v=custTotalsMap.get(custId);if(v!==undefined)return v;return orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0)};
   const sortedSessions=useMemo(()=>[...sessions].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")),[sessions]);
   const activeSess=sessions.find(s=>s.id===activeSession);
   /* V14.64: Group models by modelNo — FIFO (oldest order first). Each group has virtual id and sub-orders sorted oldest→newest. */
