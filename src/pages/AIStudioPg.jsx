@@ -113,6 +113,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [budgetInput, setBudgetInput] = useState("");
   const [coverFor, setCoverFor] = useState(null); /* {res} */
   const [coverForm, setCoverForm] = useState({ styleId: "none", magName: "CLARK", withModelNo: true, withLogo: true, extra: "" });
+  const [autoSave, setAutoSave] = useState(true);
+  const [savedIds, setSavedIds] = useState(() => new Set());
 
   /* إجماليات الاستهلاك المحفوظة (يومي/شهري + لكل موديل + ميزانية) */
   const budget = Number(data.aiStudioBudget) || 0;
@@ -160,6 +162,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     setResults([]); setCustomPrompt(""); setCustomOn(false); setNotes("");
     setEditFor(null); setEditInstr(""); setGenCount(0); setSpent(0);
     setMultiPose(false); setSelPoses([]); setCount(1); setShotType("model");
+    setSavedIds(new Set());
     showToast("🆕 جلسة جديدة");
   };
 
@@ -260,7 +263,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       { confirmText: "توليد" });
     if(!yes) return;
     setBusy(true);
-    let ok = 0;
+    const news = [];
     for(let i = 0; i < colorList.length; i++){
       const col = colorList[i];
       setBatchMsg("لون " + (i + 1) + " من " + colorList.length + ": " + col.name);
@@ -268,10 +271,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const colorInstr = col.image ? "" : (" The garment must be in this exact color: " + (col.hex || col.name) + " (keep the same design and details, only the color is " + col.name + ").");
       const e = await callOnce({ ...opts }, srcUrls, effPrompt({ ...opts }) + colorInstr, { color: col.name });
       if(!e) break;
-      ok++;
+      news.push(e);
     }
     setBusy(false); setBatchMsg("");
-    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
+    if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
   };
 
   /* ── غلاف/نص على الصورة ── */
@@ -285,7 +288,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: "📔 " + (COVER_STYLES.find(s => s.id === coverForm.styleId) || {}).label, tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: coverFor.options || opts };
       setResults(p => [entry, ...p]);
       setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
-      recordUsage(1, unitCost(tier, imageSize));
+      recordUsage(1, unitCost(tier, imageSize)); autoSaveEntries([entry]);
       setCoverFor(null); showToast("✓ اتعمل الغلاف/النص");
     } else showToast("⛔ " + ((r && r.error) || "فشل"));
   };
@@ -305,15 +308,15 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       { confirmText: "توليد" });
     if(!yes) return;
     setBusy(true);
-    let ok = 0;
+    const news = [];
     for(let i = 0; i < jobs.length; i++){
       setBatchMsg(jobs.length > 1 ? ("جاري توليد " + (i + 1) + " من " + jobs.length + "...") : "جاري التوليد...");
       const e = await callOnce(jobs[i], sources);
       if(!e) break;
-      ok++;
+      news.push(e);
     }
     setBusy(false); setBatchMsg("");
-    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
+    if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
   };
 
   /* تنفيذ مباشر لبرومبت جاهز من المكتبة (verbatim) — بدون الدخول في التفاصيل */
@@ -322,15 +325,15 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
     setBusy(true);
-    let ok = 0;
+    const news = [];
     for(let i = 0; i < n; i++){
       setBatchMsg(n > 1 ? ("جاري توليد " + (i + 1) + " من " + n + "...") : ("جاري تنفيذ «" + (sp.name || "برومبت") + "»..."));
       const e = await callOnce({ ...opts }, sources, sp.prompt);
       if(!e) break;
-      ok++;
+      news.push(e);
     }
     setBusy(false); setBatchMsg("");
-    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
+    if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
   };
 
   const runAnalyze = async () => {
@@ -369,7 +372,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: buildEditPrompt(editInstr), desc: "تعديل: " + editInstr.trim(), tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: editFor.options || opts };
       setResults(p => [entry, ...p]);
       setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
-      recordUsage(1, unitCost(tier, imageSize));
+      recordUsage(1, unitCost(tier, imageSize)); autoSaveEntries([entry]);
       setEditFor(null); setEditInstr(""); showToast("✓ تم التعديل");
     } else showToast("⛔ " + ((r && r.error) || "فشل التعديل"));
   };
@@ -387,7 +390,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: "✨ واقعية معزّزة", tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: res.options || opts };
       setResults(p => [entry, ...p]);
       setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
-      recordUsage(1, unitCost(tier, imageSize));
+      recordUsage(1, unitCost(tier, imageSize)); autoSaveEntries([entry]);
       showToast("✓ اتعزّزت الواقعية");
     } else showToast("⛔ " + ((r && r.error) || "فشل التحسين"));
   };
@@ -424,21 +427,27 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     replaceModel(curModel.id, next); setCurModel(next);
     showToast("🗑 اتشالت من المعرض");
   };
-  /* V21.23.6: حفظ في مساحة التخزين داخل فولدر باسم الموديل (أو الاسم اللي
-     المستخدم يكتبه) — بيتعمل أول مرة ويتعاد استخدامه، وتغيير الاسم = فولدر جديد. */
+  /* V21.24.2: كل الصور بتتحفظ تحت فولدر «AI Studio» → وجوّاه فولدر فرعي
+     برقم الموديل (storageFolder). حفظ تلقائي افتراضي. */
+  const AI_ROOT = "AI Studio";
   const _initTree = (d) => {
     if(!d.documentsTree) d.documentsTree = { folders: [], files: [] };
     if(!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
     if(!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
   };
-  const _ensureFolder = (d, fname, by, now) => {
-    if(!fname) return "";
-    let folder = d.documentsTree.folders.find(f => f && !f.deletedAt && !f.parentId && String(f.name || "").trim().toLowerCase() === fname.toLowerCase());
-    if(!folder){
-      folder = { id: "fold_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), name: fname, icon: "🪄", color: "#8B5CF6", parentId: null, orderIndex: (d.documentsTree.folders.length || 0) + 1, createdBy: by, createdAt: now, lastModifiedAt: now };
-      d.documentsTree.folders.push(folder);
+  const _findOrMakeFolder = (d, name, parentId, icon, by, now) => {
+    let f = d.documentsTree.folders.find(x => x && !x.deletedAt && (x.parentId || null) === (parentId || null) && String(x.name || "").trim().toLowerCase() === name.toLowerCase());
+    if(!f){
+      f = { id: "fold_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), name, icon, color: "#8B5CF6", parentId: parentId || null, orderIndex: (d.documentsTree.folders.length || 0) + 1, createdBy: by, createdAt: now, lastModifiedAt: now };
+      d.documentsTree.folders.push(f);
     }
-    return folder.id;
+    return f.id;
+  };
+  /* بيرجّع id الفولدر اللي هتتحفظ فيه: AI Studio[/<sub>] */
+  const _ensureAiFolder = (d, sub, by, now) => {
+    const rootId = _findOrMakeFolder(d, AI_ROOT, null, "🪄", by, now);
+    if(!sub) return rootId;
+    return _findOrMakeFolder(d, sub, rootId, "📁", by, now);
   };
   const _fileRec = (res, folderId, by, now, fname) => ({
     id: "aidoc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
@@ -446,21 +455,22 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     folderId, storagePath: res.storagePath || "", downloadURL: res.url,
     contentType: "image/png", size: 0, uploadedBy: by, uploadedAt: now, source: "ai-studio",
   });
-  const saveToDocuments = (res) => {
+  const _pathLabel = (fname) => "🪄 AI Studio" + (fname ? " / " + fname : "");
+
+  /* حفظ مجموعة نتائج دفعة واحدة (للحفظ التلقائي + اليدوي) */
+  const _saveEntries = (entries, silent) => {
+    const list = (entries || []).filter(r => r && r.url && !savedIds.has(r.id));
+    if(list.length === 0){ if(!silent) showToast("✓ محفوظة بالفعل"); return; }
     const now = new Date().toISOString();
     const by = (user && (user.displayName || user.email)) || "";
     const fname = String(storageFolder || "").trim();
-    upConfig(d => { _initTree(d); const fid = _ensureFolder(d, fname, by, now); d.documentsTree.files.push(_fileRec(res, fid, by, now, fname)); });
-    showToast("✓ اتحفظت في " + (fname ? ("📁 " + fname) : "مساحة التخزين"));
+    upConfig(d => { _initTree(d); const fid = _ensureAiFolder(d, fname, by, now); list.forEach(res => d.documentsTree.files.push(_fileRec(res, fid, by, now, fname))); });
+    setSavedIds(prev => { const n = new Set(prev); list.forEach(r => n.add(r.id)); return n; });
+    if(!silent) showToast("✓ اتحفظت " + (list.length > 1 ? list.length + " صور " : "") + "في " + _pathLabel(fname));
   };
-  const saveAllToDocuments = () => {
-    if(results.length === 0) return;
-    const now = new Date().toISOString();
-    const by = (user && (user.displayName || user.email)) || "";
-    const fname = String(storageFolder || "").trim();
-    upConfig(d => { _initTree(d); const fid = _ensureFolder(d, fname, by, now); results.forEach(res => d.documentsTree.files.push(_fileRec(res, fid, by, now, fname))); });
-    showToast("✓ اتحفظت كل النتائج (" + results.length + ") في " + (fname ? ("📁 " + fname) : "مساحة التخزين"));
-  };
+  const autoSaveEntries = (entries) => { if(autoSave) _saveEntries(entries, true); };
+  const saveToDocuments = (res) => _saveEntries([res], false);
+  const saveAllToDocuments = () => _saveEntries(results, false);
 
   const applyOptions = (o) => {
     if(!o) return;
@@ -839,10 +849,16 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🖼️ نتائج الجلسة</span>
                 {results.length > 1 && <Btn small onClick={saveAllToDocuments} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33" }}>🗂️ حفظ الكل</Btn>}
               </div>
-              {/* storage folder */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, whiteSpace: "nowrap" }}>📁 فولدر الحفظ:</span>
-                <div style={{ flex: 1, minWidth: 140 }}><Inp value={storageFolder} onChange={setStorageFolder} placeholder="رقم الموديل (افتراضي) — أو اكتب اسم فولدر" /></div>
+              {/* storage folder + auto-save */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 800, whiteSpace: "nowrap" }}>🪄 AI Studio /</span>
+                  <div style={{ flex: 1, minWidth: 120 }}><Inp value={storageFolder} onChange={setStorageFolder} placeholder="رقم الموديل (افتراضي)" /></div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: FS - 2, color: autoSave ? T.ok : T.textMut, fontWeight: 700, whiteSpace: "nowrap" }}>
+                    <input type="checkbox" checked={autoSave} onChange={e => setAutoSave(e.target.checked)} /> 💾 حفظ تلقائي
+                  </label>
+                </div>
+                <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 4 }}>كل الصور بتتحفظ تلقائياً في «AI Studio / {storageFolder.trim() || "(الجذر)"}» — غيّر الاسم لفولدر تاني.</div>
               </div>
               {results.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 16px", color: T.textMut, lineHeight: 1.8 }}>
