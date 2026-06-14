@@ -631,7 +631,7 @@ export default function App(){
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [tab, sel]);
-  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);const[showAboutVersion,setShowAboutVersion]=useState(false);
+  const[gSearch,setGSearch]=useState(""); const gSearchDeb=useDebounced(gSearch,250);const[showAlerts,setShowAlerts]=useState(false);const[showLogout,setShowLogout]=useState(false);const[showScanner,setShowScanner]=useState(false);const[dbSub,setDbSub]=useState(null);const[detView,setDetView]=useState("orders");/* V21.21.99: hub التصنيع — orders|models|database */const[showTheme,setShowTheme]=useState(false);const[cardPopup,setCardPopup]=useState(null);const[labelPopup,setLabelPopup]=useState(null);const[labelBags,setLabelBags]=useState(1);const[wsAccPopup,setWsAccPopup]=useState(null);const[barcodePopup,setBarcodePopup]=useState(null);const[showNotifs,setShowNotifs]=useState(false);const[showAboutVersion,setShowAboutVersion]=useState(false);
   /* V17.1 FIX #12+#15: Migration status — blocks UI while a migration is running.
      Without this, users could add data during migration and the data would be lost
      (window between step 2 [sync] and step 3 [config write] is unsafe). */
@@ -5614,7 +5614,7 @@ export default function App(){
     });
     showToast("✓ تم مزامنة "+ordCount+" أوردر"+(payChanged?" + المدفوعات":""));
   };
-  const goD=id=>{setSel(id);setTab("details")};
+  const goD=id=>{setSel(id);setTab("details");setDetView("orders")};
   useEffect(()=>{const h=()=>{const d=window.__labelData;if(d){setLabelPopup(d);setLabelBags(1);delete window.__labelData}};window.addEventListener("show-label-popup",h);return()=>window.removeEventListener("show-label-popup",h)},[]);
   /* QR scan auto-navigate */
   const qrDone=useRef(false);
@@ -6081,7 +6081,7 @@ export default function App(){
       if(subType==="purchase")navigate("purchaseInvoices",{invoiceId:id});
       else navigate("salesInvoices",{invoiceId:id});
     }else if(type==="order"){
-      setSel(id);setTab("details");
+      setSel(id);setTab("details");setDetView("orders");
     }else if(type==="treasury"){
       /* V19.48: Sub-type "transfer_pending" → opens transfers view in TreasuryPg.
          V21.9.145: stash the initial view in sessionStorage so TreasuryPg reads it
@@ -7218,7 +7218,22 @@ export default function App(){
         <ChunkErrorBoundary>
         <Suspense fallback={<PageLoader/>}>
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="details"&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
+        {tab==="details"&&<div>
+          {/* V21.21.99: hub التصنيع — ٣ أزرار رئيسية (الشريط يختفي وأمر مفتوح) */}
+          {!sel&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+            {[["orders","📋 أوامر التشغيل"],["models","🧩 الموديلات"],["database","🗃️ قاعدة البيانات"]].map(([k,lbl])=>{
+              const on=detView===k;
+              return <button key={k} onClick={()=>{setDetView(k);if(k!=="orders")setSel(null);}} style={{padding:"10px 20px",borderRadius:12,fontSize:FS,fontWeight:800,cursor:"pointer",fontFamily:"inherit",border:"1px solid "+(on?T.accent:T.brd),background:on?T.accent:T.cardSolid,color:on?"#fff":T.textSec,transition:"all .15s"}}>{lbl}</button>;
+            })}
+          </div>}
+          {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
+          {detView==="models"&&!sel&&<div style={{textAlign:"center",padding:"60px 20px",color:T.textSec}}>
+            <div style={{fontSize:48,marginBottom:12}}>🧩</div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:6}}>الموديلات — قريباً</div>
+            <div style={{fontSize:FS-1,maxWidth:440,margin:"0 auto",lineHeight:1.7}}>هنا هتضيف الموديل بألوانه وكل تفاصيله مرة واحدة، وتستخدمه في أوامر التشغيل من غير تكرار البيانات. (المرحلة ٢)</div>
+          </div>}
+          {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
+        </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}
         {tab==="stock"&&<StockPg data={data} updOrder={updOrder} isMob={isMob} canEdit={canEditTab("stock")} statusCards={statusCards} user={user}/>}
         {tab==="tasks"&&<TasksPg data={data} upConfig={upConfig} upTasks={upTasks} isMob={isMob} user={user} userRole={userRole}/>}
