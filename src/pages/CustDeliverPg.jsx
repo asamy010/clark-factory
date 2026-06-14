@@ -96,7 +96,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      customers keep whatever they have stored — only freshly-created customers
      pick up the new default. The edit form below still preserves c.discount
      for existing records. Phase 2 will add per-row override in the Plan tab. */
-  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(10);const[custFilter,setCustFilter]=useState("");
+  const[cName,setCName]=useState("");const[cPhone,setCPhone]=useState("");const[cAddr,setCAddr]=useState("");const[cEditId,setCEditId]=useState(null);const[cType,setCType]=useState("مكتب");const[cDiscount,setCDiscount]=useState(10);const[custFilter,setCustFilter]=useState("");const[custListLimit,setCustListLimit]=useState(50);/* V21.22.10: pagination لقائمة العملاء (1500+ عميل) */
   /* V18.16: Archive flag for customer form */
   const[cArchived,setCArchived]=useState(false);
   /* V21.9.105: Customer tags state (Slice 4b of Universal Tagging).
@@ -831,9 +831,12 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     h+="<div class='sig'><div class='sig-box'>مسؤول التسليم</div><div class='sig-box'>المستلم</div></div>";
     printPage("تسليم عملاء — "+sess.date,h,{factoryName:config.factoryName,logo:config.logo})};
 
-  const custTotalsMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let t=0;orders.forEach(o=>{const d=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);const r=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);t+=d-r});m.set(c.id,t)});return m},[orders,config.customers]);
+  /* V21.22.10 PERF: single-pass (O(أوامر×تسليمات)) بدل O(عملاء×أوامر) — كان
+     بيتقل خطّياً مع عدد العملاء (1500+). الخريطة فيها العملاء النشطين فقط؛
+     getCustTotal بيرجّع 0 للي مش فيها (مفيش تسليمات = إجمالي 0). */
+  const custTotalsMap=useMemo(()=>{const m=new Map();(orders||[]).forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId!=null)m.set(d.custId,(m.get(d.custId)||0)+(Number(d.qty)||0))});(o.customerReturns||[]).forEach(r=>{if(r.custId!=null)m.set(r.custId,(m.get(r.custId)||0)-(Number(r.qty)||0))})});return m},[orders]);
   /* V18.7: Per-customer delivered/returned breakdown — used for rating in customer picker */
-  const custDelRetMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let del=0,ret=0;orders.forEach(o=>{del+=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);ret+=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0)});m.set(c.id,{del,ret})});return m},[orders,config.customers]);
+  const custDelRetMap=useMemo(()=>{const m=new Map();const g=(id)=>{let e=m.get(id);if(!e){e={del:0,ret:0};m.set(id,e)}return e};(orders||[]).forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId!=null)g(d.custId).del+=(Number(d.qty)||0)});(o.customerReturns||[]).forEach(r=>{if(r.custId!=null)g(r.custId).ret+=(Number(r.qty)||0)})});return m},[orders]);
   /* V21.22.8 PERF: خريطة «مانع الحذف» لكل عميل بـ single-pass (مفهرس) بدل
      getDeleteBlocker(data,"customer",id) لكل عميل في render البوب اب (كان
      بيسكان orders+treasury+custPayments+checks+sessions لكل عميل، على كل
@@ -870,7 +873,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      loop البوب اب، على كل رندر → O(عملاء×أوامر×تسليمات). كل ما الأوامر
      تزيد البطء يزيد. الحل: lookup بيحترم 0 (الـ Map فيه كل العملاء أصلاً؛
      الـ scan احتياطي فقط لـ id مش موجود — نادر). */
-  const getCustTotal=(custId)=>{const v=custTotalsMap.get(custId);if(v!==undefined)return v;return orders.reduce((s,o)=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===custId).reduce((ss,d)=>ss+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===custId).reduce((ss,r)=>ss+(Number(r.qty)||0),0);return s+del-ret},0)};
+  const getCustTotal=(custId)=>{const v=custTotalsMap.get(custId);return v!==undefined?v:0};
   const sortedSessions=useMemo(()=>[...sessions].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")),[sessions]);
   const activeSess=sessions.find(s=>s.id===activeSession);
   /* V14.64: Group models by modelNo — FIFO (oldest order first). Each group has virtual id and sub-orders sorted oldest→newest. */
@@ -1411,7 +1414,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             {(!hubView||hubView==="overview")&&<div style={cardStyle}>
               <div style={titleStyle}>👥 العملاء</div>
               <div style={btnsGrid}>
-                {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>setShowCustList(true),customers.length||null)}
+                {canEdit&&secBtn(I.users,"العملاء","#0EA5E9",()=>{setShowCustList(true);setCustListLimit(50)},customers.length||null)}
                 {secBtn(I.fileText,"كشف حساب","#0EA5E9",()=>{setCustStatement("pick");setCustFilter("")})}
                 {secBtn(I.receipt,"عرض سعر","#8B5CF6",()=>{setShowAllSessQuote(false);setQuoteCust("pickSess")})}
                 {secBtn(I.truck||I.fileText,"إذن تسليم","#0EA5E9",()=>{setShowAllSessDeliver(false);setDeliverNote("pickSess")})}
@@ -3670,7 +3673,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           </div>
         </div>
         <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
-          <div style={{flex:1}}><Inp value={custFilter} onChange={setCustFilter} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
+          <div style={{flex:1}}><Inp value={custFilter} onChange={v=>{setCustFilter(v);setCustListLimit(50)}} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
           {/* V18.16: Toggle to show archived customers (admin convenience for review) */}
           <Btn small onClick={()=>setShowArchivedCusts(!showArchivedCusts)} style={{background:showArchivedCusts?T.err+"15":T.bg,color:showArchivedCusts?T.err:T.textSec,border:"1px solid "+(showArchivedCusts?T.err+"40":T.brd),whiteSpace:"nowrap"}} title="إظهار/إخفاء العملاء الموقوفين">{showArchivedCusts?"🔒 يظهر الموقوفين":"إظهار الموقوفين"}</Btn>
         </div>
@@ -3703,9 +3706,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           /* V21.9.105: chain tag filter AFTER text/archive filter.
              filterByTags returns the input untouched when selectedTags is empty,
              so this is a no-op when no tag chip is selected. */
-          const fc=filterByTags(fcRaw,custTagFilter,custTagFilterMode);
-          return fc.length>0?<table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التاجز","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-          {fc.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={TD}><TagChips tagIds={c.tags||[]} registry={data.tagRegistry||[]} small max={3}/></td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
+          const fc=filterByTags(fcRaw,custTagFilter,custTagFilterMode);const shown=fc.slice(0,custListLimit);/* V21.22.10: pagination — رندر 50 بس */
+          return fc.length>0?<><table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التاجز","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          {shown.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={TD}><TagChips tagIds={c.tags||[]} registry={data.tagRegistry||[]} small max={3}/></td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
               <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCPriceTier(c.priceTier||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
@@ -3713,7 +3716,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={custBlockerMap[c.id]}/>
             </div></td>}</tr>})}
-        </tbody></table>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
+        </tbody></table>{fc.length>shown.length&&<div style={{textAlign:"center",marginTop:12,display:"flex",gap:10,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}><span style={{fontSize:FS-2,color:T.textSec}}>عرض {shown.length} من {fc.length}</span><Btn small onClick={()=>setCustListLimit(l=>l+100)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>⬇️ عرض المزيد (+100)</Btn><Btn small ghost onClick={()=>setCustListLimit(fc.length)}>عرض الكل ({fc.length})</Btn></div>}</>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
     </div>}
     {/* V17.9: Tabs for the 4 main lists — instead of stacking them vertically (which forced scrolling) */}
