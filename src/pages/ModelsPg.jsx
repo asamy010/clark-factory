@@ -101,35 +101,35 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
     ) : list.length === 0 ? (
       <div style={{textAlign:"center",padding:30,color:T.textMut}}>مفيش نتائج مطابقة</div>
     ) : (
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(232px,1fr))",gap:12}}>
         {list.map(m => {
           const cols = modelColors(m);
           const pieces = m.orderPieces || [];
           const fabCount = FKEYS.filter(k => m["fabric" + k]).length;
-          return <div key={m.id} style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:14,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",gap:10,padding:12}}>
-              {m.image ? <img src={m.image} alt="" style={{width:64,height:80,objectFit:"cover",borderRadius:10,border:"1px solid "+T.brd,flexShrink:0}}/>
-                : <div style={{width:64,height:80,borderRadius:10,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>🧩</div>}
+          return <div key={m.id} className="clark-card" style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:22,boxShadow:T.shadow,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",flexDirection:"row-reverse",gap:13,padding:16,alignItems:"flex-start"}}>
+              {m.image ? <img src={m.image} alt="" style={{width:80,height:100,objectFit:"cover",borderRadius:18,border:"1px solid "+T.brd,flexShrink:0}}/>
+                : <div style={{width:80,height:100,borderRadius:18,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>🧩</div>}
               <div style={{minWidth:0,flex:1}}>
-                <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{m.modelNo || "—"}</div>
-                <div style={{fontSize:FS-1,color:T.textSec,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelDesc || ""}</div>
-                {m.sizeLabel && <div style={{display:"inline-block",marginTop:6,padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:700,background:T.accent+"12",color:T.accent}}>{m.sizeLabel}</div>}
+                <div style={{fontSize:FS+3,fontWeight:900,color:T.text,lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelNo || "—"}</div>
+                <div style={{fontSize:FS-1,color:T.textSec,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelDesc || ""}</div>
+                {m.sizeLabel && <div style={{display:"inline-block",marginTop:8,padding:"4px 12px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.accent+"14",color:T.accent}}>{m.sizeLabel}</div>}
               </div>
             </div>
             {/* colors palette */}
-            {cols.length > 0 && <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"0 12px 10px"}}>
-              {cols.slice(0,10).map((c,i) => <span key={i} title={c.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:20,fontSize:FS-3,fontWeight:600,background:T.bg,border:"1px solid "+T.brd}}>
+            {cols.length > 0 && <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"0 16px 10px"}}>
+              {cols.slice(0,10).map((c,i) => <span key={i} title={c.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:999,fontSize:FS-3,fontWeight:600,background:T.bg,border:"1px solid "+T.brd}}>
                 <span style={{width:11,height:11,borderRadius:"50%",background:c.hex,border:"1px solid rgba(0,0,0,0.15)"}}/>{c.name}
               </span>)}
               {cols.length > 10 && <span style={{fontSize:FS-3,color:T.textMut,alignSelf:"center"}}>+{cols.length-10}</span>}
             </div>}
             {/* pieces + fabrics */}
-            <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"0 12px 10px",fontSize:FS-3,color:T.textSec}}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,padding:"0 16px 10px",fontSize:FS-3,color:T.textSec}}>
               {pieces.slice(0,5).map(p => <span key={p}>{gIcon(p, data.garmentTypes)} {p}</span>)}
               {fabCount > 0 && <span style={{marginInlineStart:"auto",color:T.textMut}}>🧵 {fabCount} خامة</span>}
             </div>
             {/* actions */}
-            {canEdit && <div style={{display:"flex",gap:6,padding:10,borderTop:"1px solid "+T.brd,marginTop:"auto"}}>
+            {canEdit && <div style={{display:"flex",gap:6,padding:14,borderTop:"1px solid "+T.brd,marginTop:"auto"}}>
               <Btn small onClick={() => setEditing(m)} style={{flex:1,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</Btn>
               <Btn small onClick={() => onDelete(m)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑</Btn>
             </div>}
