@@ -99,6 +99,36 @@ export const LIGHTINGS = [
   { id: "golden",   label: "ذهبي",         prompt: "warm golden-hour lighting" },
 ];
 
+/* ── معزّز الواقعية (anti-AI look) — V21.23.6 ──
+   البحث: مفتاح الواقعية = مواصفات كاميرا/عدسة + نسيج جلد حقيقي + نفي «شكل الـ
+   AI». نضيف بلوك مدروس للبرومبت عشان الصورة تبان فوتوغرافيا حقيقية. */
+export const CAMERA_PRESETS = [
+  { id: "dslr85", label: "DSLR 85mm",  prompt: "shot on a full-frame DSLR camera with an 85mm f/1.8 prime lens, shallow depth of field and creamy natural bokeh" },
+  { id: "dslr50", label: "DSLR 50mm",  prompt: "shot on a full-frame DSLR camera with a 50mm f/1.8 lens, natural perspective" },
+  { id: "phone",  label: "موبايل",     prompt: "shot on a modern flagship smartphone camera, natural everyday candid look" },
+  { id: "film",   label: "فيلم 35مم",  prompt: "shot on 35mm analog film stock with fine natural grain and true-to-life colors" },
+  { id: "none",   label: "تلقائي",     prompt: "" },
+];
+
+export const REALISM_LEVELS = [
+  { id: "subtle", label: "خفيف" },
+  { id: "medium", label: "متوسط" },
+  { id: "strong", label: "قوي" },
+];
+
+export function buildRealismSuffix(level, cameraId, isPerson){
+  const cam = (CAMERA_PRESETS.find(c => c.id === cameraId) || {}).prompt || "";
+  const personBase = "Photorealistic editorial photograph with true-to-life colors and natural lighting. Natural realistic skin texture with visible pores and subtle imperfections, no skin smoothing, no airbrushing, no plastic or waxy skin. Realistic catchlights in the eyes, natural hair detail and soft realistic shadows.";
+  const productBase = "Realistic product photograph with true-to-life fabric texture, natural fibers and threads, accurate colors and soft realistic studio lighting and shadows. Looks like a real photo taken by a professional product photographer.";
+  const antiAI = " It must look like a genuine real photograph, NOT AI-generated — no CGI, no 3D render, no over-sharpening, no HDR halo, no artificial digital look.";
+  let s = isPerson ? personBase : productBase;
+  if(level === "strong") s += " Candid authentic feel, subtle natural asymmetry, fine photographic film grain and realistic depth of field." + antiAI;
+  else if(level === "medium") s += " Subtle film grain and realistic depth of field." + antiAI;
+  else s += antiAI;
+  if(cam) s = cam + ". " + s;
+  return s;
+}
+
 /* برومبت التلبيس بموديل مرجعي (Image1=موديل، Image2=قطعة) — صياغة Ahmed الاحترافية */
 export const REFERENCE_TRYON_PROMPT =
 `INSTRUCTIONS (Read Carefully):

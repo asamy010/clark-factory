@@ -23,8 +23,8 @@ import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, CHILD_AGES, FRAMINGS,
-  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT,
-  mergePresets, buildStudioPrompt, buildEditPrompt, describeStudioOptions,
+  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, REALISM_LEVELS,
+  mergePresets, buildStudioPrompt, buildEditPrompt, buildRealismSuffix, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
 
 function modelImages(model){
@@ -65,6 +65,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [skinToneId, setSkinToneId] = useState("any");
   const [lightingId, setLightingId] = useState("soft");
   const [notes, setNotes] = useState("");
+  const [realismOn, setRealismOn] = useState(true);
+  const [realismLevel, setRealismLevel] = useState("medium");
+  const [cameraId, setCameraId] = useState("dslr85");
+  const [storageFolder, setStorageFolder] = useState((model && model.modelNo) || "");
   const [customOn, setCustomOn] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -133,7 +137,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
   const useCustom = (customOn || isReference) && customPrompt.trim();
-  const effPrompt = (o) => useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib);
+  const realismSuffix = () => realismOn ? (" " + buildRealismSuffix(realismLevel, cameraId, shotType === "model" || shotType === "reference")) : "";
+  const effPrompt = (o) => (useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib)) + realismSuffix();
 
   const setShot = (id) => {
     setShotType(id);
@@ -146,6 +151,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const pickModel = (id) => {
     const m = (Array.isArray(models) ? models : []).find(x => String(x.id) === String(id)) || null;
     setCurModel(m); setSaveColor(""); setSources(modelImages(m).slice(0, 1));
+    if(m && m.modelNo) setStorageFolder(m.modelNo);
   };
 
   const addSource = (url) => { if(!url) return; setSources(p => p.includes(url) ? p : [...p, url].slice(0, 5)); };
@@ -261,6 +267,23 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     } else showToast("⛔ " + ((r && r.error) || "فشل التعديل"));
   };
 
+  /* ✨ تحسين واقعية صورة مولّدة (re-render كصورة حقيقية) */
+  const enhanceRealism = async (res) => {
+    setBusy(true); setBatchMsg("✨ تحسين الواقعية...");
+    const pr = buildEditPrompt("Re-render this exact image as a believable real photograph. " +
+      buildRealismSuffix("strong", cameraId, shotType === "model" || shotType === "reference") +
+      " Keep the same subject, garment, pose and composition identical.");
+    const r = await generateModelImage({ modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [res.url], prompt: pr, aspectRatio, imageSize, tier }, user);
+    setBusy(false); setBatchMsg("");
+    if(r && r.ok && r.url){
+      const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: "✨ واقعية معزّزة", tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: res.options || opts };
+      setResults(p => [entry, ...p]);
+      setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
+      recordUsage(1, unitCost(tier, imageSize));
+      showToast("✓ اتعزّزت الواقعية");
+    } else showToast("⛔ " + ((r && r.error) || "فشل التحسين"));
+  };
+
   /* ── حفظ / معرض ── */
   const saveAsModelImage = (res) => {
     if(!replaceModel || !curModel){ showToast("⚠️ اختر موديل الأول"); return; }
@@ -292,26 +315,42 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     replaceModel(curModel.id, next); setCurModel(next);
     showToast("🗑 اتشالت من المعرض");
   };
+  /* V21.23.6: حفظ في مساحة التخزين داخل فولدر باسم الموديل (أو الاسم اللي
+     المستخدم يكتبه) — بيتعمل أول مرة ويتعاد استخدامه، وتغيير الاسم = فولدر جديد. */
+  const _initTree = (d) => {
+    if(!d.documentsTree) d.documentsTree = { folders: [], files: [] };
+    if(!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
+    if(!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
+  };
+  const _ensureFolder = (d, fname, by, now) => {
+    if(!fname) return "";
+    let folder = d.documentsTree.folders.find(f => f && !f.deletedAt && !f.parentId && String(f.name || "").trim().toLowerCase() === fname.toLowerCase());
+    if(!folder){
+      folder = { id: "fold_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), name: fname, icon: "🪄", color: "#8B5CF6", parentId: null, orderIndex: (d.documentsTree.folders.length || 0) + 1, createdBy: by, createdAt: now, lastModifiedAt: now };
+      d.documentsTree.folders.push(folder);
+    }
+    return folder.id;
+  };
+  const _fileRec = (res, folderId, by, now, fname) => ({
+    id: "aidoc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+    name: "ai_" + (fname || (curModel && curModel.modelNo) || "studio") + "_" + new Date(res.ts).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png",
+    folderId, storagePath: res.storagePath || "", downloadURL: res.url,
+    contentType: "image/png", size: 0, uploadedBy: by, uploadedAt: now, source: "ai-studio",
+  });
   const saveToDocuments = (res) => {
     const now = new Date().toISOString();
     const by = (user && (user.displayName || user.email)) || "";
-    const fileRec = {
-      id: "aidoc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
-      name: "ai_" + ((curModel && curModel.modelNo) || "studio") + "_" + new Date(res.ts).toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png",
-      folderId: "", storagePath: res.storagePath || "", downloadURL: res.url,
-      contentType: "image/png", size: 0, uploadedBy: by, uploadedAt: now, source: "ai-studio",
-    };
-    upConfig(d => {
-      if(!d.documentsTree) d.documentsTree = { folders: [], files: [] };
-      if(!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
-      d.documentsTree.files.push(fileRec);
-    });
-    showToast("✓ اتحفظت في مساحة التخزين");
+    const fname = String(storageFolder || "").trim();
+    upConfig(d => { _initTree(d); const fid = _ensureFolder(d, fname, by, now); d.documentsTree.files.push(_fileRec(res, fid, by, now, fname)); });
+    showToast("✓ اتحفظت في " + (fname ? ("📁 " + fname) : "مساحة التخزين"));
   };
   const saveAllToDocuments = () => {
     if(results.length === 0) return;
-    results.forEach(saveToDocuments);
-    showToast("✓ اتحفظت كل النتائج (" + results.length + ") في مساحة التخزين");
+    const now = new Date().toISOString();
+    const by = (user && (user.displayName || user.email)) || "";
+    const fname = String(storageFolder || "").trim();
+    upConfig(d => { _initTree(d); const fid = _ensureFolder(d, fname, by, now); results.forEach(res => d.documentsTree.files.push(_fileRec(res, fid, by, now, fname))); });
+    showToast("✓ اتحفظت كل النتائج (" + results.length + ") في " + (fname ? ("📁 " + fname) : "مساحة التخزين"));
   };
 
   const applyOptions = (o) => {
@@ -381,6 +420,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       {curModel && replaceModel && colorNames.length > 0 && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 لون</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
       <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ تخزين</Btn>
+      <Btn small onClick={() => enhanceRealism(res)} disabled={busy} style={{ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>
       <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }}>✏️ تعديل</Btn>
       {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
       <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>
@@ -627,6 +667,22 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )}
             </div>
 
+            {/* realism booster */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
+                <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
+              </div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + كاميرا/عدسة + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
+              {realismOn && <>
+                {chipRow("القوة", REALISM_LEVELS, realismLevel, setRealismLevel)}
+                <div>
+                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الكاميرا / العدسة</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{CAMERA_PRESETS.map(c => <Chip key={c.id} on={cameraId === c.id} onClick={() => setCameraId(c.id)}>{c.label}</Chip>)}</div>
+                </div>
+              </>}
+            </div>
+
             {/* output settings */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4,1fr)", gap: 10 }}>
               <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>النموذج</div><Sel value={tier} onChange={setTier}>{TIERS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</Sel></div>
@@ -646,6 +702,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🖼️ نتائج الجلسة</span>
                 {results.length > 1 && <Btn small onClick={saveAllToDocuments} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33" }}>🗂️ حفظ الكل</Btn>}
+              </div>
+              {/* storage folder */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, whiteSpace: "nowrap" }}>📁 فولدر الحفظ:</span>
+                <div style={{ flex: 1, minWidth: 140 }}><Inp value={storageFolder} onChange={setStorageFolder} placeholder="رقم الموديل (افتراضي) — أو اكتب اسم فولدر" /></div>
               </div>
               {results.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 16px", color: T.textMut, lineHeight: 1.8 }}>
