@@ -162,7 +162,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
     } catch(e){ showToast("⛔ فشل رفع الصورة: " + (e?.message || e)); }
   };
 
-  /* V21.22.21: ربط صورة لون من المستندات (URL جاهز — مفيش رفع جديد) */
+  /* V21.22.21: ربط صورة لون من مساحة التخزين (URL جاهز — مفيش رفع جديد) */
   const setColorImageUrl = (color, url) => {
     if(!url) return;
     updOrder(sel, o => {
@@ -170,7 +170,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
       if(!o.shopify_meta.color_images) o.shopify_meta.color_images = {};
       o.shopify_meta.color_images[color] = { url, alt: color, source: "document" };
     });
-    showToast("✓ تم ربط صورة " + color + " من المستندات");
+    showToast("✓ تم ربط صورة " + color + " من مساحة التخزين");
   };
 
   /* V21.22.22: اختيار صور متعددة (من الكمبيوتر أو المستندات) وتوزيعها على

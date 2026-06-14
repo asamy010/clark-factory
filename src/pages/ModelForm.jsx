@@ -53,7 +53,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
   const fabOpts = (data.fabrics || []).map(f => ({ value: String(f.id), label: f.name + " — " + f.price + " ج.م/" + f.unit }));
   const ssPps = (() => { const ss = (data.sizeSets || []).find(s => s.id === Number(form.sizeSetId)); return ss ? ss.pcsPerSeries : 0; })();
 
-  /* ── الصورة الرئيسية (V21.22.21: من الكمبيوتر أو من المستندات) ── */
+  /* ── الصورة الرئيسية (V21.22.21: من الكمبيوتر أو من مساحة التخزين) ── */
   const handleImgFile = async (f) => {
     if(!f) return;
     if(!f.type.startsWith("image/")){ await tell("نوع غير مدعوم", "الملف لازم يكون صورة", { type: "warning" }); return; }
@@ -66,14 +66,14 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     } catch(err){ await tell("فشل رفع الصورة", err?.message || String(err), { type: "error" }); }
     finally { setUploadingImg(false); }
   };
-  /* صورة من المستندات — URL جاهز، بنسيب imageStoragePath فاضي عشان حذف الموديل
+  /* صورة من مساحة التخزين — URL جاهز، بنسيب imageStoragePath فاضي عشان حذف الموديل
      مايمسحش المستند المشترك (الملف بتاع المستندات بيملك دورة حياته). */
   const pickImgFromDoc = (url) => {
     if(!url) return;
     const oldPath = form.imageStoragePath;
     setForm(p => ({ ...p, image: url, imageStoragePath: "" }));
     if(oldPath) deleteOrderImage(oldPath).catch(() => {});
-    showToast("✓ تم ربط الصورة من المستندات");
+    showToast("✓ تم ربط الصورة من مساحة التخزين");
   };
 
   /* ── صور الألوان/المقاسات (V21.22.6: على Storage بجودة كاملة، URL مش base64) ── */
@@ -100,7 +100,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     } catch(err){ await tell("فشل الرفع", err?.message || String(err), { type: "error" }); }
     finally { setBusyAttach(false); }
   };
-  /* مرفقات من المستندات — ربط بالـ URL بس (storagePath فاضي عشان الحذف
+  /* مرفقات من مساحة التخزين — ربط بالـ URL بس (storagePath فاضي عشان الحذف
      مايمسّش المستند المشترك). */
   const addDocAttachments = (recs) => {
     if(!recs || recs.length === 0) return;
@@ -113,7 +113,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       source: "document", documentFileId: f.id,
     }));
     setForm(p => ({ ...p, attachments: [...(p.attachments || []), ...recsAtt] }));
-    showToast("✓ تم ربط " + recsAtt.length + " مرفق من المستندات");
+    showToast("✓ تم ربط " + recsAtt.length + " مرفق من مساحة التخزين");
   };
   const removeAttach = async (att) => {
     setForm(p => ({ ...p, attachments: (p.attachments || []).filter(a => a !== att) }));
@@ -160,7 +160,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       <div style={{position:"relative",width:88,height:110,borderRadius:12,overflow:"hidden",border:"1.5px solid "+T.brd,flexShrink:0,background:T.bg}}>
         {form.image ? <img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30}}>🧩</div>}
         <ImagePickButton data={data} onFile={handleImgFile} onPickUrl={pickImgFromDoc} disabled={uploadingImg}
-          title="صورة الموديل — من الكمبيوتر أو المستندات" triggerStyle={{position:"absolute",inset:0,display:"block"}}><span style={{display:"block",width:"100%",height:"100%"}}/></ImagePickButton>
+          title="صورة الموديل — من الكمبيوتر أو مساحة التخزين" triggerStyle={{position:"absolute",inset:0,display:"block"}}><span style={{display:"block",width:"100%",height:"100%"}}/></ImagePickButton>
         {uploadingImg && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700,pointerEvents:"none"}}>⏳</div>}
       </div>
       <div style={{flex:1,minWidth:200,display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr",gap:8,alignContent:"start"}}>

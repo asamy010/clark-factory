@@ -251,12 +251,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       if(!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
       d.documentsTree.files.push(fileRec);
     });
-    showToast("✓ اتحفظت في المستندات");
+    showToast("✓ اتحفظت في مساحة التخزين");
   };
   const saveAllToDocuments = () => {
     if(results.length === 0) return;
     results.forEach(saveToDocuments);
-    showToast("✓ اتحفظت كل النتائج (" + results.length + ") في المستندات");
+    showToast("✓ اتحفظت كل النتائج (" + results.length + ") في مساحة التخزين");
   };
 
   const applyOptions = (o) => {
@@ -313,7 +313,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
       {curModel && replaceModel && colorNames.length > 0 && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 لون</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
-      <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ مستندات</Btn>
+      <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ تخزين</Btn>
       <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }}>✏️ تعديل</Btn>
       {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
       <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>

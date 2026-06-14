@@ -2247,7 +2247,7 @@ function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob,data}){
       setUploadProgress({});
     }
   };
-  /* من المستندات — ربط بالـ URL بس (storagePath فاضي عشان الحذف مايمسّش المستند) */
+  /* من مساحة التخزين — ربط بالـ URL بس (storagePath فاضي عشان الحذف مايمسّش المستند) */
   const addOrderDocAttachments=(recs)=>{
     if(!recs||recs.length===0)return;
     const now=new Date().toISOString();
@@ -2258,7 +2258,7 @@ function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob,data}){
       source:"document", documentFileId:f.id,
     }));
     updOrder(sel,o=>{ if(!Array.isArray(o.attachments))o.attachments=[]; recsAtt.forEach(a=>o.attachments.push(a)); });
-    showToast("✓ تم ربط "+recsAtt.length+" مرفق من المستندات");
+    showToast("✓ تم ربط "+recsAtt.length+" مرفق من مساحة التخزين");
   };
 
   const doDelete=async(att)=>{

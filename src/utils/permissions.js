@@ -74,7 +74,7 @@ export const PERMISSION_TABS = [
   { key: "fixedAssets",      label: "أصول ثابتة",          icon: "🏭", group: "finance" },
   { key: "settings",         label: "الإعدادات",           icon: "⚙️", group: "admin" },
   /* V21.9.94 — Documents Tree (folder-based document manager) */
-  { key: "documents",        label: "المستندات",           icon: "📁", group: "core" },
+  { key: "documents",        label: "مساحة التخزين",        icon: "💾", group: "core" },
 ];
 
 export const PERMISSION_TAB_KEYS = PERMISSION_TABS.map(t => t.key);

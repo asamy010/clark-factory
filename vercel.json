@@ -5,7 +5,8 @@
   ],
   "functions": {
     "api/ai-image/generate.js": { "maxDuration": 60 },
-    "api/ai-image/analyze-prompt.js": { "maxDuration": 30 }
+    "api/ai-image/analyze-prompt.js": { "maxDuration": 30 },
+    "api/storage/usage.js": { "maxDuration": 60 }
   },
   "crons": [
     {

@@ -24,7 +24,7 @@ import { T } from "../theme.js";
 import { gid } from "../utils/format.js";
 import { showToast, ask, tell, askInput } from "../utils/popups.js";
 import { Btn, Inp, Sel, Card, Spinner } from "../components/ui.jsx";
-import { storage } from "../firebase.js";
+import { storage, auth } from "../firebase.js";
 import {
   ref as storageRef,
   uploadBytes,
@@ -320,6 +320,26 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
     const trashCount = files.filter(f => !!f.deletedAt).length;
     return { fileCount: active.length, totalSize, trashCount };
   }, [files]);
+
+  /* V21.23.4: المساحة الفعلية المستهلكة من Firebase Storage كله (مش بس
+     المستندات) — للحذر من تجاوز الحد المجاني (٥ جيجا) والتكلفة. */
+  const FREE_TIER = 5 * 1024 * 1024 * 1024;
+  const [bucketUsage, setBucketUsage] = useState(null);
+  const [bucketBusy, setBucketBusy] = useState(false);
+  const PREFIX_LABELS = { images: "🖼️ صور التطبيق", documents: "📁 مساحة التخزين", orders: "✂️ صور الأوامر", "shopify-products": "🛍️ صور شوبيفاي", "ai-generated": "🪄 صور الـ AI", "ai-sources": "🪄 مصادر الـ AI" };
+  const loadBucketUsage = useCallback(async () => {
+    setBucketBusy(true);
+    try {
+      const u = auth.currentUser;
+      if(!u) throw new Error("مش مسجّل دخول");
+      const token = await u.getIdToken();
+      const res = await fetch("/api/storage/usage", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: "{}" });
+      const j = await res.json().catch(() => ({ ok: false, error: "رد غير صالح" }));
+      if(!res.ok || j.ok === false) throw new Error(j.error || ("فشل (" + res.status + ")"));
+      setBucketUsage(j);
+    } catch(e){ showToast("⛔ " + ((e && e.message) || "فشل قياس المساحة")); }
+    finally { setBucketBusy(false); }
+  }, []);
 
   /* ─────────── FOLDER CRUD ─────────── */
 
@@ -664,7 +684,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
       ? "⏱ الملفات الحديثة (آخر 30 يوم)"
       : activeFolder
         ? (activeFolder.icon || "📁") + " " + activeFolder.name
-        : "📁 المستندات";
+        : "💾 مساحة التخزين";
 
   /* V21.9.186 — Tree sidebar component (inline). Right-side panel in RTL. */
   const TreeSidebar = () => (
@@ -683,7 +703,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
       <div style={{
         fontSize: FS - 2, fontWeight: 700, color: T.textMut,
         padding: "4px 8px", marginBottom: 6, letterSpacing: "0.5px",
-      }}>📂 شجرة المستندات</div>
+      }}>📂 شجرة الملفات</div>
 
       {/* Special: Root (All) */}
       <div
@@ -825,10 +845,37 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
             <div style={{ fontSize: FS + 1, fontWeight: 800, color: "#10B981" }}>{stats.fileCount}</div>
           </div>
           <div style={{ padding: "8px 14px", borderRadius: 8, background: "#F59E0B08", border: "1px solid #F59E0B20" }}>
-            <div style={{ fontSize: FS - 2, color: T.textSec }}>💾 المساحة</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec }}>📦 ملفات القسم</div>
             <div style={{ fontSize: FS + 1, fontWeight: 800, color: "#F59E0B" }}>{fmtSize(stats.totalSize)}</div>
           </div>
+          {/* V21.23.4 — الاستهلاك الفعلي لكل Firebase Storage (للحذر من التكلفة) */}
+          <div style={{ padding: "8px 14px", borderRadius: 8, background: "#8B5CF608", border: "1px solid #8B5CF625", minWidth: 210 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: FS - 2, color: T.textSec }}>☁️ تخزين Firebase الكلي</span>
+              <span onClick={loadBucketUsage} style={{ cursor: bucketBusy ? "wait" : "pointer", fontSize: FS - 3, fontWeight: 700, color: bucketBusy ? T.textMut : "#8B5CF6" }}>{bucketBusy ? "⏳..." : "🔄 احسب"}</span>
+            </div>
+            {bucketUsage ? (
+              <>
+                <div style={{ fontSize: FS + 1, fontWeight: 800, color: "#8B5CF6" }}>{fmtSize(bucketUsage.totalBytes)}{bucketUsage.truncated ? "+" : ""}</div>
+                <div style={{ fontSize: FS - 4, color: T.textMut }}>{bucketUsage.fileCount}{bucketUsage.truncated ? "+" : ""} ملف · {((bucketUsage.totalBytes / FREE_TIER) * 100).toFixed(1)}% من 5 GB المجاني</div>
+                <div style={{ height: 6, background: T.bg, borderRadius: 3, overflow: "hidden", marginTop: 4 }}>
+                  <div style={{ height: "100%", borderRadius: 3, width: Math.min(100, (bucketUsage.totalBytes / FREE_TIER) * 100) + "%", background: bucketUsage.totalBytes > 0.8 * FREE_TIER ? T.err : (bucketUsage.totalBytes > 0.5 * FREE_TIER ? "#F59E0B" : "#10B981") }} />
+                </div>
+              </>
+            ) : <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 4 }}>اضغط «احسب» لقياس الاستهلاك الفعلي</div>}
+          </div>
         </div>
+
+        {/* breakdown by top-level folder */}
+        {bucketUsage && bucketUsage.byPrefix && Object.keys(bucketUsage.byPrefix).length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {Object.entries(bucketUsage.byPrefix).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+              <span key={k} style={{ fontSize: FS - 3, color: T.textSec, background: T.bg, border: "1px solid " + T.brd, borderRadius: 999, padding: "3px 10px" }}>
+                {(PREFIX_LABELS[k] || ("📂 " + k))}: <b style={{ color: T.text }}>{fmtSize(v)}</b>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Search */}
         <Inp value={search} onChange={setSearch} placeholder="🔍 ابحث في اسم الملف أو الوصف..." style={{ marginBottom: 12 }} />

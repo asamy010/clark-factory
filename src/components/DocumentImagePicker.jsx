@@ -69,7 +69,7 @@ export function DocumentImagePicker({ data, onPick, onPickMany, onClose, imagesO
     if(onPickMany) onPickMany(recs); else if(onPick) recs.forEach(onPick);
   };
 
-  const title = imagesOnly ? (multiple ? "اختر صور من المستندات" : "اختر صورة من المستندات") : "اختر ملفات من المستندات";
+  const title = imagesOnly ? (multiple ? "اختر صور من مساحة التخزين" : "اختر صورة من مساحة التخزين") : "اختر ملفات من مساحة التخزين";
 
   return (
     <div style={OVERLAY} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
@@ -97,8 +97,8 @@ export function DocumentImagePicker({ data, onPick, onPickMany, onClose, imagesO
           {allFiles.length === 0 ? (
             <div style={{ textAlign: "center", padding: "44px 20px", color: T.textSec }}>
               <div style={{ fontSize: 42, marginBottom: 10 }}>🗂️</div>
-              <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.text, marginBottom: 6 }}>{imagesOnly ? "مفيش صور في المستندات لسه" : "مفيش ملفات في المستندات لسه"}</div>
-              <div style={{ fontSize: FS - 1, maxWidth: 420, margin: "0 auto", lineHeight: 1.7 }}>ارفع الملفات في قسم «📁 المستندات» الأول — وبعدين تقدر تختار منها هنا مباشرة.</div>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.text, marginBottom: 6 }}>{imagesOnly ? "مفيش صور في مساحة التخزين لسه" : "مفيش ملفات في مساحة التخزين لسه"}</div>
+              <div style={{ fontSize: FS - 1, maxWidth: 420, margin: "0 auto", lineHeight: 1.7 }}>ارفع الملفات في قسم «💾 مساحة التخزين» الأول — وبعدين تقدر تختار منها هنا مباشرة.</div>
             </div>
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", padding: 36, color: T.textMut, fontSize: FS - 1 }}>مفيش نتائج مطابقة للبحث</div>
@@ -158,7 +158,7 @@ function SourceChooser({ onComputer, onDocuments, onClose, multiple }){
     <div style={{ ...OVERLAY, zIndex: 100003 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 360, padding: 20, border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>اختر المصدر</div>
-        <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 16 }}>{multiple ? "تقدر تختار أكتر من ملف من أي مصدر." : "من جهازك مباشرة، أو من مكتبة المستندات."}</div>
+        <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 16 }}>{multiple ? "تقدر تختار أكتر من ملف من أي مصدر." : "من جهازك مباشرة، أو من مساحة التخزين."}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div onClick={onComputer} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderRadius: 12, border: "1px solid " + T.brd, cursor: "pointer", background: T.bg }}>
             <span style={{ fontSize: 22 }}>📁</span>
@@ -166,7 +166,7 @@ function SourceChooser({ onComputer, onDocuments, onClose, multiple }){
           </div>
           <div onClick={onDocuments} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderRadius: 12, border: "1px solid " + T.accent + "40", cursor: "pointer", background: T.accent + "0D" }}>
             <span style={{ fontSize: 22 }}>🗂️</span>
-            <div><div style={{ fontWeight: 800, color: T.accent, fontSize: FS }}>من المستندات</div><div style={{ fontSize: FS - 3, color: T.textMut }}>{multiple ? "اختر ملف أو أكتر من المستندات" : "اختر من الملفات المرفوعة في المستندات"}</div></div>
+            <div><div style={{ fontWeight: 800, color: T.accent, fontSize: FS }}>من مساحة التخزين</div><div style={{ fontSize: FS - 3, color: T.textMut }}>{multiple ? "اختر ملف أو أكتر من مساحة التخزين" : "اختر من الملفات المرفوعة في مساحة التخزين"}</div></div>
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
