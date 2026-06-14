@@ -763,11 +763,22 @@ export function buildOrderFromModel(model){
   });
   /* V21.22.4: نقل صور الألوان من الموديل لأمر التشغيل بالشكل اللي الـ UI
      بيقراه (order.shopify_meta.color_images = {color:{url,alt,source}}). */
-  const ci=model.colorImages;
-  if(ci&&typeof ci==="object"){
-    const cimg={};
-    Object.keys(ci).forEach(name=>{const url=ci[name];if(url)cimg[name]={url,alt:name,source:"model"};});
-    if(Object.keys(cimg).length)o.shopify_meta={...(o.shopify_meta||{}),color_images:cimg};
+  /* V21.22.15: الموديل بقى بيخزّن صور الألوان في shopify_meta.color_images
+     (عبر ماتريكس اللون/المقاس). ننقل صور الألوان + مصدر الألوان للأمر —
+     مش الـ stock_matrix (الأمر بيوزّع كمياته بنفسه من ألوانه). */
+  if(model.shopify_meta && typeof model.shopify_meta === "object"){
+    const sm={};
+    if(model.shopify_meta.color_images) sm.color_images=JSON.parse(JSON.stringify(model.shopify_meta.color_images));
+    if(model.shopify_meta.color_source_fabric) sm.color_source_fabric=model.shopify_meta.color_source_fabric;
+    if(Object.keys(sm).length) o.shopify_meta=sm;
+  } else {
+    /* legacy: موديلات قديمة بتخزّن في model.colorImages */
+    const ci=model.colorImages;
+    if(ci&&typeof ci==="object"){
+      const cimg={};
+      Object.keys(ci).forEach(name=>{const url=ci[name];if(url)cimg[name]={url,alt:name,source:"model"};});
+      if(Object.keys(cimg).length)o.shopify_meta={color_images:cimg};
+    }
   }
   return o;
 }

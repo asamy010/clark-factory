@@ -15,6 +15,7 @@ import { gIcon, gid, getSizesFromSet } from "../utils/format.js";
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
+import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
 import { tell, showToast } from "../utils/popups.js";
 
 const TABS = [
@@ -44,6 +45,9 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
   const [busyAttach, setBusyAttach] = useState(false);
 
   const updF = (key, val) => setForm(p => ({ ...p, [key]: val }));
+  /* V21.22.15: shim يخلّي ColorSizeMatrixTab (المصمّم للأوردر، updOrder) يشتغل
+     على حالة الفورم — فالموديل بياخد نفس ماتريكس اللون×المقاس + صور الألوان. */
+  const updOrderShim = (_id, fn) => setForm(p => { const next = JSON.parse(JSON.stringify(p)); fn(next); return next; });
   const fabObj = (id) => (data.fabrics || []).find(f => String(f.id) === String(id));
   const fabOpts = (data.fabrics || []).map(f => ({ value: String(f.id), label: f.name + " — " + f.price + " ج.م/" + f.unit }));
   const ssPps = (() => { const ss = (data.sizeSets || []).find(s => s.id === Number(form.sizeSetId)); return ss ? ss.pcsPerSeries : 0; })();
@@ -188,7 +192,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     </div>}
 
     {/* ── Tab: color / size (+ images) ── */}
-    {tab === "colorsize" && <div style={{display:"flex",flexDirection:"column",gap:16}}>
+    {tab === "colorsize" && <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{maxWidth:320}}>
         <label style={lbl}>المقاس *</label>
         <Sel value={form.sizeSetId} onChange={v => updF("sizeSetId", v)}>
@@ -196,36 +200,13 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
           {(data.sizeSets || []).map(s => <option key={s.id} value={s.id}>{s.label + (s.pcsPerSeries ? " (" + s.pcsPerSeries + " قطعة/سيري)" : "")}</option>)}
         </Sel>
       </div>
-      {/* color images */}
-      <div>
-        <div style={{fontSize:FS,fontWeight:800,color:T.text,marginBottom:8}}>🎨 صور الألوان {cols.length>0?"("+cols.length+")":""}</div>
-        {cols.length === 0 ? <div style={{fontSize:FS-2,color:T.textMut,background:T.bg,borderRadius:8,padding:"8px 10px"}}>أضف ألوان في تاب القماش والخامات الأول، وبعدين ترفع صورة لكل لون هنا.</div>
-          : <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(auto-fill,minmax(120px,1fr))",gap:10}}>
-            {cols.map(c => { const img = (form.colorImages || {})[c.name]; return <div key={c.name} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",background:T.cardSolid}}>
-              <div style={{position:"relative",width:"100%",aspectRatio:"3/4",background:T.bg}}>
-                {img ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{width:28,height:28,borderRadius:"50%",background:c.hex,border:"1px solid rgba(0,0,0,0.15)"}}/></div>}
-                <input type="file" accept="image/*" onChange={e => { const f = e.target.files&&e.target.files[0]; pickAssetImg(f, url => setColorImg(c.name, url)); e.target.value=""; }} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-                {img && <span onClick={() => setColorImg(c.name, "")} style={{position:"absolute",top:4,insetInlineEnd:4,background:T.err,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer"}}>✕</span>}
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",fontSize:FS-2,fontWeight:600}}><span style={{width:11,height:11,borderRadius:"50%",background:c.hex,border:"1px solid rgba(0,0,0,0.15)",flexShrink:0}}/>{c.name}</div>
-            </div>; })}
-          </div>}
-      </div>
-      {/* size images */}
-      <div>
-        <div style={{fontSize:FS,fontWeight:800,color:T.text,marginBottom:8}}>📏 صور المقاسات {sizes.length>0?"("+sizes.length+")":""}</div>
-        {sizes.length === 0 ? <div style={{fontSize:FS-2,color:T.textMut,background:T.bg,borderRadius:8,padding:"8px 10px"}}>اختر المقاس فوق الأول.</div>
-          : <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(3,1fr)":"repeat(auto-fill,minmax(100px,1fr))",gap:10}}>
-            {sizes.map(sz => { const img = (form.sizeImages || {})[sz]; return <div key={sz} style={{border:"1px solid "+T.brd,borderRadius:10,overflow:"hidden",background:T.cardSolid}}>
-              <div style={{position:"relative",width:"100%",aspectRatio:"1",background:T.bg}}>
-                {img ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:FS-1,fontWeight:800,color:T.textMut}}>{sz}</div>}
-                <input type="file" accept="image/*" onChange={e => { const f = e.target.files&&e.target.files[0]; pickAssetImg(f, url => setSizeImg(sz, url)); e.target.value=""; }} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-                {img && <span onClick={() => setSizeImg(sz, "")} style={{position:"absolute",top:4,insetInlineEnd:4,background:T.err,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer"}}>✕</span>}
-              </div>
-              <div style={{textAlign:"center",padding:"4px 6px",fontSize:FS-2,fontWeight:700,color:T.textSec}}>{sz}</div>
-            </div>; })}
-          </div>}
-      </div>
+      {/* V21.22.15: نفس ماتريكس اللون×المقاس بتاع الأوردر — بيتبني تلقائياً من
+          الألوان (من الأقمشة) × المقاسات (من السيت) + صور الألوان. */}
+      {(!form.sizeSetId || cols.length === 0)
+        ? <div style={{fontSize:FS-2,color:T.textMut,background:T.bg,borderRadius:10,padding:"12px 14px",lineHeight:1.8}}>
+            🎨 اختر <b>المقاس</b> فوق + أضف <b>ألوان</b> في تاب «القماش والخامات» — وهتنزل <b>ماتريكس الألوان × المقاسات</b> تلقائياً هنا (مع صور الألوان)، زي تاب اللون/المقاس في أمر التشغيل بالظبط.
+          </div>
+        : <ColorSizeMatrixTab order={form} data={data} sel={form.id || "new"} updOrder={updOrderShim} canEdit={true} isMob={isMob}/>}
     </div>}
 
     {/* ── Tab: accessories ── */}

@@ -66,4 +66,16 @@ describe("buildOrderFromModel", () => {
     const o = buildOrderFromModel({ ...model, colorImages: {} });
     expect(o.shopify_meta).toBeUndefined();
   });
+
+  it("V21.22.15: ينقل color_images + color_source_fabric من shopify_meta — مش stock_matrix", () => {
+    const m = { ...model, colorImages: undefined, shopify_meta: {
+      color_images: { "أحمر": { url: "u1", alt: "أحمر", source: "manual" } },
+      color_source_fabric: "A",
+      stock_matrix: { "أحمر": { "M": 5 } },
+    } };
+    const o = buildOrderFromModel(m);
+    expect(o.shopify_meta.color_images).toEqual({ "أحمر": { url: "u1", alt: "أحمر", source: "manual" } });
+    expect(o.shopify_meta.color_source_fabric).toBe("A");
+    expect(o.shopify_meta.stock_matrix).toBeUndefined(); /* الأمر بيوزّع كمياته بنفسه */
+  });
 });
