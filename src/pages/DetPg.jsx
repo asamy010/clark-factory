@@ -504,123 +504,52 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const _hasExtra=_extraPer>0||_settPer>0;
           const isSent=waSent[o.id]&&(Date.now()-waSent[o.id]<60000);
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
-          return<div key={o.id} data-oid={o.id} className="det-tile" style={{background:T.cardSolid,borderRadius:14,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column"}} onClick={()=>setSel(o.id)}>
-            {/* V18.79: status stripe removed — unified card look */}
-            <div style={{padding:14,display:"flex",flexDirection:"column",gap:12,flex:1}}>
-              {/* ── Row 1: image + title block ── */}
-              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                {/* Image — slightly smaller than before to give room for KPIs */}
-                <div style={{position:"relative",flexShrink:0}}>
-                  <DefaultModelImg src={o.image} modelNo={o.modelNo} modelDesc={o.modelDesc} orderPieces={o.orderPieces} width={60} style={{borderRadius:10,background:T.bg}}/>
-                </div>
-
-                {/* Title block */}
+          return<div key={o.id} data-oid={o.id} className="det-tile clark-card" style={{background:T.cardSolid,borderRadius:22,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column",boxShadow:T.shadow}} onClick={()=>setSel(o.id)}>
+            <div style={{padding:16,display:"flex",flexDirection:"column",gap:11,flex:1}}>
+              {/* ── Row 1: title block + image (V21.22.17 mockup redesign) ── */}
+              <div style={{display:"flex",gap:13,alignItems:"flex-start"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      {/* Inline modelNo + PO badge */}
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
-                        <span style={{fontSize:FS+2,fontWeight:900,color:T.text,lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</span>
-                        {o.poNumber&&<span style={{fontSize:FS-3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.4,padding:"2px 6px",borderRadius:4,background:T.accent+"10",border:"1px solid "+T.accent+"20"}}>{o.poNumber}</span>}
-                      </div>
-                      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:5,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
-                      {/* V21.9.108: order tags chip strip (tile view). */}
-                      {Array.isArray(o.tags)&&o.tags.length>0&&<div style={{marginBottom:5}}><TagChips tagIds={o.tags} registry={data.tagRegistry||[]} small max={3}/></div>}
-                      {/* Meta row — size, age, workshop count */}
-                      <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                        <span>📐 {o.sizeLabel}</span>
-                        {wds.length>0&&<span>🏭 {new Set(wds.map(w=>w.wsName)).size} ورش</span>}
-                        {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
-                        {isStale&&!isSent&&<span style={{padding:"1px 6px",borderRadius:4,background:T.err+"12",color:T.err,fontWeight:700,border:"1px solid "+T.err+"25"}}>🔴 {ageDays}ي</span>}
-                        {isSent&&<span style={{padding:"1px 6px",borderRadius:4,background:T.ok+"12",color:T.ok,fontWeight:700,border:"1px solid "+T.ok+"25"}}>✅ تم</span>}
-                      </div>
-                    </div>
-                    {canEdit&&!hasData&&<div onClick={e=>e.stopPropagation()}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
-                  </div>
+                  {o.poNumber&&<span style={{display:"inline-block",fontSize:FS-3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.4,padding:"3px 11px",borderRadius:999,background:T.accent+"12"}}>{o.poNumber}</span>}
+                  <div style={{fontSize:FS+4,fontWeight:900,color:T.text,margin:"7px 0 1px",lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</div>
+                  <div style={{fontSize:FS-1,color:T.textSec,marginBottom:8,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{o.modelDesc}</div>
+                  {/* status pill (clickable → stage popup) */}
+                  <span onClick={(e)=>{e.stopPropagation();setStageProgressOrder(o)}} title="تفاصيل المرحلة" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 13px",borderRadius:999,fontSize:FS-2,fontWeight:800,background:statusColor+"16",color:statusColor,cursor:"pointer"}}><span style={{width:7,height:7,borderRadius:"50%",background:statusColor}}/>{o.status||"—"} <span style={{fontSize:9,opacity:.7}}>▾</span></span>
+                  {/* color dots */}
+                  {(()=>{const cols=[];const seen=new Set();FKEYS.forEach(k=>{(o["colors"+k]||[]).forEach(c=>{const n=((typeof c==="string"?c:c&&c.color)||"").trim();const hex=(c&&c.colorHex)||"#CBD5E1";if(n&&!seen.has(n)){seen.add(n);cols.push(hex)}})});return cols.length>0?<div style={{display:"flex",gap:5,marginTop:10,alignItems:"center"}}>{cols.slice(0,8).map((h,i)=><span key={i} style={{width:17,height:17,borderRadius:"50%",background:h,border:"2px solid #fff",boxShadow:"0 1px 4px rgba(0,0,0,.14)"}}/>)}{cols.length>8&&<span style={{fontSize:FS-3,color:T.textMut}}>+{cols.length-8}</span>}</div>:null})()}
+                </div>
+                <div style={{position:"relative",flexShrink:0}}>
+                  <DefaultModelImg src={o.image} modelNo={o.modelNo} modelDesc={o.modelDesc} orderPieces={o.orderPieces} width={82} style={{borderRadius:18,background:T.bg}}/>
+                  {canEdit&&!hasData&&<div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:-7,insetInlineEnd:-7}}><DelBtn onConfirm={()=>delOrder(o.id)}/></div>}
                 </div>
               </div>
 
-              {/* ── Row 2: STAGE TIMELINE — milestones (V16.47) ── 
-                  Shows where the order is in the 5-step production lifecycle
-                  (قص → تشغيل → طباعة → تشطيب → جاهز). Cancelled orders show
-                  a single red banner instead. */}
-              {(()=>{
-                const stageIdx=getStageIndex(o.status);
-                if(stageIdx<0){/* cancelled */
-                  return<div style={{padding:"10px 12px",borderRadius:10,background:T.err+"08",border:"1px solid "+T.err+"30",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                    <span style={{fontSize:FS-2,color:T.err,fontWeight:800}}>🚫 {o.status}</span>
-                    <span style={{fontSize:FS-3,color:T.textMut}}>تم إلغاء الأوردر</span>
-                  </div>;
-                }
-                /* Progress fill: percent from start to current stage */
-                const fillPct=stageIdx===0?5:(stageIdx/(PRODUCTION_STAGES.length-1))*100;
-                return<div style={{padding:"10px 12px 8px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>المرحلة الحالية</span>
-                    <span onClick={(e)=>{e.stopPropagation();setStageProgressOrder(o)}} title="اضغط لعرض تفاصيل المرحلة لكل قطعة" style={{padding:"3px 10px",borderRadius:5,background:statusColor,color:"#fff",fontSize:FS-3,fontWeight:800,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,transition:"transform 0.15s, box-shadow 0.15s"}} onMouseEnter={(e)=>{e.currentTarget.style.transform="scale(1.05)";e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.15)"}} onMouseLeave={(e)=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow=""}}>
-                      <span>{o.status||"—"}</span>
-                      <span style={{fontSize:9,opacity:0.85}}>▾</span>
-                    </span>
-                  </div>
-                  {/* Dots track */}
-                  <div style={{position:"relative",height:22,marginInline:6}}>
-                    {/* gray base line behind everything */}
-                    <div style={{position:"absolute",insetBlockStart:9,insetInlineStart:0,insetInlineEnd:0,height:2,background:T.brd,borderRadius:1}}/>
-                    {/* green fill line up to current stage */}
-                    <div style={{position:"absolute",insetBlockStart:9,insetInlineStart:0,height:2,background:T.ok,borderRadius:1,width:fillPct+"%",transition:"width 0.4s"}}/>
-                    {/* dots */}
-                    <div style={{position:"relative",display:"flex",justifyContent:"space-between",zIndex:1}}>
-                      {PRODUCTION_STAGES.map((st,i)=>{
-                        const isDone=i<stageIdx;
-                        const isCurrent=i===stageIdx;
-                        const isFuture=i>stageIdx;
-                        return<div key={st.key} style={{
-                          width:20,height:20,borderRadius:"50%",
-                          background:isDone?T.ok:isCurrent?statusColor:T.cardSolid,
-                          border:"2px solid "+(isDone?T.ok:isCurrent?statusColor:T.brd),
-                          color:isFuture?T.textMut:"#fff",
-                          display:"flex",alignItems:"center",justifyContent:"center",
-                          fontSize:11,fontWeight:900,lineHeight:1,
-                          ...(isCurrent?{boxShadow:"0 0 0 4px "+statusColor+"33"}:{})
-                        }}>{isDone?"✓":isCurrent?"●":""}</div>;
-                      })}
-                    </div>
-                  </div>
-                  {/* Stage labels under dots */}
-                  <div style={{display:"flex",justifyContent:"space-between",marginTop:6,marginInline:-2}}>
-                    {PRODUCTION_STAGES.map((st,i)=>{
-                      const isDone=i<stageIdx;const isCurrent=i===stageIdx;
-                      return<span key={st.key} style={{flex:1,textAlign:"center",fontSize:FS-4,fontWeight:isCurrent?800:isDone?700:500,color:isCurrent?statusColor:isDone?T.ok:T.textMut,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",padding:"0 1px"}}>{st.short}</span>;
-                    })}
-                  </div>
-                  {/* Numbers row — context made explicit so "0" stops being confusing */}
-                  <div style={{display:"flex",alignItems:"baseline",gap:6,marginTop:9,paddingTop:8,borderTop:"1px dashed "+T.brd}}>
-                    <span style={{fontSize:FS+4,fontWeight:900,color:progress>=80?T.ok:progress>=50?T.warn:T.textSec,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{o.deliveredQty||0}</span>
-                    <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>/ {t.cutQty} لمخزن الجاهز</span>
-                    <span style={{marginInlineStart:"auto",fontSize:FS-3,fontWeight:800,color:T.textSec,fontVariantNumeric:"tabular-nums"}}>{stageIdx+1}/{PRODUCTION_STAGES.length} مراحل</span>
-                  </div>
-                </div>;
-              })()}
-
-              {/* ── Row 3: KPIs row — big numbers, lowercase labels ── */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                <div style={{padding:"8px 4px",textAlign:"center"}}>
-                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>رصيد</div>
-                  <div style={{fontSize:FS+4,fontWeight:900,color:t.balance>0?T.err:T.ok,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{t.balance}</div>
-                </div>
-                <div style={{padding:"8px 4px",textAlign:"center",borderInlineStart:"1px solid "+T.brd,borderInlineEnd:"1px solid "+T.brd}}>
-                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>مخزن</div>
-                  <div style={{fontSize:FS+4,fontWeight:900,color:T.purple||"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{getConfirmedStock(o)}</div>
-                  {/* V21.21.90: شارة الحجز بطلبات البورتال (عرض فقط) */}
-                  {(()=>{const rq=reservedQtyForOrder(reservByOrder,o.id);return rq>0?<div onClick={e=>{e.stopPropagation();setReservPopup({order:o,list:reservByOrder[o.id]||[]});}} title="تفاصيل الحجز" style={{marginTop:4,display:"inline-block",fontSize:FS-5,fontWeight:800,color:"#D97706",background:"#FEF3C7",border:"1px solid #F59E0B40",borderRadius:6,padding:"1px 6px",cursor:"pointer"}}>🔖 محجوز {rq}</div>:null;})()}
-                </div>
-                <div style={{padding:"8px 4px",textAlign:"center"}}>
-                  <div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,textTransform:"uppercase",letterSpacing:0.3,marginBottom:1}}>تكلفة{_hasExtra?" *":""}</div>
-                  <div style={{fontSize:FS+4,fontWeight:900,color:_hasExtra?"#F59E0B":"#8B5CF6",lineHeight:1,fontVariantNumeric:"tabular-nums"}} title={_hasExtra?"شامل تكاليف إضافية / تسوية":""}>{Math.ceil(_displayCostPer)}</div>
-                </div>
+              {/* ── Meta chips ── */}
+              <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span>📐 {o.sizeLabel}</span>
+                {wds.length>0&&<span>🏭 {new Set(wds.map(w=>w.wsName)).size} ورش</span>}
+                {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
+                {isStale&&!isSent&&<span style={{padding:"1px 8px",borderRadius:999,background:T.err+"12",color:T.err,fontWeight:700}}>🔴 {ageDays}ي</span>}
+                {isSent&&<span style={{padding:"1px 8px",borderRadius:999,background:T.ok+"12",color:T.ok,fontWeight:700}}>✅ تم</span>}
+                {Array.isArray(o.tags)&&o.tags.length>0&&<TagChips tagIds={o.tags} registry={data.tagRegistry||[]} small max={2}/>}
               </div>
 
-              {/* ── Row 4: زر «التشغيل» — ملخّص + popup بكل تفاصيل الورش (V21.13) ── */}
+              {/* ── Stats box + circular progress ring ── */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:T.bg,borderRadius:18,padding:"13px 16px"}}>
+                <div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>الكمية</div><div style={{fontSize:FS+3,fontWeight:900,color:T.text,fontVariantNumeric:"tabular-nums"}}>{t.cutQty}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>مخزن</div><div style={{fontSize:FS+3,fontWeight:900,color:T.purple||"#8B5CF6",fontVariantNumeric:"tabular-nums"}}>{getConfirmedStock(o)}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>رصيد</div><div style={{fontSize:FS+3,fontWeight:900,color:t.balance>0?T.err:T.ok,fontVariantNumeric:"tabular-nums"}}>{t.balance}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}} title={_hasExtra?"شامل تكاليف إضافية/تسوية":""}>تكلفة{_hasExtra?"*":""}</div><div style={{fontSize:FS+3,fontWeight:900,color:_hasExtra?"#F59E0B":"#8B5CF6",fontVariantNumeric:"tabular-nums"}}>{Math.ceil(_displayCostPer)}</div></div>
+                </div>
+                {(()=>{const p=Math.min(100,Math.max(0,progress));const C=2*Math.PI*23;return<svg width="58" height="58" viewBox="0 0 58 58" style={{flexShrink:0}}>
+                  <circle cx="29" cy="29" r="23" fill="none" stroke={statusColor+"22"} strokeWidth="7"/>
+                  <circle cx="29" cy="29" r="23" fill="none" stroke={statusColor} strokeWidth="7" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C*(1-p/100)} transform="rotate(-90 29 29)"/>
+                  <text x="29" y="33" textAnchor="middle" fontSize="13" fontWeight="900" fill={statusColor}>{p}%</text>
+                </svg>})()}
+              </div>
+              {(()=>{const rq=reservedQtyForOrder(reservByOrder,o.id);return rq>0?<div onClick={e=>{e.stopPropagation();setReservPopup({order:o,list:reservByOrder[o.id]||[]});}} title="تفاصيل الحجز" style={{alignSelf:"flex-start",fontSize:FS-4,fontWeight:800,color:"#D97706",background:"#FEF3C7",border:"1px solid #F59E0B40",borderRadius:999,padding:"3px 11px",cursor:"pointer",marginTop:-4}}>🔖 محجوز {rq}</div>:null})()}
+
+              {/* ── Workshops summary ── */}
               {wds.length>0&&(()=>{
                 const grp={};
                 wds.forEach(wd=>{const ws=wd.wsName;const pc=wd.garmentType||"عام";const k=ws+"|"+pc;if(!grp[k])grp[k]={ws,piece:pc,del:0,rcv:0};grp[k].del+=Number(wd.qty)||0;(wd.receives||[]).forEach(r=>{grp[k].rcv+=Number(r.qty)||0})});
@@ -628,48 +557,26 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
                 const openBal=rows.reduce((s,g)=>s+Math.max(0,g.bal),0);
                 const wsCount=new Set(rows.map(g=>g.ws)).size;
                 const c=openBal>0?T.warn:T.ok;
-                return<div onClick={e=>{e.stopPropagation();setWsOpOrder(o)}} title="عرض تفاصيل التشغيل والورش" style={{padding:"7px 10px",borderRadius:8,background:c+"08",border:"1px solid "+c+"22",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",gap:6,transition:"background 0.15s"}} onMouseEnter={e=>e.currentTarget.style.background=c+"15"} onMouseLeave={e=>e.currentTarget.style.background=c+"08"}>
+                return<div onClick={e=>{e.stopPropagation();setWsOpOrder(o)}} title="عرض تفاصيل التشغيل والورش" style={{padding:"9px 14px",borderRadius:14,background:c+"0C",border:"1px solid "+c+"22",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",gap:6}} onMouseEnter={e=>e.currentTarget.style.background=c+"18"} onMouseLeave={e=>e.currentTarget.style.background=c+"0C"}>
                   <span style={{fontSize:FS-2,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:5}}>🏭 التشغيل <span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>({wsCount} ورشة)</span></span>
                   <span style={{fontSize:FS-3,fontWeight:800,color:c}}>{openBal>0?"⏳ "+openBal+" عند الورش":"✓ مكتمل"} ▸</span>
                 </div>;
               })()}
 
-              {/* ── Footer: WhatsApp + Shopify Push (V21.9.13) ── */}
+              {/* ── Footer: WhatsApp + Shopify Push ── */}
               {(()=>{
-                /* V21.9.13: Shopify Push state badge.
-                   `isPushed` = the order is currently linked to a live Shopify
-                   product (we have the ID + push_status hasn't been flipped to
-                   "deleted_on_shopify" by the verify endpoint). When user clicks
-                   the button, the modal mounts and runs a verify-on-open ping —
-                   if the product was deleted on Shopify, the meta is cleared so
-                   the badge disappears on next data snapshot. Card stays in
-                   sync with Shopify state. */
                 const meta = o.shopify_meta || {};
                 const isPushed = !!meta.shopify_product_id && meta.push_status !== "deleted_on_shopify";
                 const SHOPIFY_GREEN = "#96BF48";
-                const greenBg = SHOPIFY_GREEN + "10";
-                const greenBdr = SHOPIFY_GREEN + "30";
-                const pushedBg = SHOPIFY_GREEN + "18";
+                const greenBg = SHOPIFY_GREEN + "10"; const greenBdr = SHOPIFY_GREEN + "30"; const pushedBg = SHOPIFY_GREEN + "18";
                 return (
-                  <div style={{display:"flex",gap:6,marginTop:"auto",paddingTop:4,borderTop:"1px solid "+T.brd}}>
-                    <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"6px",borderRadius:8,background:"#25D36608",color:"#25D366",border:"1px solid #25D36620",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36615"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36608"}}>
+                  <div style={{display:"flex",gap:8,marginTop:"auto",paddingTop:11,borderTop:"1px solid "+T.brd}}>
+                    <div onClick={e=>{e.stopPropagation();setWaPopup({order:o,t:calcOrder(o),fromCard:true})}} title="ارسال واتساب" style={{flex:1,padding:"9px",borderRadius:13,background:"#25D36610",color:"#25D366",border:"1px solid #25D36622",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:800,gap:6}} onMouseEnter={e=>{e.currentTarget.style.background="#25D36620"}} onMouseLeave={e=>{e.currentTarget.style.background="#25D36610"}}>
                       <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11.5 11.5 0 0 0 12 0a12 12 0 0 0-10.4 18L0 24l6.2-1.6A12 12 0 0 0 12 24c6.6 0 12-5.4 12-12 0-3.2-1.2-6.2-3.5-8.5zm-8.5 18.5a10 10 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4a10 10 0 1 1 18.4-5.4c0 5.5-4.5 10-10 10zm5.5-7.5c-.3-.2-1.8-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1a8 8 0 0 1-2.3-1.4 8.8 8.8 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.3-.4.2-.3.1-.3a.3.3 0 0 0 0-.3l-1-2.2c-.2-.5-.4-.5-.6-.5H8c-.3 0-.6.1-.8.4-.3.4-1 1-1 2.3s1 2.7 1.2 2.9c.1.2 2.1 3.2 5 4.4 2.4 1 2.9.8 3.4.8.6-.1 1.8-.8 2-1.5.3-.8.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z"/></svg>
                       <span>واتساب</span>
                     </div>
-                    {/* V21.9.13: Push to Shopify */}
-                    <div
-                      onClick={e=>{e.stopPropagation();setPushModalOrder(o)}}
-                      title={isPushed?"محدّث على Shopify — اضغط للتعديل":"Push للـ Shopify"}
-                      style={{flex:1,padding:"6px",borderRadius:8,background:isPushed?pushedBg:greenBg,color:SHOPIFY_GREEN,border:"1px solid "+greenBdr,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:700,gap:5,transition:"all 0.15s",position:"relative"}}
-                      onMouseEnter={e=>{e.currentTarget.style.background=SHOPIFY_GREEN+"22"}}
-                      onMouseLeave={e=>{e.currentTarget.style.background=isPushed?pushedBg:greenBg}}
-                    >
-                      {/* Shopify shopping-bag icon */}
-                      <svg width={14} height={14} viewBox="0 0 109.5 124.5" fill="currentColor" aria-hidden="true">
-                        <path d="M74.7 14.8c0-.4-.4-.6-.7-.7-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.5-.5-1.5-.4-1.9-.3l-2.6.8C55.5 5 53 1.4 48.5 1.4h-.4c-1.3-1.7-2.9-2.4-4.3-2.4-10.7 0-15.8 13.4-17.4 20.2-4.2 1.3-7.1 2.2-7.5 2.3-2.3.7-2.4.8-2.7 3-.2 1.6-6.4 49.4-6.4 49.4l46.4 8.7 25.1-5.4c.1.1-6.1-62-6.6-62.4zM55 17.6l-3.9 1.2c0-.3 0-.6.1-.9 0-2.7-.4-4.9-1-6.7C52.6 11.5 54.3 14.4 55 17.6zM47.2 11.7c.7 1.7 1.1 4.2 1.1 7.6v.5l-8.1 2.5c1.6-6 4.5-8.9 7-10.6zm-3.1-2.9c.5 0 1 .2 1.4.5-3.5 1.7-7.3 5.8-8.9 14l-6.4 2c1.9-6.2 6.2-16.5 13.9-16.5z"/>
-                        <path d="M74 14.1c-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.2-.2-.5-.3-.8-.4l-3.5 116.4 25.1-5.4S74.8 15.3 74.7 14.8c-.1-.4-.4-.6-.7-.7z" fillOpacity="0.6"/>
-                        <path d="M48.7 39.8l-3.1 9.2s-2.7-1.4-6-1.4c-4.8 0-5.1 3-5.1 3.8 0 4.2 11 5.8 11 15.7 0 7.8-4.9 12.8-11.6 12.8-8 0-12.1-5-12.1-5l2.1-7.1s4.2 3.6 7.7 3.6c2.3 0 3.3-1.8 3.3-3.2 0-5.5-9-5.7-9-14.8 0-7.6 5.5-15 16.5-15 4.3 0 6.3 1.2 6.3 1.2z" fill="#FFFFFE"/>
-                      </svg>
+                    <div onClick={e=>{e.stopPropagation();setPushModalOrder(o)}} title={isPushed?"محدّث على Shopify — اضغط للتعديل":"Push للـ Shopify"} style={{flex:1,padding:"9px",borderRadius:13,background:isPushed?pushedBg:greenBg,color:SHOPIFY_GREEN,border:"1px solid "+greenBdr,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:800,gap:6,position:"relative"}} onMouseEnter={e=>{e.currentTarget.style.background=SHOPIFY_GREEN+"22"}} onMouseLeave={e=>{e.currentTarget.style.background=isPushed?pushedBg:greenBg}}>
+                      <svg width={14} height={14} viewBox="0 0 109.5 124.5" fill="currentColor" aria-hidden="true"><path d="M74.7 14.8c0-.4-.4-.6-.7-.7-.3 0-7-.5-7-.5s-4.6-4.6-5.2-5.1c-.5-.5-1.5-.4-1.9-.3l-2.6.8C55.5 5 53 1.4 48.5 1.4h-.4c-1.3-1.7-2.9-2.4-4.3-2.4-10.7 0-15.8 13.4-17.4 20.2-4.2 1.3-7.1 2.2-7.5 2.3-2.3.7-2.4.8-2.7 3-.2 1.6-6.4 49.4-6.4 49.4l46.4 8.7 25.1-5.4c.1.1-6.1-62-6.6-62.4z"/><path d="M48.7 39.8l-3.1 9.2s-2.7-1.4-6-1.4c-4.8 0-5.1 3-5.1 3.8 0 4.2 11 5.8 11 15.7 0 7.8-4.9 12.8-11.6 12.8-8 0-12.1-5-12.1-5l2.1-7.1s4.2 3.6 7.7 3.6c2.3 0 3.3-1.8 3.3-3.2 0-5.5-9-5.7-9-14.8 0-7.6 5.5-15 16.5-15 4.3 0 6.3 1.2 6.3 1.2z" fill="#FFFFFE"/></svg>
                       <span>{isPushed?"Pushed":"Push"}</span>
                       {isPushed&&<span style={{position:"absolute",top:-4,insetInlineEnd:-4,width:14,height:14,borderRadius:"50%",background:T.ok,color:"#fff",fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid "+T.cardSolid}}>✓</span>}
                     </div>
