@@ -4281,19 +4281,27 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>
     </div>}
     {freeReturn&&freeReturn!=="pick"&&(()=>{const cust=customers.find(c=>c.id===freeReturn);if(!cust)return null;
-      const custModels=[];orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===freeReturn).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===freeReturn).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=del-ret;if(net>0)custModels.push({id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net})});
+      const _retPerOrder=[];orders.forEach(o=>{const del=(o.customerDeliveries||[]).filter(d=>d.custId===freeReturn).reduce((s,d)=>s+(Number(d.qty)||0),0);const ret=(o.customerReturns||[]).filter(r=>r.custId===freeReturn).reduce((s,r)=>s+(Number(r.qty)||0),0);const net=del-ret;if(net>0)_retPerOrder.push({id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,delivered:del,returned:ret,net,createdAt:o.createdAt||o.id})});
+      /* V21.22.14: تجميع المرتجع الحر بالموديل — صف واحد لكل modelNo؛ التوزيع
+         على أوامر العميل FIFO (الأقدم أولاً) عند الحفظ (كل قطعة ترجع لأوردرها). */
+      const _retG={};_retPerOrder.forEach(r=>{const k=r.modelNo||r.id;if(!_retG[k])_retG[k]={id:"RET:"+k,modelNo:r.modelNo,modelDesc:r.modelDesc,delivered:0,returned:0,net:0,lots:[]};const g=_retG[k];g.delivered+=r.delivered;g.returned+=r.returned;g.net+=r.net;g.lots.push({id:r.id,net:r.net,createdAt:r.createdAt})});
+      const custModels=Object.values(_retG).map(g=>{g.lots.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));return g});
       const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
       const saveFreeReturn=()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
-        Object.entries(freeRetItems).forEach(([orderId,qty])=>{const q=Number(qty)||0;if(q<=0)return;
-          updOrder(orderId,o=>{if(!o.customerReturns)o.customerReturns=[];
-            /* V21.9.192: stamp discPct from the most-recent sale for this
-               customer on this order (no session — free return). */
-            const retEntry={custId:freeReturn,custName:cust.name,qty:q,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""};
-            const matchedDisc=findMatchingSaleDiscPct(o,freeReturn,null);
-            if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
-            o.customerReturns.push(retEntry);
-          })});
-        showToast("✓ تم تسجيل مرتجع "+totalRet+" قطعة من "+cust.name);setFreeReturn(null)};
+        let totalDone=0;
+        custModels.forEach(m=>{let remaining=Number(freeRetItems[m.id])||0;if(remaining<=0)return;
+          /* توزيع FIFO (الأقدم أولاً) على أوامر الموديل، بحد net كل أوردر */
+          for(const lot of m.lots){if(remaining<=0)break;const take=Math.min(remaining,Number(lot.net)||0);if(take<=0)continue;
+            updOrder(lot.id,o=>{if(!o.customerReturns)o.customerReturns=[];
+              /* V21.9.192: stamp discPct from the most-recent sale for this customer. */
+              const retEntry={custId:freeReturn,custName:cust.name,qty:take,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""};
+              const matchedDisc=findMatchingSaleDiscPct(o,freeReturn,null);
+              if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
+              o.customerReturns.push(retEntry);
+            });
+            remaining-=take;totalDone+=take;
+          }});
+        showToast("✓ تم تسجيل مرتجع "+totalDone+" قطعة من "+cust.name);setFreeReturn(null)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -4303,7 +4311,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12}}>{"استلم "+getCustTotal(freeReturn)+" قطعة خلال الموسم"}</div>
           <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr>{["الموديل","تسليم","مرتجع سابق","صافي","كمية المرتجع"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
             {custModels.map((m,i)=>{const retQ=Number(freeRetItems[m.id])||0;return<tr key={m.id} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-              <td style={{...TD,fontWeight:700}}><div style={{color:T.accent}}>{m.modelNo}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
+              <td style={{...TD,fontWeight:700}}><div style={{color:T.accent}}>{m.modelNo}{m.lots&&m.lots.length>1&&<span style={{marginInlineStart:5,fontSize:FS-3,color:"#8B5CF6"}} title={m.lots.length+" تشغيلات (FIFO)"}>⧉{m.lots.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
               <td style={{...TD,textAlign:"center"}}>{m.delivered}</td>
               <td style={{...TD,textAlign:"center",color:m.returned>0?T.err:T.textMut}}>{m.returned||"—"}</td>
               <td style={{...TD,textAlign:"center",fontWeight:700}}>{m.net}</td>
