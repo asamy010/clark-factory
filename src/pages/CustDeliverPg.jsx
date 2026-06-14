@@ -3663,14 +3663,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>})()}
     {/* Customer List - toggled */}
-    {showCustList&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMob?8:24}} onClick={()=>setShowCustList(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:isMob?16:24,width:isMob?"100%":"auto",maxWidth:isMob?"100%":"95vw",minWidth:isMob?"auto":420,maxHeight:"85vh",overflowY:"auto",overflowX:"hidden",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:10}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
-          <div style={{display:"flex",gap:4}}>
-            {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCPriceTier("");setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
-            <Btn ghost small onClick={()=>setShowCustList(false)} title="إغلاق">✕</Btn>
+    {/* V21.22.11: قائمة العملاء بقت VIEW ملء الشاشة بدل بوب اب (مبدأ:
+        الكبير = صفحة، الصغير = popup). فورم «+ عميل جديد» يفضل popup صغير. */}
+    {showCustList&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflowY:"auto",overflowX:"hidden"}}>
+      <div style={{maxWidth:1100,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap",position:"sticky",top:0,background:T.bg,paddingTop:4,paddingBottom:10,zIndex:2}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Btn small onClick={()=>setShowCustList(false)} style={{background:T.cardSolid,border:"1px solid "+T.brd,fontWeight:700}}>← رجوع</Btn>
+            <div style={{fontSize:FS+3,fontWeight:800,color:T.accent,whiteSpace:"nowrap"}}>{"👥 العملاء ("+customers.length+")"}</div>
           </div>
+          {canEdit&&<Btn small primary onClick={()=>{setCName("");setCPhone("");setCAddr("");setCType("مكتب");setCDiscount(10);setCArchived(false);setCTags([]);setCPriceTier("");setCEditId(null);setShowCustForm(true)}}>+ عميل جديد</Btn>}
         </div>
         <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
           <div style={{flex:1}}><Inp value={custFilter} onChange={v=>{setCustFilter(v);setCustListLimit(50)}} placeholder="بحث بالاسم أو رقم التليفون..."/></div>
@@ -3707,7 +3709,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
              filterByTags returns the input untouched when selectedTags is empty,
              so this is a no-op when no tag chip is selected. */
           const fc=filterByTags(fcRaw,custTagFilter,custTagFilterMode);const shown=fc.slice(0,custListLimit);/* V21.22.10: pagination — رندر 50 بس */
-          return fc.length>0?<><table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التاجز","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+          return fc.length>0?<><div style={{overflowX:"auto"}}><table style={{width:"auto",borderCollapse:"collapse",whiteSpace:"nowrap"}}><thead><tr>{["#","الاسم","التاجز","النوع","التليفون","العنوان","اجمالي",...(canEdit?[""]:[])] .map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
           {shown.map((c,i)=>{const total=getCustTotal(c.id);return<tr key={c.id} style={{background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}><td style={TD}>{i+1}</td><td style={{...TD,fontWeight:700}}><span style={{textDecoration:c.archived?"line-through":"none"}}>{c.name}</span>{c.archived&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:4,background:T.err+"20",color:T.err,fontSize:FS-3,fontWeight:800}}>🔒 موقوف</span>}</td><td style={TD}><TagChips tagIds={c.tags||[]} registry={data.tagRegistry||[]} small max={3}/></td><td style={{...TD,fontSize:FS-2,color:T.textSec}}>{c.type==="محل"?"🏪 محل":c.type==="أونلاين"?"🌐 أونلاين":c.type==="أخرى"?"📦 أخرى":"🏢 مكتب"}</td><td style={TD}>{c.phone}</td><td style={TD}>{c.address||"—"}</td><td style={{...TD,fontWeight:700,color:T.accent}}>{total||"—"}</td>
             {canEdit&&<td style={TD}><div style={{display:"flex",gap:3}}>
               <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
@@ -3716,7 +3718,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
               <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={custBlockerMap[c.id]}/>
             </div></td>}</tr>})}
-        </tbody></table>{fc.length>shown.length&&<div style={{textAlign:"center",marginTop:12,display:"flex",gap:10,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}><span style={{fontSize:FS-2,color:T.textSec}}>عرض {shown.length} من {fc.length}</span><Btn small onClick={()=>setCustListLimit(l=>l+100)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>⬇️ عرض المزيد (+100)</Btn><Btn small ghost onClick={()=>setCustListLimit(fc.length)}>عرض الكل ({fc.length})</Btn></div>}</>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
+        </tbody></table></div>{fc.length>shown.length&&<div style={{textAlign:"center",marginTop:12,display:"flex",gap:10,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}><span style={{fontSize:FS-2,color:T.textSec}}>عرض {shown.length} من {fc.length}</span><Btn small onClick={()=>setCustListLimit(l=>l+100)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>⬇️ عرض المزيد (+100)</Btn><Btn small ghost onClick={()=>setCustListLimit(fc.length)}>عرض الكل ({fc.length})</Btn></div>}</>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
     </div>}
     {/* V17.9: Tabs for the 4 main lists — instead of stacking them vertically (which forced scrolling) */}
