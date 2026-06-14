@@ -77,7 +77,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [aspectRatio, setAspectRatio] = useState("3:4");
   const [imageSize, setImageSize] = useState("1K");
   const [shotType, setShotType] = useState("model");
-  const [genderId, setGenderId] = useState("girl");
+  const [genderId, setGenderId] = useState("boy");
   const [ageId, setAgeId] = useState("a4_6");
   const [poseId, setPoseId] = useState("front");
   const [backgroundId, setBackgroundId] = useState("studio_white");
@@ -470,6 +470,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(o.poseId) setPoseId(o.poseId);
     if(o.backgroundId) setBackgroundId(o.backgroundId);
     if(o.framingId) setFramingId(o.framingId);
+    if(o.skinToneId) setSkinToneId(o.skinToneId);
+    if(o.lightingId) setLightingId(o.lightingId);
+    if(o.camStyle) setCamStyle(o.camStyle);
+    if(o.cameraId) setCameraId(o.cameraId);
+    if(o.realismLevel) setRealismLevel(o.realismLevel);
     if(o.notes != null) setNotes(o.notes);
     setMultiPose(false);
     showToast("✓ تم تحميل الإعدادات");
@@ -508,7 +513,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const delCustom = (kind, id) => savePresets(p => { p[kind] = p[kind].filter(x => x.id !== id); });
   const saveTemplate = () => {
     if(!tplName.trim()){ showToast("⚠️ اكتب اسم القالب"); return; }
-    savePresets(p => p.templates.push({ id: "tpl_" + Date.now().toString(36), name: tplName.trim(), options: opts }));
+    savePresets(p => p.templates.push({ id: "tpl_" + Date.now().toString(36), name: tplName.trim(), options: { ...opts, camStyle, cameraId, realismLevel } }));
     setTplName(""); showToast("✓ اتحفظ القالب");
   };
 
@@ -737,12 +742,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                   {/* templates */}
                   <div>
-                    <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec, marginBottom: 6 }}>القوالب المحفوظة</div>
+                    <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec, marginBottom: 6 }}>القوالب الجاهزة والمحفوظة (اضغط للتطبيق)</div>
                     {lib.templates.length === 0 ? <div style={{ fontSize: FS - 3, color: T.textMut }}>مفيش قوالب — احفظ الإعدادات الحالية كقالب.</div>
                       : <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>{lib.templates.map(t => (
-                        <span key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, background: T.bg, border: "1px solid " + T.brd, fontSize: FS - 2 }}>
+                        <span key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, background: t.builtin ? T.accent + "0D" : T.bg, border: "1px solid " + (t.builtin ? T.accent + "30" : T.brd), fontSize: FS - 2 }}>
                           <span onClick={() => applyOptions(t.options)} style={{ cursor: "pointer", fontWeight: 700, color: T.accent }}>{t.name}</span>
-                          <span onClick={() => savePresets(p => { p.templates = p.templates.filter(x => x.id !== t.id); })} style={{ cursor: "pointer", color: T.err }}>×</span>
+                          {!t.builtin && <span onClick={() => savePresets(p => { p.templates = p.templates.filter(x => x.id !== t.id); })} style={{ cursor: "pointer", color: T.err }}>×</span>}
                         </span>))}</div>}
                     <div style={{ display: "flex", gap: 6 }}>
                       <Inp value={tplName} onChange={setTplName} placeholder="اسم القالب (مثلاً: صيفي خارجي)" />

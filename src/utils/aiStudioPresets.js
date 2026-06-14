@@ -40,11 +40,27 @@ export const SHOT_TYPES = [
 ];
 
 export const GENDERS = [
-  { id: "boy",   label: "ولد",       prompt: "a male child" },
-  { id: "girl",  label: "بنت",       prompt: "a female child" },
-  { id: "woman", label: "سيدة",      prompt: "an adult female" },
-  { id: "man",   label: "رجل",       prompt: "an adult male" },
-  { id: "baby",  label: "طفل رضيع",  prompt: "a baby infant" },
+  { id: "boy",   label: "ولد",   prompt: "a male child" },
+  { id: "girl",  label: "بنت",   prompt: "a female child" },
+  { id: "woman", label: "سيدة",  prompt: "an adult female" },
+  { id: "man",   label: "رجل",   prompt: "an adult male" },
+];
+
+/* مكتبة قوالب احترافية جاهزة (إعدادات كاملة) — تتدمج مع قوالب المستخدم.
+   builtin:true عشان مايتحذفش. كل قالب بيظبط نوع اللقطة + الجنس + الوقفة +
+   الخلفية + الإطار + الإضاءة + الكاميرا/النمط + قوة الواقعية. */
+export const DEFAULT_TEMPLATES = [
+  { id: "t_white",     name: "🏬 استوديو أبيض (متجر)", builtin: true, options: { shotType: "model", genderId: "boy", poseId: "front", framingId: "full", backgroundId: "studio_white", skinToneId: "any", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_summer",    name: "☀️ صيفي خارجي",          builtin: true, options: { shotType: "model", genderId: "boy", poseId: "walking", framingId: "full", backgroundId: "outdoor", lightingId: "natural", camStyle: "life", cameraId: "dslr50", realismLevel: "strong", notes: "" } },
+  { id: "t_editorial", name: "📔 غلاف مجلة موضة",       builtin: true, options: { shotType: "model", genderId: "woman", poseId: "three4", framingId: "three", backgroundId: "studio_gray", lightingId: "dramatic", camStyle: "cine", cameraId: "dslr85", realismLevel: "strong", notes: "" } },
+  { id: "t_street",    name: "🏙️ لايف ستايل شارع",      builtin: true, options: { shotType: "model", genderId: "man", poseId: "walking", framingId: "full", backgroundId: "street", lightingId: "natural", camStyle: "life", cameraId: "wide35", realismLevel: "strong", notes: "" } },
+  { id: "t_kids",      name: "🧸 أطفال مرح",            builtin: true, options: { shotType: "model", genderId: "boy", ageId: "a4_6", poseId: "playful", framingId: "full", backgroundId: "solid", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_beach",     name: "🏖️ شاطئ صيفي",            builtin: true, options: { shotType: "model", genderId: "girl", ageId: "a7_9", poseId: "playful", framingId: "full", backgroundId: "beach", lightingId: "natural", camStyle: "life", cameraId: "dslr50", realismLevel: "strong", notes: "" } },
+  { id: "t_winter",    name: "🧣 شتوي دافئ",            builtin: true, options: { shotType: "model", genderId: "woman", poseId: "front", framingId: "three", backgroundId: "room", lightingId: "golden", camStyle: "life", cameraId: "dslr50", realismLevel: "strong", notes: "" } },
+  { id: "t_minimal",   name: "◻️ مينيمال راقي",          builtin: true, options: { shotType: "model", genderId: "woman", poseId: "three4", framingId: "half", backgroundId: "solid", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_portrait",  name: "👤 بورتريه قريب",          builtin: true, options: { shotType: "model", genderId: "boy", poseId: "front", framingId: "half", backgroundId: "beige", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_ghost",     name: "👕 مانيكان شبح (متجر)",   builtin: true, options: { shotType: "ghost", backgroundId: "studio_white", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_flat",      name: "🧺 فرش مسطّح",            builtin: true, options: { shotType: "flat", backgroundId: "studio_white", camStyle: "pro", cameraId: "none", realismLevel: "medium", notes: "" } },
 ];
 
 export const CHILD_AGES = [
@@ -189,7 +205,7 @@ export function mergePresets(data){
   return {
     poses: [...POSES, ...safe(c.poses)],
     backgrounds: [...BACKGROUNDS, ...safe(c.backgrounds)],
-    templates: Array.isArray(c.templates) ? c.templates : [],
+    templates: [...DEFAULT_TEMPLATES, ...(Array.isArray(c.templates) ? c.templates : [])],
     /* برومبتس جاهزة بصور (حرّة) — كل واحد {id,name,prompt,image} للتنفيذ المباشر */
     savedPrompts: Array.isArray(c.savedPrompts) ? c.savedPrompts.filter(x => x && x.id && x.prompt) : [],
   };
