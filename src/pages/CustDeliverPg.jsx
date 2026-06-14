@@ -834,6 +834,32 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const custTotalsMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let t=0;orders.forEach(o=>{const d=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);const r=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);t+=d-r});m.set(c.id,t)});return m},[orders,config.customers]);
   /* V18.7: Per-customer delivered/returned breakdown — used for rating in customer picker */
   const custDelRetMap=useMemo(()=>{const m=new Map();(config.customers||[]).forEach(c=>{let del=0,ret=0;orders.forEach(o=>{del+=(o.customerDeliveries||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0);ret+=(o.customerReturns||[]).filter(x=>x.custId===c.id).reduce((s,x)=>s+(Number(x.qty)||0),0)});m.set(c.id,{del,ret})});return m},[orders,config.customers]);
+  /* V21.22.8 PERF: خريطة «مانع الحذف» لكل عميل بـ single-pass (مفهرس) بدل
+     getDeleteBlocker(data,"customer",id) لكل عميل في render البوب اب (كان
+     بيسكان orders+treasury+custPayments+checks+sessions لكل عميل، على كل
+     رندر → O(عملاء×حركات)). دلوقتي O(حركات+عملاء) مرة لكل تغيير بيانات.
+     نفس صيغة getReferences (label + count لو >1، مفصول بـ •). */
+  const custBlockerMap=useMemo(()=>{
+    const inc=(mp,k)=>{if(k!=null&&k!=="")mp.set(k,(mp.get(k)||0)+1)};
+    const ord=new Map(),ret=new Map(),sess=new Map(),pay=new Map(),tx=new Map(),chk=new Map();
+    (orders||[]).forEach(o=>{inc(ord,o.custId);(o.customerReturns||[]).forEach(r=>inc(ret,r.custId))});
+    (data.custDeliverySessions||[]).forEach(s=>{if(Array.isArray(s.custIds))new Set(s.custIds).forEach(id=>inc(sess,id))});
+    (data.custPayments||[]).forEach(p=>inc(pay,p.custId));
+    (data.treasury||[]).forEach(t=>inc(tx,t.custId));
+    (data.checks||[]).forEach(c=>{if(c.type==="receivable")inc(chk,c.partyId)});
+    const fr=(label,n)=>n>1?(label+" ("+n+")"):label;
+    const m={};
+    (customers||[]).forEach(c=>{const r=[];
+      if(ord.get(c.id))r.push(fr("أوردر",ord.get(c.id)));
+      if(sess.get(c.id))r.push(fr("توزيعة بيع",sess.get(c.id)));
+      if(pay.get(c.id))r.push(fr("دفعة عميل",pay.get(c.id)));
+      if(tx.get(c.id))r.push(fr("حركة خزنة",tx.get(c.id)));
+      if(chk.get(c.id))r.push(fr("شيك",chk.get(c.id)));
+      if(ret.get(c.id))r.push(fr("مرتجع",ret.get(c.id)));
+      m[c.id]=r.length?r.join(" • "):null;
+    });
+    return m;
+  },[customers,orders,data.custDeliverySessions,data.custPayments,data.treasury,data.checks]);
   const getDeliveredForSess=(custId,sessId,orderId)=>{const o=orders.find(x=>x.id===orderId);if(!o)return 0;return(o.customerDeliveries||[]).filter(d=>d.custId===custId&&d.sessionId===sessId).reduce((s,d)=>s+(Number(d.qty)||0),0)};
   const getRemainingForSess=(custId,sessId,orderId,grid)=>{const planned=Number(grid[orderId+"_"+custId])||0;const delivered=getDeliveredForSess(custId,sessId,orderId);return Math.max(0,planned-delivered)};
   /* V21.22.8 ROOT-CAUSE FIX (بوب اب العملاء بطيء جداً + بيتباطأ مع الوقت):
@@ -3685,7 +3711,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCPriceTier(c.priceTier||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
               <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
               <Btn small onClick={()=>generatePortalUrl(c.id,c.name)} style={{background:"#0EA5E912",color:"#0EA5E9",border:"1px solid #0EA5E930"}} title="رابط حساب العميل">📱</Btn>
-              <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={getDeleteBlocker(data,"customer",c.id)}/>
+              <DelBtn onConfirm={()=>safeDelete("customers",c.id,"عميل")} blocked={custBlockerMap[c.id]}/>
             </div></td>}</tr>})}
         </tbody></table>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>{(custFilter||custTagFilter.length>0)?"لا توجد نتائج":"سجّل عملاء أولاً"}</div>})()}
       </div>
