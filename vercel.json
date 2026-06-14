@@ -3,6 +3,9 @@
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
+  "functions": {
+    "api/ai-image/generate.js": { "maxDuration": 60 }
+  },
   "crons": [
     {
       "path": "/api/cron/shopify-poll-orders",

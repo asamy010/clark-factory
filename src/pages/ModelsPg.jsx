@@ -10,6 +10,7 @@
 import { useState, useMemo } from "react";
 import { Btn } from "../components/ui.jsx";
 import { ModelForm } from "./ModelForm.jsx";
+import { AIStudioPg } from "./AIStudioPg.jsx";
 import { mkOrder } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
@@ -33,6 +34,7 @@ function modelColors(m){
 
 export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
+  const [studio, setStudio] = useState(null); /* null | modelObj — استوديو الـ AI */
   const [q, setQ] = useState("");
 
   /* ⚠️ كل الـ hooks قبل أي early return (Rules of Hooks) */
@@ -42,6 +44,12 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
     if(!s) return arr;
     return arr.filter(m => ((m.modelNo || "") + " " + (m.modelDesc || "")).toLowerCase().includes(s));
   }, [models, q]);
+
+  /* استوديو الموديلات (AI) — view ملء الشاشة */
+  if(studio){
+    return <AIStudioPg model={studio} data={data} upConfig={upConfig} user={user}
+      isMob={isMob} replaceModel={replaceModel} onClose={() => setStudio(null)}/>;
+  }
 
   /* فورم موديل جديد */
   if(editing === "new"){
@@ -131,6 +139,7 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
             {/* actions */}
             {canEdit && <div style={{display:"flex",gap:6,padding:14,borderTop:"1px solid "+T.brd,marginTop:"auto"}}>
               <Btn small onClick={() => setEditing(m)} style={{flex:1,background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️ تعديل</Btn>
+              <Btn small onClick={() => setStudio(m)} title="استوديو الـ AI — تلبيس الموديل" style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>🪄</Btn>
               <Btn small onClick={() => onDelete(m)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🗑</Btn>
             </div>}
           </div>;
