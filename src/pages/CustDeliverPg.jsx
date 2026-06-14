@@ -2696,19 +2696,30 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {availPopup && (()=>{
       const q = String(availPopup.search||"").trim().toLowerCase();
       /* Build the rows. Sort by avail descending so the highest-stock models appear first. */
-      const allRows = stockModels
+      const _perOrder = stockModels
         .filter(m => m.avail > 0)
         .map(m => {
           const seriesQty = Number(m.seriesQty)||0;
-          const brokenQty = Number(m.brokenQty)||0;
           const custDel = Number(m.custDel)||0;
           /* Sales deplete series first (matches existing matrix logic). */
           const availSeries = Math.max(0, seriesQty - custDel);
           const availBroken = Math.max(0, m.avail - availSeries);
           const rackSize = Number(m.rackSize)||0;
-          const seriesSets = rackSize > 0 ? Math.floor(availSeries / rackSize) : 0;
-          return { ...m, availSeries, availBroken, seriesSets, rackSize };
-        })
+          return { ...m, availSeries, availBroken, rackSize };
+        });
+      /* V21.22.12: تجميع بالموديل — صف واحد لكل modelNo = مجموع أوامره
+         (المخزون المتاح للموديل كله مش لكل تشغيل). orderCount = معلومة. */
+      const _grp = {};
+      _perOrder.forEach(r => {
+        const k = r.modelNo || r.id;
+        if(!_grp[k]) _grp[k] = { ...r, id: "AVL:" + k, avail: 0, availSeries: 0, availBroken: 0, orderCount: 0 };
+        const g = _grp[k];
+        g.avail += r.avail; g.availSeries += r.availSeries; g.availBroken += r.availBroken; g.orderCount += 1;
+        if(!g.image && r.image) g.image = r.image;
+        if(!g.modelDesc && r.modelDesc) g.modelDesc = r.modelDesc;
+      });
+      const allRows = Object.values(_grp)
+        .map(g => ({ ...g, seriesSets: g.rackSize > 0 ? Math.floor(g.availSeries / g.rackSize) : 0 }))
         .sort((a,b) => b.avail - a.avail);
       const rows = q
         ? allRows.filter(r => String(r.modelNo||"").toLowerCase().includes(q) || String(r.modelDesc||"").toLowerCase().includes(q))
@@ -2854,7 +2865,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   <tr key={r.id} style={{borderBottom:"1px solid "+T.brd,background:i%2===1?T.bg:"transparent"}}>
                     <td style={{padding:"7px 10px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{i+1}</td>
                     <td style={{padding:"4px 6px",textAlign:"center"}}>{r.image?<img src={r.image} alt="" loading="lazy" style={{width:42,height:"auto",maxHeight:58,objectFit:"contain",borderRadius:6,verticalAlign:"middle",border:"1px solid "+T.brd}}/>:<span style={{color:T.textMut,fontSize:FS-2}}>—</span>}</td>
-                    <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{r.modelNo}</td>
+                    <td style={{padding:"7px 10px",fontWeight:700,color:T.text}}>{r.modelNo}{r.orderCount>1&&<span style={{marginInlineStart:5,fontSize:FS-3,fontWeight:700,color:"#8B5CF6"}} title={"مدموج من "+r.orderCount+" تشغيلات"}>⧉{r.orderCount}</span>}</td>
                     <td style={{padding:"7px 10px",color:T.textSec,fontSize:FS-2}}>{r.modelDesc||"—"}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700,color:T.accent}}>
                       {r.availSeries}
