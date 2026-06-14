@@ -9,7 +9,7 @@
 
 import { useState, useMemo } from "react";
 import { Btn } from "../components/ui.jsx";
-import { OrdForm } from "./OrdForm.jsx";
+import { ModelForm } from "./ModelForm.jsx";
 import { mkOrder } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
@@ -31,7 +31,7 @@ function modelColors(m){
   return out;
 }
 
-export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig }){
+export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
   const [q, setQ] = useState("");
 
@@ -45,15 +45,15 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
 
   /* فورم موديل جديد */
   if(editing === "new"){
-    return <OrdForm data={data} initial={mkOrder()} modelMode
+    return <ModelForm data={data} initial={mkOrder()}
       onSave={m => { addModel(m); setEditing(null); }}
-      onCancel={() => setEditing(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
+      onCancel={() => setEditing(null)} isMob={isMob} upConfig={upConfig} user={user}/>;
   }
   /* تعديل موديل */
   if(editing && editing.id){
-    return <OrdForm data={data} initial={editing} modelMode
+    return <ModelForm data={data} initial={editing}
       onSave={m => { replaceModel(editing.id, m); setEditing(null); }}
-      onCancel={() => setEditing(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
+      onCancel={() => setEditing(null)} isMob={isMob} upConfig={upConfig} user={user}/>;
   }
 
   const onDelete = async (m) => {

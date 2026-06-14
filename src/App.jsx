@@ -7235,7 +7235,7 @@ export default function App(){
             })}
           </div>}
           {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig}/>}
+          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user}/>}
           {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}
