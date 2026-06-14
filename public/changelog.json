@@ -1,5 +1,23 @@
 [
  {
+  "version": "V21.22.6",
+  "date": "2026-06-14",
+  "types": [
+   "improvement"
+  ],
+  "title": "🖼️ كل الصور على Firebase Storage بجودة كاملة (مش base64)",
+  "changes": [
+   {
+    "type": "improvement",
+    "text": "أمر Ahmed: أي رفع صورة في التطبيق يبقى على Firebase Storage بجودة كاملة. اتعمل أداة موحّدة uploadImageToStorage (تصغير بدون قص 2048px@0.9 + رفع على images/**). اتحوّلت: صور أصناف المخزن (منتج/قماش/إكسسوار) + صور ألوان/مقاسات الموديل — من base64 مضغوط (360px) لروابط Storage عالية الجودة."
+   },
+   {
+    "type": "improvement",
+    "text": "ميزة جانبية: صور ألوان الموديل اللي بتنتقل لأمر التشغيل بقت روابط (مش base64) → بتشتغل مع Shopify push كمان. الصور القديمة base64 بتفضل تتعرض عادي (توافق). ⚠️ لازم نشر storage.rules (firebase deploy --only storage) — اتضافت قاعدة images/** — وإلا الرفع بيفشل."
+   }
+  ]
+ },
+ {
   "version": "V21.22.5",
   "date": "2026-06-14",
   "types": [

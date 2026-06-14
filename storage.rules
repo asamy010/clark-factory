@@ -174,6 +174,16 @@ service firebase.storage {
       allow delete:         if isAuthed();
     }
 
+    /* V21.22.6 — images/** — مخزن الصور العام (المنتجات/الموديلات/الألوان/
+       المقاسات وأي رفع صورة في التطبيق). أمر Ahmed: كل الصور على الستوريج
+       بجودة كاملة. أي مستخدم مُوثَّق يرفع (isWriteSafe بيحرس mime+size) لأن
+       الصور مش بيانات حسّاسة — زي temp/**. */
+    match /images/{allPaths=**} {
+      allow read:           if isAuthed();
+      allow create, update: if isWriteSafe();
+      allow delete:         if isAuthed();
+    }
+
     /* V21.9.100 — documents/** (Documents Tree feature).
        Root cause of V21.9.94-99 "storage/unauthorized" mystery was the
        Service Worker stripping the Firebase Auth bearer token from

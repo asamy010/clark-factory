@@ -14,7 +14,7 @@ import { T } from "../theme.js";
 import { gIcon, gid, getSizesFromSet } from "../utils/format.js";
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
-import { compressImage } from "../utils/image.js";
+import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { tell, showToast } from "../utils/popups.js";
 
 const TABS = [
@@ -63,12 +63,13 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     finally { setUploadingImg(false); }
   };
 
-  /* ── صور الألوان/المقاسات (base64 مضغوط على الموديل — per-doc آمن) ── */
+  /* ── صور الألوان/المقاسات (V21.22.6: على Storage بجودة كاملة، URL مش base64) ── */
   const pickAssetImg = async (file, applyFn) => {
     if(!file) return;
     if(!(file.type || "").startsWith("image/")){ showToast("⚠️ اختر صورة"); return; }
-    try { const url = await compressImage(file, 400, 0.6); applyFn(url); }
-    catch(_){ showToast("⛔ فشل تحميل الصورة"); }
+    showToast("⏳ جاري رفع الصورة...");
+    try { const { url } = await uploadImageToStorage("models", form.id || initial?.id || "new", file); applyFn(url); showToast("✓ تم رفع الصورة"); }
+    catch(err){ showToast("⛔ فشل رفع الصورة" + (err?.message ? " — " + err.message : "") + " (تأكد من نشر storage.rules)"); }
   };
   const setColorImg = (name, url) => setForm(p => { const m = { ...(p.colorImages || {}) }; if(url) m[name] = url; else delete m[name]; return { ...p, colorImages: m }; });
   const setSizeImg = (name, url) => setForm(p => { const m = { ...(p.sizeImages || {}) }; if(url) m[name] = url; else delete m[name]; return { ...p, sizeImages: m }; });

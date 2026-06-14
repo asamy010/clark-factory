@@ -16,7 +16,7 @@ import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits, hasDualUnit, baseToSecondary } from "../utils/units.js";
 import { getPriceTiers, pricesArrToMap, pricesMapToArr } from "../utils/pricing.js";
-import { compressImage } from "../utils/image.js";
+import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -321,13 +321,14 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       </div>
     </div>;
   };
-  /* V21.21.95: صورة الصنف — compressImage (3:4، 360px، جودة 0.6) ≈ 20-40KB
-     dataURL تتخزّن على الصنف نفسه (مستندات per-id منفصلة، آمنة لحد 1MB). */
+  /* V21.22.6: صورة الصنف بقت على Firebase Storage بجودة كاملة (URL مش base64)
+     — أمر Ahmed «كل الصور على الستوريج». item.image = رابط التحميل. */
   const handlePickImage=async(file,apply)=>{
     if(!file)return;
     if(!(file.type||"").startsWith("image/")){showToast("⚠️ اختر ملف صورة صالح");return;}
-    try{const url=await compressImage(file,360,0.6);apply(url);showToast("✓ تم تحميل الصورة");}
-    catch(_){showToast("⛔ فشل تحميل الصورة");}
+    showToast("⏳ جاري رفع الصورة...");
+    try{const {url}=await uploadImageToStorage("warehouse/items","",file);apply(url);showToast("✓ تم رفع الصورة");}
+    catch(err){showToast("⛔ فشل رفع الصورة"+(err?.message?" — "+err.message:"")+" (تأكد من نشر storage.rules)");}
   };
   const renderImagePicker=(imgVal,setImg,accent)=><div>
     <label style={{fontSize:FS-2,color:T.textSec}}>📷 صورة الصنف (اختياري — تظهر في الكارت)</label>
