@@ -177,6 +177,15 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
+       models — وصفات الموديلات القابلة لإعادة الاستخدام (V21.22.0)
+       collection عام top-level (مش لكل موسم). نفس صلاحية الأوامر.
+       ────────────────────────────────────────────────────────── */
+    match /models/{modelId} {
+      allow read:  if isAnyUser();
+      allow write: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
        accountingDays/{YYYY-MM-DD}
        القيود اليومية المحاسبية — V19.64: read restricted to accountants
        (was isAnyUser — viewers shouldn't see ledger entries)

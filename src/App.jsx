@@ -162,6 +162,7 @@ import { SyncProgressOverlay } from "./components/SyncProgressOverlay.jsx";
 /* V19.48: Removed TeamActivityModal import — feature retired (topbar pill cleanup) */
 import { DashPg } from "./pages/DashPg.jsx";/* eager — always first screen */
 const DBPg = lazyNamed(() => import("./pages/DBPg.jsx"), "DBPg");
+const ModelsPg = lazyNamed(() => import("./pages/ModelsPg.jsx"), "ModelsPg");/* V21.22.0 */
 import { OrdForm } from "./pages/OrdForm.jsx";/* eager — small, used within DetPg */
 const DetPg = lazyNamed(() => import("./pages/DetPg.jsx"), "DetPg");
 const ExtProdPg = lazyNamed(() => import("./pages/ExtProdPg.jsx"), "ExtProdPg");
@@ -329,7 +330,7 @@ export default function App(){
   const qrIdx=qrParams.get("idx");
 
   const[user,setUser]=useState(null);const[authLoading,setAuthLoading]=useState(true);
-  const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[dataLoading,setDataLoading]=useState(true);
+  const[configDoc,setConfigDoc]=useState(INIT_CONFIG);const[salesDoc,setSalesDoc]=useState({});const[tasksDoc,setTasksDoc]=useState({});const[orders,setOrders]=useState([]);const[models,setModels]=useState([]);/* V21.22.0: الموديلات — collection مستقل top-level (زي الأوامر) */const[dataLoading,setDataLoading]=useState(true);
   /* V18.60 SAFETY: configLoaded — set to true ONLY after config listener fires once
      with valid server data. Prevents writes from happening with INIT_CONFIG as base. */
   const[configLoaded,setConfigLoaded]=useState(false);
@@ -4380,6 +4381,9 @@ export default function App(){
   },[user,listenerEpoch]);
 
   useEffect(()=>{if(!user||!season)return;setDataLoading(true);const unsub=onSnapshot(collection(db,"seasons",season,"orders"),snap=>{setOrders(snap.docs.map(d=>{const o={_docId:d.id,...d.data()};if(o.status)o.status=migrateStatus(o.status);return o}).filter(o=>o.id));setDataLoading(false);setListenerStatus(s=>({...s,orders:true}))},err=>{console.error("[V18.60] orders listener error:",err);setDataLoading(false);setListenerStatus(s=>({...s,lastError:"orders: "+(err?.code||err?.message||"unknown")}))});return()=>unsub()},[user,season]);
+  /* V21.22.0: listener الموديلات — collection عام top-level (مش لكل موسم). فاضي
+     يبقى مفيش موديلات بعد؛ مفيش تأثير على أي حاجة لو الـ collection مش موجود. */
+  useEffect(()=>{if(!user)return;const unsub=onSnapshot(collection(db,"models"),snap=>{setModels(snap.docs.map(d=>({_docId:d.id,...d.data()})).filter(m=>m.id))},err=>{console.error("[models] listener error:",err)});return()=>unsub()},[user]);
 
   /* ═══ AUTO-BACKUP: once per day per user — V18.62: NOW COMPREHENSIVE ═══
      
@@ -5455,6 +5459,10 @@ export default function App(){
     }
   };
   const updOrder=async(orderId,fn)=>{try{const ord=orders.find(o=>o.id===orderId);if(!ord)return;const updated=JSON.parse(JSON.stringify(ord));fn(updated);const clean={...updated};delete clean._docId;await updateDoc(doc(db,"seasons",season,"orders",ord._docId),clean)}catch(e){console.error("updOrder error:",e);showToast("⚠️ خطأ في حفظ الأوردر")}};
+  /* V21.22.0: CRUD الموديلات (collection مستقل — مفيش خصم مخزون، الموديل مجرد وصفة). */
+  const addModel=async m=>{try{const obj={...m};obj.createdBy=userName;obj.createdAt=obj.createdAt||new Date().toISOString();delete obj._docId;await addDoc(collection(db,"models"),obj);showToast("✓ تم حفظ الموديل")}catch(e){console.error("addModel error:",e);showToast("⚠️ خطأ في حفظ الموديل: "+((e.message||String(e)).substring(0,80)))}};
+  const replaceModel=async(id,newData)=>{try{const m=models.find(x=>x.id===id);if(!m)return;const clean={...newData};delete clean._docId;await updateDoc(doc(db,"models",m._docId),clean);showToast("✓ تم حفظ التعديلات")}catch(e){console.error("replaceModel error:",e);showToast("⚠️ خطأ في حفظ الموديل")}};
+  const delModel=async id=>{try{const m=models.find(x=>x.id===id);if(!m)return;await deleteDoc(doc(db,"models",m._docId));showToast("✓ تم حذف الموديل")}catch(e){console.error("delModel error:",e);showToast("⚠️ خطأ في حذف الموديل")}};
   const delOrder=async orderId=>{
     const ord=orders.find(o=>o.id===orderId);
     if(!ord||!ord._docId)return;
@@ -5654,7 +5662,7 @@ export default function App(){
   },[orders,config.workshops]);
   /* V15.76: Memoize `data` — was creating a new object on every render,
      triggering cascading re-renders in all child pages that receive it as prop. */
-  const data=useMemo(()=>({...config,orders:resolvedOrders||orders}),[config,resolvedOrders,orders]);
+  const data=useMemo(()=>({...config,orders:resolvedOrders||orders,models}),[config,resolvedOrders,orders,models]);
   /* V21.9.183: when the admin flips cfg.campaignBridge.useProxy on, every
      subsequent bridge.* call goes through /api/whatsapp-bridge-proxy. We
      reconfigure on every change so toggling the checkbox in CampaignsPg →
@@ -6768,7 +6776,7 @@ export default function App(){
         const SALES_TAB_KEYS=["custDeliver","salesQuotations","salesOrders","salesInvoices","creditNotes"];
         /* V21.12.0: تايل «مشتريات» (key="purchases") يظهر لو يقدر يشوف أي قسم شراء. */
         const PURCH_TAB_KEYS=["purchase","purchaseInvoices","debitNotes"];
-        const visibleTabs=TABS.filter(t=>t.key==="sales"?SALES_TAB_KEYS.some(k=>canViewTab(k)):t.key==="purchases"?PURCH_TAB_KEYS.some(k=>canViewTab(k)):canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
+        const visibleTabs=TABS.filter(t=>t.hidden?false:t.key==="sales"?SALES_TAB_KEYS.some(k=>canViewTab(k)):t.key==="purchases"?PURCH_TAB_KEYS.some(k=>canViewTab(k)):canViewTab(t.key)).sort((a,b)=>a.key==="settings"?1:b.key==="settings"?-1:0);
 
         return<div>
           <style>{`
@@ -7227,11 +7235,7 @@ export default function App(){
             })}
           </div>}
           {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-          {detView==="models"&&!sel&&<div style={{textAlign:"center",padding:"60px 20px",color:T.textSec}}>
-            <div style={{fontSize:48,marginBottom:12}}>🧩</div>
-            <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:6}}>الموديلات — قريباً</div>
-            <div style={{fontSize:FS-1,maxWidth:440,margin:"0 auto",lineHeight:1.7}}>هنا هتضيف الموديل بألوانه وكل تفاصيله مرة واحدة، وتستخدمه في أوامر التشغيل من غير تكرار البيانات. (المرحلة ٢)</div>
-          </div>}
+          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig}/>}
           {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}

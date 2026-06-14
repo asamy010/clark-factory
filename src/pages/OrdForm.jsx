@@ -12,7 +12,7 @@ import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel, SearchSel } from "../co
 import { TagPicker } from "../components/TagPicker.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDL } from "../theme.js";
-import { gIcon, setF, sqty } from "../utils/format.js";
+import { gIcon, setF, sqty, gid } from "../utils/format.js";
 /* V19.36: Model images now upload to Firebase Storage at 1280px @ 85% quality
    (was: 250px @ 40% inline base64). The order doc only stores the download URL. */
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
@@ -21,7 +21,7 @@ import { askInput, showToast, tell } from "../utils/popups.js";
 /* V19.37: removed compressFile import — file attachments inside OrdForm were retired */
 import { getUnits } from "../utils/units.js";
 
-export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig}){
+export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig,modelMode=false}){
   const[form,setForm]=useState(initial);const[errs,setErrs]=useState([]);
   const[editStatusForm,setEditStatusForm]=useState(false);
   const[copyMode,setCopyMode]=useState(false);const[copyFrom,setCopyFrom]=useState("");
@@ -82,7 +82,25 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
     const next=nums.length>0?Math.max(...nums)+1:1;
     return prefix+String(next).padStart(digits,"0");
   };
-  const save=()=>{const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);
+  const save=()=>{
+    /* V21.22.0: model mode — وصفة بس (من غير PO/حالة/كميات). تحقّق أخف. */
+    if(modelMode){
+      const v=[];
+      if(!form.modelNo||!form.modelNo.trim())v.push("رقم/اسم الموديل مطلوب");
+      if(!form.modelDesc||!form.modelDesc.trim())v.push("وصف الموديل مطلوب");
+      if(!form.sizeSetId)v.push("المقاس مطلوب");
+      if(!form.fabricA)v.push("لازم خامة واحدة على الأقل");
+      if((form.colorsA||[]).filter(c=>(c.color||"").trim()).length===0)v.push("لازم لون واحد على الأقل في الخامة الأولى");
+      if(v.length>0){setErrs(v);return}setErrs([]);
+      const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));
+      const o={...form,sizeLabel:ss?ss.label:"",_isModel:true};
+      if(!o.id)o.id=gid();
+      FKEYS.forEach(k=>{const fb=fabObj(o["fabric"+k]);o["fabric"+k+"Label"]=fb?(fb.name+" - "+fb.unit):"";o["fabric"+k+"Price"]=fb?fb.price:0;o["fabric"+k+"Unit"]=fb?fb.unit:""});
+      delete o.poNumber;delete o.status;delete o.cutQty;delete o._docId;
+      onSave(o);
+      return;
+    }
+    const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);
     /* Auto-generate PO if empty */
     let finalForm={...form};
     if(!finalForm.poNumber)finalForm.poNumber=genPO();
@@ -127,7 +145,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   </Card>;
 
   const _isDup=initial._isDup;
-  return<><Card title={initial.modelNo?"تعديل الأوردر":_isDup?"تكرار أوردر":"أمر قص جديد"} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!initial.modelNo&&!isMob&&!_isDup&&data.orders.length>0&&<Btn small onClick={()=>{setDupPopup(true);setDupModelNo("")}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}} title="تكرار الأوردر">📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{form.fabricA&&!_isDup&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
+  return<><Card title={modelMode?(initial.id?"🧩 تعديل موديل":"🧩 موديل جديد"):(initial.modelNo?"تعديل الأوردر":_isDup?"تكرار أوردر":"أمر قص جديد")} accent={"linear-gradient(135deg,"+T.accent+","+T.accent+"CC)"} extra={<div style={{display:"flex",gap:8}}>{!modelMode&&!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setTplMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>📂 قوالب</Btn>}{!modelMode&&!initial.modelNo&&!isMob&&!_isDup&&<Btn small onClick={()=>setCopyMode(true)} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}}>نسخ من أوردر</Btn>}{!modelMode&&!initial.modelNo&&!isMob&&!_isDup&&data.orders.length>0&&<Btn small onClick={()=>{setDupPopup(true);setDupModelNo("")}} style={{background:"rgba(255,255,255,0.2)",color:"#fff",border:"none"}} title="تكرار الأوردر">📋 تكرار</Btn>}<Btn small onClick={save} style={{background:"#fff",color:T.accent,border:"none",fontWeight:700}}>حفظ</Btn>{!modelMode&&form.fabricA&&!_isDup&&<Btn small onClick={saveTpl} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none"}}>💾 حفظ كقالب</Btn>}<Btn small onClick={handleCancel} style={{background:"rgba(255,255,255,0.3)",color:"#fff",border:"none"}}>الغاء</Btn></div>} style={{marginBottom:20}}>
     {errs.length>0&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>{errs.map((e,i)=><div key={i} style={{color:T.err,fontSize:FS,fontWeight:600,padding:"2px 0"}}>{"* "+e}</div>)}</div>}
     {dupPoPopup&&<div style={{background:T.err+"10",border:"1px solid "+T.err+"30",borderRadius:12,padding:14,marginBottom:16}}>
       <div style={{fontSize:FS+1,fontWeight:800,color:T.err,marginBottom:6}}>⚠️ رقم أمر التشغيل متكرر</div>
@@ -151,13 +169,13 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
         {uploadingImg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳ جاري الرفع...</div>}
       </div></div>
       <div>
-        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:modelMode?(isMob?"1fr 1fr":"1fr 2fr 1fr"):(isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr"),gap:6,marginBottom:6}}>
+          {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v=>updF("modelNo",v)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الوصف *</label><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>المقاسات *</label><Sel value={form.sizeSetId} onChange={v=>{updF("sizeSetId",v);const ss=data.sizeSets.find(s=>s.id===Number(v));if(ss&&ss.pcsPerSeries){FKEYS.forEach(k=>{const cols=form["colors"+k]||[];if(cols.length>0){const nc=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===0)?{...c,pcsPerLayer:ss.pcsPerSeries,qty:(Number(c.layers)||0)*ss.pcsPerSeries}:c);updF("colors"+k,nc)}})}}}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label+(s.pcsPerSeries?" ("+s.pcsPerSeries+" قطعة/سيري)":"")}</option>)}</Sel></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><div style={{display:"flex",alignItems:"center",gap:6}}>{editStatusForm?<><Sel value={form.status} onChange={v=>{updF("status",v);setEditStatusForm(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusForm(false)} title="إغلاق">✕</Btn></>:<><Badge t={form.status} cards={statusCards}/><Btn ghost small onClick={()=>setEditStatusForm(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn></>}</div></div>
+          {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>}
+          {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><div style={{display:"flex",alignItems:"center",gap:6}}>{editStatusForm?<><Sel value={form.status} onChange={v=>{updF("status",v);setEditStatusForm(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusForm(false)} title="إغلاق">✕</Btn></>:<><Badge t={form.status} cards={statusCards}/><Btn ghost small onClick={()=>setEditStatusForm(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn></>}</div></div>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr 2fr",gap:6}}>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>قطع الموديل</label><Sel value="" onChange={v=>{if(!v||(form.orderPieces||[]).length>=5)return;updF("orderPieces",[...(form.orderPieces||[]),v])}}>

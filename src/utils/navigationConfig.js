@@ -95,7 +95,7 @@ export const TAB_SUBVIEWS = {
     { id: "campaigns",  label: "الحملات والرسائل",  tabKey: "campaigns",  icon: "📣" },
     { id: "automation", label: "Automation",        tabKey: "automation", icon: "🤖" },
     { id: "aiAgent",    label: "AI Agent",          tabKey: "aiAgent",    icon: "🤖" },
-    { id: "db",         label: "قاعدة البيانات",    tabKey: "db",         icon: "🗃️" },
+    /* V21.22.0: «قاعدة البيانات» اتنقلت جوّه «التصنيع» (hub) — مش بتظهر كتايل مستقل */
     { id: "documents",  label: "المستندات",         tabKey: "documents",  icon: "📁" },
     { id: "tasks",      label: "المهام",            tabKey: "tasks",      icon: "✅" },
     /* ─── admin ─── */

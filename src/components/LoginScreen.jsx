@@ -43,7 +43,7 @@ export const TABS=[
   /* V18.25: 'تسليم مخزن جاهز' tab removed — same functionality available via the '+ تسليم' button inside each order's detail page */
   {key:"reports",label:"التقارير",icon:"📑",color:"#06B6D4",bg:"#CFFAFE",svg:<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></>},
   {key:"tasks",label:"المهام",icon:"✅",color:"#F59E0B",bg:"#FEF3C7",svg:<><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>},
-  {key:"db",label:"قاعدة البيانات",icon:"🗃️",color:"#EF4444",bg:"#FEE2E2",svg:<><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>},
+  {key:"db",label:"قاعدة البيانات",icon:"🗃️",color:"#EF4444",bg:"#FEE2E2",hidden:true,svg:<><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>},
   /* V21.11.0: تايل واحد «مبيعات» (key="sales") بدل الـ5 تايلات القديمة
      (custDeliver + عروض/أوامر/فواتير/إشعارات). بيفتح SalesHubPg. المفاتيح
      القديمة لسه شغّالة كـ deep-links بتفتح الهَب على القسم الصح. */
