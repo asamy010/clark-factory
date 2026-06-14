@@ -26,6 +26,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { normalizePhone } from "./format.js";
+import { getDeleteBlocker } from "./dataIntegrity.js";
 
 /* ── Type taxonomy ─────────────────────────────────────────────
    4 main types per the §0.1 design decision (see CLAUDE.md when
@@ -915,4 +916,60 @@ export function updateContact(contactId, updates, data){
   if(empOut)  patch.employees = empOut;
 
   return { patch, contact: nextContacts.find(c => c.id === contactId) };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   V21.21.96 — حذف جماعي لجهات الاتصال (يشيلها من السجل الموحّد + من
+   قائمتها الأصلية: customers / suppliers / workshops / employees).
+
+   آمن (نفس فحص dataIntegrity المستخدم في الحذف الفردي): أي جهة مرتبطة
+   بأوردر/فاتورة/دفعة/خزنة بتتسكِب (بترجع في `blocked` مع السبب) — مفيش
+   cascade-delete للحركات أبداً. الباقي بيترسم في `patch` (يتطبّق في upConfig).
+
+   rows = صفوف من buildMergedContacts (فيها entityIds + contactId).
+   returns: { patch, deletable:[name], blocked:[{name, reason}] }
+   ═══════════════════════════════════════════════════════════════ */
+const _ENTITY_COLLECTION = { customer: "customers", supplier: "suppliers", workshop: "workshops", employee: "employees" };
+
+/* فحص هل جهة قابلة للحذف (كل entities المرتبطة بيها غير محظورة). */
+export function contactDeleteBlocker(row, data){
+  const ids = (row && row.entityIds) || {};
+  const reasons = [];
+  for(const [type, id] of Object.entries(ids)){
+    if(!_ENTITY_COLLECTION[type]) continue;
+    const b = getDeleteBlocker(data, type, id);   /* kind === type (customer/supplier/workshop/employee) */
+    if(b) reasons.push(labelForType(type) + ": " + b);
+  }
+  return reasons.length ? reasons.join(" • ") : null;
+}
+
+export function planContactsDeletion(rows, data){
+  const d = data || {};
+  const blocked = [];
+  const deletable = [];
+  /* اجمع الـ ids المطلوب حذفها لكل collection + الـ contactIds */
+  const delByCollection = { customers: new Set(), suppliers: new Set(), workshops: new Set(), employees: new Set() };
+  const delContactIds = new Set();
+  for(const row of (Array.isArray(rows) ? rows : [])){
+    const reason = contactDeleteBlocker(row, d);
+    if(reason){ blocked.push({ name: row.name || "—", reason }); continue; }
+    const ids = row.entityIds || {};
+    for(const [type, id] of Object.entries(ids)){
+      const col = _ENTITY_COLLECTION[type];
+      if(col) delByCollection[col].add(String(id));
+    }
+    if(row.contactId) delContactIds.add(String(row.contactId));
+    deletable.push(row.name || "—");
+  }
+  /* ابنِ الـ patch (نسخ مفلترة — مفيش mutation للأصل) */
+  const patch = {};
+  for(const col of Object.keys(delByCollection)){
+    const set = delByCollection[col];
+    if(set.size === 0) continue;
+    patch[col] = (Array.isArray(d[col]) ? d[col] : []).filter(e => !set.has(String(e && e.id)));
+  }
+  if(delContactIds.size > 0){
+    patch.contacts = (Array.isArray(d.contacts) ? d.contacts : []).filter(c => !delContactIds.has(String(c && c.id)));
+  }
+  return { patch, deletable, blocked };
 }

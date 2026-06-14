@@ -40,6 +40,7 @@ import {
   reverseContactSettlement,
   addTypesToContact,
   removeTypeFromContact,
+  planContactsDeletion,
 } from "../utils/contacts.js";
 import { TagPicker, TagChips } from "../components/TagPicker.jsx";
 /* V21.9.117: cross-account ledger uses the OPERATIONAL balance helpers
@@ -1345,6 +1346,9 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
   const [viewing, setViewing] = useState(null);
   /* V21.9.118: link-existing modal state. null = closed, otherwise the source row. */
   const [linking, setLinking] = useState(null);
+  /* V21.21.96: تحديد متعدد للحذف الجماعي — Set من ids الصفوف. */
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const merged = useMemo(() => buildMergedContacts(data || {}), [data]);
 
@@ -1374,6 +1378,38 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
     }
     return c;
   }, [merged]);
+
+  /* ───────── V21.21.96: تحديد متعدد + حذف جماعي ───────── */
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const n = new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n;
+  });
+  const selectAllFiltered = () => setSelectedIds(new Set(filtered.map(c => c.id)));
+  const clearSelection = () => setSelectedIds(new Set());
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
+
+  const handleBulkDelete = async () => {
+    const rows = filtered.filter(c => selectedIds.has(c.id));
+    if(rows.length === 0){ showToast("⚠️ مفيش جهات محددة"); return; }
+    const { patch, deletable, blocked } = planContactsDeletion(rows, data);
+    if(deletable.length === 0){
+      await tell("لا يمكن الحذف",
+        "كل الجهات المحددة مرتبطة بحركات (أوردرات/فواتير/دفعات/خزنة). احذف الحركات المرتبطة أولاً.\n\n" +
+        blocked.map(b => "• " + b.name + " — " + b.reason).join("\n"),
+        { type: "warning" });
+      return;
+    }
+    let msg = "هـ يتم حذف " + deletable.length + " جهة نهائياً — من جهات الاتصال ومن قائمتها الأصلية (عملاء/موردين/ورش/موظفين).";
+    if(blocked.length){
+      msg += "\n\n⚠️ " + blocked.length + " جهة مش هتتحذف لأنها مرتبطة بحركات:\n" +
+        blocked.slice(0, 5).map(b => "• " + b.name).join("\n") + (blocked.length > 5 ? "\n…" : "");
+    }
+    msg += "\n\n⛔ لا يمكن التراجع عن هذه العملية.";
+    const yes = await ask("حذف جماعي", msg, { danger: true, confirmText: "🗑 حذف " + deletable.length });
+    if(!yes) return;
+    upConfig(d => { for(const k of Object.keys(patch)) d[k] = patch[k]; });
+    showToast("✓ تم حذف " + deletable.length + " جهة" + (blocked.length ? " — " + blocked.length + " اتسكِبت (مرتبطة بحركات)" : ""));
+    exitSelectMode();
+  };
 
   const handleSave = async (form) => {
     try {
@@ -1537,6 +1573,11 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
         </div>
         {canEdit && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {/* V21.21.96: تفعيل/إلغاء وضع التحديد المتعدد للحذف الجماعي */}
+            <Btn onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+              style={{ background: selectMode ? T.warn : T.err + "12", color: selectMode ? "#fff" : T.err, border: "1px solid " + (selectMode ? T.warn : T.err + "33"), fontWeight: 700 }}>
+              {selectMode ? "✕ إنهاء التحديد" : "☑ تحديد متعدد"}
+            </Btn>
             <Btn onClick={() => setShowImport(true)} style={{ background: "#10B98115", color: "#059669", border: "1px solid #10B98140", fontWeight: 700 }}>📥 استيراد من Excel</Btn>
             <Btn primary onClick={() => setShowCreate(true)}>+ جهة جديدة</Btn>
           </div>
@@ -1582,6 +1623,21 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           <Inp value={search} onChange={setSearch} placeholder="🔍 ابحث بالاسم أو التليفون..." />
         </div>
 
+        {/* V21.21.96: شريط أدوات التحديد الجماعي */}
+        {selectMode && canEdit && (
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10, padding: "8px 12px", background: T.err + "08", border: "1px solid " + T.err + "30", borderRadius: 10 }}>
+            <span style={{ fontSize: FS-1, fontWeight: 700, color: T.textSec }}>
+              ☑ محدد: <strong style={{ color: T.err, fontSize: FS }}>{selectedIds.size}</strong> من {filtered.length}
+            </span>
+            <Btn small ghost onClick={selectAllFiltered}>☑ اختر الكل</Btn>
+            <Btn small ghost onClick={clearSelection}>☐ إلغاء التحديد</Btn>
+            <Btn small onClick={handleBulkDelete} disabled={selectedIds.size === 0}
+              style={{ marginInlineStart: "auto", background: selectedIds.size > 0 ? T.err : T.bg, color: selectedIds.size > 0 ? "#fff" : T.textMut, border: "none", fontWeight: 800 }}>
+              🗑 حذف المحدد ({selectedIds.size})
+            </Btn>
+          </div>
+        )}
+
         {/* Table */}
         {filtered.length === 0 ? (
           <div style={{padding: "30px 12px", textAlign: "center", color: T.textMut, fontSize: FS-1}}>
@@ -1594,6 +1650,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
             <table style={{width:"100%", borderCollapse:"collapse", minWidth: isMob ? "auto" : 700}}>
               <thead>
                 <tr>
+                  {selectMode && <th style={{...colHeader, width: 40, textAlign: "center"}}>☑</th>}
                   <th style={colHeader}>الاسم</th>
                   <th style={colHeader}>التليفون</th>
                   <th style={colHeader}>التصنيفات</th>
@@ -1602,14 +1659,21 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(c => (
+                {filtered.map(c => {
+                  const isSel = selectedIds.has(c.id);
+                  return (
                   <tr
                     key={c.id}
-                    onClick={() => setViewing(c)}
-                    style={{cursor:"pointer", transition: "background 0.15s"}}
-                    onMouseEnter={e => e.currentTarget.style.background = T.accent + "06"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    onClick={() => selectMode ? toggleSelect(c.id) : setViewing(c)}
+                    style={{cursor:"pointer", transition: "background 0.15s", background: isSel ? T.err + "12" : "transparent"}}
+                    onMouseEnter={e => { if(!isSel) e.currentTarget.style.background = T.accent + "06"; }}
+                    onMouseLeave={e => { if(!isSel) e.currentTarget.style.background = "transparent"; }}
                   >
+                    {selectMode && (
+                      <td style={{...colCell, textAlign: "center"}} onClick={e => { e.stopPropagation(); toggleSelect(c.id); }}>
+                        <input type="checkbox" checked={isSel} onChange={() => toggleSelect(c.id)} style={{width: 17, height: 17, cursor: "pointer"}} />
+                      </td>
+                    )}
                     <td style={{...colCell, fontWeight: 700}}>{c.name || "—"}</td>
                     <td style={{...colCell, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>{c.phone || "—"}</td>
                     <td style={colCell}>
@@ -1651,7 +1715,8 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                       </td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
