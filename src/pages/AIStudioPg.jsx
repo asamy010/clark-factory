@@ -55,7 +55,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [sources, setSources] = useState(() => modelImages(model || null).slice(0, 1));
   const [tier, setTier] = useState("pro");
   const [aspectRatio, setAspectRatio] = useState("3:4");
-  const [imageSize, setImageSize] = useState("2K");
+  const [imageSize, setImageSize] = useState("1K");
   const [shotType, setShotType] = useState("model");
   const [genderId, setGenderId] = useState("girl");
   const [ageId, setAgeId] = useState("a4_6");
@@ -83,6 +83,40 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [newPose, setNewPose] = useState({ label: "", prompt: "" });
   const [newBg, setNewBg] = useState({ label: "", prompt: "" });
   const [tplName, setTplName] = useState("");
+  const [spForm, setSpForm] = useState(null); /* {name,prompt,image} | null — إضافة برومبت جاهز */
+
+  /* إجماليات الاستهلاك المحفوظة (يومي/شهري) — cfg.aiStudioUsage.days */
+  const usage = useMemo(() => {
+    const days = (data.aiStudioUsage && data.aiStudioUsage.days) || {};
+    const today = new Date().toISOString().slice(0, 10);
+    const month = today.slice(0, 7);
+    let tC = 0, tCost = 0, mC = 0, mCost = 0;
+    Object.entries(days).forEach(([k, v]) => {
+      const c = (v && v.count) || 0, co = (v && v.cost) || 0;
+      if(k === today){ tC += c; tCost += co; }
+      if(k.startsWith(month)){ mC += c; mCost += co; }
+    });
+    return { today: { count: tC, cost: Math.round(tCost * 100) / 100 }, month: { count: mC, cost: Math.round(mCost * 100) / 100 } };
+  }, [data.aiStudioUsage]);
+
+  const recordUsage = (n, cost) => {
+    if(!n) return;
+    const today = new Date().toISOString().slice(0, 10);
+    upConfig(d => {
+      if(!d.aiStudioUsage) d.aiStudioUsage = { days: {} };
+      if(!d.aiStudioUsage.days) d.aiStudioUsage.days = {};
+      const cur = d.aiStudioUsage.days[today] || { count: 0, cost: 0 };
+      d.aiStudioUsage.days[today] = { count: cur.count + n, cost: Math.round((cur.cost + cost) * 100) / 100 };
+    });
+  };
+
+  const resetSession = () => {
+    setSources(curModel ? modelImages(curModel).slice(0, 1) : []);
+    setResults([]); setCustomPrompt(""); setCustomOn(false); setNotes("");
+    setEditFor(null); setEditInstr(""); setGenCount(0); setSpent(0);
+    setMultiPose(false); setSelPoses([]); setCount(1); setShotType("model");
+    showToast("🆕 جلسة جديدة");
+  };
 
   const showPicker = Array.isArray(models) && models.length > 0 && !model;
   const modelOpts = useMemo(() => (Array.isArray(models) ? models : [])
@@ -124,8 +158,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   };
 
   /* ── التوليد ── */
-  const callOnce = async (o, srcUrls) => {
-    const pr = effPrompt(o);
+  const callOnce = async (o, srcUrls, promptOverride) => {
+    const pr = promptOverride || effPrompt(o);
     const r = await generateModelImage({
       modelId: (curModel && curModel.id) || "studio", sourceImageUrls: srcUrls,
       prompt: pr, aspectRatio, imageSize, tier,
@@ -158,12 +192,32 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       { confirmText: "توليد" });
     if(!yes) return;
     setBusy(true);
+    let ok = 0;
     for(let i = 0; i < jobs.length; i++){
       setBatchMsg(jobs.length > 1 ? ("جاري توليد " + (i + 1) + " من " + jobs.length + "...") : "جاري التوليد...");
       const e = await callOnce(jobs[i], sources);
       if(!e) break;
+      ok++;
     }
     setBusy(false); setBatchMsg("");
+    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
+  };
+
+  /* تنفيذ مباشر لبرومبت جاهز من المكتبة (verbatim) — بدون الدخول في التفاصيل */
+  const runSavedPrompt = async (sp) => {
+    if(!sp || !sp.prompt) return;
+    if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
+    const n = Math.max(1, Math.min(4, Number(count) || 1));
+    setBusy(true);
+    let ok = 0;
+    for(let i = 0; i < n; i++){
+      setBatchMsg(n > 1 ? ("جاري توليد " + (i + 1) + " من " + n + "...") : ("جاري تنفيذ «" + (sp.name || "برومبت") + "»..."));
+      const e = await callOnce({ ...opts }, sources, sp.prompt);
+      if(!e) break;
+      ok++;
+    }
+    setBusy(false); setBatchMsg("");
+    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
   };
 
   const runAnalyze = async () => {
@@ -202,6 +256,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: buildEditPrompt(editInstr), desc: "تعديل: " + editInstr.trim(), tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: editFor.options || opts };
       setResults(p => [entry, ...p]);
       setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
+      recordUsage(1, unitCost(tier, imageSize));
       setEditFor(null); setEditInstr(""); showToast("✓ تم التعديل");
     } else showToast("⛔ " + ((r && r.error) || "فشل التعديل"));
   };
@@ -274,12 +329,24 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   /* ── المكتبة (cfg.aiStudioPresets) ── */
   const savePresets = (mut) => upConfig(d => {
-    if(!d.aiStudioPresets) d.aiStudioPresets = { poses: [], backgrounds: [], templates: [] };
+    if(!d.aiStudioPresets) d.aiStudioPresets = { poses: [], backgrounds: [], templates: [], savedPrompts: [] };
     if(!Array.isArray(d.aiStudioPresets.poses)) d.aiStudioPresets.poses = [];
     if(!Array.isArray(d.aiStudioPresets.backgrounds)) d.aiStudioPresets.backgrounds = [];
     if(!Array.isArray(d.aiStudioPresets.templates)) d.aiStudioPresets.templates = [];
+    if(!Array.isArray(d.aiStudioPresets.savedPrompts)) d.aiStudioPresets.savedPrompts = [];
     mut(d.aiStudioPresets);
   });
+  /* برومبتس جاهزة بصور (حرّة) */
+  const addSavedPrompt = () => {
+    if(!spForm || !spForm.name.trim() || !spForm.prompt.trim()){ showToast("⚠️ اكتب الاسم والبرومبت"); return; }
+    savePresets(p => p.savedPrompts.unshift({ id: "sp_" + Date.now().toString(36), name: spForm.name.trim(), prompt: spForm.prompt.trim(), image: spForm.image || "", ts: Date.now() }));
+    setSpForm(null); showToast("✓ اتحفظ البرومبت في المكتبة");
+  };
+  const delSavedPrompt = (id) => savePresets(p => { p.savedPrompts = (p.savedPrompts || []).filter(x => x.id !== id); });
+  const onSpImage = async (file) => {
+    try { const { url } = await uploadImageToStorage("ai-prompt-thumbs", "lib", file); setSpForm(p => ({ ...(p || {}), image: url })); }
+    catch(err){ showToast("⛔ فشل رفع الصورة" + (err?.message ? " — " + err.message : "")); }
+  };
   const addCustomPose = () => {
     if(!newPose.label.trim() || !newPose.prompt.trim()){ showToast("⚠️ اكتب الاسم والوصف الإنجليزي"); return; }
     savePresets(p => p.poses.push({ id: "cp_" + Date.now().toString(36), label: newPose.label.trim(), prompt: newPose.prompt.trim(), custom: true }));
@@ -328,16 +395,27 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           <Btn small onClick={onClose} style={{ background: T.cardSolid, border: "1px solid " + T.brd, color: T.text }}>‹ رجوع</Btn>
+          <Btn small onClick={resetSession} disabled={busy} style={{ background: "#10B98112", color: "#10B981", border: "1px solid #10B98133", fontWeight: 700 }}>🆕 جديد</Btn>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: FS + 4, fontWeight: 900, color: T.text }}>🪄 AI Studio — استوديو الموديلات</div>
             <div style={{ fontSize: FS - 1, color: T.textSec, marginTop: 2 }}>
               {curModel ? ("موديل: " + (curModel.modelNo || "—") + (curModel.modelDesc ? " — " + curModel.modelDesc : "")) : "توليد حرّ — اختر موديل لو عاوز تحفظ النتيجة عليه"}
             </div>
           </div>
-          {genCount > 0 && <div style={{ textAlign: "center", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 10, padding: "6px 12px" }}>
-            <div style={{ fontSize: FS - 3, color: T.textMut }}>هذه الجلسة</div>
-            <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>{genCount} صورة · ~‎${spent}</div>
-          </div>}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ textAlign: "center", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 10, padding: "6px 12px" }}>
+              <div style={{ fontSize: FS - 3, color: T.textMut }}>📅 اليوم</div>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>{usage.today.count} · ~‎${usage.today.cost}</div>
+            </div>
+            <div style={{ textAlign: "center", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 10, padding: "6px 12px" }}>
+              <div style={{ fontSize: FS - 3, color: T.textMut }}>🗓️ الشهر</div>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>{usage.month.count} · ~‎${usage.month.cost}</div>
+            </div>
+            {genCount > 0 && <div style={{ textAlign: "center", background: T.accent + "0D", border: "1px solid " + T.accent + "30", borderRadius: 10, padding: "6px 12px" }}>
+              <div style={{ fontSize: FS - 3, color: T.textMut }}>الجلسة</div>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.accent }}>{genCount} · ~‎${spent}</div>
+            </div>}
+          </div>
         </div>
 
         {showPicker && (
@@ -414,6 +492,29 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                     </div>
                   )}
                 </>
+              )}
+            </div>
+
+            {/* saved visual prompts — one-click execute */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>📸 برومبتس جاهزة <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اضغط للتنفيذ المباشر)</span></span>
+                <Btn small onClick={() => setSpForm({ name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>
+              </div>
+              {lib.savedPrompts.length === 0 ? (
+                <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>احفظ برومبت جاهز بصورة — وبعدين اختار صورة المصدر واضغط عليه يتنفّذ على طول من غير تفاصيل.</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8 }}>
+                  {lib.savedPrompts.map(sp => (
+                    <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp)} title={sp.prompt}>
+                      <div style={{ width: "100%", aspectRatio: "3 / 4", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
+                      </div>
+                      <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
+                      <span onClick={e => { e.stopPropagation(); delSavedPrompt(sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
@@ -588,6 +689,32 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         </div>
       </div>
+
+      {/* add saved-prompt modal */}
+      {spForm && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setSpForm(null); }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 480, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>📸 إضافة برومبت جاهز</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>احفظ برومبت كامل بصورة مثال — وبعدين اضغط عليه من المكتبة للتنفيذ المباشر.</div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+              <ImagePickButton data={data} imagesOnly onFile={onSpImage} onPickUrl={url => setSpForm(p => ({ ...(p || {}), image: url }))}
+                triggerStyle={{ width: 80, height: 104, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: spForm.image ? "transparent" : T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, overflow: "hidden", flexShrink: 0 }}>
+                {spForm.image ? <img src={spForm.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "📷 صورة"}
+              </ImagePickButton>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>اسم البرومبت</label>
+                <Inp value={spForm.name} onChange={v => setSpForm(p => ({ ...p, name: v }))} placeholder="مثلاً: تلبيس استوديو أبيض" />
+              </div>
+            </div>
+            <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>نص البرومبت</label>
+            <textarea value={spForm.prompt} onChange={e => setSpForm(p => ({ ...p, prompt: e.target.value }))} rows={6} placeholder="الصق البرومبت الكامل هنا..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 110, outline: "none", lineHeight: 1.6, marginBottom: 12 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Btn ghost onClick={() => setSpForm(null)}>إلغاء</Btn>
+              <Btn primary onClick={addSavedPrompt}>💾 حفظ في المكتبة</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* edit modal */}
       {editFor && (

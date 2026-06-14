@@ -40,11 +40,11 @@ export const SHOT_TYPES = [
 ];
 
 export const GENDERS = [
-  { id: "girl",  label: "بنت",   prompt: "a female child" },
-  { id: "boy",   label: "ولد",   prompt: "a male child" },
-  { id: "woman", label: "سيدة",  prompt: "an adult female" },
-  { id: "man",   label: "رجل",   prompt: "an adult male" },
-  { id: "any",   label: "محايد", prompt: "a person" },
+  { id: "boy",   label: "ولد",       prompt: "a male child" },
+  { id: "girl",  label: "بنت",       prompt: "a female child" },
+  { id: "woman", label: "سيدة",      prompt: "an adult female" },
+  { id: "man",   label: "رجل",       prompt: "an adult male" },
+  { id: "baby",  label: "طفل رضيع",  prompt: "a baby infant" },
 ];
 
 export const CHILD_AGES = [
@@ -150,6 +150,8 @@ export function mergePresets(data){
     poses: [...POSES, ...safe(c.poses)],
     backgrounds: [...BACKGROUNDS, ...safe(c.backgrounds)],
     templates: Array.isArray(c.templates) ? c.templates : [],
+    /* برومبتس جاهزة بصور (حرّة) — كل واحد {id,name,prompt,image} للتنفيذ المباشر */
+    savedPrompts: Array.isArray(c.savedPrompts) ? c.savedPrompts.filter(x => x && x.id && x.prompt) : [],
   };
 }
 
