@@ -10,7 +10,7 @@
                       (avgCost‖price) = قيمة التكلفة. (مواد خام بلا سعر بيع.)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Btn, Card, Inp } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
@@ -23,6 +23,8 @@ import { exportExcel } from "../../utils/print-extras.js";
 export function InventoryValuationReport({ data, kind = "finished", isMob }){
   const [q, setQ] = useState("");
   const [stockType, setStockType] = useState("series"); /* series | broken | all */
+  const [groupByModel, setGroupByModel] = useState(true); /* V21.22.5: الجرد بالموديل (افتراضي) */
+  const [expanded, setExpanded] = useState(() => new Set()); /* modelNo المفتوحة لعرض أوامرها */
   const accent = kind === "finished" ? "#0EA5E9" : "#D97706";
 
   /* ── المنتجات الجاهزة (سيري + كسر كصفوف منفصلة) ── */
@@ -46,7 +48,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
       const availBroken = Math.max(0, avail - availSeries);
       const sell = Number(o.sellPrice) || 0;
       let cost = 0; try { cost = Number(calcOrder(o).costPer) || 0; } catch(_) {}
-      const mk = (type, qty) => ({ id: o.id + "-" + type, oid: o.id, type, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "", qty,
+      const mk = (type, qty) => ({ id: o.id + "-" + type, oid: o.id, poNumber: o.poNumber || "", type, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "", qty,
         sell: r2(sell), cost: r2(cost), sellVal: r2(qty * sell), costVal: r2(qty * cost), profit: r2(qty * (sell - cost)) });
       if(availSeries > 0) rows.push(mk("series", availSeries));
       if(availBroken > 0) rows.push(mk("broken", availBroken));
@@ -77,8 +79,23 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
   const fTot = fRows.reduce((t, r) => ({ qty: t.qty + r.qty, sellVal: r2(t.sellVal + r.sellVal), costVal: r2(t.costVal + r.costVal), profit: r2(t.profit + r.profit) }), { qty: 0, sellVal: 0, costVal: 0, profit: 0 });
   const seriesQty = fRows.filter(r => r.type === "series").reduce((s, r) => s + r.qty, 0);
   const brokenQty = fRows.filter(r => r.type === "broken").reduce((s, r) => s + r.qty, 0);
-  const modelCount = new Set(fRows.map(r => r.oid)).size;
-  const showType = stockType === "all";
+  const modelCount = new Set(fRows.map(r => r.modelNo)).size; /* V21.22.5: عدد الموديلات الحقيقي (كان بيعد الأوامر) */
+  /* V21.22.5 — تجميع الجرد بالموديل: كل modelNo صف واحد = مجموع أوامره.
+     السعر/التكلفة المعروضة = متوسط مرجّح (للعرض فقط — مش COGS). الأوامر
+     المساهمة بتظهر كمعلومة (توسعة). */
+  const fModels = useMemo(() => {
+    const m = {};
+    fRows.forEach(r => {
+      const k = r.modelNo;
+      if(!m[k]) m[k] = { modelNo: r.modelNo, modelDesc: r.modelDesc, qty: 0, sellVal: 0, costVal: 0, profit: 0, oids: new Set(), orders: [] };
+      const g = m[k];
+      g.qty += r.qty; g.sellVal = r2(g.sellVal + r.sellVal); g.costVal = r2(g.costVal + r.costVal); g.profit = r2(g.profit + r.profit);
+      if(!g.oids.has(r.oid)){ g.oids.add(r.oid); g.orders.push({ oid: r.oid, poNumber: r.poNumber, qty: 0 }); }
+      const ord = g.orders.find(x => x.oid === r.oid); if(ord) ord.qty += r.qty;
+    });
+    return Object.values(m).map(g => ({ ...g, orderCount: g.oids.size, sell: g.qty > 0 ? r2(g.sellVal / g.qty) : 0, cost: g.qty > 0 ? r2(g.costVal / g.qty) : 0 })).sort((a, b) => b.sellVal - a.sellVal);
+  }, [fRows]);
+  const showType = stockType === "all" && !groupByModel;
   const TYPE_LBL = { series: "سيري", broken: "كسر" };
   const matFiltered = materials.map(sec => ({ ...sec, vRows: sec.rows.filter(r => matchesQ(r.name)) }));
   const matGrand = r2(materials.reduce((s, sec) => s + sec.total, 0));
@@ -151,6 +168,13 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
             ))}
           </div>
         )}
+        {kind === "finished" && (
+          <div style={{ display: "flex", gap: 4, background: T.bg, borderRadius: 9, padding: 3, border: "1px solid " + T.brd }}>
+            {[[true, "🧩 بالموديل"], [false, "📋 بالأوردر"]].map(([v, l]) => (
+              <div key={String(v)} onClick={() => setGroupByModel(v)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: FS - 1, fontWeight: 700, cursor: "pointer", background: groupByModel === v ? "#8B5CF6" : "transparent", color: groupByModel === v ? "#fff" : T.textSec }}>{l}</div>
+            ))}
+          </div>
+        )}
         <div style={{ marginInlineStart: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Btn small onClick={doPrint} style={{ background: T.accentBg, color: T.accent }}>🖨 طباعة</Btn>
           <Btn small onClick={doExcel} style={{ background: "#10B98112", color: "#059669", border: "1px solid #10B98130" }}>📊 Excel</Btn>
@@ -188,9 +212,31 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
                 <th style={th}>قيمة البيع</th><th style={th}>قيمة التكلفة</th><th style={th}>الربح المتوقع</th>
               </tr></thead>
               <tbody>
-                {fRows.length === 0 ? (
+                {(groupByModel ? fModels : fRows).length === 0 ? (
                   <tr><td colSpan={showType ? 8 : 7} style={{ ...td, textAlign: "center", color: T.textMut, padding: 24 }}>لا يوجد مخزون</td></tr>
-                ) : fRows.map(r => (
+                ) : groupByModel ? fModels.map(g => {
+                  const open = expanded.has(g.modelNo);
+                  return <Fragment key={g.modelNo}>
+                    <tr>
+                      <td style={{ ...td, textAlign: "right" }}>
+                        <span style={{ fontWeight: 700 }}>{g.modelNo}</span>{g.modelDesc && <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {g.modelDesc}</span>}
+                        <span onClick={() => setExpanded(s => { const n = new Set(s); if(n.has(g.modelNo)) n.delete(g.modelNo); else n.add(g.modelNo); return n; })}
+                          title="عرض الأوامر المساهمة" style={{ marginInlineStart: 8, cursor: "pointer", fontSize: FS - 3, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#8B5CF615", color: "#8B5CF6", border: "1px solid #8B5CF630", whiteSpace: "nowrap" }}>🔗 {g.orderCount} أمر {open ? "▴" : "▾"}</span>
+                      </td>
+                      <td style={{ ...td, fontWeight: 700 }}>{fmt(g.qty)}</td>
+                      <td style={td}>{fmt(g.sell)}</td><td style={td}>{fmt(g.cost)}</td>
+                      <td style={{ ...td, color: "#0EA5E9", fontWeight: 700 }}>{fmt(g.sellVal)}</td>
+                      <td style={{ ...td, color: "#D97706" }}>{fmt(g.costVal)}</td>
+                      <td style={{ ...td, color: g.profit >= 0 ? T.ok : T.err, fontWeight: 700 }}>{fmt(g.profit)}</td>
+                    </tr>
+                    {open && <tr><td colSpan={7} style={{ padding: "4px 10px 10px 24px", background: T.bg, borderBottom: "1px solid " + T.brd }}>
+                      <div style={{ fontSize: FS - 3, color: T.textSec, marginBottom: 4, fontWeight: 600 }}>الأوامر المساهمة (معلومة فقط):</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {g.orders.map(ord => <span key={ord.oid} style={{ fontSize: FS - 3, fontWeight: 600, padding: "3px 9px", borderRadius: 8, background: T.cardSolid, border: "1px solid " + T.brd }}>{ord.poNumber || ord.oid} · <b style={{ color: accent }}>{fmt(ord.qty)}</b> قطعة</span>)}
+                      </div>
+                    </td></tr>}
+                  </Fragment>;
+                }) : fRows.map(r => (
                   <tr key={r.id}>
                     <td style={{ ...td, textAlign: "right" }}>{r.modelNo}{r.modelDesc && <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {r.modelDesc}</span>}</td>
                     {showType && <td style={td}><span style={{ fontSize: FS - 3, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: (r.type === "series" ? "#6366F1" : "#8B5CF6") + "18", color: r.type === "series" ? "#6366F1" : "#8B5CF6" }}>{TYPE_LBL[r.type]}</span></td>}
