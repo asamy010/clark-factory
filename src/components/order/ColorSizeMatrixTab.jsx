@@ -173,6 +173,44 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
     showToast("✓ تم ربط صورة " + color + " من المستندات");
   };
 
+  /* V21.22.22: اختيار صور متعددة (من الكمبيوتر أو المستندات) وتوزيعها على
+     الألوان اللي لسه مفيهاش صور — بالترتيب المعروض. */
+  const colorsMissingImages = () => colors.filter(c => !(order.shopify_meta?.color_images?.[c.color]?.url)).map(c => c.color);
+  const assignDocsToColors = (recs) => {
+    const missing = colorsMissingImages();
+    if(missing.length === 0){ showToast("⚠️ كل الألوان عندها صور بالفعل"); return; }
+    const n = Math.min(recs.length, missing.length);
+    updOrder(sel, o => {
+      if(!o.shopify_meta) o.shopify_meta = {};
+      if(!o.shopify_meta.color_images) o.shopify_meta.color_images = {};
+      for(let i = 0; i < n; i++){ const url = recs[i].downloadURL || recs[i].url; if(url) o.shopify_meta.color_images[missing[i]] = { url, alt: missing[i], source: "document" }; }
+    });
+    showToast("✓ اتربطت " + n + " صورة على الألوان" + (recs.length > missing.length ? " (الزيادة اتجاهلت)" : ""));
+  };
+  const uploadOneColorImage = async (file) => {
+    const dataUrl = await compressImage(file, 1200, 0.85);
+    const blob = await dataUrlToBlob(dataUrl);
+    if(!blob || blob.size === 0) throw new Error("صورة غير صالحة");
+    const path = "shopify-products/" + (order.id || "anon") + "/colors/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + ".jpg";
+    const r = storageRef(storage, path);
+    await uploadBytes(r, blob, { contentType: "image/jpeg" });
+    return await getDownloadURL(r);
+  };
+  const assignFilesToColors = async (files) => {
+    const missing = colorsMissingImages();
+    if(missing.length === 0){ showToast("⚠️ كل الألوان عندها صور بالفعل"); return; }
+    const n = Math.min(files.length, missing.length);
+    showToast("⏳ جاري رفع " + n + " صورة...");
+    const urls = [];
+    for(let i = 0; i < n; i++){ try { urls.push(await uploadOneColorImage(files[i])); } catch(_) { urls.push(null); } }
+    updOrder(sel, o => {
+      if(!o.shopify_meta) o.shopify_meta = {};
+      if(!o.shopify_meta.color_images) o.shopify_meta.color_images = {};
+      for(let i = 0; i < n; i++){ if(urls[i]) o.shopify_meta.color_images[missing[i]] = { url: urls[i], alt: missing[i], source: "manual" }; }
+    });
+    showToast("✓ اترفعت وارتبطت " + urls.filter(Boolean).length + " صورة");
+  };
+
   const removeColorImage = (color) => {
     updOrder(sel, o => { if(o.shopify_meta?.color_images) delete o.shopify_meta.color_images[color]; });
     showToast("✓ اتحذفت صورة " + color);
@@ -209,7 +247,12 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: FS - 1, color: T.textSec }}>الكميات بتتوزّع تلقائياً وتقدر تعدّلها. بتترحّل لشوبيفاي كمخزون لكل variant، وصورة كل لون بتظهر لما العميل يختاره.</div>
-        {canEdit && <Btn small onClick={redistribute} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489935", fontWeight: 700 }}>🔄 إعادة توزيع تلقائي</Btn>}
+        {canEdit && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <ImagePickButton data={data} multiple imagesOnly onFiles={assignFilesToColors} onPickMany={assignDocsToColors}
+            triggerStyle={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 8, background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "35", fontWeight: 700, fontSize: FS - 2 }}
+            title="اختر صور متعددة وتتوزّع على الألوان اللي مفيهاش صور">🗂️ صور متعددة</ImagePickButton>
+          <Btn small onClick={redistribute} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489935", fontWeight: 700 }}>🔄 إعادة توزيع تلقائي</Btn>
+        </div>}
       </div>
 
       <div style={{ overflowX: "auto" }}>

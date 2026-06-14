@@ -13,7 +13,7 @@ import { FCOL, FKEYS, FS } from "../constants/index.js";
 import { T } from "../theme.js";
 import { gIcon, gid, getSizesFromSet } from "../utils/format.js";
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
-import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
+import { uploadMultiple, deleteAttachment, getFileIcon, getFileType, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
@@ -87,11 +87,10 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
   const setColorImg = (name, url) => setForm(p => { const m = { ...(p.colorImages || {}) }; if(url) m[name] = url; else delete m[name]; return { ...p, colorImages: m }; });
   const setSizeImg = (name, url) => setForm(p => { const m = { ...(p.sizeImages || {}) }; if(url) m[name] = url; else delete m[name]; return { ...p, sizeImages: m }; });
 
-  /* ── المرفقات (Storage) ── */
-  const handleAttach = async (e) => {
-    const files = Array.from(e.target.files || []); e.target.value = "";
-    if(files.length === 0) return;
-    const bad = files.find(f => !isAllowedFile(f) || f.size > MAX_FILE_SIZE);
+  /* ── المرفقات (Storage) — V21.22.22: من الكمبيوتر أو المستندات (متعدد) ── */
+  const addAttachmentFiles = async (files) => {
+    if(!files || files.length === 0) return;
+    const bad = files.find(f => !isAllowedFile(f.name) || f.size > MAX_FILE_SIZE);
     if(bad){ await tell("ملف غير صالح", "نوع غير مدعوم أو الحجم أكبر من المسموح: " + bad.name, { type: "warning" }); return; }
     setBusyAttach(true);
     try {
@@ -100,6 +99,21 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       showToast("✓ تم رفع " + uploaded.length + " مرفق");
     } catch(err){ await tell("فشل الرفع", err?.message || String(err), { type: "error" }); }
     finally { setBusyAttach(false); }
+  };
+  /* مرفقات من المستندات — ربط بالـ URL بس (storagePath فاضي عشان الحذف
+     مايمسّش المستند المشترك). */
+  const addDocAttachments = (recs) => {
+    if(!recs || recs.length === 0) return;
+    const now = new Date().toISOString();
+    const by = (user && (user.displayName || user.email)) || "";
+    const recsAtt = recs.map(f => ({
+      id: "docatt_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+      name: f.name, type: getFileType(f.name || ""), size: f.size || 0,
+      storagePath: "", downloadURL: f.downloadURL || f.url, uploadedBy: by, uploadedAt: now,
+      source: "document", documentFileId: f.id,
+    }));
+    setForm(p => ({ ...p, attachments: [...(p.attachments || []), ...recsAtt] }));
+    showToast("✓ تم ربط " + recsAtt.length + " مرفق من المستندات");
   };
   const removeAttach = async (att) => {
     setForm(p => ({ ...p, attachments: (p.attachments || []).filter(a => a !== att) }));
@@ -231,10 +245,11 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     {/* ── Tab: attachments ── */}
     {tab === "attach" && <div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-        <label style={{cursor:busyAttach?"wait":"pointer",padding:"9px 16px",borderRadius:8,background:T.accent+"12",color:T.accent,border:"1px dashed "+T.accent+"55",fontSize:FS-1,fontWeight:700}}>
+        <ImagePickButton data={data} multiple imagesOnly={false} accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+          onFiles={addAttachmentFiles} onPickMany={addDocAttachments} disabled={busyAttach}
+          triggerStyle={{display:"inline-block",padding:"9px 16px",borderRadius:8,background:T.accent+"12",color:T.accent,border:"1px dashed "+T.accent+"55",fontSize:FS-1,fontWeight:700}}>
           {busyAttach ? "⏳ جاري الرفع..." : "📎 إضافة مرفقات"}
-          <input type="file" multiple onChange={handleAttach} disabled={busyAttach} style={{display:"none"}}/>
-        </label>
+        </ImagePickButton>
         <span style={{fontSize:FS-3,color:T.textMut}}>(صور / PDF / ملفات — حد أقصى {formatFileSize(MAX_FILE_SIZE)} للملف)</span>
       </div>
       {(form.attachments || []).length === 0 ? <div style={{fontSize:FS-2,color:T.textMut,textAlign:"center",padding:24}}>مفيش مرفقات</div>

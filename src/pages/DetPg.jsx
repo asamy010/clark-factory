@@ -15,7 +15,8 @@ import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOr
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
-import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
+import { uploadMultiple, deleteAttachment, getFileIcon, getFileType, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
+import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 /* V19.36: clean up the model image's Storage object when the user deletes the image */
 import { deleteOrderImage } from "../utils/orderImages.js";
 import { OrdForm } from "./OrdForm.jsx";
@@ -1731,7 +1732,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             </Card>
           })()}
       {/* V15.90: Attachments card — files stored in Firebase Storage, metadata only in Firestore */}
-      <AttachmentsCard order={order} updOrder={updOrder} sel={sel} canEdit={canEdit} userName={userName} isMob={isMob}/>
+      <AttachmentsCard order={order} updOrder={updOrder} sel={sel} canEdit={canEdit} userName={userName} isMob={isMob} data={data}/>
       </>}
     </div>
     {/* WhatsApp Choice Popup */}
@@ -2206,27 +2207,20 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
 /* ══ V15.90: ATTACHMENTS CARD — per-order file storage via Firebase Storage ══
    Files stored at: orders/{orderId}/attachments/
    Only metadata (name, type, size, storagePath, downloadURL) persisted in Firestore. */
-function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob}){
+function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob,data}){
   const attachments=order.attachments||[];
   const[uploading,setUploading]=useState(false);
   const[uploadProgress,setUploadProgress]=useState({});/* {idx: pct} */
   const[uploadErrors,setUploadErrors]=useState([]);
   const[deleteId,setDeleteId]=useState(null);
 
-  const onFilesSelected=async(e)=>{
-    const files=Array.from(e.target.files||[]);
-    if(files.length===0)return;
-    /* Validate all files first */
+  /* V21.22.22: من الكمبيوتر (متعدد) */
+  const addOrderFiles=async(files)=>{
+    if(!files||files.length===0)return;
     const invalid=files.filter(f=>!isAllowedFile(f.name));
-    if(invalid.length>0){
-      showToast("⛔ ملفات غير مدعومة: "+invalid.map(f=>f.name).join(", "));
-      e.target.value="";return;
-    }
+    if(invalid.length>0){ showToast("⛔ ملفات غير مدعومة: "+invalid.map(f=>f.name).join(", ")); return; }
     const tooBig=files.filter(f=>f.size>MAX_FILE_SIZE);
-    if(tooBig.length>0){
-      showToast("⛔ ملفات أكبر من 10 MB: "+tooBig.map(f=>f.name).join(", "));
-      e.target.value="";return;
-    }
+    if(tooBig.length>0){ showToast("⛔ ملفات أكبر من 10 MB: "+tooBig.map(f=>f.name).join(", ")); return; }
     setUploading(true);
     setUploadErrors([]);
     setUploadProgress({});
@@ -2251,8 +2245,20 @@ function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob}){
     }finally{
       setUploading(false);
       setUploadProgress({});
-      e.target.value="";
     }
+  };
+  /* من المستندات — ربط بالـ URL بس (storagePath فاضي عشان الحذف مايمسّش المستند) */
+  const addOrderDocAttachments=(recs)=>{
+    if(!recs||recs.length===0)return;
+    const now=new Date().toISOString();
+    const recsAtt=recs.map(f=>({
+      id:"docatt_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,6),
+      name:f.name, type:getFileType(f.name||""), size:f.size||0,
+      storagePath:"", downloadURL:f.downloadURL||f.url, uploadedBy:userName||"", uploadedAt:now,
+      source:"document", documentFileId:f.id,
+    }));
+    updOrder(sel,o=>{ if(!Array.isArray(o.attachments))o.attachments=[]; recsAtt.forEach(a=>o.attachments.push(a)); });
+    showToast("✓ تم ربط "+recsAtt.length+" مرفق من المستندات");
   };
 
   const doDelete=async(att)=>{
@@ -2278,10 +2284,12 @@ function AttachmentsCard({order,updOrder,sel,canEdit,userName,isMob}){
       <div style={{fontSize:FS-2,color:T.textSec}}>
         {attachments.length===0?"لا توجد مرفقات":"الإجمالي: "+formatFileSize(totalSize)}
       </div>
-      {canEdit&&<label style={{cursor:uploading?"wait":"pointer",padding:"8px 16px",borderRadius:10,background:uploading?T.bg:T.accent+"12",color:uploading?T.textMut:T.accent,border:"1px solid "+(uploading?T.brd:T.accent+"30"),fontWeight:700,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6}}>
+      {canEdit&&<ImagePickButton data={data} multiple imagesOnly={false} disabled={uploading}
+        accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+        onFiles={addOrderFiles} onPickMany={addOrderDocAttachments}
+        triggerStyle={{padding:"8px 16px",borderRadius:10,background:uploading?T.bg:T.accent+"12",color:uploading?T.textMut:T.accent,border:"1px solid "+(uploading?T.brd:T.accent+"30"),fontWeight:700,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6}}>
         {uploading?"⏳ جاري الرفع...":"➕ إضافة مرفقات"}
-        <input type="file" multiple disabled={uploading} onChange={onFilesSelected} accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt" style={{display:"none"}}/>
-      </label>}
+      </ImagePickButton>}
     </div>
 
     {/* Upload progress */}
