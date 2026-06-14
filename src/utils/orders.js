@@ -761,6 +761,14 @@ export function buildOrderFromModel(model){
     const cols=Array.isArray(model["colors"+k])?model["colors"+k]:[];
     o["colors"+k]=cols.map(c=>({color:(c&&c.color)||"",colorHex:(c&&c.colorHex)||"",layers:Number(c&&c.layers)||0,pcsPerLayer:Number(c&&c.pcsPerLayer)||0,qty:Number(c&&c.qty)||0}));
   });
+  /* V21.22.4: نقل صور الألوان من الموديل لأمر التشغيل بالشكل اللي الـ UI
+     بيقراه (order.shopify_meta.color_images = {color:{url,alt,source}}). */
+  const ci=model.colorImages;
+  if(ci&&typeof ci==="object"){
+    const cimg={};
+    Object.keys(ci).forEach(name=>{const url=ci[name];if(url)cimg[name]={url,alt:name,source:"model"};});
+    if(Object.keys(cimg).length)o.shopify_meta={...(o.shopify_meta||{}),color_images:cimg};
+  }
   return o;
 }
 

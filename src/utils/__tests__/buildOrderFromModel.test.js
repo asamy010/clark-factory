@@ -8,6 +8,7 @@ const model = {
   fabricA: "10", consA: 2.5, fabricPiecesA: ["قميص"],
   colorsA: [{ color: "أحمر", colorHex: "#f00", layers: 0, pcsPerLayer: 0, qty: 0 }, { color: "أزرق", colorHex: "#00f" }],
   accItems: [{ accId: "1", name: "زر", qtyPerPiece: 5, price: 0.5 }],
+  colorImages: { "أحمر": "data:red", "أزرق": "data:blue" },
 };
 
 describe("buildOrderFromModel", () => {
@@ -51,5 +52,18 @@ describe("buildOrderFromModel", () => {
     const o = buildOrderFromModel(null);
     expect(o.id).toBeTruthy();
     expect(o.modelId).toBeUndefined();
+  });
+
+  it("صور الألوان بتنتقل لـ shopify_meta.color_images بالشكل الصح", () => {
+    const o = buildOrderFromModel(model);
+    expect(o.shopify_meta.color_images).toEqual({
+      "أحمر": { url: "data:red", alt: "أحمر", source: "model" },
+      "أزرق": { url: "data:blue", alt: "أزرق", source: "model" },
+    });
+  });
+
+  it("موديل من غير صور ألوان مايعملش shopify_meta", () => {
+    const o = buildOrderFromModel({ ...model, colorImages: {} });
+    expect(o.shopify_meta).toBeUndefined();
   });
 });
