@@ -16,6 +16,7 @@ import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js"
 import { uploadMultiple, deleteAttachment, getFileIcon, formatFileSize, isAllowedFile, MAX_FILE_SIZE } from "../utils/attachments.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
+import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { tell, showToast } from "../utils/popups.js";
 
 const TABS = [
@@ -52,9 +53,8 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
   const fabOpts = (data.fabrics || []).map(f => ({ value: String(f.id), label: f.name + " — " + f.price + " ج.م/" + f.unit }));
   const ssPps = (() => { const ss = (data.sizeSets || []).find(s => s.id === Number(form.sizeSetId)); return ss ? ss.pcsPerSeries : 0; })();
 
-  /* ── الصورة الرئيسية ── */
-  const handleImg = async (e) => {
-    const f = e.target.files[0]; e.target.value = "";
+  /* ── الصورة الرئيسية (V21.22.21: من الكمبيوتر أو من المستندات) ── */
+  const handleImgFile = async (f) => {
     if(!f) return;
     if(!f.type.startsWith("image/")){ await tell("نوع غير مدعوم", "الملف لازم يكون صورة", { type: "warning" }); return; }
     setUploadingImg(true);
@@ -65,6 +65,15 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       if(oldPath) deleteOrderImage(oldPath).catch(() => {});
     } catch(err){ await tell("فشل رفع الصورة", err?.message || String(err), { type: "error" }); }
     finally { setUploadingImg(false); }
+  };
+  /* صورة من المستندات — URL جاهز، بنسيب imageStoragePath فاضي عشان حذف الموديل
+     مايمسحش المستند المشترك (الملف بتاع المستندات بيملك دورة حياته). */
+  const pickImgFromDoc = (url) => {
+    if(!url) return;
+    const oldPath = form.imageStoragePath;
+    setForm(p => ({ ...p, image: url, imageStoragePath: "" }));
+    if(oldPath) deleteOrderImage(oldPath).catch(() => {});
+    showToast("✓ تم ربط الصورة من المستندات");
   };
 
   /* ── صور الألوان/المقاسات (V21.22.6: على Storage بجودة كاملة، URL مش base64) ── */
@@ -136,8 +145,9 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
       <div style={{position:"relative",width:88,height:110,borderRadius:12,overflow:"hidden",border:"1.5px solid "+T.brd,flexShrink:0,background:T.bg}}>
         {form.image ? <img src={form.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30}}>🧩</div>}
-        <input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
-        {uploadingImg && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳</div>}
+        <ImagePickButton data={data} onFile={handleImgFile} onPickUrl={pickImgFromDoc} disabled={uploadingImg}
+          title="صورة الموديل — من الكمبيوتر أو المستندات" triggerStyle={{position:"absolute",inset:0,display:"block"}}><span style={{display:"block",width:"100%",height:"100%"}}/></ImagePickButton>
+        {uploadingImg && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700,pointerEvents:"none"}}>⏳</div>}
       </div>
       <div style={{flex:1,minWidth:200,display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr",gap:8,alignContent:"start"}}>
         <div><label style={lbl}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v => updF("modelNo", v)}/></div>

@@ -21,6 +21,7 @@ import { compressImage, dataUrlToBlob } from "../../utils/image.js";
 import { showToast } from "../../utils/popups.js";
 import { storage } from "../../firebase.js";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ImagePickButton } from "../DocumentImagePicker.jsx";
 
 /* وزّع إجمالي اللون على المقاسات حسب تكرارها في السيت (نِسَب) + largest-remainder */
 function distribute(total, sizesArr, uniqueSizes){
@@ -161,6 +162,17 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
     } catch(e){ showToast("⛔ فشل رفع الصورة: " + (e?.message || e)); }
   };
 
+  /* V21.22.21: ربط صورة لون من المستندات (URL جاهز — مفيش رفع جديد) */
+  const setColorImageUrl = (color, url) => {
+    if(!url) return;
+    updOrder(sel, o => {
+      if(!o.shopify_meta) o.shopify_meta = {};
+      if(!o.shopify_meta.color_images) o.shopify_meta.color_images = {};
+      o.shopify_meta.color_images[color] = { url, alt: color, source: "document" };
+    });
+    showToast("✓ تم ربط صورة " + color + " من المستندات");
+  };
+
   const removeColorImage = (color) => {
     updOrder(sel, o => { if(o.shopify_meta?.color_images) delete o.shopify_meta.color_images[color]; });
     showToast("✓ اتحذفت صورة " + color);
@@ -231,12 +243,12 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
                     ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                         <img src={img.url} alt={c.color} onClick={() => openViewer(c.color)} title="اضغط لعرض الصورة كاملة" style={{ width: 46, height: 62, objectFit: "cover", borderRadius: 6, border: "1px solid " + T.brd, cursor: "pointer" }} />
                         {canEdit && <div style={{ display: "flex", gap: 4 }}>
-                          <label style={{ cursor: "pointer", fontSize: FS - 3, color: T.accent, fontWeight: 700 }}>تغيير<input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { uploadColorImage(c.color, e.target.files?.[0]); e.target.value = ""; }} /></label>
+                          <ImagePickButton data={data} onFile={f => uploadColorImage(c.color, f)} onPickUrl={url => setColorImageUrl(c.color, url)} triggerStyle={{ fontSize: FS - 3, color: T.accent, fontWeight: 700 }}>تغيير</ImagePickButton>
                           <span onClick={() => removeColorImage(c.color)} style={{ cursor: "pointer", fontSize: FS - 3, color: T.err, fontWeight: 700 }}>حذف</span>
                         </div>}
                       </div>
                     : (canEdit
-                      ? <label style={{ cursor: "pointer", display: "inline-block", padding: "6px 8px", borderRadius: 8, background: "#EC489910", color: "#EC4899", border: "1px dashed #EC489950", fontSize: FS - 3, fontWeight: 700 }}>📷 صورة<input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { uploadColorImage(c.color, e.target.files?.[0]); e.target.value = ""; }} /></label>
+                      ? <ImagePickButton data={data} onFile={f => uploadColorImage(c.color, f)} onPickUrl={url => setColorImageUrl(c.color, url)} triggerStyle={{ display: "inline-block", padding: "6px 8px", borderRadius: 8, background: "#EC489910", color: "#EC4899", border: "1px dashed #EC489950", fontSize: FS - 3, fontWeight: 700 }}>📷 صورة</ImagePickButton>
                       : <span style={{ color: T.textMut, fontSize: FS - 3 }}>—</span>)}
                 </td>
               </tr>;

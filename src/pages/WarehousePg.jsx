@@ -17,6 +17,7 @@ import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits, hasDualUnit, baseToSecondary } from "../utils/units.js";
 import { getPriceTiers, pricesArrToMap, pricesMapToArr } from "../utils/pricing.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
+import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -337,10 +338,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <img src={imgVal} alt="" style={{width:54,height:72,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd}}/>
         <span onClick={()=>setImg("")} title="إزالة الصورة" style={{position:"absolute",top:-7,insetInlineEnd:-7,background:T.err,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",border:"2px solid "+T.cardSolid}}>✕</span>
       </div>:null}
-      <label style={{cursor:"pointer",padding:"9px 14px",borderRadius:8,background:accent+"12",color:accent,border:"1px dashed "+accent+"55",fontSize:FS-2,fontWeight:700}}>
+      <ImagePickButton data={data} onFile={f=>handlePickImage(f,setImg)} onPickUrl={url=>setImg(url)}
+        triggerStyle={{display:"inline-block",padding:"9px 14px",borderRadius:8,background:accent+"12",color:accent,border:"1px dashed "+accent+"55",fontSize:FS-2,fontWeight:700}}>
         {imgVal?"تغيير الصورة":"📷 اختر صورة"}
-        <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];handlePickImage(f,setImg);if(e.target)e.target.value="";}}/>
-      </label>
+      </ImagePickButton>
     </div>
   </div>;
   const saveProd=async()=>{
