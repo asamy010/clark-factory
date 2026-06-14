@@ -84,6 +84,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   
   /* ── Supplier statement state ── */
   const[supFilter,setSupFilter]=useState("");const supFilterDeb=useDebounced(supFilter,200);
+  const[supSelMode,setSupSelMode]=useState(false);const[supSel,setSupSel]=useState(()=>new Set());/* V21.21.98: حذف جماعي للموردين */
   const[activeSupplier,setActiveSupplier]=useState(null);/* supplier obj when statement is open */
   const[showPayForm,setShowPayForm]=useState(false);
   const[payForm,setPayForm]=useState(null);/* {supplierId, amount, method, account, date, notes, checkBank, checkNo, checkDueDate} */
@@ -295,6 +296,28 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     if(!await ask("حذف المورد","هل أنت متأكد من حذف المورد:\n• "+supplier.name+"\n\nلا يمكن التراجع عن هذه العملية",{danger:true,confirmText:"حذف"}))return;
     upConfig(d=>{d.suppliers=(d.suppliers||[]).filter(s=>s.id!==supplier.id)});
     showToast("✓ تم حذف المورد");
+  };
+  /* V21.21.98: حذف جماعي للموردين — نفس فحص الأمان (formatBlockerMessage) لكل
+     مورد؛ المرتبطين بحركات يتسكِبوا. allowEmptyFields["suppliers"] عشان لو
+     فضّينا القائمة بالكامل (≥2→0) ما يتمنعش بصمت (suppliers partitioned). */
+  const bulkDeleteSuppliers=async()=>{
+    const sel=(suppliers||[]).filter(s=>supSel.has(s.id));
+    if(sel.length===0){showToast("⚠️ مفيش موردين محددين");return;}
+    const okIds=[];const blocked=[];
+    for(const s of sel){
+      if(formatBlockerMessage(data,"supplier",s.id,s.name))blocked.push(s.name);
+      else okIds.push(s.id);
+    }
+    if(okIds.length===0){await tell("لا يمكن الحذف","كل الموردين المحددين مرتبطين بحركات (فواتير/أوامر/دفعات/خزنة). احذف الحركات المرتبطة أولاً.",{type:"warning"});return;}
+    let msg="هـ يتم حذف "+okIds.length+" مورد نهائياً.";
+    if(blocked.length)msg+="\n\n⚠️ "+blocked.length+" مش هيتحذفوا (مرتبطين بحركات):\n"+blocked.slice(0,5).map(n=>"• "+n).join("\n")+(blocked.length>5?"\n…":"");
+    msg+="\n\n⛔ لا يمكن التراجع عن هذه العملية.";
+    if(!await ask("حذف جماعي للموردين",msg,{danger:true,confirmText:"🗑 حذف "+okIds.length}))return;
+    const idSet=new Set(okIds.map(String));
+    const res=await upConfig(d=>{d.suppliers=(d.suppliers||[]).filter(s=>!idSet.has(String(s.id)))},{allowEmptyFields:["suppliers"]});
+    if(res&&res.ok===false){showToast("⛔ فشل الحذف — اتمنع من حارس الأمان");return;}
+    showToast("✓ تم حذف "+okIds.length+" مورد"+(blocked.length?" — "+blocked.length+" اتسكِبوا (مرتبطين بحركات)":""));
+    setSupSel(new Set());setSupSelMode(false);
     setSupDelConfirm(null);
   };
   
@@ -1895,7 +1918,15 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span>مورد جديد</span>
           </Btn>}
+          {/* V21.21.98: تحديد متعدد + حذف جماعي للموردين */}
+          {canEdit&&suppliers.length>0&&<Btn onClick={()=>{if(supSelMode){setSupSelMode(false);setSupSel(new Set())}else setSupSelMode(true)}} style={{background:supSelMode?T.warn:T.err+"12",color:supSelMode?"#fff":T.err,border:"1px solid "+(supSelMode?T.warn:T.err+"33"),fontWeight:700}}>{supSelMode?"✕ إنهاء التحديد":"☑ تحديد متعدد"}</Btn>}
         </div>
+        {supSelMode&&canEdit&&<div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:10,padding:"8px 12px",background:T.err+"08",border:"1px solid "+T.err+"30",borderRadius:10}}>
+          <span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}>☑ محدد: <strong style={{color:T.err,fontSize:FS}}>{supSel.size}</strong> من {suppliers.length}</span>
+          <Btn small ghost onClick={()=>setSupSel(new Set(suppliers.map(s=>s.id)))}>☑ اختر الكل</Btn>
+          <Btn small ghost onClick={()=>setSupSel(new Set())}>☐ إلغاء التحديد</Btn>
+          <Btn small onClick={bulkDeleteSuppliers} disabled={supSel.size===0} style={{marginInlineStart:"auto",background:supSel.size>0?T.err:T.bg,color:supSel.size>0?"#fff":T.textMut,border:"none",fontWeight:800}}>🗑 حذف المحدد ({supSel.size})</Btn>
+        </div>}
 
         {/* V21.9.106: Tag filter strip — hidden if no supplier tags exist in registry. */}
         <TagFilter
@@ -1931,6 +1962,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           return<div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
               <thead><tr>
+                {supSelMode&&<th style={{...TH,width:38,textAlign:"center"}}>☑</th>}
                 <th style={TH}>المورد</th>
                 <th style={TH}>التليفون</th>
                 <th style={{...TH,textAlign:"center"}}>الفواتير</th>
@@ -1947,7 +1979,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                      dense). Only renders the wrapper when tags exist so spacing
                      stays clean for taggless suppliers. */
                   const supTagsArr=Array.isArray(s.tags)?s.tags:[];
-                  return<tr key={s.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer"}} onClick={()=>setActiveSupplier(s)}>
+                  const _isSelSup=supSel.has(s.id);
+                  return<tr key={s.id} style={{borderBottom:"1px solid "+T.brd,cursor:"pointer",background:_isSelSup?T.err+"10":"transparent"}} onClick={()=>{if(supSelMode){setSupSel(prev=>{const n=new Set(prev);if(n.has(s.id))n.delete(s.id);else n.add(s.id);return n})}else setActiveSupplier(s)}}>
+                    {supSelMode&&<td style={{...TD,textAlign:"center"}} onClick={e=>{e.stopPropagation();setSupSel(prev=>{const n=new Set(prev);if(n.has(s.id))n.delete(s.id);else n.add(s.id);return n})}}>
+                      <input type="checkbox" checked={_isSelSup} onChange={()=>{}} style={{width:17,height:17,cursor:"pointer"}}/>
+                    </td>}
                     <td style={{...TD,fontWeight:700,color:T.text}}>
                       <div>{s.name}</div>
                       {supTagsArr.length>0&&<div style={{marginTop:3}}><TagChips tagIds={supTagsArr} registry={data.tagRegistry||[]} small max={3}/></div>}
