@@ -488,7 +488,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {/* ═══════════════════════════════════════════════════════════════
           6B. CARDS VIEW — Modern minimal
          ═══════════════════════════════════════════════════════════════ */}
-      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(4,1fr)",gap:16}}>
+      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(5,minmax(0,1fr))",gap:12}}>
         {sortOrders(filtered,detSort).slice(0,detVis).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
           /* Progress */
@@ -506,8 +506,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           const sc=(statusCards||[]).find(x=>x.name===o.status);const statusColor=sc?.color||T.accent;
           return<div key={o.id} data-oid={o.id} className="det-tile clark-card" style={{background:T.cardSolid,borderRadius:22,border:"1px solid "+T.brd,overflow:"hidden",position:"relative",display:"flex",flexDirection:"column",boxShadow:T.shadow}} onClick={()=>setSel(o.id)}>
             <div style={{padding:16,display:"flex",flexDirection:"column",gap:11,flex:1}}>
-              {/* ── Row 1: title block + image (V21.22.17 mockup redesign) ── */}
-              <div style={{display:"flex",gap:13,alignItems:"flex-start"}}>
+              {/* ── Row 1: image (يمين) + title block (شمال) — V21.22.18 swap ── */}
+              <div style={{display:"flex",flexDirection:"row-reverse",gap:13,alignItems:"flex-start"}}>
                 <div style={{flex:1,minWidth:0}}>
                   {o.poNumber&&<span style={{display:"inline-block",fontSize:FS-3,fontWeight:800,color:T.accent,fontFamily:"monospace",letterSpacing:0.4,padding:"3px 11px",borderRadius:999,background:T.accent+"12"}}>{o.poNumber}</span>}
                   <div style={{fontSize:FS+4,fontWeight:900,color:T.text,margin:"7px 0 1px",lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.modelNo}</div>
