@@ -248,6 +248,30 @@ export function buildEditPrompt(instruction){
     "Photorealistic, high detail, professional photography, no text, no watermark.";
 }
 
+/* ── أغلفة المجلات / النص واللوجو على الصورة (V21.24.0) ── */
+export const COVER_STYLES = [
+  { id: "none",    label: "نص/لوجو فقط", prompt: "Add a small tasteful brand logo and a reference number in a corner with clean modern typography. Do NOT cover the face or the garment, keep the original photo as-is otherwise." },
+  { id: "fashion", label: "مجلة موضة",   prompt: "Transform this into a high-end glossy fashion magazine cover: a bold masthead title across the top, the model centered, a few elegant cover-line headlines along the sides, issue month and a small barcode, premium editorial layout." },
+  { id: "kids",    label: "أطفال",        prompt: "Transform this into a playful kids fashion magazine cover: a colorful friendly masthead, fun rounded headlines, cheerful child-friendly layout." },
+  { id: "minimal", label: "مينيمال",      prompt: "Transform this into a minimalist fashion magazine cover: a clean masthead, lots of negative space, one elegant headline, modern refined typography." },
+  { id: "street",  label: "ستريت",        prompt: "Transform this into an urban streetwear magazine cover: a bold graphic masthead, edgy modern headlines, street-style layout." },
+  { id: "luxury",  label: "فخامة",        prompt: "Transform this into a luxury fashion magazine cover: gold-accented elegant masthead, sophisticated serif headlines, high-end premium editorial layout." },
+];
+
+export function buildCoverPrompt(o){
+  const opt = o || {};
+  const style = COVER_STYLES.find(s => s.id === opt.styleId) || COVER_STYLES[0];
+  let p = "Edit the provided image. " + style.prompt;
+  const bits = [];
+  if(opt.magName) bits.push("Magazine title / masthead text exactly: \"" + opt.magName + "\"");
+  if(opt.withModelNo && opt.modelNo) bits.push("Include the product reference number \"" + opt.modelNo + "\" in a small tasteful spot");
+  if(opt.withLogo) bits.push("Include a clean \"CLARK\" brand logo");
+  if(opt.extra && String(opt.extra).trim()) bits.push("Headlines / extra text: " + String(opt.extra).trim());
+  if(bits.length) p += " " + bits.join(". ") + ".";
+  p += " Render ALL text crisply and correctly spelled with professional typography. Keep the model identity, garment, colors and pose unchanged. Photorealistic, high quality.";
+  return p;
+}
+
 export function describeStudioOptions(opts, lib){
   const o = opts || {};
   const shot = o.shotType || "model";

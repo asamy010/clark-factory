@@ -24,7 +24,8 @@ import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
-  mergePresets, buildStudioPrompt, buildEditPrompt, buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
+  COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
+  buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
 
 /* رسم توضيحي مبسّط لتأثير العدسة (عمق الميدان/الخلفية) */
@@ -108,10 +109,16 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [newBg, setNewBg] = useState({ label: "", prompt: "" });
   const [tplName, setTplName] = useState("");
   const [spForm, setSpForm] = useState(null); /* {name,prompt,image} | null — إضافة برومبت جاهز */
+  const [showUsage, setShowUsage] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [coverFor, setCoverFor] = useState(null); /* {res} */
+  const [coverForm, setCoverForm] = useState({ styleId: "none", magName: "CLARK", withModelNo: true, withLogo: true, extra: "" });
 
-  /* إجماليات الاستهلاك المحفوظة (يومي/شهري) — cfg.aiStudioUsage.days */
+  /* إجماليات الاستهلاك المحفوظة (يومي/شهري + لكل موديل + ميزانية) */
+  const budget = Number(data.aiStudioBudget) || 0;
   const usage = useMemo(() => {
-    const days = (data.aiStudioUsage && data.aiStudioUsage.days) || {};
+    const u = data.aiStudioUsage || {};
+    const days = u.days || {};
     const today = new Date().toISOString().slice(0, 10);
     const month = today.slice(0, 7);
     let tC = 0, tCost = 0, mC = 0, mCost = 0;
@@ -120,18 +127,32 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       if(k === today){ tC += c; tCost += co; }
       if(k.startsWith(month)){ mC += c; mCost += co; }
     });
-    return { today: { count: tC, cost: Math.round(tCost * 100) / 100 }, month: { count: mC, cost: Math.round(mCost * 100) / 100 } };
+    const models = Object.entries(u.models || {}).map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => (b.cost || 0) - (a.cost || 0));
+    return { today: { count: tC, cost: Math.round(tCost * 100) / 100 }, month: { count: mC, cost: Math.round(mCost * 100) / 100 }, models };
   }, [data.aiStudioUsage]);
 
   const recordUsage = (n, cost) => {
     if(!n) return;
     const today = new Date().toISOString().slice(0, 10);
+    const r2 = (x) => Math.round(x * 100) / 100;
+    const mid = curModel && curModel.id, mno = (curModel && curModel.modelNo) || "";
     upConfig(d => {
-      if(!d.aiStudioUsage) d.aiStudioUsage = { days: {} };
+      if(!d.aiStudioUsage) d.aiStudioUsage = { days: {}, models: {} };
       if(!d.aiStudioUsage.days) d.aiStudioUsage.days = {};
+      if(!d.aiStudioUsage.models) d.aiStudioUsage.models = {};
       const cur = d.aiStudioUsage.days[today] || { count: 0, cost: 0 };
-      d.aiStudioUsage.days[today] = { count: cur.count + n, cost: Math.round((cur.cost + cost) * 100) / 100 };
+      d.aiStudioUsage.days[today] = { count: cur.count + n, cost: r2(cur.cost + cost) };
+      if(mid){
+        const m = d.aiStudioUsage.models[mid] || { count: 0, cost: 0, modelNo: mno };
+        d.aiStudioUsage.models[mid] = { count: m.count + n, cost: r2(m.cost + cost), modelNo: mno || m.modelNo, lastTs: Date.now() };
+      }
     });
+  };
+  const saveBudget = () => {
+    const v = Math.max(0, Math.round((Number(budgetInput) || 0) * 100) / 100);
+    upConfig(d => { d.aiStudioBudget = v; });
+    showToast(v > 0 ? ("✓ اتحدّدت الميزانية الشهرية: ~$" + v) : "✓ اتشالت الميزانية");
   };
 
   const resetSession = () => {
@@ -191,17 +212,20 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   };
 
   /* ── التوليد ── */
-  const callOnce = async (o, srcUrls, promptOverride) => {
+  const callOnce = async (o, srcUrls, promptOverride, extra) => {
     const pr = promptOverride || effPrompt(o);
     const r = await generateModelImage({
       modelId: (curModel && curModel.id) || "studio", sourceImageUrls: srcUrls,
       prompt: pr, aspectRatio, imageSize, tier,
     }, user);
     if(r && r.ok && r.url){
+      const baseDesc = describeStudioOptions(o, lib);
       const entry = {
         id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
-        url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: describeStudioOptions(o, lib),
+        url: r.url, storagePath: r.storagePath || "", prompt: pr,
+        desc: (extra && extra.color ? "🎨 " + extra.color + " · " : "") + baseDesc,
         tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: o,
+        ...(extra || {}),
       };
       setResults(p => [entry, ...p]);
       setGenCount(c => c + 1);
@@ -212,6 +236,60 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     return null;
   };
 
+  /* ── كل ألوان الموديل دفعة واحدة ── */
+  const colorList = useMemo(() => {
+    if(!curModel) return [];
+    const ci = (curModel.shopify_meta && curModel.shopify_meta.color_images) || {};
+    const seen = new Set(); const out = [];
+    FKEYS.forEach(k => (curModel["colors" + k] || []).forEach(c => {
+      const name = ((c && c.color) || "").trim();
+      if(name && !seen.has(name)){ seen.add(name); out.push({ name, hex: (c && c.colorHex) || "", image: (ci[name] && (ci[name].url || ci[name])) || "" }); }
+    }));
+    return out;
+  }, [curModel]);
+
+  const generateAllColors = async () => {
+    if(sources.length === 0){ showToast("⚠️ اختار صورة المصدر الأول"); return; }
+    if(colorList.length === 0){ showToast("⚠️ الموديل مفيهوش ألوان"); return; }
+    if(isReference && sources.length < 2){ showToast("⚠️ وضع «موديل مرجعي» محتاج موديل + قطعة"); return; }
+    const total = Math.round(unitCost(tier, imageSize) * colorList.length * 100) / 100;
+    const over = budget > 0 && (usage.month.cost + total) > budget;
+    const yes = await ask("توليد كل الألوان",
+      "هيتولّد " + colorList.length + " صورة (لون لكل لون: " + colorList.map(c => c.name).join("، ") + ").\n" +
+      "التكلفة التقريبية: ~‎$" + total + (over ? "\n\n⚠️ هتتجاوز ميزانية الشهر (~$" + budget + ")" : ""),
+      { confirmText: "توليد" });
+    if(!yes) return;
+    setBusy(true);
+    let ok = 0;
+    for(let i = 0; i < colorList.length; i++){
+      const col = colorList[i];
+      setBatchMsg("لون " + (i + 1) + " من " + colorList.length + ": " + col.name);
+      const srcUrls = col.image ? [col.image, ...sources.filter(u => u !== col.image)].slice(0, 5) : sources;
+      const colorInstr = col.image ? "" : (" The garment must be in this exact color: " + (col.hex || col.name) + " (keep the same design and details, only the color is " + col.name + ").");
+      const e = await callOnce({ ...opts }, srcUrls, effPrompt({ ...opts }) + colorInstr, { color: col.name });
+      if(!e) break;
+      ok++;
+    }
+    setBusy(false); setBatchMsg("");
+    if(ok) recordUsage(ok, Math.round(ok * unitCost(tier, imageSize) * 100) / 100);
+  };
+
+  /* ── غلاف/نص على الصورة ── */
+  const doCover = async () => {
+    if(!coverFor) return;
+    const pr = buildCoverPrompt({ ...coverForm, modelNo: (curModel && curModel.modelNo) || storageFolder || "" });
+    setBusy(true); setBatchMsg("🏷️ إضافة الغلاف/النص...");
+    const r = await generateModelImage({ modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [coverFor.url], prompt: pr, aspectRatio, imageSize, tier }, user);
+    setBusy(false); setBatchMsg("");
+    if(r && r.ok && r.url){
+      const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: "📔 " + (COVER_STYLES.find(s => s.id === coverForm.styleId) || {}).label, tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: coverFor.options || opts };
+      setResults(p => [entry, ...p]);
+      setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
+      recordUsage(1, unitCost(tier, imageSize));
+      setCoverFor(null); showToast("✓ اتعمل الغلاف/النص");
+    } else showToast("⛔ " + ((r && r.error) || "فشل"));
+  };
+
   const generate = async () => {
     if(sources.length === 0){ showToast("⚠️ أضف صورة مصدر واحدة على الأقل (القطعة)"); return; }
     if(isReference && sources.length < 2){ showToast("⚠️ وضع «موديل مرجعي» محتاج صورة موديل (Image 1) + صورة قطعة (Image 2)"); return; }
@@ -219,9 +297,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(isModelShot && multiPose && selPoses.length > 0) jobs = selPoses.map(pid => ({ ...opts, poseId: pid }));
     else { const n = Math.max(1, Math.min(4, Number(count) || 1)); jobs = Array.from({ length: n }, () => ({ ...opts })); }
     const total = Math.round(unitCost(tier, imageSize) * jobs.length * 100) / 100;
+    const over = budget > 0 && (usage.month.cost + total) > budget;
     const yes = await ask("توليد بالذكاء الاصطناعي",
       "عدد الصور: " + jobs.length + " · النموذج: " + (tier === "pro" ? "Nano Banana Pro" : "Flash") + " (" + imageSize + ")\n" +
-      "التكلفة التقريبية الإجمالية: ~‎$" + total + "\n\nالنوع: " + (SHOT_TYPES.find(s => s.id === shotType) || {}).label,
+      "التكلفة التقريبية الإجمالية: ~‎$" + total + "\n\nالنوع: " + (SHOT_TYPES.find(s => s.id === shotType) || {}).label +
+      (over ? "\n\n⚠️ هتتجاوز ميزانية الشهر (~$" + budget + ")" : ""),
       { confirmText: "توليد" });
     if(!yes) return;
     setBusy(true);
@@ -321,13 +401,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   };
   const saveAsColorImage = (res) => {
     if(!replaceModel || !curModel) return;
-    if(!saveColor){ showToast("⚠️ اختر اللون الأول"); return; }
+    const color = (res && res.color) || saveColor;
+    if(!color){ showToast("⚠️ اختر اللون الأول"); return; }
     const next = JSON.parse(JSON.stringify(curModel));
     if(!next.shopify_meta) next.shopify_meta = {};
     if(!next.shopify_meta.color_images) next.shopify_meta.color_images = {};
-    next.shopify_meta.color_images[saveColor] = { url: res.url, alt: saveColor, source: "ai" };
+    next.shopify_meta.color_images[color] = { url: res.url, alt: color, source: "ai" };
     replaceModel(curModel.id, next); setCurModel(next);
-    showToast("✓ اتحفظت كصورة لون «" + saveColor + "»");
+    showToast("✓ اتحفظت كصورة لون «" + color + "»");
   };
   const saveToGallery = (res) => {
     if(!replaceModel || !curModel){ showToast("⚠️ اختر موديل عشان تحفظ في معرضه"); return; }
@@ -445,10 +526,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const resultActions = (res, inGallery) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
       {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
-      {curModel && replaceModel && colorNames.length > 0 && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 لون</Btn>}
+      {curModel && replaceModel && (colorNames.length > 0 || res.color) && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
       <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ تخزين</Btn>
       <Btn small onClick={() => enhanceRealism(res)} disabled={busy} style={{ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>
+      <Btn small onClick={() => { setCoverForm(f => ({ ...f, modelNo: (curModel && curModel.modelNo) || "" })); setCoverFor(res); }} style={{ background: "#A855F712", color: "#A855F7", border: "1px solid #A855F733", fontWeight: 700 }} title="غلاف مجلة / نص ولوجو">📔 غلاف/نص</Btn>
       <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }}>✏️ تعديل</Btn>
       {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
       <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>
@@ -470,14 +552,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               {curModel ? ("موديل: " + (curModel.modelNo || "—") + (curModel.modelDesc ? " — " + curModel.modelDesc : "")) : "توليد حرّ — اختر موديل لو عاوز تحفظ النتيجة عليه"}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <div onClick={() => { setBudgetInput(budget ? String(budget) : ""); setShowUsage(true); }} title="الميزانية وسجل التكلفة" style={{ cursor: "pointer", textAlign: "center", background: (budget > 0 && usage.month.cost >= budget) ? T.err + "12" : T.cardSolid, border: "1px solid " + ((budget > 0 && usage.month.cost >= budget) ? T.err : T.brd), borderRadius: 10, padding: "6px 12px" }}>
+              <div style={{ fontSize: FS - 3, color: T.textMut }}>🗓️ الشهر {budget > 0 ? "/ الميزانية" : ""} 💰</div>
+              <div style={{ fontSize: FS, fontWeight: 800, color: (budget > 0 && usage.month.cost >= budget) ? T.err : T.text }}>{usage.month.count} · ~‎${usage.month.cost}{budget > 0 ? " / $" + budget : ""}</div>
+            </div>
             <div style={{ textAlign: "center", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 10, padding: "6px 12px" }}>
               <div style={{ fontSize: FS - 3, color: T.textMut }}>📅 اليوم</div>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>{usage.today.count} · ~‎${usage.today.cost}</div>
-            </div>
-            <div style={{ textAlign: "center", background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 10, padding: "6px 12px" }}>
-              <div style={{ fontSize: FS - 3, color: T.textMut }}>🗓️ الشهر</div>
-              <div style={{ fontSize: FS, fontWeight: 800, color: T.text }}>{usage.month.count} · ~‎${usage.month.cost}</div>
             </div>
             {genCount > 0 && <div style={{ textAlign: "center", background: T.accent + "0D", border: "1px solid " + T.accent + "30", borderRadius: 10, padding: "6px 12px" }}>
               <div style={{ fontSize: FS - 3, color: T.textMut }}>الجلسة</div>
@@ -738,6 +820,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             <Btn primary onClick={generate} disabled={busy || sources.length === 0 || (isReference && sources.length < 2)} style={{ fontSize: FS + 1, padding: "13px 0", fontWeight: 800 }}>
               {busy ? "⏳ جاري التوليد..." : "🪄 توليد الصورة" + (isModelShot && multiPose && selPoses.length > 0 ? " (" + selPoses.length + " وقفة)" : (Number(count) > 1 ? " (" + count + ")" : ""))}
             </Btn>
+            {curModel && colorList.length > 0 && (
+              <Btn onClick={generateAllColors} disabled={busy || sources.length === 0} style={{ padding: "11px 0", fontWeight: 800, background: "#EC489912", color: "#EC4899", border: "1px solid #EC489940" }}>
+                🎨 توليد كل الألوان ({colorList.length})
+              </Btn>
+            )}
           </div>
 
           {/* ── right: results + gallery ── */}
@@ -794,6 +881,77 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         </div>
       </div>
+
+      {/* usage / budget modal */}
+      {showUsage && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setShowUsage(false); }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 520, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: FS + 2, fontWeight: 800, color: T.text }}>💰 الميزانية وسجل التكلفة</span>
+              <Btn small ghost onClick={() => setShowUsage(false)}>✕</Btn>
+            </div>
+            {/* month vs budget */}
+            <div style={{ background: T.bg, borderRadius: 12, padding: 14, marginBottom: 12, border: "1px solid " + T.brd }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: FS - 1, marginBottom: 6 }}>
+                <span style={{ color: T.textSec, fontWeight: 700 }}>استهلاك الشهر</span>
+                <strong style={{ color: (budget > 0 && usage.month.cost >= budget) ? T.err : T.text }}>{usage.month.count} صورة · ~‎${usage.month.cost}{budget > 0 ? " / $" + budget : ""}</strong>
+              </div>
+              {budget > 0 && <div style={{ height: 8, background: T.cardSolid, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 4, width: Math.min(100, (usage.month.cost / budget) * 100) + "%", background: usage.month.cost >= budget ? T.err : (usage.month.cost >= 0.8 * budget ? T.warn : T.ok) }} />
+              </div>}
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10 }}>
+                <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, whiteSpace: "nowrap" }}>الميزانية الشهرية ($):</span>
+                <div style={{ flex: 1 }}><Inp type="number" value={budgetInput} onChange={setBudgetInput} placeholder="0 = بدون حد" /></div>
+                <Btn small onClick={saveBudget} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33" }}>حفظ</Btn>
+              </div>
+            </div>
+            {/* per-model */}
+            <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, marginBottom: 8 }}>التكلفة لكل موديل</div>
+            {usage.models.length === 0 ? <div style={{ fontSize: FS - 2, color: T.textMut, textAlign: "center", padding: 16 }}>مفيش بيانات لسه.</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {usage.models.slice(0, 30).map(m => (
+                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: T.bg, borderRadius: 8, border: "1px solid " + T.brd }}>
+                    <span style={{ fontSize: FS - 1, fontWeight: 700, color: T.text }}>{m.modelNo || m.id}</span>
+                    <span style={{ fontSize: FS - 2, color: T.textSec }}>{m.count} صورة · <strong style={{ color: T.text }}>~‎${m.cost}</strong></span>
+                  </div>
+                ))}
+              </div>}
+          </div>
+        </div>
+      )}
+
+      {/* cover / text modal */}
+      {coverFor && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setCoverFor(null); }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 560, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>📔 غلاف / نص على الصورة</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>اكتب رقم الموديل + لوجو CLARK، أو اعمل غلاف مجلة بأنماط مختلفة.</div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+              <img src={coverFor.url} alt="" style={{ width: 90, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid " + T.brd, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>نمط الغلاف</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{COVER_STYLES.map(s => <Chip key={s.id} on={coverForm.styleId === s.id} onClick={() => setCoverForm(f => ({ ...f, styleId: s.id }))}>{s.label}</Chip>)}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>اسم المجلة / الماستهيد</label>
+                <Inp value={coverForm.magName} onChange={v => setCoverForm(f => ({ ...f, magName: v }))} placeholder="CLARK" />
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 14, paddingBottom: 4 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: FS - 1, color: T.text }}><input type="checkbox" checked={coverForm.withModelNo} onChange={e => setCoverForm(f => ({ ...f, withModelNo: e.target.checked }))} /> رقم الموديل</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: FS - 1, color: T.text }}><input type="checkbox" checked={coverForm.withLogo} onChange={e => setCoverForm(f => ({ ...f, withLogo: e.target.checked }))} /> لوجو CLARK</label>
+              </div>
+            </div>
+            <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>عناوين / نص إضافي (اختياري)</label>
+            <textarea value={coverForm.extra} onChange={e => setCoverForm(f => ({ ...f, extra: e.target.value }))} rows={2} placeholder="مثلاً: تشكيلة صيف 2026 · خصم 20%" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 44, outline: "none", marginBottom: 12 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Btn ghost onClick={() => setCoverFor(null)}>إلغاء</Btn>
+              <Btn primary onClick={doCover} disabled={busy}>📔 تنفيذ (~‎${unitCost(tier, imageSize)})</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* add saved-prompt modal */}
       {spForm && (
