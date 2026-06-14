@@ -11,7 +11,7 @@
    (fallback كامل → صفر regression للعملاء/الأصناف اللي مالهاش أنواع تسعير.)
    ════════════════════════════════════════════════════════════════════════ */
 
-export const DEFAULT_PRICE_TIERS = ["قطاعي", "جملة"];
+export const DEFAULT_PRICE_TIERS = ["جملة", "قطاعي"];
 
 /* القائمة العامة لأنواع التسعير — زي getUnits بالظبط. */
 export function getPriceTiers(config) {

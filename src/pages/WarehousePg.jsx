@@ -16,6 +16,7 @@ import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
 import { countUnitUsage, DEFAULT_UNITS, getUnits, hasDualUnit, baseToSecondary } from "../utils/units.js";
 import { getPriceTiers, pricesArrToMap, pricesMapToArr } from "../utils/pricing.js";
+import { compressImage } from "../utils/image.js";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -320,6 +321,27 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       </div>
     </div>;
   };
+  /* V21.21.95: صورة الصنف — compressImage (3:4، 360px، جودة 0.6) ≈ 20-40KB
+     dataURL تتخزّن على الصنف نفسه (مستندات per-id منفصلة، آمنة لحد 1MB). */
+  const handlePickImage=async(file,apply)=>{
+    if(!file)return;
+    if(!(file.type||"").startsWith("image/")){showToast("⚠️ اختر ملف صورة صالح");return;}
+    try{const url=await compressImage(file,360,0.6);apply(url);showToast("✓ تم تحميل الصورة");}
+    catch(_){showToast("⛔ فشل تحميل الصورة");}
+  };
+  const renderImagePicker=(imgVal,setImg,accent)=><div>
+    <label style={{fontSize:FS-2,color:T.textSec}}>📷 صورة الصنف (اختياري — تظهر في الكارت)</label>
+    <div style={{display:"flex",gap:10,alignItems:"center",marginTop:4}}>
+      {imgVal?<div style={{position:"relative",flexShrink:0}}>
+        <img src={imgVal} alt="" style={{width:54,height:72,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd}}/>
+        <span onClick={()=>setImg("")} title="إزالة الصورة" style={{position:"absolute",top:-7,insetInlineEnd:-7,background:T.err,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",border:"2px solid "+T.cardSolid}}>✕</span>
+      </div>:null}
+      <label style={{cursor:"pointer",padding:"9px 14px",borderRadius:8,background:accent+"12",color:accent,border:"1px dashed "+accent+"55",fontSize:FS-2,fontWeight:700}}>
+        {imgVal?"تغيير الصورة":"📷 اختر صورة"}
+        <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];handlePickImage(f,setImg);if(e.target)e.target.value="";}}/>
+      </label>
+    </div>
+  </div>;
   const saveProd=async()=>{
     if(!canEdit){await denyAction("حفظ المنتج");return;}
     if(!prodForm)return;
@@ -348,6 +370,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         purchasable:prodForm.purchasable!==false,   /* V21.21.53 */
         productType:prodForm.productType||"goods",  /* V21.21.53: goods | service */
         prices:pricesMapToArr(prodForm.prices),     /* V21.21.54: أسعار متعددة [{tier,value}] */
+        image:String(prodForm.image||""),           /* V21.21.95: صورة الصنف (تظهر في الكارت) */
         notes:prodForm.notes||"",
         lastMovementDate:prodForm.lastMovementDate||"",
         createdAt:prodForm.createdAt||new Date().toISOString()
@@ -426,7 +449,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     if(_ce){await tell("كود مكرر",_ce,{type:"warning"});return}
     /* V21.21.53: حقول الكارت الغني المشتركة. ملاحظة: في القماش/الإكسسوار حقل
        price = التكلفة (كده بيتحسب في التقييم وتكلفة الأوردر) — فالبيع في salePrice. */
-    const _common={code:String(fabForm.code||"").trim(),salePrice:Number(fabForm.salePrice)||0,sellable:fabForm.sellable!==false,purchasable:fabForm.purchasable!==false,productType:fabForm.productType||"goods",prices:pricesMapToArr(fabForm.prices)};
+    const _common={code:String(fabForm.code||"").trim(),salePrice:Number(fabForm.salePrice)||0,sellable:fabForm.sellable!==false,purchasable:fabForm.purchasable!==false,productType:fabForm.productType||"goods",prices:pricesMapToArr(fabForm.prices),image:String(fabForm.image||"")};
     upConfig(d=>{
       if(!d.fabrics)d.fabrics=[];
       /* V21.21.52: الوحدة الفرعية اختيارية — تتكتب بس لو متظبطة بمعدل صالح،
@@ -450,7 +473,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setFabForm(null);
     showToast(fabForm._eid?"✅ تم تعديل القماش":"✅ تم إضافة القماش");
   };
-  const editFab=(f)=>{setCardTab("general");setFabForm({name:f.name,unit:f.unit,price:f.price,unit2:f.unit2||"",unit2Rate:f.unit2Rate||"",code:f.code||"",salePrice:f.salePrice??"",sellable:f.sellable!==false,purchasable:f.purchasable!==false,productType:f.productType||"goods",prices:pricesArrToMap(f.prices),_eid:f.id})};
+  const editFab=(f)=>{setCardTab("general");setFabForm({name:f.name,unit:f.unit,price:f.price,unit2:f.unit2||"",unit2Rate:f.unit2Rate||"",code:f.code||"",salePrice:f.salePrice??"",sellable:f.sellable!==false,purchasable:f.purchasable!==false,productType:f.productType||"goods",prices:pricesArrToMap(f.prices),image:f.image||"",_eid:f.id})};
   const deleteFab=async(f)=>{
     if(!canEdit){await denyAction("حذف القماش");return;}
     const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
@@ -479,7 +502,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const _ce=itemCodeError(accForm.code,accForm._eid);
     if(_ce){await tell("كود مكرر",_ce,{type:"warning"});return}
     /* V21.21.53: price = التكلفة، البيع في salePrice (زي القماش) */
-    const _common={code:String(accForm.code||"").trim(),salePrice:Number(accForm.salePrice)||0,sellable:accForm.sellable!==false,purchasable:accForm.purchasable!==false,productType:accForm.productType||"goods",prices:pricesMapToArr(accForm.prices)};
+    const _common={code:String(accForm.code||"").trim(),salePrice:Number(accForm.salePrice)||0,sellable:accForm.sellable!==false,purchasable:accForm.purchasable!==false,productType:accForm.productType||"goods",prices:pricesMapToArr(accForm.prices),image:String(accForm.image||"")};
     upConfig(d=>{
       if(!d.accessories)d.accessories=[];
       /* V21.21.52: وحدة فرعية اختيارية — نفس منطق القماش */
@@ -502,7 +525,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setAccForm(null);
     showToast(accForm._eid?"✅ تم تعديل الإكسسوار":"✅ تم إضافة الإكسسوار");
   };
-  const editAcc=(a)=>{setCardTab("general");setAccForm({name:a.name,unit:a.unit,price:a.price,unit2:a.unit2||"",unit2Rate:a.unit2Rate||"",code:a.code||"",salePrice:a.salePrice??"",sellable:a.sellable!==false,purchasable:a.purchasable!==false,productType:a.productType||"goods",prices:pricesArrToMap(a.prices),_eid:a.id})};
+  const editAcc=(a)=>{setCardTab("general");setAccForm({name:a.name,unit:a.unit,price:a.price,unit2:a.unit2||"",unit2Rate:a.unit2Rate||"",code:a.code||"",salePrice:a.salePrice??"",sellable:a.sellable!==false,purchasable:a.purchasable!==false,productType:a.productType||"goods",prices:pricesArrToMap(a.prices),image:a.image||"",_eid:a.id})};
   const deleteAcc=async(a)=>{
     if(!canEdit){await denyAction("حذف الإكسسوار");return;}
     const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
@@ -711,7 +734,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
         <thead><tr>
           {isBulkActive&&<th style={{...TH,width:40,textAlign:"center"}}>☑</th>}
-          <th style={TH}>الاسم</th>
+          <th style={TH}>الكود / الاسم</th>
           {type==="general"&&<th style={TH}>الفئة</th>}
           <th style={{...TH,textAlign:"center"}}>الرصيد</th>
           <th style={{...TH,textAlign:"center"}}>الوحدة</th>
@@ -731,7 +754,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             const isSel=!!bulkSelected[item.id];
             return<tr key={item.id} style={{borderBottom:"1px solid "+T.brd,background:isSel?T.warn+"15":isZero?T.err+"04":isLow?T.warn+"04":"transparent"}}>
               {isBulkActive&&<td style={{...TD,textAlign:"center"}}><input type="checkbox" checked={isSel} onChange={()=>toggleBulkSelect(item.id)} style={{width:18,height:18,cursor:"pointer"}}/></td>}
-              <td style={{...TD,fontWeight:700}}>{item.name||"—"}</td>
+              {/* V21.21.95: صورة مصغّرة + الرقم المرجعي قبل الاسم */}
+              <td style={{...TD,fontWeight:700}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  {item.image?<img src={item.image} alt="" style={{width:34,height:44,objectFit:"cover",borderRadius:6,border:"1px solid "+T.brd,flexShrink:0}}/>:null}
+                  <div style={{minWidth:0}}>
+                    {item.code?<div style={{fontSize:FS-3,fontWeight:800,color:T.textMut}}>{item.code}</div>:null}
+                    <div>{item.name||"—"}</div>
+                  </div>
+                </div>
+              </td>
               {type==="general"&&<td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-3,fontWeight:600,background:color+"15",color}}>{item.category||"—"}</span></td>}
               {/* V21.21.52: عرض الرصيد بالوحدتين لو الصنف له وحدة فرعية (مشتق من المعدل) */}
               <td style={{...TD,textAlign:"center",fontWeight:800,color:statusColor,fontSize:FS}}>{fmt(stock)}{hasDualUnit(item)&&<div style={{fontSize:FS-4,fontWeight:600,color:T.textMut}}>≈ {fmt(r2(baseToSecondary(item,stock)))} {item.unit2}</div>}</td>
@@ -950,7 +982,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
-          {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setFabForm({name:"",unit:"كيلو",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:true,purchasable:true,productType:"goods",prices:{},_eid:null})}}>+ قماش جديد</Btn>}
+          {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setFabForm({name:"",unit:"كيلو",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:false,purchasable:true,productType:"goods",prices:{},image:"",_eid:null})}}>+ قماش جديد</Btn>}
         </div>
         {renderItemTable(filteredFab,"fabric")}
       </Card>
@@ -977,7 +1009,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
-          {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setAccForm({name:"",unit:"قطعة",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:true,purchasable:true,productType:"goods",prices:{},_eid:null})}}>+ اكسسوار جديد</Btn>}
+          {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setAccForm({name:"",unit:"قطعة",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:false,purchasable:true,productType:"goods",prices:{},image:"",_eid:null})}}>+ اكسسوار جديد</Btn>}
         </div>
         {renderItemTable(filteredAcc,"accessory")}
       </Card>
@@ -1245,10 +1277,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         </div>
         {renderCardTabs("#EC4899")}
         {cardTab==="general"&&<div style={{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:12}}>
+          {/* V21.21.95: الرقم المرجعي أول حاجة قبل الاسم */}
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>كود الصنف (الرقم المرجعي) — فريد</label>
+            <Inp value={prodForm.code||""} onChange={v=>setProdForm(p=>({...p,code:v}))} placeholder="مثال: 1302"/>
+          </div>
           <div>
             <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>اسم المنتج <span style={{color:T.err}}>*</span></label>
             <Inp value={prodForm.name} onChange={v=>setProdForm(p=>({...p,name:v}))} placeholder="مثال: زيت ماكينات SAE 30"/>
           </div>
+          {renderImagePicker(prodForm.image||"",(url)=>setProdForm(p=>({...p,image:url})),"#EC4899")}
           {/* V21.21.53: نوع المنتج + شيك بوكس مبيعات/مشتريات (نمط Odoo) */}
           <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"center",padding:"8px 10px",background:T.bg,borderRadius:10}}>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1265,10 +1303,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
                 <input type="checkbox" checked={prodForm.purchasable!==false} onChange={e=>setProdForm(p=>({...p,purchasable:e.target.checked}))}/>المشتريات
               </label>
             </div>
-          </div>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>كود الصنف (الرقم المرجعي) — فريد</label>
-            <Inp value={prodForm.code||""} onChange={v=>setProdForm(p=>({...p,code:v}))} placeholder="مثال: 1302"/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div>
@@ -1341,10 +1375,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {renderCardTabs(T.accent)}
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {cardTab==="general"&&<>
+          {/* V21.21.95: الرقم المرجعي أول حاجة قبل الاسم */}
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>كود الصنف (الرقم المرجعي) — فريد</label>
+            <Inp value={fabForm.code||""} onChange={v=>setFabForm({...fabForm,code:v})} placeholder="مثال: 2101"/>
+          </div>
           <div>
             <label style={{fontSize:FS-2,color:T.textSec}}>اسم القماش</label>
             <Inp value={fabForm.name} onChange={v=>setFabForm({...fabForm,name:v})}/>
           </div>
+          {renderImagePicker(fabForm.image||"",(url)=>setFabForm(f=>({...f,image:url})),T.accent)}
           {/* V21.21.53: نوع الصنف + شيك بوكس مبيعات/مشتريات */}
           <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"center",padding:"8px 10px",background:T.bg,borderRadius:10}}>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1361,10 +1401,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
                 <input type="checkbox" checked={fabForm.purchasable!==false} onChange={e=>setFabForm({...fabForm,purchasable:e.target.checked})}/>المشتريات
               </label>
             </div>
-          </div>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec}}>كود الصنف (الرقم المرجعي) — فريد</label>
-            <Inp value={fabForm.code||""} onChange={v=>setFabForm({...fabForm,code:v})} placeholder="مثال: 2101"/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div>
@@ -1414,10 +1450,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {renderCardTabs("#8B5CF6")}
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {cardTab==="general"&&<>
+          {/* V21.21.95: الرقم المرجعي أول حاجة قبل الاسم */}
+          <div>
+            <label style={{fontSize:FS-2,color:T.textSec}}>كود الصنف (الرقم المرجعي) — فريد</label>
+            <Inp value={accForm.code||""} onChange={v=>setAccForm({...accForm,code:v})} placeholder="مثال: 3101"/>
+          </div>
           <div>
             <label style={{fontSize:FS-2,color:T.textSec}}>الوصف</label>
             <Inp value={accForm.name} onChange={v=>setAccForm({...accForm,name:v})}/>
           </div>
+          {renderImagePicker(accForm.image||"",(url)=>setAccForm(a=>({...a,image:url})),"#8B5CF6")}
           {/* V21.21.53: نوع الصنف + شيك بوكس مبيعات/مشتريات */}
           <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"center",padding:"8px 10px",background:T.bg,borderRadius:10}}>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1434,10 +1476,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
                 <input type="checkbox" checked={accForm.purchasable!==false} onChange={e=>setAccForm({...accForm,purchasable:e.target.checked})}/>المشتريات
               </label>
             </div>
-          </div>
-          <div>
-            <label style={{fontSize:FS-2,color:T.textSec}}>كود الصنف (الرقم المرجعي) — فريد</label>
-            <Inp value={accForm.code||""} onChange={v=>setAccForm({...accForm,code:v})} placeholder="مثال: 3101"/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <div>
