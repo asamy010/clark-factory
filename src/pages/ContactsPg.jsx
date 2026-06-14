@@ -1406,7 +1406,19 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
     msg += "\n\n⛔ لا يمكن التراجع عن هذه العملية.";
     const yes = await ask("حذف جماعي", msg, { danger: true, confirmText: "🗑 حذف " + deletable.length });
     if(!yes) return;
-    upConfig(d => { for(const k of Object.keys(patch)) d[k] = patch[k]; });
+    /* V21.21.97 ROOT-CAUSE FIX: الحقول دي partitioned (مستندات per-id). الحذف
+       الجماعي ممكن يفضّي collection لـ 0 (≥2→0) → حارس المسح الجماعي كان
+       بيمنع الكتابة بصمت والواجهة تقول «تم» → العنصر يرجع بعد الريفريش (نفس
+       bug V21.21.41 بتاع الشيكات). allowEmptyFields بيسمح بالتفريغ المؤكّد.
+       + بنتحقق من نتيجة upConfig (مكنّاش بنعمل) عشان منكدبش على المستخدم. */
+    const res = await upConfig(
+      d => { for(const k of Object.keys(patch)) d[k] = patch[k]; },
+      { allowEmptyFields: ["contacts", "customers", "suppliers", "workshops", "employees"] }
+    );
+    if(res && res.ok === false){
+      showToast("⛔ فشل الحذف — اتمنع من حارس الأمان. راجع الـ console.");
+      return;
+    }
     showToast("✓ تم حذف " + deletable.length + " جهة" + (blocked.length ? " — " + blocked.length + " اتسكِبت (مرتبطة بحركات)" : ""));
     exitSelectMode();
   };
