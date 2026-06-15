@@ -590,7 +590,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       loadPromptLibrary(),
       fetch("/aiPromptLibraryNew.json", { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => []),
     ])
-      .then(([lib, newP]) => { if(alive){ setLibrary({ ...lib, New: (Array.isArray(newP) ? newP : []).map(r => ({ ...r, group: "New", builtin: true })) }); setLibErr(""); } })
+      .then(([lib, newP]) => { if(alive){
+        /* V21.26.15: لو فيه نسخة معدّلة من «New» في Firestore استخدمها (التعديل
+           يثبت)؛ غير كده استخدم الـ static المشحون. أول تعديل بيـ materialize
+           الـ 40 في Firestore. */
+        const staticNew = (Array.isArray(newP) ? newP : []).map(r => ({ ...r, group: "New", builtin: true }));
+        const fsNew = (lib.New && lib.New.length) ? lib.New : staticNew;
+        setLibrary({ ...lib, New: fsNew }); setLibErr("");
+      } })
       .catch(e => { if(alive){ setLibrary({}); setLibErr(e?.message || "فشل تحميل المكتبة"); } });
     return () => { alive = false; };
   }, []);
@@ -929,7 +936,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                           <span style={{ fontSize: FS - 1, fontWeight: 800, color: T.text }}>{open ? "▾" : "▸"} {g} <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({items.length})</span></span>
                           <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, name: "", prompt: customPrompt || "", image: "" }); }} style={{ fontSize: FS - 3, fontWeight: 700, color: T.accent }}>➕</span>
                         </div>
-                        {open && g === "New" && <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", borderTop: "1px solid " + T.brd, padding: "7px 11px", lineHeight: 1.6 }}>⭐ مجموعة أولاد احترافية (تفاصيل مشهد كاملة) — <b>اختر العمر من «الخيارات ← العمر»</b> والبرومبت بيتنفّذ بالعمر اللي تختاره.</div>}
+                        {open && g === "New" && <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", borderTop: "1px solid " + T.brd, padding: "7px 11px", lineHeight: 1.6 }}>⭐ مجموعة أولاد احترافية — <b>اختر العمر من «الخيارات ← العمر»</b>. تقدر تعدّل أي برومبت (زرار ✏️) وتغيّر صورته بصورة حقيقية للوقفة — والتعديل بيثبت.</div>}
                         {open && (
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8, padding: 10 }}>
                             {items.map(sp => (
@@ -938,7 +945,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                                   {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
                                 </div>
                                 <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
-                                {g !== "New" && <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>}
+                                <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>
                                 {!sp.builtin && <span onClick={e => { e.stopPropagation(); delLibPrompt(g, sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>}
                               </div>
                             ))}
