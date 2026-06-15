@@ -768,6 +768,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[partialPopup,setPartialPopup]=useState(null);/* V21.26.8: {ch} — دفع/تحصيل جزئي */
   const[partialAmt,setPartialAmt]=useState("");
   const[partialAcc,setPartialAcc]=useState("");
+  const[sourcePopup,setSourcePopup]=useState(null);/* V21.26.9: {tx} — بوب اب أصل الحركة */
   /* Transfer */
   const[showTransfer,setShowTransfer]=useState(false);
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
@@ -840,8 +841,16 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const[selectedChkIds,setSelectedChkIds]=useState(new Set());
   const toggleChkSel=(id)=>{setSelectedChkIds(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n})};
   const clearChkSel=()=>setSelectedChkIds(new Set());
+  const PAID_CHECK_STATUSES=new Set(["مدفوع","محصل","مدفوع جزئي","محصل جزئي"]);/* V21.26.9 */
   const bulkDeleteChecks=async(ids)=>{
     if(!ids||ids.length===0)return;
+    /* V21.26.9: ممنوع حذف الشيك المدفوع/المحصّل (كلياً أو جزئياً) — ليه حركة
+       خزنة. نحذف الشيكات القابلة للحذف بس ونحذّر على الباقي. */
+    const _arr=data.checks||[];
+    const _blocked=ids.filter(id=>{const c=_arr.find(x=>x.id===id);return c&&PAID_CHECK_STATUSES.has(c.status);});
+    ids=ids.filter(id=>!_blocked.includes(id));
+    if(_blocked.length>0)showToast("⛔ "+_blocked.length+" شيك مدفوع/محصّل مش اتحذف — ارجّع حالته لـ«معلق» الأول");
+    if(ids.length===0)return;
     /* V21.21.41 ROOT-CAUSE FIX: الحذف المجمّع بيشيل كل المحدّد في نداء
        upConfig واحد — فلو ده فضّى الشيكات لـ 0، شبكة المسح الجماعي كانت
        بتمنع الكتابة بصمت بينما التوست بيقول «تم الحذف» → الشيكات ترجع بعد
@@ -1576,6 +1585,47 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     if(/^تحويل /.test(d))return"تحويل";
     if(/^دفعة ورش[هة] |^مشتريات ورش[هة] /.test(d))return"دفعة ورشة";
     return"حركة خارجية"};
+
+  /* V21.26.9: حلّ أصل حركة الخزنة (الحركة جاية منين) لعرضه في بوب اب. */
+  const resolveTxSource=(t)=>{
+    if(!t)return null;
+    const L=(k,v)=>({k,v});
+    const money=fmt0(Number(t.amount)||0)+" ج.م";
+    if(t.checkId){
+      const ch=(data.checks||[]).find(c=>c.id===t.checkId);
+      return{kind:"شيك",icon:"📝",color:"#0EA5E9",
+        title:ch?((ch.type==="receivable"?"شيك قبض":"شيك دفع")+" — "+(ch.party||"")):"شيك مرتبط (مش موجود)",
+        lines:ch?[L("الجهة",ch.party||"—"),L("مبلغ الشيك",fmt0(ch.amount)+" ج.م"),L("البنك",ch.bank||"—"),L("رقم الشيك",ch.checkNo||"—"),L("الاستحقاق",ch.dueDate||"—"),L("الحالة",ch.status||"—"),...(Number(ch.paidAmount)?[L("المدفوع منه",fmt0(ch.paidAmount)+" ج.م")]:[]),L("مبلغ الحركة دي",money)]:[L("ملاحظة","الشيك المرتبط مش موجود (ممكن اتحذف)"),L("مبلغ الحركة",money)],
+        goto:()=>{setView("checks")},gotoLabel:"افتح الشيكات"};
+    }
+    if(t.transferId){
+      const tr=(data.treasuryTransfers||[]).find(x=>x.id===t.transferId);
+      return{kind:"تحويل بين الخزن",icon:"🔄",color:"#8B5CF6",title:"تحويل بين الخزن",
+        lines:tr?[L("من",tr.fromAccount||tr.from||"—"),L("إلى",tr.toAccount||tr.to||"—"),L("المبلغ",fmt0(tr.amount)+" ج.م"),L("التاريخ",tr.date||"—"),L("الحالة",tr.status||"—")]:[L("ملاحظة","التحويل المرتبط مش موجود"),L("مبلغ الحركة",money)],
+        goto:()=>{setView("transfers")},gotoLabel:"افتح التحويلات"};
+    }
+    if(t.sourceType==="hr_salary"||t.sourceType==="hr_advance"||t.hrLogId||/^مرتبات|^دفعة مرتبات|^سلفة/.test(t.desc||"")){
+      const adv=t.sourceType==="hr_advance"||/^سلفة/.test(t.desc||"");
+      return{kind:"موارد بشرية",icon:"👥",color:"#10B981",title:adv?"سلفة موظف":"مرتبات",
+        lines:[L("البيان",t.desc||"—"),L("المبلغ",money),L("التاريخ",t.date||"—")],goto:null};
+    }
+    if(t.wsPaymentId||t.wsName||/^دفعة ورش[هة]|^مشتريات ورش[هة]/.test(t.desc||"")){
+      return{kind:"ورشة",icon:"🏭",color:"#F59E0B",title:"دفعة/مشتريات ورشة"+(t.wsName?" — "+t.wsName:""),
+        lines:[L("البيان",t.desc||"—"),L("المبلغ",money),L("التاريخ",t.date||"—")],goto:null};
+    }
+    if(t.custId){
+      const c=customers.find(x=>x.id===t.custId);
+      return{kind:"عميل",icon:"🧍",color:"#10B981",title:"حركة عميل"+(c?" — "+c.name:""),
+        lines:[L("البيان",t.desc||"—"),L("المبلغ",money),L("التاريخ",t.date||"—"),L("النوع",t.sourceType||t.category||"—")],goto:null};
+    }
+    if(t.supplierId){
+      const s=suppliers.find(x=>x.id===t.supplierId);
+      return{kind:"مورد",icon:"🚚",color:"#EF4444",title:"حركة مورد"+(s?" — "+s.name:""),
+        lines:[L("البيان",t.desc||"—"),L("المبلغ",money),L("التاريخ",t.date||"—"),L("النوع",t.sourceType||t.category||"—")],goto:null};
+    }
+    return{kind:externalSourceLabel(t),icon:"🔗",color:"#8B5CF6",title:externalSourceLabel(t),
+      lines:[L("البيان",t.desc||"—"),L("المبلغ",money),L("التاريخ",t.date||"—"),L("النوع",t.sourceType||t.category||"—"),L("الحساب",t.account||"—")],goto:null};
+  };
 
   const delTx=(id)=>{
     /* V15.9: Block deletion of HR salary transactions — they're bound to week prevBalance.
@@ -3649,7 +3699,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               return<div style={{display:"flex",gap:3,alignItems:"center"}}>
                 {locked&&isAdmin&&<span style={{fontSize:10,color:T.warn}} title="اليوم مقفول — وصول المدير">🔒</span>}
                 {isAdmin&&(lockEdit||lockDelete)&&<span style={{fontSize:10,color:T.warn}} title={"قفل من الإعدادات — وصول المدير"+(lockEdit?" (تعديل)":"")+(lockDelete?" (حذف)":"")}>⚠️</span>}
-                {external&&<span style={{fontSize:10,color:"#8B5CF6"}} title={"حركة من "+externalSourceLabel(t)}>🔗</span>}
+                {external&&<span onClick={()=>setSourcePopup({tx:t})} style={{cursor:"pointer",fontSize:12,color:"#8B5CF6"}} title={"اعرض أصل الحركة — "+externalSourceLabel(t)}>🔗</span>}
                 {/* V16.60: Print formal cash receipt for this entry. Resolves the
                     party (customer/supplier) from tx.custId/supplierId so the receipt
                     includes their phone/address when known.
@@ -3672,6 +3722,32 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد حركات</div>}
         {withBalance.length>limit&&<div style={{textAlign:"center",marginTop:10}}><Btn small onClick={()=>setLimit(p=>p+50)}>عرض المزيد</Btn></div>}
       </Card>
+      {/* V21.26.9: بوب اب أصل حركة الخزنة — جاية منين */}
+      {sourcePopup&&(()=>{const src=resolveTxSource(sourcePopup.tx);if(!src)return null;
+        return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSourcePopup(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,width:"100%",maxWidth:460,maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+            <div style={{background:src.color+"12",borderBottom:"1px solid "+src.color+"30",padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                <span style={{fontSize:26}}>{src.icon}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FS-3,fontWeight:700,color:src.color}}>🔗 أصل الحركة · {src.kind}</div>
+                  <div style={{fontSize:FS,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{src.title}</div>
+                </div>
+              </div>
+              <span onClick={()=>setSourcePopup(null)} style={{cursor:"pointer",fontSize:18,color:T.textMut,flexShrink:0}}>✕</span>
+            </div>
+            <div style={{padding:20}}>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {src.lines.map((ln,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10,borderBottom:i<src.lines.length-1?"1px dashed "+T.brd:"none",paddingBottom:6}}><span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{ln.k}</span><span style={{fontSize:FS,fontWeight:800,color:T.text,textAlign:"left"}}>{ln.v}</span></div>)}
+              </div>
+              <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:18}}>
+                {src.goto&&<span onClick={()=>{src.goto();setSourcePopup(null);}} style={{cursor:"pointer",padding:"9px 18px",borderRadius:10,fontWeight:800,color:"#fff",background:src.color}}>{src.gotoLabel||"اذهب للمصدر"} ←</span>}
+                <span onClick={()=>setSourcePopup(null)} style={{cursor:"pointer",padding:"9px 18px",borderRadius:10,fontWeight:700,color:T.textSec,background:T.bg,border:"1px solid "+T.brd}}>إغلاق</span>
+              </div>
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>}
 
     {/* ══ TRANSFERS VIEW ══
@@ -4217,6 +4293,13 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           }
         };
         const delCheck=(id)=>{
+          /* V21.26.9: الشيك المدفوع/المحصّل (كلياً أو جزئياً) مايتحذفش — ارجّع
+             حالته الأول (عشان حركة الخزنة المرتبطة تترجع صح). */
+          const _c=(data.checks||[]).find(c=>c.id===id);
+          if(_c&&PAID_CHECK_STATUSES.has(_c.status)){
+            showToast("⛔ الشيك مدفوع/محصّل — ارجّع حالته لـ«معلق» الأول قبل الحذف");
+            return;
+          }
           /* V16.65: Block direct deletion of non-pending checks — those have
              treasury/customer/supplier side effects that need unwinding via
              status-revert (e.g. unmark "محصل" → returns to "معلق" + removes
