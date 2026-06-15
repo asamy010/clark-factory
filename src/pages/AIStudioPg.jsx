@@ -187,6 +187,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [coverFor, setCoverFor] = useState(null); /* {res} */
   const [coverForm, setCoverForm] = useState({ styleId: "none", magName: "CLARK", withModelNo: true, withLogo: true, extra: "" });
   const [logoFor, setLogoFor] = useState(null); /* {res} — إدراج لوجو */
+  const [linkFor, setLinkFor] = useState(null); /* V21.26.20: {res} — ربط الصورة بموديل من قايمة بالرقم */
   const [logoForm, setLogoForm] = useState({ logoUrl: "", position: "top-right", size: "small" });
   const [autoSave, setAutoSave] = useState(true);
   const [savedIds, setSavedIds] = useState(() => new Set());
@@ -423,7 +424,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   /* تنفيذ برومبت جاهز — V21.26.4: بنضيف «الملاحظات الإضافية» لو المستخدم كتب
      حاجة (زي «أضف كوتش أبيض»)، عشان يقدر يخصّص حتى البرومبت الجاهز. */
-  const runSavedPrompt = async (sp) => {
+  const runSavedPrompt = async (sp, group) => {
     if(!sp || !sp.prompt) return;
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
@@ -431,9 +432,24 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     /* V21.26.13: استبدال {{AGE}} بالعمر اللي اختاره المستخدم (قسم New). */
     const ageObj = CHILD_AGES.find(a => a.id === ageId);
     const ageTxt = (ageObj && ageObj.prompt) || "young child";
+    const hadAgePlaceholder = /\{\{AGE\}\}/.test(sp.prompt);
     const baseP = String(sp.prompt || "").replace(/\{\{AGE\}\}/g, ageTxt);
+    /* V21.26.20: طبّق العمر + لون البشرة المختارين على أي برومبت جاهز (override
+       لأي وصف مخالف جوّه البرومبت) — عشان إعدادات «العمر/لون البشرة» تنفّذ فعلاً
+       على كل المكتبة مش بس قسم New. العمر بيتخطّى لجروبات الكبار (FOR HIM/HER)
+       لأنه عمر طفل. لو البرومبت فيه {{AGE}} العمر اتحقن خلاص (مفيش تكرار). */
+    const ADULT_GROUPS = ["FOR HIM", "FOR HER"];
+    const isAdultGroup = group && ADULT_GROUPS.includes(group);
+    const toneObj = SKIN_TONES.find(s => s.id === skinToneId);
+    const toneTxt = (toneObj && skinToneId !== "any" && toneObj.prompt) ? toneObj.prompt : "";
+    const attrLines = [];
+    if(!hadAgePlaceholder && !isAdultGroup) attrLines.push("- Subject age: " + ageTxt);
+    if(toneTxt) attrLines.push("- Subject skin tone: " + toneTxt);
+    const attrClause = attrLines.length
+      ? "\n\nSubject attributes (must apply — override any conflicting age/skin description above):\n" + attrLines.join("\n")
+      : "";
     /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
-    const promptWithNotes = baseP + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
+    const promptWithNotes = baseP + attrClause + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
     setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
@@ -511,6 +527,21 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const next = { ...curModel, image: res.url, imageStoragePath: res.storagePath || "" };
     replaceModel(curModel.id, next); setCurModel(next);
     showToast("✓ اتحفظت كصورة الموديل الرئيسية");
+  };
+  /* V21.26.20: ربط صورة بموديل مختار من القايمة (بالرقم) — بيحفظ رابط الصورة
+     كصورة رئيسية للموديل (= الأوردر: order.image + imageStoragePath)، ويملا
+     فولدر التخزين برقم الموديل. بيشتغل حتى لو مفيش موديل مختار من الأول، فالترقيم
+     مضمون من القايمة الحقيقية مش كتابة حرة. */
+  const linkImageToModel = (res, modelId) => {
+    if(!replaceModel){ showToast("⚠️ الربط مش متاح هنا"); return; }
+    const m = (Array.isArray(models) ? models : []).find(x => String(x.id) === String(modelId));
+    if(!m){ showToast("⚠️ اختر موديل من القايمة"); return; }
+    const next = { ...m, image: res.url, imageStoragePath: res.storagePath || "" };
+    replaceModel(m.id, next);
+    if(curModel && String(curModel.id) === String(m.id)) setCurModel(next);
+    if(m.modelNo) setStorageFolder(m.modelNo);
+    setLinkFor(null);
+    showToast("🔗 اتربطت الصورة بموديل «" + (m.modelNo || m.id) + "» (الصورة الرئيسية)");
   };
   const saveAsColorImage = (res) => {
     if(!replaceModel || !curModel) return;
@@ -840,6 +871,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   const resultActions = (res, inGallery) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
+      {replaceModel && Array.isArray(models) && models.length > 0 && <Btn small onClick={() => setLinkFor(res)} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل من القايمة (بالرقم)">🔗 ربط بموديل</Btn>}
       {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
       {curModel && replaceModel && (colorNames.length > 0 || res.color) && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
@@ -1019,7 +1051,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                         {open && (
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8, padding: 10 }}>
                             {items.map(sp => (
-                              <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp)} title={sp.prompt}>
+                              <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp, g)} title={sp.prompt}>
                                 <div style={{ width: "100%", aspectRatio: "3 / 4", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
                                   {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
                                 </div>
@@ -1354,6 +1386,23 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                   </div>
                 ))}
               </div>}
+          </div>
+        </div>
+      )}
+
+      {/* V21.26.20: ربط الصورة بموديل من قايمة بالرقم */}
+      {linkFor && (
+        <div onClick={() => setLinkFor(null)} style={{ position: "fixed", inset: 0, zIndex: 100002, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: 14, width: "100%", maxWidth: 460, border: "2px solid " + T.accent + "30", boxShadow: "0 25px 70px rgba(0,0,0,0.4)", padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.accent }}>🔗 ربط الصورة بموديل</div>
+              <Btn ghost onClick={() => setLinkFor(null)}>✕</Btn>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+              <img src={linkFor.url} alt="" style={{ width: 64, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid " + T.brd, flexShrink: 0 }} />
+              <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>اكتب رقم الموديل واختاره من القايمة — هتتحفظ الصورة كصورة <b>رئيسية</b> للموديل (رابط الصورة بيتسجّل على الأوردر)، وفولدر التخزين بياخد رقم الموديل.</div>
+            </div>
+            <SearchSel value="" onChange={(id) => linkImageToModel(linkFor, id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
           </div>
         </div>
       )}
