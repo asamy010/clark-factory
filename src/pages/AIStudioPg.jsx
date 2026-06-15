@@ -19,7 +19,7 @@ import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
 import { ask, showToast } from "../utils/popups.js";
-import { uploadImageToStorage } from "../utils/imageStorage.js";
+import { uploadImageToStorage, deleteStorageImage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
@@ -86,6 +86,45 @@ function modelColorNames(model){
 }
 const unitCost = (tier, size) => tier === "pro" ? (size === "4K" ? 0.24 : 0.13) : 0.04;
 
+/* V21.26.18: نسبة أبعاد الصورة من الميتاداتا (تقدير أوّلي قبل تحميل الصورة).
+   portrait/مربّع → عمود واحد (صورتين في الصف)؛ landscape → عرض كامل. */
+function arInfo(ar){
+  const p = String(ar || "3:4").split(":");
+  const w = Number(p[0]) || 3, h = Number(p[1]) || 4;
+  return { css: w + " / " + h, portrait: h >= w };
+}
+
+/* V21.26.18: كارت نتيجة — يقيس أبعاد الصورة الفعلية عند التحميل فيلغي المساحة
+   السوداء (objectFit:cover مع نسبة أبعاد مطابقة)، والـ landscape بياخد عرض
+   كامل (gridColumn 1/-1) بينما الطولي بياخد عمود واحد → صورتين جنب بعض.
+   مُعرّف على مستوى الموديول (مش جوّا الصفحة) عشان حالة القياس متتفقدش مع كل
+   re-render للأب. */
+function ResultCard({ res, isMob, pinned, onTogglePin, onDelete, onZoom, children }){
+  const init = arInfo(res.aspectRatio);
+  const [css, setCss] = useState(init.css);
+  const [portrait, setPortrait] = useState(init.portrait);
+  const onLoad = (e) => {
+    const w = e.target.naturalWidth, h = e.target.naturalHeight;
+    if(w > 0 && h > 0){ setCss(w + " / " + h); setPortrait(h > w); }
+  };
+  const fullW = !isMob && !portrait;   /* أفقي → عرض كامل */
+  const ovBtn = (bg, color) => ({ width: 30, height: 30, borderRadius: "50%", background: bg, color, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" });
+  return (
+    <div style={{ gridColumn: fullW ? "1 / -1" : "auto", border: "1px solid " + (pinned ? T.accent : T.brd), borderRadius: 12, overflow: "hidden", background: T.bg, position: "relative", boxShadow: pinned ? "0 0 0 2px " + T.accent + "66" : undefined }}>
+      <div style={{ position: "relative", width: "100%", aspectRatio: css, background: T.cardSolid }}>
+        <img src={res.url} alt="" loading="lazy" onLoad={onLoad} onClick={() => onZoom && onZoom(res)} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", cursor: "zoom-in" }} />
+        <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, display: "flex", gap: 6 }}>
+          {onTogglePin && <button onClick={(e) => { e.stopPropagation(); onTogglePin(res.id); }} title={pinned ? "إلغاء التثبيت" : "تثبيت الصورة (تفضل فوق لحد ما تخلص)"} style={ovBtn(pinned ? T.accent : "rgba(0,0,0,0.55)", "#fff")}>📌</button>}
+          {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(res); }} title="حذف الصورة من النتائج والتخزين" style={ovBtn("rgba(0,0,0,0.55)", "#fff")}>🗑</button>}
+        </div>
+        {pinned && <span style={{ position: "absolute", top: 8, insetInlineStart: 8, background: T.accent, color: "#fff", borderRadius: 999, fontSize: FS - 4, fontWeight: 800, padding: "2px 9px", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>📌 مثبّتة</span>}
+      </div>
+      {res.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{res.desc}</div>}
+      {children}
+    </div>
+  );
+}
+
 export function AIStudioPg({ model, models, data, upConfig, user, isMob, replaceModel, onClose }){
   const lib = useMemo(() => mergePresets(data), [data]);
 
@@ -151,6 +190,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [logoForm, setLogoForm] = useState({ logoUrl: "", position: "top-right", size: "small" });
   const [autoSave, setAutoSave] = useState(true);
   const [savedIds, setSavedIds] = useState(() => new Set());
+  /* V21.26.18: تثبيت نتائج (تفضل فوق لحد ما المستخدم يخلّص شغله عليها) */
+  const [pinnedIds, setPinnedIds] = useState(() => new Set());
 
   /* إجماليات الاستهلاك المحفوظة (يومي/شهري + لكل موديل + ميزانية) */
   const budget = Number(data.aiStudioBudget) || 0;
@@ -540,6 +581,44 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const autoSaveEntries = (entries) => { if(autoSave) _saveEntries(entries, true); };
   const saveToDocuments = (res) => _saveEntries([res], false);
   const saveAllToDocuments = () => _saveEntries(results, false);
+
+  /* V21.26.18: تثبيت/إلغاء تثبيت نتيجة — المثبّتة تفضل في أول القائمة */
+  const togglePin = (id) => setPinnedIds(prev => { const n = new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
+  /* النتائج للعرض: المثبّتة الأول (ترتيب ثابت stable) */
+  const sortedResults = useMemo(() => {
+    const arr = results.slice();
+    arr.sort((a, b) => (pinnedIds.has(b.id) ? 1 : 0) - (pinnedIds.has(a.id) ? 1 : 0));
+    return arr;
+  }, [results, pinnedIds]);
+
+  /* V21.26.18: حذف نتيجة من النتائج + من مساحة التخزين + الملف الأصلي من Storage.
+     دفاعي: لو الصورة محفوظة كصورة موديل رئيسية أو في المعرض، مابنحذفش الملف
+     الأصلي (عشان مايكسرش المحفوظ) — بنشيلها من النتائج بس. */
+  const deleteResult = async (res) => {
+    if(!res) return;
+    const refInGallery = gallery.some(g => (res.storagePath && g.storagePath === res.storagePath) || g.url === res.url);
+    const refMain = !!(curModel && ((res.storagePath && curModel.imageStoragePath === res.storagePath) || curModel.image === res.url));
+    const referenced = refInGallery || refMain;
+    const ok = await ask("حذف الصورة؟",
+      referenced
+        ? "الصورة دي محفوظة كصورة موديل/في المعرض — هتتشال من النتائج بس، والملف الأصلي مش هيتحذف عشان مايأثرش على المحفوظ."
+        : "هتتشال من النتائج ومن مساحة التخزين، والملف الأصلي هيتحذف من السيرفر نهائياً — مش هينفع ترجعها.",
+      { danger: true });
+    if(!ok) return;
+    /* state: شيلها من النتائج + التثبيت + المحفوظة */
+    setResults(prev => prev.filter(r => r.id !== res.id));
+    setPinnedIds(prev => { if(!prev.has(res.id)) return prev; const n = new Set(prev); n.delete(res.id); return n; });
+    setSavedIds(prev => { if(!prev.has(res.id)) return prev; const n = new Set(prev); n.delete(res.id); return n; });
+    /* مساحة التخزين: شيل سجل/سجلات الملف المطابق (storagePath أولاً، وإلا الرابط) */
+    upConfig(d => {
+      if(!d.documentsTree || !Array.isArray(d.documentsTree.files)) return;
+      d.documentsTree.files = d.documentsTree.files.filter(f =>
+        !(f && f.source === "ai-studio" && ((res.storagePath && f.storagePath === res.storagePath) || f.downloadURL === res.url)));
+    });
+    /* Storage: احذف الملف الأصلي (idempotent) — إلا لو مرجوع في المحفوظ */
+    if(!referenced && res.storagePath){ try { await deleteStorageImage(res.storagePath); } catch(_){} }
+    showToast("🗑 اتشالت الصورة" + (referenced ? " من النتائج" : " ومن التخزين"));
+  };
 
   const applyOptions = (o) => {
     if(!o) return;
@@ -1196,13 +1275,17 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                       <Sel value={saveColor} onChange={setSaveColor}><option value="">— اختر اللون —</option>{colorNames.map(c => <option key={c} value={c}>{c}</option>)}</Sel>
                     </div>
                   )}
-                  {results.map(res => (
-                    <div key={res.id} style={{ border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg }}>
-                      <img src={res.url} alt="" onClick={() => setImgZoom({ url: res.url, desc: res.desc })} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", display: "block", maxHeight: 460, objectFit: "contain", background: "#000", cursor: "zoom-in" }} />
-                      {res.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{res.desc}</div>}
-                      {resultActions(res, false)}
-                    </div>
-                  ))}
+                  {pinnedIds.size > 0 && <div style={{ fontSize: FS - 3, color: T.accent, fontWeight: 700 }}>📌 {pinnedIds.size} صورة مثبّتة فوق</div>}
+                  {/* V21.26.18: شبكة — الطولي صورتين جنب بعض، الأفقي عرض كامل، بدون مساحة سوداء */}
+                  <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, alignItems: "start" }}>
+                    {sortedResults.map(res => (
+                      <ResultCard key={res.id} res={res} isMob={isMob}
+                        pinned={pinnedIds.has(res.id)} onTogglePin={togglePin}
+                        onDelete={deleteResult} onZoom={(r) => setImgZoom({ url: r.url, desc: r.desc })}>
+                        {resultActions(res, false)}
+                      </ResultCard>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1211,13 +1294,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {curModel && gallery.length > 0 && (
               <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
                 <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>📚 معرض الموديل المحفوظ ({gallery.length})</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {/* V21.26.18: نفس شبكة العرض بدون مساحة سوداء (المعرض له زرّ حذفه الخاص) */}
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, alignItems: "start" }}>
                   {gallery.map(g => (
-                    <div key={g.id} style={{ border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg }}>
-                      <img src={g.url} alt="" onClick={() => setImgZoom({ url: g.url, desc: g.desc })} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", display: "block", maxHeight: 380, objectFit: "contain", background: "#000", cursor: "zoom-in" }} />
-                      {g.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{g.desc}</div>}
+                    <ResultCard key={g.id} res={g} isMob={isMob} onZoom={(r) => setImgZoom({ url: r.url, desc: r.desc })}>
                       {resultActions(g, true)}
-                    </div>
+                    </ResultCard>
                   ))}
                 </div>
               </div>
