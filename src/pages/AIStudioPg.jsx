@@ -13,7 +13,7 @@
    كل التوليد server-side (api/ai-image/generate). هنا UI بس.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Btn, Sel, Inp, SearchSel, BlockingOverlay } from "../components/ui.jsx";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { T } from "../theme.js";
@@ -27,6 +27,7 @@ import {
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
+import { LIBRARY_GROUPS, loadPromptLibrary, savePromptGroup, seedPromptLibrary } from "../utils/aiPromptLibrary.js";
 
 /* رسم توضيحي مبسّط لتأثير العدسة (عمق الميدان/الخلفية) */
 function CamDiagram({ type, on }){
@@ -109,6 +110,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [newBg, setNewBg] = useState({ label: "", prompt: "" });
   const [tplName, setTplName] = useState("");
   const [spForm, setSpForm] = useState(null); /* {name,prompt,image} | null — إضافة برومبت جاهز */
+  /* مكتبة برومبتس تجربة الملابس (factory/aiPromptLibrary_*) — lazy + editable */
+  const [library, setLibrary] = useState(null);     /* { [group]: prompt[] } | null=بيحمّل */
+  const [libErr, setLibErr] = useState("");
+  const [libBusy, setLibBusy] = useState("");        /* رسالة أثناء seed/save | "" */
+  const [openGroup, setOpenGroup] = useState("");    /* الجروب المفتوح حالياً */
+  const [libEditFor, setLibEditFor] = useState(null);/* {group,id?,name,prompt,image} | null */
   const [showUsage, setShowUsage] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [coverFor, setCoverFor] = useState(null); /* {res} */
@@ -510,6 +517,59 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     try { const { url } = await uploadImageToStorage("ai-prompt-thumbs", "lib", file); setSpForm(p => ({ ...(p || {}), image: url })); }
     catch(err){ showToast("⛔ فشل رفع الصورة" + (err?.message ? " — " + err.message : "")); }
   };
+
+  /* ── مكتبة برومبتس تجربة الملابس (lazy load + CRUD على مستندات factory/) ── */
+  useEffect(() => {
+    let alive = true;
+    loadPromptLibrary()
+      .then(lib => { if(alive){ setLibrary(lib); setLibErr(""); } })
+      .catch(e => { if(alive){ setLibrary({}); setLibErr(e?.message || "فشل تحميل المكتبة"); } });
+    return () => { alive = false; };
+  }, []);
+  const libTotal = useMemo(() => library ? Object.values(library).reduce((s, a) => s + (a ? a.length : 0), 0) : 0, [library]);
+
+  const doSeedLibrary = async () => {
+    if(libBusy) return;
+    const ok = await ask("تحميل المكتبة الجاهزة؟", "هيتحمّل ~180 برومبت تجربة ملابس (5 جروبات) مع صورهم. تقدر تعدّلهم أو تحذفهم بعد كده.");
+    if(!ok) return;
+    setLibBusy("جاري تحميل المكتبة الجاهزة...");
+    try { const byGroup = await seedPromptLibrary(); setLibrary(byGroup); setLibErr(""); showToast("✓ اتحمّلت المكتبة"); }
+    catch(e){ showToast("⛔ " + (e?.message || "فشل التحميل")); }
+    finally { setLibBusy(""); }
+  };
+  /* حفظ تعديل/إضافة على مستوى جروب واحد (merge-then-persist) */
+  const persistGroup = async (group, prompts) => {
+    setLibrary(prev => ({ ...(prev || {}), [group]: prompts }));
+    setLibBusy("جاري الحفظ...");
+    try { await savePromptGroup(group, prompts); }
+    catch(e){ showToast("⛔ فشل الحفظ — " + (e?.message || "")); }
+    finally { setLibBusy(""); }
+  };
+  const saveLibEdit = async () => {
+    const f = libEditFor; if(!f) return;
+    if(!f.name?.trim() || !f.prompt?.trim()){ showToast("⚠️ اكتب الاسم والبرومبت"); return; }
+    const group = f.group;
+    const cur = (library && library[group]) ? [...library[group]] : [];
+    if(f.id){
+      const i = cur.findIndex(x => x.id === f.id);
+      if(i >= 0) cur[i] = { ...cur[i], name: f.name.trim(), prompt: f.prompt.trim(), image: f.image || "" };
+    } else {
+      cur.unshift({ id: "lib_u_" + Date.now().toString(36), name: f.name.trim(), prompt: f.prompt.trim(), image: f.image || "", group, ts: Date.now() });
+    }
+    setLibEditFor(null);
+    await persistGroup(group, cur);
+    showToast("✓ اتحفظ");
+  };
+  const delLibPrompt = async (group, id) => {
+    const ok = await ask("حذف البرومبت؟", "هيتشال من المكتبة نهائياً.");
+    if(!ok) return;
+    const cur = ((library && library[group]) || []).filter(x => x.id !== id);
+    await persistGroup(group, cur);
+  };
+  const onLibEditImage = async (file) => {
+    try { const { url } = await uploadImageToStorage("ai-prompt-thumbs", "lib", file); setLibEditFor(p => ({ ...(p || {}), image: url })); }
+    catch(err){ showToast("⛔ فشل رفع الصورة" + (err?.message ? " — " + err.message : "")); }
+  };
   const addCustomPose = () => {
     if(!newPose.label.trim() || !newPose.prompt.trim()){ showToast("⚠️ اكتب الاسم والوصف الإنجليزي"); return; }
     savePresets(p => p.poses.push({ id: "cp_" + Date.now().toString(36), label: newPose.label.trim(), prompt: newPose.prompt.trim(), custom: true }));
@@ -679,6 +739,54 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                       <span onClick={e => { e.stopPropagation(); delSavedPrompt(sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* مكتبة تجربة الملابس — مخزن منفصل (factory/aiPromptLibrary_*) lazy + editable */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة تجربة الملابس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
+                {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
+              </div>
+              {library === null ? (
+                <div style={{ fontSize: FS - 2, color: T.textMut }}>جاري تحميل المكتبة...</div>
+              ) : libTotal === 0 ? (
+                <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.8 }}>
+                  مكتبة جاهزة من برومبتس تجربة الملابس (Virtual Try-On) مقسّمة بالجروبات — اختار صورة المصدر واضغط أي برومبت يتنفّذ على طول.
+                  <div style={{ marginTop: 10 }}>
+                    <Btn primary onClick={doSeedLibrary}>📥 تحميل المكتبة الجاهزة (~180)</Btn>
+                  </div>
+                  {libErr && <div style={{ marginTop: 8, fontSize: FS - 3, color: T.err }}>⚠️ {libErr}</div>}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {LIBRARY_GROUPS.filter(g => library[g] && library[g].length).map(g => {
+                    const items = library[g] || [];
+                    const open = openGroup === g;
+                    return (
+                      <div key={g} style={{ border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden" }}>
+                        <div onClick={() => setOpenGroup(open ? "" : g)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 11px", cursor: "pointer", background: open ? T.accent + "0D" : T.bg }}>
+                          <span style={{ fontSize: FS - 1, fontWeight: 800, color: T.text }}>{open ? "▾" : "▸"} {g} <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({items.length})</span></span>
+                          <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, name: "", prompt: customPrompt || "", image: "" }); }} style={{ fontSize: FS - 3, fontWeight: 700, color: T.accent }}>➕</span>
+                        </div>
+                        {open && (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8, padding: 10 }}>
+                            {items.map(sp => (
+                              <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp)} title={sp.prompt}>
+                                <div style={{ width: "100%", aspectRatio: "3 / 4", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                  {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
+                                </div>
+                                <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
+                                <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>
+                                <span onClick={e => { e.stopPropagation(); delLibPrompt(g, sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -999,6 +1107,37 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         </div>
       )}
+
+      {/* library add/edit modal — مكتبة تجربة الملابس */}
+      {libEditFor && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setLibEditFor(null); }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 480, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>{libEditFor.id ? "✏️ تعديل برومبت" : "➕ إضافة برومبت"} <span style={{ fontSize: FS - 2, color: T.accent }}>· {libEditFor.group}</span></div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>برومبت تجربة ملابس بصورة مثال — يتنفّذ بضغطة على صورة المصدر.</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              {LIBRARY_GROUPS.map(g => <Chip key={g} on={libEditFor.group === g} onClick={() => setLibEditFor(p => ({ ...p, group: g }))}>{g}</Chip>)}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+              <ImagePickButton data={data} imagesOnly onFile={onLibEditImage} onPickUrl={url => setLibEditFor(p => ({ ...(p || {}), image: url }))}
+                triggerStyle={{ width: 80, height: 104, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: libEditFor.image ? "transparent" : T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, overflow: "hidden", flexShrink: 0 }}>
+                {libEditFor.image ? <img src={libEditFor.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "📷 صورة"}
+              </ImagePickButton>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>اسم البرومبت</label>
+                <Inp value={libEditFor.name} onChange={v => setLibEditFor(p => ({ ...p, name: v }))} placeholder="مثلاً: BOY #1" />
+              </div>
+            </div>
+            <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>نص البرومبت</label>
+            <textarea value={libEditFor.prompt} onChange={e => setLibEditFor(p => ({ ...p, prompt: e.target.value }))} rows={6} placeholder="الصق البرومبت الكامل هنا..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 110, outline: "none", lineHeight: 1.6, marginBottom: 12 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Btn ghost onClick={() => setLibEditFor(null)}>إلغاء</Btn>
+              <Btn primary onClick={saveLibEdit}>💾 حفظ</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <BlockingOverlay show={!!libBusy} text={libBusy || "..."} />
 
       {/* edit modal */}
       {editFor && (
