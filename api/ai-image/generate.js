@@ -6,7 +6,8 @@
    صورة موديل لابس الطقم، بيخزّنها على Firebase Storage ويرجّع الـ URL.
 
    البروتوكول:
-   - auth admin (verifyAdminToken) — viewer ممنوع (التوليد بيكلّف فلوس).
+   - auth: verifyAiStudioToken — أي مستخدم شغّال (مش viewer)، إلا لو الأدمن
+     أخفى AI Studio عن دوره (permissions[role].aiStudio="hide"). viewer ممنوع.
    - withProgress (§11) — overlay تقدّم على syncJobs.
    - AbortController + timeout < maxDuration (§10) — مفيش orphaned hangs.
    - الرفع server-side عبر Admin SDK + download-token URL ثابت.
@@ -20,7 +21,7 @@
 
 import admin from "firebase-admin";
 import crypto from "crypto";
-import { setCors, verifyAdminToken, getAdminApp } from "../_firebase.js";
+import { setCors, verifyAiStudioToken, getAdminApp } from "../_firebase.js";
 import { withProgress } from "../_progressTracker.js";
 
 /* Vercel Pro — التوليد بياخد ٢-١٢ ثانية؛ نسيب هامش */
@@ -98,7 +99,7 @@ export default async function handler(req, res){
   try { body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {}); }
   catch(_){ return res.status(400).json({ ok: false, error: "جسم الطلب غير صالح" }); }
 
-  const auth = await verifyAdminToken(req.headers.authorization || body.idToken);
+  const auth = await verifyAiStudioToken(req.headers.authorization || body.idToken);
   if(!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
   if(auth.role === "viewer") return res.status(403).json({ ok: false, error: "مفيش صلاحية لتوليد الصور" });
 

@@ -8,7 +8,7 @@
    env: GEMINI_API_KEY · GEMINI_TEXT_MODEL (افتراضي gemini-2.5-flash)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { setCors, verifyAdminToken } from "../_firebase.js";
+import { setCors, verifyAiStudioToken } from "../_firebase.js";
 
 export const config = { maxDuration: 30 };
 
@@ -26,7 +26,7 @@ export default async function handler(req, res){
   try { body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {}); }
   catch(_){ return res.status(400).json({ ok: false, error: "جسم الطلب غير صالح" }); }
 
-  const auth = await verifyAdminToken(req.headers.authorization || body.idToken);
+  const auth = await verifyAiStudioToken(req.headers.authorization || body.idToken);
   if(!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
 
   const apiKey = (process.env.GEMINI_API_KEY || "").trim();

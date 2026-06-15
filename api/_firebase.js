@@ -265,7 +265,11 @@ export function setCors(res, req) {
 
    Token can be passed in Authorization header ("Bearer <token>") or in body
    as `idToken` — endpoints that already accept other body fields use body. */
-export async function verifyAdminToken(token) {
+/* V21.26.7: verify ANY authenticated user — returns role + the aiStudio
+   permission override (if any). No admin/manager restriction; the caller
+   decides who's allowed. Used to refactor verifyAdminToken and to allow
+   non-admin working roles into AI Studio (per Ahmed's request). */
+export async function verifyUserToken(token) {
   if (!token || typeof token !== "string") {
     return { ok: false, status: 401, error: "رمز المصادقة مطلوب" };
   }
@@ -283,16 +287,14 @@ export async function verifyAdminToken(token) {
   if (!decoded || !decoded.uid) {
     return { ok: false, status: 401, error: "مستخدم غير مصرّح" };
   }
-  /* V18.70: Bootstrap admin escape hatch.
-     If BOOTSTRAP_ADMIN_UID is set in Vercel env vars and matches the
-     decoded UID, grant admin role unconditionally — even if config is
-     corrupted or the role list locked everyone out. Use sparingly. */
+  /* V18.70: Bootstrap admin escape hatch. */
   const bootstrapUid = (process.env.BOOTSTRAP_ADMIN_UID || "").trim();
   if (bootstrapUid && decoded.uid === bootstrapUid) {
-    return { ok: true, uid: decoded.uid, email: decoded.email, role: "admin" };
+    return { ok: true, uid: decoded.uid, email: decoded.email, role: "admin", aiStudio: "edit" };
   }
   /* Look up role from config — same shape as getUserRole() in App.jsx */
   let role = "viewer";
+  let aiStudio = null;
   try {
     const cfgSnap = await getDb().collection("factory").doc("config").get();
     if (cfgSnap.exists) {
@@ -304,12 +306,32 @@ export async function verifyAdminToken(token) {
         const byEmail = cfg.usersList.find((u) => u.email === decoded.email);
         if (byEmail) role = byEmail.role || "viewer";
       }
+      /* aiStudio permission override (admin can hide AI Studio per role) */
+      const perms = (cfg.permissions && cfg.permissions[role]) || {};
+      if (Object.prototype.hasOwnProperty.call(perms, "aiStudio")) aiStudio = perms.aiStudio;
     }
   } catch (e) {
     return { ok: false, status: 500, error: "تعذر التحقق من الصلاحيات" };
   }
-  if (role !== "admin" && role !== "manager") {
+  return { ok: true, uid: decoded.uid, email: decoded.email, role, aiStudio };
+}
+
+export async function verifyAdminToken(token) {
+  const r = await verifyUserToken(token);
+  if (!r.ok) return r;
+  if (r.role !== "admin" && r.role !== "manager") {
     return { ok: false, status: 403, error: "صلاحيات غير كافية — مدير فقط" };
   }
-  return { ok: true, uid: decoded.uid, email: decoded.email, role };
+  return r;
+}
+
+/* V21.26.7: AI Studio access — أي مستخدم شغّال (مش «عرض فقط») يقدر يولّد، إلا
+   لو الأدمن أخفى AI Studio عن دوره صراحةً (permissions[role].aiStudio="hide").
+   ده بيخلّي محاسب المبيعات وغيره يشتغلوا على الصور — والأدمن يقدر يمنع أي دور. */
+export async function verifyAiStudioToken(token) {
+  const r = await verifyUserToken(token);
+  if (!r.ok) return r;
+  if (r.role === "viewer") return { ok: false, status: 403, error: "AI Studio غير متاح لدور «عرض فقط»" };
+  if (r.aiStudio === "hide") return { ok: false, status: 403, error: "AI Studio مخفي عن دورك — كلّم مدير النظام" };
+  return r;
 }
