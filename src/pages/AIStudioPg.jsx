@@ -124,6 +124,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [genDone, setGenDone] = useState(0);
   const [genPct, setGenPct] = useState(0);
   const [editFor, setEditFor] = useState(null);
+  const [imgZoom, setImgZoom] = useState(null); /* {url, desc} — عرض الصورة بكامل الجودة */
   const [editInstr, setEditInstr] = useState("");
   const [showLib, setShowLib] = useState(false);
   const [newPose, setNewPose] = useState({ label: "", prompt: "" });
@@ -1143,7 +1144,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                   )}
                   {results.map(res => (
                     <div key={res.id} style={{ border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg }}>
-                      <img src={res.url} alt="" style={{ width: "100%", display: "block", maxHeight: 460, objectFit: "contain", background: "#000" }} />
+                      <img src={res.url} alt="" onClick={() => setImgZoom({ url: res.url, desc: res.desc })} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", display: "block", maxHeight: 460, objectFit: "contain", background: "#000", cursor: "zoom-in" }} />
                       {res.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{res.desc}</div>}
                       {resultActions(res, false)}
                     </div>
@@ -1159,7 +1160,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {gallery.map(g => (
                     <div key={g.id} style={{ border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg }}>
-                      <img src={g.url} alt="" style={{ width: "100%", display: "block", maxHeight: 380, objectFit: "contain", background: "#000" }} />
+                      <img src={g.url} alt="" onClick={() => setImgZoom({ url: g.url, desc: g.desc })} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", display: "block", maxHeight: 380, objectFit: "contain", background: "#000", cursor: "zoom-in" }} />
                       {g.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{g.desc}</div>}
                       {resultActions(g, true)}
                     </div>
@@ -1170,6 +1171,18 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         </div>
       </div>
+
+      {/* image zoom lightbox — الصورة بكامل الجودة والتفاصيل */}
+      {imgZoom && (
+        <div onClick={() => setImgZoom(null)} style={{ position: "fixed", inset: 0, zIndex: 100001, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl", cursor: "zoom-out" }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 14, insetInlineEnd: 14, display: "flex", gap: 8 }}>
+            <a href={imgZoom.url} target="_blank" rel="noreferrer" download onClick={e => e.stopPropagation()} style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.18)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", fontWeight: 700, fontSize: FS - 2, textDecoration: "none", fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}>⬇️ تنزيل</a>
+            <button onClick={() => setImgZoom(null)} style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.18)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", fontWeight: 700, fontSize: FS - 2, cursor: "pointer", fontFamily: "inherit" }}>✕ إغلاق</button>
+          </div>
+          <img src={imgZoom.url} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: "96vw", maxHeight: "86vh", objectFit: "contain", borderRadius: 8, boxShadow: "0 10px 40px rgba(0,0,0,0.5)", cursor: "default" }} />
+          {imgZoom.desc && <div onClick={e => e.stopPropagation()} style={{ color: "#fff", fontSize: FS - 2, marginTop: 12, textAlign: "center", maxWidth: "90vw", background: "rgba(0,0,0,0.4)", padding: "6px 14px", borderRadius: 10 }}>{imgZoom.desc}</div>}
+        </div>
+      )}
 
       {/* usage / budget modal */}
       {showUsage && (
