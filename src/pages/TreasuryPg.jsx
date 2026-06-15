@@ -223,7 +223,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryIds.has(c.id))isOrphan=true;
         if(c.status==="مُظهّر"&&!supPayIds.has(c.id))isOrphan=true;
         if(isOrphan){
-          c.status="معلق";
+          c.status="معلق";c.paidAmount=0;/* V21.26.8 */
           delete c.statusDate;delete c.statusBy;
           delete c.endorsedTo;delete c.endorsedToId;delete c.endorsedAt;
           delete c.bouncedAt;
@@ -765,6 +765,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   /* V18.0: Account-picker popups for check collect/pay (asks where money goes/comes from) */
   const[collectAccountPopup,setCollectAccountPopup]=useState(null);/* {checkId, ch} */
   const[payAccountPopup,setPayAccountPopup]=useState(null);/* {checkId, ch} */
+  const[partialPopup,setPartialPopup]=useState(null);/* V21.26.8: {ch} — دفع/تحصيل جزئي */
+  const[partialAmt,setPartialAmt]=useState("");
+  const[partialAcc,setPartialAcc]=useState("");
   /* Transfer */
   const[showTransfer,setShowTransfer]=useState(false);
   const[tfFrom,setTfFrom]=useState("");const[tfTo,setTfTo]=useState("");
@@ -3972,6 +3975,48 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                    the wallet. We add a "check_bounce" customer entry so the
                    customer statement reflects the reversal.
            - ملغي / مرتجع: just status flip, no treasury, no customer entry */
+        /* V21.26.8: دفع/تحصيل جزئي للشيك — بيضيف حركة خزنة بالمبلغ الجزئي (من
+           غير ما يشيل الحركات السابقة) ويزوّد paidAmount. الحالة بتبقى «مدفوع/
+           محصل جزئي» لحد ما يكتمل المبلغ → «مدفوع/محصل». الكشوف متتأثرش (الشيك
+           بيتعدّ ككامل كالتزام ملتزم — V21.21.14). أزرار «الباقي» فقط للجزئي،
+           فمفيش تعارض مع full-pay (updateStatus) اللي بيظهر للمعلق بس. */
+        const partialPay=(id,payAmtRaw,chosenAccount,statusDate)=>{
+          const dt=statusDate||today;
+          const ch0=(data.checks||[]).find(c=>c.id===id);if(!ch0)return;
+          const total=Number(ch0.amount)||0;
+          const remaining=r2(total-(Number(ch0.paidAmount)||0));
+          const amt=r2(Math.min(Number(payAmtRaw)||0,remaining));
+          if(amt<=0){showToast("⚠️ المبلغ غير صالح أو الشيك مكتمل");return;}
+          const isRcv=ch0.type==="receivable";
+          let _newLeg=null;
+          upConfig(d=>{
+            const ch=(d.checks||[]).find(c=>c.id===id);if(!ch)return;
+            if(!Array.isArray(d.treasury))d.treasury=[];
+            const newPaid=r2((Number(ch.paidAmount)||0)+amt);
+            const full=newPaid>=total-0.001;
+            const chkCat=ch.category||(isRcv?"دفعة عميل":"دفعة مورد");
+            const det=(ch.checkNo?" #"+ch.checkNo:"")+(ch.bank?" — "+ch.bank:"");
+            const targetAccount=chosenAccount||ch.depositAccount||ch.bank||"MAIN CASH";
+            _newLeg={
+              id:gid(),type:isRcv?"in":"out",amount:amt,
+              desc:(isRcv?"تحصيل جزئي شيك من ":"دفع جزئي شيك لـ ")+(ch.party||"")+det+" ("+fmt(newPaid)+"/"+fmt(total)+")",
+              category:chkCat,account:targetAccount,season:d.activeSeason||"",
+              date:dt,day:dayName(dt),
+              custId:isRcv?(ch.partyId||null):null,
+              supplierId:!isRcv?(ch.partyId||null):null,
+              sourceType:isRcv?"check_collect":"check_pay",checkId:ch.id,
+              by:userName,createdAt:nowISO()
+            };
+            d.treasury.unshift(_newLeg);
+            ch.paidAmount=newPaid;
+            ch.status=full?(isRcv?"محصل":"مدفوع"):(isRcv?"محصل جزئي":"مدفوع جزئي");
+            ch.statusDate=dt;ch.statusBy=userName;ch.statusTs=Date.now();
+            if(chosenAccount)ch.depositAccount=chosenAccount;
+          });
+          if(_newLeg){try{const _r=autoPost.treasury(data,_newLeg,userName);if(_r&&typeof _r.then==="function")_r.catch(()=>{});}catch(e){console.warn("[V21.26.8] autoPost partial check leg:",e?.message||e);}}
+          showToast("✓ "+(isRcv?"تحصيل":"دفع")+" جزئي "+fmt(amt)+" ج.م");
+        };
+        const openPartial=(c)=>{const rem=r2((Number(c.amount)||0)-(Number(c.paidAmount)||0));setPartialAmt(String(rem>0?rem:0));setPartialAcc((accountsData.find(a=>a.type!=="wallet")||{}).name||"MAIN CASH");setPartialPopup({ch:c});};
         const updateStatus=(id,status,statusDate,chosenAccount)=>{
           const dt=statusDate||today;
           /* V19.70.10: snapshot the check BEFORE the upConfig mutation so we can
@@ -3993,6 +4038,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                before applying the new status (idempotent re-toggle). */
             if(d.treasury)d.treasury=d.treasury.filter(t=>t.checkId!==id);
             ch.status=status;ch.statusDate=dt;ch.statusBy=userName;ch.statusTs=Date.now();/* V21.26.6: ختم زمني دقيق لحماية الشيك من الـ orphan-revert أثناء مزامنة الخزنة المقسّمة */
+            /* V21.26.8: مزامنة paidAmount مع الحالة الكاملة (الدفع/التحصيل الكامل = المبلغ كله؛ الرجوع لمعلق/مرتد = صفر). */
+            if(status==="محصل"||status==="مدفوع")ch.paidAmount=Number(ch.amount)||0;
+            else if(status==="معلق"||status==="مرتد"||status==="مرتجع"||status==="ملغي")ch.paidAmount=0;
             /* V18.0: Record which account the user chose (so we can show it on the check) */
             if(chosenAccount)ch.depositAccount=chosenAccount;
             if(!d.treasury)d.treasury=[];
@@ -4205,7 +4253,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         });
         showToast("✓ تم حذف الشيك")};
         const filteredChecks=chkFilter==="الكل"?checks:checks.filter(c=>chkFilter==="أوراق قبض"?c.type==="receivable":c.type==="payable");
-        const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","مُظهّر":"#8B5CF6",مرتجع:"#EF4444","مرتد":"#DC2626",ملغي:"#94A3B8"};
+        const STATUS_COLORS={معلق:"#F59E0B",محصل:"#10B981",مدفوع:"#10B981","محصل جزئي":"#0EA5E9","مدفوع جزئي":"#0EA5E9","مُظهّر":"#8B5CF6",مرتجع:"#EF4444","مرتد":"#DC2626",ملغي:"#94A3B8"};
         /* V16.33: Endorse a customer check to a supplier.
            Conceptually: the check (receivable) changes ownership from us to the
            supplier — no cash flow happens. So we DO NOT create a treasury entry
@@ -4559,7 +4607,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                   <div style={{textAlign:"center"}}>{c.date||"—"}</div>
                   {c.createdAt&&<div style={{direction:"ltr",fontSize:FS-3,color:T.textMut,textAlign:"center"}}>{formatTxTime(c.createdAt)}</div>}
                 </td>
-                <td style={{padding:"4px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span></td>
+                <td style={{padding:"4px 8px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:(STATUS_COLORS[c.status]||T.textMut)+"15",color:STATUS_COLORS[c.status]||T.textMut}}>{c.status}</span>{(c.status==="مدفوع جزئي"||c.status==="محصل جزئي")&&<div style={{fontSize:FS-3,color:"#0EA5E9",fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>{fmt0(Number(c.paidAmount)||0)} / {fmt0(c.amount)} · باقي {fmt0(r2((Number(c.amount)||0)-(Number(c.paidAmount)||0)))}</div>}</td>
                 <td style={{padding:"4px 8px"}}>
                 {/* V16.62: Print check receipt voucher (إذن استلام/تسليم شيك).
                     Always available regardless of status — useful both at the
@@ -4581,6 +4629,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                       setPayAccountPopup({checkId:c.id,ch:c});
                     }
                   }} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}}>{c.type==="receivable"?"✅ تحصيل":"✅ دفع"}</span>
+                  <span onClick={()=>openPartial(c)} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#0EA5E912",color:"#0284C7",fontWeight:700}} title={c.type==="receivable"?"تحصيل جزء من الشيك":"دفع جزء من الشيك"}>💵 جزئي</span>
                   {c.type==="receivable"&&<span onClick={()=>openConfirm({title:"تظهير الشيك",message:"سيتم نقل ملكية الشيك للمورد المختار. لن يتم تسجيل أي حركة خزنة.\nالعميل: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",confirmText:"اختر المورد",onConfirm:()=>{setEndorsePopup(c.id);setEndorseSearch("");setEndorseDate(today)}})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:"#8B5CF612",color:"#8B5CF6",fontWeight:700}}>📤 تظهير</span>}
                   {/* V16.34: مرتد for receivables (bounced from bank — customer still owes us);
                        مرتجع stays for payable cancellations */}
@@ -4589,6 +4638,11 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
                     :<span onClick={()=>openConfirm({title:"إلغاء الشيك",message:"سيتم إلغاء الشيك (مرتجع للمورد).\nالمورد: "+c.party+"\nالمبلغ: "+fmt(c.amount)+" ج.م",variant:"warn",confirmText:"تأكيد الإلغاء",onConfirm:()=>updateStatus(c.id,"مرتجع")})} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.warn+"12",color:T.warn,fontWeight:700}}>↩ مرتجع</span>}
                   <span onClick={()=>editCheck(c)} style={{cursor:"pointer",fontSize:11}}>✏️</span>
                   <span onClick={()=>openConfirm({title:"حذف الشيك",message:"سيتم حذف الشيك:\n"+c.party+" — "+fmt(c.amount)+" ج.م",variant:"danger",onConfirm:()=>delCheck(c.id)})} style={{cursor:"pointer",fontSize:11,color:T.err}}>✕</span>
+                </div>}
+                {/* V21.26.8: شيكات مدفوعة/محصّلة جزئياً — زر «الباقي» + تعديل */}
+                {canEdit&&(c.status==="مدفوع جزئي"||c.status==="محصل جزئي")&&<div style={{display:"inline-flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
+                  <span onClick={()=>openPartial(c)} style={{cursor:"pointer",padding:"2px 6px",borderRadius:4,fontSize:10,background:T.ok+"12",color:T.ok,fontWeight:700}} title="ادفع/حصّل باقي المبلغ">{c.type==="receivable"?"💵 تحصيل الباقي":"💵 دفع الباقي"}</span>
+                  <span onClick={()=>editCheck(c)} style={{cursor:"pointer",fontSize:11}} title="تعديل الشيك">✏️</span>
                 </div>}
                 {/* V16.34: Bounced checks — show retry button (re-mark as pending) */}
                 {canEdit&&c.status==="مرتد"&&<div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
@@ -4605,6 +4659,28 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               </tr>})}
             </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد شيكات</div>}
           </Card>
+          {/* V21.26.8: دفع/تحصيل جزئي — مبلغ + حساب */}
+          {partialPopup&&(()=>{const ch=partialPopup.ch;const isRcv=ch.type==="receivable";const total=Number(ch.amount)||0;const already=Number(ch.paidAmount)||0;const remaining=r2(total-already);const cashAccs=accountsData.filter(a=>a.type!=="wallet");
+            return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPartialPopup(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:440,border:"2px solid #0EA5E940",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+                <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:4}}>💵 {isRcv?"تحصيل جزئي":"دفع جزئي"} — {ch.party}</div>
+                <div style={{fontSize:FS-2,color:T.textSec,marginBottom:14}}>إجمالي الشيك: <b>{fmt0(total)}</b> · مدفوع: <b>{fmt0(already)}</b> · المتبقّي: <b style={{color:"#0EA5E9"}}>{fmt0(remaining)}</b> ج.م</div>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>المبلغ ({isRcv?"اللي هتحصّله":"اللي هتدفعه"})</label>
+                <input type="number" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS+1,fontWeight:700,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box",marginBottom:6,outline:"none"}}/>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+                  {[0.25,0.5,0.75,1].map(f=><span key={f} onClick={()=>setPartialAmt(String(r2(remaining*f)))} style={{cursor:"pointer",padding:"3px 10px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:"#0EA5E912",color:"#0284C7",border:"1px solid #0EA5E933"}}>{f===1?"الكل":Math.round(f*100)+"%"}</span>)}
+                </div>
+                <label style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>{isRcv?"يُودَع في":"يُصرَف من"}</label>
+                <select value={partialAcc} onChange={e=>setPartialAcc(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box",marginBottom:16}}>
+                  {cashAccs.map(a=><option key={a.id} value={a.name}>{a.name}</option>)}
+                </select>
+                <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+                  <span onClick={()=>setPartialPopup(null)} style={{cursor:"pointer",padding:"9px 18px",borderRadius:10,fontWeight:700,color:T.textSec,background:T.bg,border:"1px solid "+T.brd}}>إلغاء</span>
+                  <span onClick={()=>{const amt=r2(Number(partialAmt)||0);if(amt<=0||amt>remaining+0.001){showToast("⚠️ المبلغ لازم يكون أكبر من صفر وأقل من أو يساوي المتبقّي");return;}partialPay(ch.id,amt,partialAcc);setPartialPopup(null);}} style={{cursor:"pointer",padding:"9px 20px",borderRadius:10,fontWeight:800,color:"#fff",background:isRcv?T.ok:T.err}}>{isRcv?"✅ تحصيل":"✅ دفع"} {fmt0(r2(Number(partialAmt)||0))}</span>
+                </div>
+              </div>
+            </div>;
+          })()}
           {/* V18.0: Collect account picker — opens after user clicks "✅ تحصيل" on a receivable check */}
           {collectAccountPopup&&(()=>{const ch=collectAccountPopup.ch;
             return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setCollectAccountPopup(null)}>
