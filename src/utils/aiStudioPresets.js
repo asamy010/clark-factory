@@ -5,11 +5,11 @@
    المستخدم في factory/config.aiStudioPresets وبتتدمج (mergePresets).
 
    نوع اللقطة (shotType):
-     • model     = موديل لابس الطقم (try-on، الافتراضي)
+     • model     = موديل الطقم (try-on، الافتراضي)
      • reference = موديل مرجعي: Image1 (موديل) + Image2 (قطعة) → تبديل القطعة
                    مع قفل الهوية/الوقفة/الخلفية/الإضاءة (برومبت Ahmed الاحترافي)
-     • ghost     = مانيكان شبح (invisible mannequin)
-     • flat      = فرش مسطّح (flat-lay)
+     • ghost     = مانيكان مفرغ (invisible mannequin)
+     • flat      = تصوير مسطّح (flat-lay)
    ═══════════════════════════════════════════════════════════════════════ */
 
 export const AR_RATIOS = [
@@ -33,10 +33,10 @@ export const TIERS = [
 ];
 
 export const SHOT_TYPES = [
-  { id: "model",     label: "🧍 موديل لابس" },
+  { id: "model",     label: "🧍 موديل" },
   { id: "reference", label: "👯 موديل مرجعي" },
-  { id: "ghost",     label: "👕 مانيكان شبح" },
-  { id: "flat",      label: "🧺 فرش مسطّح" },
+  { id: "ghost",     label: "👕 مانيكان مفرغ" },
+  { id: "flat",      label: "🧺 تصوير مسطّح" },
 ];
 
 export const GENDERS = [
@@ -59,8 +59,8 @@ export const DEFAULT_TEMPLATES = [
   { id: "t_winter",    name: "🧣 شتوي دافئ",            builtin: true, options: { shotType: "model", genderId: "woman", poseId: "front", framingId: "three", backgroundId: "room", lightingId: "golden", camStyle: "life", cameraId: "dslr50", realismLevel: "strong", notes: "" } },
   { id: "t_minimal",   name: "◻️ مينيمال راقي",          builtin: true, options: { shotType: "model", genderId: "woman", poseId: "three4", framingId: "half", backgroundId: "solid", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
   { id: "t_portrait",  name: "👤 بورتريه قريب",          builtin: true, options: { shotType: "model", genderId: "boy", poseId: "front", framingId: "half", backgroundId: "beige", lightingId: "soft", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
-  { id: "t_ghost",     name: "👕 مانيكان شبح (متجر)",   builtin: true, options: { shotType: "ghost", backgroundId: "studio_white", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
-  { id: "t_flat",      name: "🧺 فرش مسطّح",            builtin: true, options: { shotType: "flat", backgroundId: "studio_white", camStyle: "pro", cameraId: "none", realismLevel: "medium", notes: "" } },
+  { id: "t_ghost",     name: "👕 مانيكان مفرغ (متجر)",   builtin: true, options: { shotType: "ghost", backgroundId: "studio_white", camStyle: "pro", cameraId: "dslr85", realismLevel: "medium", notes: "" } },
+  { id: "t_flat",      name: "🧺 تصوير مسطّح",            builtin: true, options: { shotType: "flat", backgroundId: "studio_white", camStyle: "pro", cameraId: "none", realismLevel: "medium", notes: "" } },
 ];
 
 export const CHILD_AGES = [
@@ -295,8 +295,8 @@ export function describeStudioOptions(opts, lib){
   const poses = (lib && lib.poses) || POSES;
   if(shot === "reference") return "موديل مرجعي (تبديل القطعة)";
   const bgL = (byId(backgrounds, o.backgroundId) || backgrounds[0] || BACKGROUNDS[0]).label;
-  if(shot === "ghost") return "مانيكان شبح · " + bgL;
-  if(shot === "flat")  return "فرش مسطّح · " + bgL;
+  if(shot === "ghost") return "مانيكان مفرغ · " + bgL;
+  if(shot === "flat")  return "تصوير مسطّح · " + bgL;
   const gender = byId(GENDERS, o.genderId) || GENDERS[0];
   const isChild = gender.id === "girl" || gender.id === "boy";
   const age = isChild ? byId(CHILD_AGES, o.ageId) : null;

@@ -746,7 +746,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* مكتبة تجربة الملابس — مخزن منفصل (factory/aiPromptLibrary_*) lazy + editable */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة تجربة الملابس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة البرومبتس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
                 {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
               </div>
               {library === null ? (
@@ -826,28 +826,36 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               </div>
             </div>
 
-            {/* custom prompt + analyze */}
+            {/* realism booster */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت {isReference ? "(مرجعي)" : "الحر"}</span>
-                {!isReference && <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>}
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
+                <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
               </div>
-              {(customOn || isReference) ? (
-                <>
-                  <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} rows={isReference ? 8 : 5} placeholder="اكتب البرومبت الكامل (الإنجليزي أدق)..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 90, outline: "none", lineHeight: 1.6 }} />
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    <Btn small onClick={() => setCustomPrompt(REFERENCE_TRYON_PROMPT)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>📋 قالب التلبيس المرجعي</Btn>
-                    <Btn small onClick={runAnalyze} disabled={analyzing} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>{analyzing ? "⏳ تحليل..." : "🔎 تحليل البرومبت"}</Btn>
-                    {customPrompt && <Btn small onClick={() => setCustomPrompt("")} style={{ background: T.err + "10", color: T.err, border: "1px solid " + T.err + "30" }}>مسح</Btn>}
-                  </div>
-                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6, lineHeight: 1.6 }}>🔎 «تحليل» بيقرأ البرومبت ويظبط الشيبس (السن/الخلفية/لون البشرة/الإضاءة) تلقائياً.</div>
-                </>
-              ) : (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={{ fontSize: FS - 2, color: T.textMut }}>اكتب برومبت كامل بنفسك بدل الخيارات.</span>
-                  <Btn small onClick={() => setCustomOn(true)} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>✍️ فعّل البرومبت الحر</Btn>
-                </div>
-              )}
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
+              {realismOn && chipRow("القوة", REALISM_LEVELS, realismLevel, setRealismLevel)}
+            </div>
+
+            {/* camera settings — with visual diagrams */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
+              {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
+              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
+                {CAMERA_PRESETS.map(c => {
+                  const on = cameraId === c.id;
+                  return (
+                    <div key={c.id} onClick={() => setCameraId(c.id)} style={{ cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: 9, borderRadius: 10, border: "1px solid " + (on ? T.accent : T.brd), background: on ? T.accent + "0D" : T.bg }}>
+                      <CamDiagram type={c.diagram} on={on} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: FS - 1, fontWeight: 800, color: on ? T.accent : T.text }}>{c.label}</div>
+                        <div style={{ fontSize: FS - 4, color: T.textMut, lineHeight: 1.5 }}>{c.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* library */}
@@ -900,36 +908,28 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )}
             </div>
 
-            {/* realism booster */}
+            {/* custom prompt + analyze */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
-                <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت {isReference ? "(مرجعي)" : "الحر"}</span>
+                {!isReference && <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>}
               </div>
-              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
-              {realismOn && chipRow("القوة", REALISM_LEVELS, realismLevel, setRealismLevel)}
-            </div>
-
-            {/* camera settings — with visual diagrams */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
-              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
-              {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
-              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
-              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
-                {CAMERA_PRESETS.map(c => {
-                  const on = cameraId === c.id;
-                  return (
-                    <div key={c.id} onClick={() => setCameraId(c.id)} style={{ cursor: "pointer", display: "flex", gap: 10, alignItems: "center", padding: 9, borderRadius: 10, border: "1px solid " + (on ? T.accent : T.brd), background: on ? T.accent + "0D" : T.bg }}>
-                      <CamDiagram type={c.diagram} on={on} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: FS - 1, fontWeight: 800, color: on ? T.accent : T.text }}>{c.label}</div>
-                        <div style={{ fontSize: FS - 4, color: T.textMut, lineHeight: 1.5 }}>{c.desc}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {(customOn || isReference) ? (
+                <>
+                  <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} rows={isReference ? 8 : 5} placeholder="اكتب البرومبت الكامل (الإنجليزي أدق)..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 90, outline: "none", lineHeight: 1.6 }} />
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    <Btn small onClick={() => setCustomPrompt(REFERENCE_TRYON_PROMPT)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>📋 قالب التلبيس المرجعي</Btn>
+                    <Btn small onClick={runAnalyze} disabled={analyzing} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>{analyzing ? "⏳ تحليل..." : "🔎 تحليل البرومبت"}</Btn>
+                    {customPrompt && <Btn small onClick={() => setCustomPrompt("")} style={{ background: T.err + "10", color: T.err, border: "1px solid " + T.err + "30" }}>مسح</Btn>}
+                  </div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 6, lineHeight: 1.6 }}>🔎 «تحليل» بيقرأ البرومبت ويظبط الشيبس (السن/الخلفية/لون البشرة/الإضاءة) تلقائياً.</div>
+                </>
+              ) : (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: FS - 2, color: T.textMut }}>اكتب برومبت كامل بنفسك بدل الخيارات.</span>
+                  <Btn small onClick={() => setCustomOn(true)} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>✍️ فعّل البرومبت الحر</Btn>
+                </div>
+              )}
             </div>
 
             {/* output settings */}
