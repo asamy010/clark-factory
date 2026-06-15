@@ -532,6 +532,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      in the V19.70 paymentReceived event message via the {method} variable. */
   const[txMethod,setTxMethod]=useState("نقدي كاش");
   const[editId,setEditId]=useState(null);
+  const[dragAcc,setDragAcc]=useState(null);/* V21.26.1: سحب وإفلات بطاقات النظرة العامة */
   /* Party picker popup */
   const[showPartyPicker,setShowPartyPicker]=useState(null);/* "customer" | "supplier" */
   const[partySearch,setPartySearch]=useState("");const partySearchDeb=useDebounced(partySearch,200);
@@ -2224,6 +2225,17 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
   const delAccount=(id)=>{if(txns.some(t=>t.account===id||(accountsData.find(a=>a.id===id)||{}).name===t.account)){playBeep("error");showToast("⛔ لا يمكن الحذف — يوجد حركات مرتبطة");return}
     upConfig(d=>{if(d.treasuryAccounts)d.treasuryAccounts=d.treasuryAccounts.filter(a=>(typeof a==="string"?a:a.id)!==id)});showToast("✓ تم الحذف")};
 
+  /* V21.26.1: إعدادات تاب «نظرة عامة» — إظهار/إخفاء خزنة + ترتيب البطاقات.
+     كلها إعدادات عرض فقط (treasurySettings) — صفر مساس بالحركات أو الأرصدة. */
+  const saveTreasurySetting=(mut)=>upConfig(d=>{if(!d.treasurySettings)d.treasurySettings={};mut(d.treasurySettings)});
+  const toggleOverviewHidden=(id)=>saveTreasurySetting(s=>{const set=new Set(Array.isArray(s.overviewHidden)?s.overviewHidden:[]);if(set.has(id))set.delete(id);else set.add(id);s.overviewHidden=[...set]});
+  const reorderAccounts=(draggedId,targetId)=>{if(!draggedId||draggedId===targetId)return;saveTreasurySetting(s=>{
+    let ids=(Array.isArray(s.accountOrder)?s.accountOrder:[]).filter(id=>accountsData.some(a=>a.id===id));
+    accountsData.forEach(a=>{if(!ids.includes(a.id))ids.push(a.id)});/* ضمّ أي خزنة جديدة */
+    const from=ids.indexOf(draggedId),to=ids.indexOf(targetId);if(from<0||to<0)return;
+    ids.splice(to,0,ids.splice(from,1)[0]);s.accountOrder=ids;
+  })};
+
   /* V18.0: Banks list management — banks used in checks form (auto-suggested in dropdown) */
   const banksList=Array.isArray(data.banks)?data.banks:[];
   const addBank=()=>{const n=newBankName.trim();if(!n)return;
@@ -2923,6 +2935,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const pendingTransferCount=isAdmin?transfers.filter(t=>t.status==="pending").length:0;
         const transferBadge=pendingTransferCount>0?" ⏳"+pendingTransferCount:(unreadTransferNotifs>0?" 🔴"+unreadTransferNotifs:"");
         const baseTabs=[];
+        baseTabs.push({k:"overview",l:"🗂️ نظرة عامة"});/* V21.26.1 */
         /* Sort accounts: SUB CASH first, then MAIN CASH, then others */
         const sortedAccounts=[...accountsData].sort((a,b)=>{const aS=a.name.toUpperCase().includes("SUB")?0:a.name.toUpperCase().includes("MAIN")?1:2;const bS=b.name.toUpperCase().includes("SUB")?0:b.name.toUpperCase().includes("MAIN")?1:2;return aS-bS});
         /* V21.9.218: wallets NO LONGER get a top-level acc_ tab — they live as
@@ -2972,7 +2985,81 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         totals via printDaily anyway. The action toolbar (date + print + PDF + WA)
         is collapsed to an inline icon row, and merged into the account summary
         card when view is `acc_`. */}
-    {!["transfers","checks","analysis","accounts","recurring","wallets","reports"].includes(view) && !view.startsWith("acc_") && (()=>{
+    {/* V21.26.1: تاب «نظرة عامة» — بطاقة لكل خزنة (تصميم بطاقة الأوردر). قراءة
+        مشتقّة من accBalances — صفر mutation مالي. إظهار/إخفاء + سحب وإفلات للأدمن. */}
+    {view==="overview"&&(()=>{
+      const orderArr=Array.isArray(ts.accountOrder)?ts.accountOrder:[];
+      const nonWallet=accountsData.filter(a=>a.type!=="wallet");
+      const ordered=[...nonWallet].sort((a,b)=>{const ia=orderArr.indexOf(a.id),ib=orderArr.indexOf(b.id);return (ia<0?9999:ia)-(ib<0?9999:ib)});
+      const hiddenSet=new Set(Array.isArray(ts.overviewHidden)?ts.overviewHidden:[]);
+      const shown=isAdmin?ordered:ordered.filter(a=>!hiddenSet.has(a.id));
+      const countByAcc={};txns.forEach(t=>{const n=t.account;if(n)countByAcc[n]=(countByAcc[n]||0)+1});
+      const grand=shown.reduce((s,a)=>{const b=accBalances[a.name]||{in:0,out:0};return{in:s.in+b.in,out:s.out+b.out}},{in:0,out:0});
+      return<div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+          <div>
+            <div style={{fontSize:FS+3,fontWeight:900,color:T.text}}>🗂️ نظرة عامة على الخزن <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>({shown.length})</span></div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>{isAdmin?"اسحب البطاقات لإعادة ترتيبها · 👁️ للتحكم في إظهار/إخفاء أي خزنة عن باقي المستخدمين":"أرصدة الخزن وإجمالي الوارد والمنصرف"}</div>
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{background:T.bg,border:"1px solid "+T.brd,borderRadius:12,padding:"8px 14px",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>إجمالي وارد</div><div style={{fontSize:FS+2,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{fmt0(r2(grand.in))}</div></div>
+            <div style={{background:T.bg,border:"1px solid "+T.brd,borderRadius:12,padding:"8px 14px",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>إجمالي منصرف</div><div style={{fontSize:FS+2,fontWeight:900,color:T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(r2(grand.out))}</div></div>
+            <div style={{background:T.accent+"0D",border:"1px solid "+T.accent+"33",borderRadius:12,padding:"8px 14px",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>الصافي</div><div style={{fontSize:FS+2,fontWeight:900,color:(grand.in-grand.out)>=0?"#0D9488":T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(r2(grand.in-grand.out))}</div></div>
+          </div>
+        </div>
+        {shown.length===0?<div style={{textAlign:"center",padding:30,color:T.textMut}}>مفيش خزن للعرض</div>:
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(320px,1fr))",gap:16}}>
+          {shown.map(a=>{
+            const b=accBalances[a.name]||{in:0,out:0};const inT=r2(b.in),outT=r2(b.out),bal=r2(b.in-b.out);
+            const cnt=countByAcc[a.name]||0;
+            const p=inT>0?Math.min(100,Math.max(0,Math.round((bal/inT)*100))):(bal>0?100:0);
+            const ringC=bal>=0?"#0D9488":T.err;const C=2*Math.PI*23;
+            const typeLabel=a.type==="bank"?"🏦 بنك":"💰 نقدي";const isHidden=hiddenSet.has(a.id);
+            return<div key={a.id}
+              draggable={isAdmin}
+              onDragStart={isAdmin?()=>setDragAcc(a.id):undefined}
+              onDragEnd={isAdmin?()=>setDragAcc(null):undefined}
+              onDragOver={isAdmin?e=>e.preventDefault():undefined}
+              onDrop={isAdmin?e=>{e.preventDefault();reorderAccounts(dragAcc,a.id);setDragAcc(null)}:undefined}
+              className="clark-card"
+              style={{background:T.cardSolid,borderRadius:22,border:"1px solid "+(dragAcc===a.id?T.accent:T.brd),overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.shadow,opacity:isHidden?0.5:1,position:"relative",cursor:isAdmin?"grab":"default"}}>
+              <div style={{padding:16,display:"flex",flexDirection:"column",gap:11,flex:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                  <div style={{minWidth:0}}>
+                    <span style={{display:"inline-block",fontSize:FS-3,fontWeight:800,color:T.accent,padding:"3px 11px",borderRadius:999,background:T.accent+"12"}}>{typeLabel}</span>
+                    <div style={{fontSize:FS+4,fontWeight:900,color:T.text,margin:"7px 0 1px",lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div>
+                    {a.ownerEmail?<div style={{fontSize:FS-2,color:T.textSec,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {a.ownerEmail}</div>:null}
+                  </div>
+                  {isAdmin&&<div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                    <span onClick={e=>{e.stopPropagation();toggleOverviewHidden(a.id)}} title={isHidden?"مخفي عن غير الأدمن — اضغط للإظهار":"ظاهر — اضغط لإخفائه عن غير الأدمن"} style={{cursor:"pointer",fontSize:17}}>{isHidden?"🙈":"👁️"}</span>
+                    <span title="اسحب لإعادة الترتيب" style={{cursor:"grab",color:T.textMut,fontSize:17}}>⠿</span>
+                  </div>}
+                </div>
+                {isHidden&&<div style={{fontSize:FS-3,fontWeight:700,color:T.warn,background:T.warn+"12",borderRadius:8,padding:"3px 9px",alignSelf:"flex-start"}}>🙈 مخفي عن غير الأدمن</div>}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:T.bg,borderRadius:18,padding:"13px 16px"}}>
+                  <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                    <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>الرصيد</div><div style={{fontSize:FS+3,fontWeight:900,color:bal>=0?"#0D9488":T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(bal)}</div></div>
+                    <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>وارد</div><div style={{fontSize:FS+3,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{fmt0(inT)}</div></div>
+                    <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>منصرف</div><div style={{fontSize:FS+3,fontWeight:900,color:T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(outT)}</div></div>
+                    <div style={{textAlign:"center"}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:2}}>الحركات</div><div style={{fontSize:FS+3,fontWeight:900,color:T.text,fontVariantNumeric:"tabular-nums"}}>{cnt}</div></div>
+                  </div>
+                  <svg width="58" height="58" viewBox="0 0 58 58" style={{flexShrink:0}}>
+                    <circle cx="29" cy="29" r="23" fill="none" stroke={ringC+"22"} strokeWidth="7"/>
+                    <circle cx="29" cy="29" r="23" fill="none" stroke={ringC} strokeWidth="7" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C*(1-p/100)} transform="rotate(-90 29 29)"/>
+                    <text x="29" y="33" textAnchor="middle" fontSize="12" fontWeight="900" fill={ringC}>{p}%</text>
+                  </svg>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:"auto",paddingTop:11,borderTop:"1px solid "+T.brd}}>
+                  <div onClick={()=>{setView("acc_"+a.id);setFilterAcc(a.name);setTxAccount(a.name)}} title="فتح معاملات الخزنة" style={{flex:1,padding:"9px",borderRadius:13,background:T.accent+"10",color:T.accent,border:"1px solid "+T.accent+"22",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:800,gap:6}}>📊 المعاملات ▸</div>
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>}
+      </div>;
+    })()}
+
+    {!["overview","transfers","checks","analysis","accounts","recurring","wallets","reports"].includes(view) && !view.startsWith("acc_") && (()=>{
       /* Journal-view-only toolbar (date + actions). For acc_xxx views the toolbar
          lives inside the account summary card to save vertical space. */
       const currentAccName=null;const scopeLabel="الكل";
