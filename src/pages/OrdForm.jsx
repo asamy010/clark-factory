@@ -16,6 +16,8 @@ import { gIcon, setF, sqty, gid } from "../utils/format.js";
 /* V19.36: Model images now upload to Firebase Storage at 1280px @ 85% quality
    (was: 250px @ 40% inline base64). The order doc only stores the download URL. */
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
+/* V21.25.9: صورة الموديل الأساسية تفتح قايمة (كمبيوتر/مساحة التخزين) زي تاب اللون */
+import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { sortOrders, validateOrder } from "../utils/orders.js";
 import { askInput, showToast, tell } from "../utils/popups.js";
 /* V19.37: removed compressFile import — file attachments inside OrdForm were retired */
@@ -39,9 +41,8 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   /* V19.36: handleImg now uploads to Storage instead of base64-encoding inline.
      If the user is replacing an existing Storage-backed image, the old object
      is deleted first (best-effort, fire-and-forget). */
-  const handleImg=async e=>{
-    const f=e.target.files[0];
-    e.target.value="";
+  /* V21.25.9: ياخد File مباشرة (من ImagePickButton) — رفع لصورة الموديل الأساسية. */
+  const uploadMainImage=async f=>{
     if(!f)return;
     if(!f.type.startsWith("image/")){await tell("نوع غير مدعوم","الملف لازم يكون صورة (JPEG/PNG/WebP)",{type:"warning"});return}
     setUploadingImg(true);
@@ -58,6 +59,13 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
     } finally {
       setUploadingImg(false);
     }
+  };
+  /* V21.25.9: ربط صورة جاهزة من مساحة التخزين (URL — مفيش رفع جديد). */
+  const linkMainImage=(url)=>{
+    if(!url)return;
+    const oldPath=form.imageStoragePath;
+    setForm(p=>({...p,image:url,imageStoragePath:""}));
+    if(oldPath) deleteOrderImage(oldPath).catch(err=>console.warn("[V21.25.9] old image cleanup failed:",err));
   };
   /* V19.37: handleFile removed — file attachments inside OrdForm were retired (per user request) */
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
@@ -156,18 +164,18 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       {/* V19.80.6: image upload preview — locked to 4:5 portrait (1080:1350,
            catalog-photo standard). Desktop 144×180 px, full-width × auto on
            mobile. object-fit:cover so any source size is framed cleanly. */}
-      <div><div style={{width:isMob?"100%":144,aspectRatio:"4 / 5",borderRadius:12,border:"2px dashed "+(form.image?T.accent+"40":T.brd),display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative",transition:"border-color 0.15s"}}>
+      <div><ImagePickButton data={data} imagesOnly disabled={uploadingImg} onFile={uploadMainImage} onPickUrl={linkMainImage}
+        triggerStyle={{width:isMob?"100%":144,aspectRatio:"4 / 5",borderRadius:12,border:"2px dashed "+(form.image?T.accent+"40":T.brd),display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.inputBg||T.cardSolid,cursor:"pointer",position:"relative",transition:"border-color 0.15s"}}>
         {form.image
           ?<img src={form.image} alt="" loading="eager" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
           :<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,color:T.textMut,padding:8,textAlign:"center"}}>
             <span style={{fontSize:32,opacity:0.4,lineHeight:1}}>📷</span>
-            <span style={{fontSize:FS-2,fontWeight:600}}>اضغط لاختيار صورة</span>
+            <span style={{fontSize:FS-2,fontWeight:600}}>اختر صورة (كمبيوتر/تخزين)</span>
             <span style={{fontSize:FS-3,opacity:0.7}}>1080×1350 (4:5 طولي)</span>
           </div>
         }
-        <input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
         {uploadingImg&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:FS-2,fontWeight:700}}>⏳ جاري الرفع...</div>}
-      </div></div>
+      </ImagePickButton></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:modelMode?(isMob?"1fr 1fr":"1fr 2fr 1fr"):(isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr"),gap:6,marginBottom:6}}>
           {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>}
