@@ -256,6 +256,16 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const isModelShot = shotType === "model";
   const isReference = shotType === "reference";
   const isChild = genderId === "girl" || genderId === "boy";
+  /* V21.26.21: «وضع البرومبت الجاهز» — لما مجموعة برومبت مفتوحة (openGroup)،
+     خيارات الموديل اللي مابتأثّرش على تنفيذ البرومبت الجاهز تتعرض باهتة (غير
+     مؤثّرة). المؤثّر فعلاً على البرومبت الجاهز: العمر (لغير جروبات الكبار) +
+     لون البشرة + الملاحظات + العدد + صورة المصدر. باقي الخيارات (نوع التصوير/
+     الجنس/التعبير/الوقفة/الإطار/الإضاءة/الخلفية/الواقعية/الكاميرا/البرومبت الحر)
+     بتغذّي وضع «موديل» اليدوي بس — مالهاش تأثير على البرومبت الجاهز. */
+  const readyMode = !!openGroup;
+  const groupIsAdult = openGroup === "FOR HIM" || openGroup === "FOR HER";
+  const ageInert = readyMode && groupIsAdult;  /* العمر باهت لجروبات الكبار */
+  const optInert = readyMode;                  /* باقي خيارات الموديل باهتة */
   const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
@@ -862,12 +872,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const Chip = ({ on, onClick, children }) => (
     <span onClick={onClick} style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 999, fontSize: FS - 2, fontWeight: 700, color: on ? "#fff" : T.textSec, background: on ? T.accent : T.bg, border: "1px solid " + (on ? T.accent : T.brd), whiteSpace: "nowrap" }}>{children}</span>
   );
-  const chipRow = (label, items, val, setVal) => (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>{label}</div>
+  const chipRow = (label, items, val, setVal, inert) => (
+    <div style={{ marginBottom: 10, opacity: inert ? 0.4 : 1, transition: "opacity .15s" }} title={inert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
+      <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>{label}{inert ? " · غير مؤثّر" : ""}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{items.map(it => <Chip key={it.id} on={val === it.id} onClick={() => setVal(it.id)}>{it.label}</Chip>)}</div>
     </div>
   );
+  /* V21.26.21: ستايل تعتيم لأي بلوك إعدادات غير مؤثّر في الوضع الحالي. */
+  const inertCard = (inert) => inert ? { opacity: 0.4, transition: "opacity .15s" } : null;
 
   const resultActions = (res, inGallery) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
@@ -929,8 +941,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           {/* ── left: inputs (عمود الإعدادات — اسكرول مستقل) ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineEnd: isMob ? undefined : 4 }}>
             {/* shot type */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع التصوير</div>
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع التصوير{optInert ? " · غير مؤثّر" : ""}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{SHOT_TYPES.map(s => <Chip key={s.id} on={shotType === s.id} onClick={() => setShot(s.id)}>{s.label}</Chip>)}</div>
             </div>
 
@@ -1072,14 +1084,19 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* options */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
+              {readyMode && (
+                <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", border: "1px solid " + T.accent + "22", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.7 }}>
+                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — المؤثّر بس: <b>{groupIsAdult ? "لون البشرة + الملاحظات" : "العمر + لون البشرة + الملاحظات"}</b>. باقي الإعدادات <b>الباهتة</b> دي للوضع اليدوي (موديل) ومالهاش تأثير على البرومبت الجاهز.
+                </div>
+              )}
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
-              {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId)}
-              {isModelShot && isChild && chipRow("العمر", CHILD_AGES, ageId, setAgeId)}
-              {isModelShot && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId)}
+              {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId, optInert)}
+              {((isModelShot && isChild) || readyMode) && chipRow("العمر", CHILD_AGES, ageId, setAgeId, ageInert)}
+              {isModelShot && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId, optInert)}
               {isModelShot && (
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 10, opacity: optInert ? 0.4 : 1, transition: "opacity .15s" }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>الوقفة {multiPose ? "(متعددة — صورة لكل وقفة)" : ""}</span>
+                    <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>الوقفة{optInert ? " · غير مؤثّر" : ""} {multiPose ? "(متعددة — صورة لكل وقفة)" : ""}</span>
                     <span onClick={() => { setMultiPose(v => !v); setSelPoses(multiPose ? [] : [poseId]); }} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: multiPose ? T.accent : T.textMut }}>{multiPose ? "✓ وقفات متعددة" : "وقفات متعددة"}</span>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1090,12 +1107,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                   </div>
                 </div>
               )}
-              {isModelShot && chipRow("الإطار", FRAMINGS, framingId, setFramingId)}
-              {isModelShot && chipRow("لون البشرة", SKIN_TONES, skinToneId, setSkinToneId)}
-              {isModelShot && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId)}
+              {isModelShot && chipRow("الإطار", FRAMINGS, framingId, setFramingId, optInert)}
+              {(isModelShot || readyMode) && chipRow("لون البشرة", SKIN_TONES, skinToneId, setSkinToneId)}
+              {isModelShot && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId, optInert)}
               {!isReference && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الخلفية</div>
+                <div style={{ marginBottom: 10, opacity: optInert ? 0.4 : 1, transition: "opacity .15s" }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
+                  <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الخلفية{optInert ? " · غير مؤثّر" : ""}</div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{lib.backgrounds.map(it => <Chip key={it.id} on={backgroundId === it.id} onClick={() => setBackgroundId(it.id)}>{it.label}{it.custom ? " ✦" : ""}</Chip>)}</div>
                 </div>
               )}
@@ -1106,9 +1123,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             </div>
 
             {/* realism booster */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية{optInert ? " · غير مؤثّر" : ""}</span>
                 <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
               </div>
               <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
@@ -1116,8 +1133,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             </div>
 
             {/* camera settings — with visual diagrams */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا{optInert ? " · غير مؤثّر" : ""}</div>
               <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
               {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
               <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
@@ -1190,9 +1207,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* custom prompt + analyze — وضع «موديل» فقط (المرجعي/المفرغ/المسطح
                 بيستخدموا برومبتهم الداخلي المخفي). يدوي بالكامل — مايتفعّلش لوحده. */}
             {isModelShot && (
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت الحر <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اختياري)</span></span>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت الحر{optInert ? " · غير مؤثّر" : ""} <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اختياري)</span></span>
                 <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>
               </div>
               {customOn ? (
