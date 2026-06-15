@@ -153,7 +153,9 @@ export default async function handler(req, res){
           alert = { attempted: false, skipped: "no-recipients" };
         } else {
           const text = buildAlertMessage(report, to);
-          const messages = phones.map(phone => ({ phone, message: text, role: "owner" }));
+          /* V21.26.19: id ثابت (تاريخ التقرير + الهاتف) — يمنع تكرار تنبيه نفس
+             اليوم لو الـ cron اشتغل مرتين قبل ما alertSentAt يتسجّل. */
+          const messages = phones.map(phone => ({ id: "reconcile:" + to + "|" + phone, phone, message: text, role: "owner" }));
           try {
             /* bridgeSend فيه AbortController 8 ثوانٍ داخلياً (V21.9.41) */
             const r = await bridgeSend(bridgeUrl, bridgeToken, messages);

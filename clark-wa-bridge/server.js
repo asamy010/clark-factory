@@ -125,6 +125,46 @@ let stats = { totalSent: 0, totalFailed: 0, sessionStart: Date.now() };
 let activityLog = []; /* [{phone, customerName, status, timestamp, error?, durationMs?}] */
 const ACTIVITY_LOG_MAX = 100;
 
+/* ──────────────────────────────────────────────────────────────────
+   V21.26.19 — Idempotent /send (إصلاح الرسالة المكرّرة)
+   ───────────────────────────────────────────────────────────────────
+   ROOT CAUSE: /send كان بيعمل queue.push للرسائل من غير أي dedup. أي نداء
+   مكرّر بيتحوّل لرسالتين فعليتين على واتساب. التكرار بييجي من:
+     • client retry بعد proxy timeout (8s) — الرسالة وصلت الـ bridge بس
+       الـ ACK اتأخّر فالـ client أعاد المحاولة.
+     • cron re-fire للإشعارات (كل 5 دقايق) لو الـ idempotency في CLARK
+       فشل (مثلاً eventHistory اتعمله eviction).
+     • double-click / نداءين من الـ UI للحملة.
+   الحل (دفاع أخير عند نقطة الإرسال): dedup على مفتاح:
+     • لو الرسالة معاها id ثابت من المُرسِل → dedupe بالـ id (نافذة أطول،
+       لأن تكرار نفس الـ id = re-fire مؤكّد مش قصد).
+     • لو مفيش id → بصمة محتوى (phone+message+media) بنافذة قصيرة (يكفي
+       يمسك الـ double-click/retry/cron-tick من غير ما يمنع تكرار مقصود
+       متباعد). + استبعاد أي مفتاح لسه active في الـ queue.
+   المفتاح بيتجدّد وقت الإرسال الفعلي كمان (عشان لو الـ queue متأخّر).
+   كل ده in-memory — بيتصفّر مع restart (زي الـ queue نفسه). */
+const SEND_DEDUPE_ID_MS = 60 * 60 * 1000;   /* id ثابت → ساعة (يغطّي عدة cron ticks) */
+const SEND_DEDUPE_CONTENT_MS = 6 * 60 * 1000; /* بصمة محتوى → 6 دقايق (> دورة الـ cron 5د) */
+const RECENT_SENDS_MAX = 1000;
+const recentSends = new Map(); /* dedupeKey -> expiresAt(ms) */
+
+function dedupeKeyFor(m){
+  if (m && m.id) return "id:" + String(m.id);
+  const norm = normalizePhone(m.phone);
+  const mediaSig = Array.isArray(m.media) && m.media.length
+    ? m.media.map(x => (x && (x.url || (x.base64 ? String(x.base64).slice(0, 24) : ""))) || "").join(",")
+    : (m.mediaBase64 ? String(m.mediaBase64).slice(0, 24) : "");
+  return "c:" + crypto.createHash("sha1").update(norm + "|" + (m.message || "") + "|" + mediaSig).digest("hex");
+}
+function pruneRecentSends(now){
+  for (const [k, exp] of recentSends) { if (exp <= now) recentSends.delete(k); }
+  /* حد أقصى صارم — لو فضل كبير بعد التقليم، شيل الأقدم */
+  if (recentSends.size > RECENT_SENDS_MAX) {
+    const over = recentSends.size - RECENT_SENDS_MAX;
+    let i = 0; for (const k of recentSends.keys()) { if (i++ >= over) break; recentSends.delete(k); }
+  }
+}
+
 function addActivity(entry){
   activityLog.unshift({...entry, timestamp: new Date().toISOString()});
   if(activityLog.length > ACTIVITY_LOG_MAX) activityLog = activityLog.slice(0, ACTIVITY_LOG_MAX);
@@ -571,6 +611,9 @@ async function processQueue() {
 
       item.status = "sent";
       item.sentAt = new Date().toISOString();
+      /* V21.26.19: جدّد نافذة الـ dedup من وقت الإرسال الفعلي — يحمي لو الـ
+         queue كان متأخّر فالنافذة الأصلية (وقت الإضافة) خلصت قبل ما يتبعت. */
+      if (item._dkey) recentSends.set(item._dkey, Date.now() + (item._dedupeTtl || SEND_DEDUPE_CONTENT_MS));
       dailyCounter.sent++;
       stats.totalSent++;
       inBatch++;
@@ -659,13 +702,28 @@ app.post("/send", (req, res) => {
   if (!waReady) {
     return res.status(503).json({ ok: false, error: "WhatsApp not connected" });
   }
+  const now = Date.now();
   const added = [];
+  let duplicates = 0; /* V21.26.19: عدّاد الرسائل المكرّرة المُستبعَدة */
   for (const m of messages) {
     /* V19.33: Allow items with only media (no text caption) — but at least phone is required */
     if (!m.phone) continue;
     if (!m.message && !m.mediaBase64 && !(Array.isArray(m.media) && m.media.length > 0)) continue;
+    /* V21.26.19: dedupe — استبعد لو نفس المفتاح اتبعت في النافذة أو لسه active في الـ queue */
+    const dkey = dedupeKeyFor(m);
+    const exp = recentSends.get(dkey);
+    const inQueue = queue.some(q => q && q._dkey === dkey && (q.status === "pending" || q.status === "sending"));
+    if ((exp && exp > now) || inQueue) {
+      duplicates++;
+      console.log(`[Q] DEDUPED duplicate /send → ${m.phone} (${dkey.slice(0, 18)})`);
+      continue;
+    }
+    const ttl = dkey.startsWith("id:") ? SEND_DEDUPE_ID_MS : SEND_DEDUPE_CONTENT_MS;
+    recentSends.set(dkey, now + ttl);
     added.push({
       id: m.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+      _dkey: dkey,           /* V21.26.19: مفتاح الـ dedup — يتجدّد وقت الإرسال الفعلي */
+      _dedupeTtl: ttl,
       phone: m.phone,
       message: m.message || "",
       /* V19.33: media[] array (preferred) or legacy single-image fields */
@@ -682,9 +740,10 @@ app.post("/send", (req, res) => {
       addedAt: new Date().toISOString(),
     });
   }
+  pruneRecentSends(now);
   queue.push(...added);
   if (!queueRunning && !queuePaused) processQueue();
-  res.json({ ok: true, added: added.length, queueTotal: queue.length });
+  res.json({ ok: true, added: added.length, duplicates, queueTotal: queue.length });
 });
 
 /* Pause / Resume / Stop */

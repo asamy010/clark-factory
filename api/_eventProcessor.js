@@ -125,6 +125,15 @@ const INFLIGHT_LOCK_MS = 360_000;
    bypass for legitimate identical re-fires (rare). */
 const CONTENT_DEDUPE_MS = 900_000;
 
+/* ─── V21.26.19: eventHistory cap ───
+   كان 100. على يوم مزدحم (دفعات/مبيعات/حملات > 100 حدث خلال 24 ساعة) كانت
+   السجلات الأقدم بتتعمل eviction من السقف، فالـ cron (بيمسح آخر 24 ساعة كل
+   5 دقايق) ما بيلاقيش سجل النجاح للحدث → بيعيد الإرسال → رسالة مكرّرة بعد
+   ساعات. رفع السقف لـ 300 بيقلّل الـ eviction بشكل كبير (السجل صغير ~250
+   بايت/سجل → ~75KB، في حدود الـ 1MB). التغيير أحادي الاتجاه: يقلّل التكرار
+   ولا يزيد الإرسال أبداً. (مع dedup الـ bridge كدفاع أخير عند نقطة الإرسال.) */
+const EVENT_HISTORY_MAX = 300;
+
 /* ─── Append OR update existing eventHistory entry + maintain pending queue ───
    V19.76.3: now updates the in-flight entry written by claimEvent (instead of
    pushing a duplicate row). If no in-flight entry exists (claim was skipped or
@@ -166,7 +175,7 @@ export async function recordResult(db, opts){
     } else {
       history.unshift(finalEntry);
     }
-    et.eventHistory = history.slice(0, 100);
+    et.eventHistory = history.slice(0, EVENT_HISTORY_MAX);
 
     if (success && Array.isArray(et.pending) && idempotencyKey) {
       et.pending = et.pending.filter(p => p.idempotencyKey !== idempotencyKey);
@@ -267,7 +276,7 @@ export async function claimEvent(db, opts){
     } else {
       history.unshift(claimEntry);
     }
-    et.eventHistory = history.slice(0, 100);
+    et.eventHistory = history.slice(0, EVENT_HISTORY_MAX);
     auto.eventTriggers = et;
     tx.set(ref, { automation: auto }, { merge: true });
     return { claimed: true };
@@ -543,8 +552,11 @@ export async function processEvent(db, params){
   try {
     /* Fire */
     try {
+      /* V21.26.19: مرّر id ثابت لكل رسالة (idempotencyKey + الهاتف) عشان
+         الـ bridge يعمل dedup حتمي — أي retry/re-fire بنفس الحدث للمستلم
+         نفسه بيتمنع عند نقطة الإرسال (دفاع أخير ضد الرسالة المكرّرة). */
       _bridgeResult = await bridgeSend(bridgeUrl, bridgeToken,
-        messages.map(m => ({ phone: m.phone, message: m.message })));
+        messages.map(m => ({ id: idempotencyKey + "|" + (m.phone || ""), phone: m.phone, message: m.message })));
     } catch (e) {
       _bridgeError = e;
       await queuePending(db, {

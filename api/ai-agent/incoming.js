@@ -298,7 +298,8 @@ export default async function handler(req, res) {
     const bTok = (bridge.token || process.env.WHATSAPP_BRIDGE_TOKEN || "").trim();
     if (!bUrl) sendErr = "bridge URL not configured";
     else {
-      try { await sendViaBridge(bUrl, bTok, phone, reply, customerName); sent = true; }
+      /* V21.26.19: مرّر id ثابت (wid الرسالة الواردة، وإلا from:ts) للـ dedup */
+      try { await sendViaBridge(bUrl, bTok, phone, reply, customerName, wid || (from + ":" + ts)); sent = true; }
       catch (e) { sendErr = e?.message || String(e); console.error("[ai-agent/incoming] sendViaBridge failed:", sendErr); }
     }
   }

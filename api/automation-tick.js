@@ -1340,7 +1340,9 @@ async function scanScheduledCampaigns(db, cfg, cairoDate){
   const messages = items
     .filter(it => it && it.phone && String(it.phone).trim())
     .map(it => {
-      const msg = { phone: String(it.phone).trim(), message: personalizedMessage(it) };
+      /* V21.26.19: id ثابت (الحملة + الهاتف) — يمنع تكرار نفس الحملة لنفس
+         المستلم لو الـ cron أعاد الإرسال (دفاع عند الـ bridge). */
+      const msg = { id: "campaign:" + target.id + "|" + String(it.phone).trim(), phone: String(it.phone).trim(), message: personalizedMessage(it) };
       if (mediaPayload.length > 0) msg.media = mediaPayload;
       return msg;
     });
@@ -1558,7 +1560,9 @@ export default async function handler(req, res) {
               date: cairo.date,
             });
           }
-          return { phone: r.phone, message: reportCache[cacheKey].text };
+          /* V21.26.19: id ثابت لليوم+الهاتف عشان الـ bridge يمنع أي تكرار
+             لو الـ cron اشتغل مرتين (دفاع فوق alreadySentToday). */
+          return { id: "dailyReport:" + cairo.date + "|" + r.phone, phone: r.phone, message: reportCache[cacheKey].text };
         });
 
         const bridgeUrl = (cfg.campaignBridge || {}).url || "";
