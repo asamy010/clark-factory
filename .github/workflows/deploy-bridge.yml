@@ -1,0 +1,90 @@
+# ═══════════════════════════════════════════════════════════════════════
+# CLARK — نشر الواتس اب بريدج على الـ VPS تلقائياً (V21.26.19)
+# ───────────────────────────────────────────────────────────────────────
+# بيشتغل أوتوماتيك مع أي push على main بيلمس clark-wa-bridge/** ، وكمان
+# يدوي من تبويب Actions (زر Run workflow) — مفيد لنشر نسخة موجودة من غير
+# تعديل جديد.
+#
+# بينسخ ملفات البريدج للسيرفر (scp) ثم يعيد بناء الكونتينر:
+#   docker compose up -d --build bridge
+# جلسة الواتساب مش بتضيع (في volume منفصل bridge-auth)، والـ .env على
+# السيرفر مابيتلمسش (مش موجود في الريبو أصلاً — gitignored).
+#
+# ─── Secrets المطلوبة (Settings → Secrets and variables → Actions) ───
+#   VPS_SSH_KEY   (إلزامي) — المفتاح الخاص (private key) اللي بيدخل السيرفر.
+#   VPS_HOST      (إلزامي) — IP/دومين السيرفر (مثلاً 77.237.235.160).
+#   VPS_USER      (اختياري) — اسم المستخدم، الافتراضي root.
+#   VPS_PATH      (اختياري) — مسار البريدج، الافتراضي /root/clark-wa-bridge.
+#
+# ⚠️ أمان (CLAUDE.md §0.1): الأفضل تعمل مستخدم/مفتاح deploy مخصّص بصلاحية
+#   محدودة بدل مفتاح root كامل. أي حد عنده صلاحية كتابة على الريبو هيقدر
+#   يوصل السيرفر بالمفتاح ده.
+# ═══════════════════════════════════════════════════════════════════════
+name: Deploy WhatsApp Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clark-wa-bridge/**"
+  workflow_dispatch: {}
+
+# نشر واحد في المرة — متشغّلش نشرتين متوازيتين على نفس السيرفر.
+concurrency:
+  group: deploy-bridge
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::لازم تضيف VPS_HOST و VPS_SSH_KEY في Secrets قبل النشر."
+            exit 1
+          fi
+
+      - name: Set up SSH key + known_hosts
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy bridge files to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
+          VPS_PATH: ${{ secrets.VPS_PATH || '/root/clark-wa-bridge' }}
+        run: |
+          # ننسخ ملفات التطبيق + تعريف الصورة فقط — من غير .env (محفوظ على السيرفر).
+          scp -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            clark-wa-bridge/server.js \
+            clark-wa-bridge/package.json \
+            clark-wa-bridge/Dockerfile \
+            clark-wa-bridge/docker-compose.yml \
+            clark-wa-bridge/Caddyfile \
+            "$VPS_USER@$VPS_HOST:$VPS_PATH/"
+
+      - name: Rebuild & restart bridge
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
+          VPS_PATH: ${{ secrets.VPS_PATH || '/root/clark-wa-bridge' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "cd '$VPS_PATH' && docker compose up -d --build bridge && docker compose ps && docker compose logs --tail=25 bridge"
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
