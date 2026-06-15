@@ -104,36 +104,32 @@ function ChartTooltip({ active, payload, label, T, FS, color }) {
 /* ─── card primitive ──────────────────────────────────────────────── */
 
 function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabel, onNewAction, newActionLabel, T, FS, extra }) {
+  /* V21.26.2: نفس تصميم بطاقات الأوردر — زوايا دائرية + ظل ناعم + صندوق
+     إحصائيات + أزرار دائرية + نقطة ملوّنة بدل الشريط الجانبي. */
   return (
-    <div style={{
+    <div className="clark-card" style={{
       position: "relative",
       background: T.cardSolid,
       border: "1px solid " + T.brd,
-      borderRadius: 12,
-      padding: 14,
-      paddingInlineStart: 18, /* room for accent stripe */
-      display: "flex", flexDirection: "column", gap: 10,
+      borderRadius: 20,
+      padding: 16,
+      display: "flex", flexDirection: "column", gap: 11,
       minHeight: 220,
       overflow: "hidden",
+      boxShadow: T.shadow,
     }}>
-      {/* Color accent stripe on the inline-start edge */}
-      <div style={{
-        position: "absolute", insetInlineStart: 0, top: 0, bottom: 0,
-        width: 4, background: color,
-      }} />
-
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ fontSize: FS + 1, fontWeight: 800, color: color }}>{title}</div>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-          {/* V21.9.188 — Phase 3: solid "+ جديد" primary action button */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: FS + 1, fontWeight: 900, color: color }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />{title}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {onNewAction && (
             <button
               onClick={onNewAction}
               style={{
-                padding: "4px 12px", borderRadius: 6, fontSize: FS - 2, fontWeight: 800,
-                background: color, color: "#fff", border: "1px solid " + color,
-                cursor: "pointer",
+                padding: "6px 13px", borderRadius: 11, fontSize: FS - 2, fontWeight: 800,
+                background: color, color: "#fff", border: "1px solid " + color, cursor: "pointer",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(0.92)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; }}
@@ -144,9 +140,8 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
             <button
               onClick={onMainAction}
               style={{
-                padding: "4px 12px", borderRadius: 6, fontSize: FS - 2, fontWeight: 700,
-                background: color + "12", color: color, border: "1px solid " + color + "30",
-                cursor: "pointer",
+                padding: "6px 13px", borderRadius: 11, fontSize: FS - 2, fontWeight: 700,
+                background: color + "12", color: color, border: "1px solid " + color + "30", cursor: "pointer",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = color + "22"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = color + "12"; }}
@@ -155,8 +150,8 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
         </div>
       </div>
 
-      {/* Stat lines */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {/* Stat lines — صندوق إحصائيات زي بطاقة الأوردر */}
+      <div style={{ background: T.bg, borderRadius: 16, padding: "11px 14px", display: "flex", flexDirection: "column", gap: 5 }}>
         {stats.map((s, i) => (
           <div key={i} style={{
             display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8,
@@ -164,9 +159,9 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
           }}>
             <span style={{ color: T.textSec, fontWeight: 600 }}>{s.label}</span>
             <span style={{
-              color: s.color || color, fontWeight: 800,
-              fontSize: s.big ? FS + 1 : FS,
-              fontFamily: "monospace",
+              color: s.color || color, fontWeight: 900,
+              fontSize: s.big ? FS + 2 : FS,
+              fontVariantNumeric: "tabular-nums",
               direction: "ltr",
             }}>{s.value}</span>
           </div>
@@ -175,7 +170,7 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
 
       {/* Mini bar chart */}
       {chartData && chartData.some(d => d.value > 0) && (
-        <div style={{ height: 60, marginTop: "auto", marginInlineStart: -8 /* tighten chart to card edge */ }}>
+        <div style={{ height: 58, marginTop: "auto", marginInlineStart: -8 /* tighten chart to card edge */ }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
               <XAxis
@@ -184,7 +179,7 @@ function DashCard({ title, color, stats, chartData, onMainAction, mainActionLabe
                 interval={0}
               />
               <Tooltip content={(p) => <ChartTooltip {...p} T={T} FS={FS} color={color} />} cursor={{ fill: color + "10" }} />
-              <Bar dataKey="value" fill={color} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
