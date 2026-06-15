@@ -626,6 +626,10 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
     if (!previewFile) return null;
     const file = previewFile;
     const m = (file.contentType || "").toLowerCase();
+    /* V21.24.3 — للصور: الصندوق يتقلّص على مقاس الصورة (shrink-wrap) ومنطقة
+       العرض شفّافة، فمفيش letterbox أسود حوالين الصورة. للـ PDF/النص يفضل
+       الصندوق العريض الثابت (900px) عشان القراءة. */
+    const isImg = m.startsWith("image/");
     return (
       <div className="pop-overlay" style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
@@ -634,7 +638,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
       }} onClick={() => setPreviewFile(null)}>
         <div onClick={e => e.stopPropagation()} style={{
           background: T.cardSolid, borderRadius: 16, padding: 16,
-          width: "100%", maxWidth: 900, maxHeight: "92vh",
+          width: isImg ? "auto" : "100%", maxWidth: isImg ? "96vw" : 900, maxHeight: "92vh",
           display: "flex", flexDirection: "column", gap: 12, overflow: "hidden",
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -651,9 +655,9 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
               <Btn ghost onClick={() => setPreviewFile(null)}>✕</Btn>
             </div>
           </div>
-          <div style={{ flex: 1, overflow: "auto", borderRadius: 10, border: "1px solid " + T.brd, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {m.startsWith("image/") && (
-              <img src={file.downloadURL} alt={file.name} style={{ maxWidth: "100%", maxHeight: "75vh", display: "block" }} />
+          <div style={{ flex: isImg ? "0 1 auto" : 1, minHeight: 0, overflow: "auto", borderRadius: 10, border: "1px solid " + T.brd, background: isImg ? "transparent" : "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {isImg && (
+              <img src={file.downloadURL} alt={file.name} style={{ maxWidth: "90vw", maxHeight: "78vh", display: "block", objectFit: "contain" }} />
             )}
             {m === "application/pdf" && (
               <iframe src={file.downloadURL} title={file.name} style={{ width: "100%", height: "75vh", border: "none", background: "#fff" }} />
