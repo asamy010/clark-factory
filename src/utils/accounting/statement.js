@@ -108,7 +108,21 @@ function gatherCustomerEntries(data, custId, mode){
     /* operational — تجميع بالـ session زي سجل بورتال العميل / CustDeliverPg buildSessionInvoices:
        صف واحد لكل تسليم (مش لكل موديل)، بالصافي مباشرة + خصم per-delivery (discPct→cust.discount→10) */
     const cust = (data.customers || []).find(c => c.id === custId);
+    /* V21.26.16 ROOT-CAUSE FIX (نزاع عميل: تسليمة بخصم 40% ظهرت 10%):
+       الخصم بيتقري من التوزيعة (custDeliverySessions[sid].custDisc[custId]) أولاً
+       — ده الخصم المتّفق عليه في التوزيعة ومصدر الحقيقة — قبل discPct المختوم
+       على التسليم (اللي بيفضل قديم لو الخصم اتغيّر بعد ما اتعمل التسليم). */
+    const _sessions = data.custDeliverySessions || [];
+    const _sessDisc = (e) => {
+      const sid = e && (e.sessionId || e.sessId);
+      if(!sid) return null;
+      const s = _sessions.find(x => x && x.id === sid);
+      const m = s && s.custDisc;
+      if(m && m[custId] != null && m[custId] !== ""){ const n = Number(m[custId]); if(!isNaN(n)) return n; }
+      return null;
+    };
     const pickDiscPct = (e) => {
+      const sd = _sessDisc(e); if(sd != null) return sd;
       if(e && e.discPct != null){ const n = Number(e.discPct); if(!isNaN(n)) return n; }
       if(cust && cust.discount != null){ const n = Number(cust.discount); if(!isNaN(n)) return n; }
       return 10;
