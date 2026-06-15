@@ -190,12 +190,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
      auto-revert the check to "معلق" so the books stay consistent.
      This handles cases where a user deleted the treasury entry directly, or a bulk reset
      left orphans. Safe to re-run — only acts when an orphan is detected. */
+  /* V21.26.6 ROOT-CAUSE FIX: الشيكات المتغيّرة حديثاً (آخر 10 دقائق) بتتعدّى من
+     الـ orphan-revert. السبب: تحديث حالة الشيك (config) وحركة الخزنة المرتبطة
+     (treasuryDays/ المقسّمة) بيوصلوا عبر listeners منفصلين بتوقيت مختلف؛ في
+     الفجوة الـ effect كان بيشوف الشيك «مدفوع» من غير حركته فيرجّعه «معلق» غلط
+     (والحركة موجودة فعلاً). الـ grace window بيقفل الـ race مع الحفاظ على
+     تسوية اليتامى الحقيقيين (حركة اتحذفت من زمان) بعد انتهاء النافذة. */
+  const ORPHAN_GRACE_MS=10*60*1000;
   useEffect(()=>{
     if(!Array.isArray(data.checks)||data.checks.length===0)return;
+    /* لو الخزنة لسه مش محمّلة، ماتعملش تسوية (تجنّب false-revert جماعي). */
+    if(!Array.isArray(data.treasury))return;
+    const fresh=(c)=>c&&c.statusTs&&((Date.now()-c.statusTs)<ORPHAN_GRACE_MS);
     const treasuryByCheckId=new Set((data.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
     const supPayByCheckId=new Set((data.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
     const orphans=data.checks.filter(c=>{
-      if(!c)return false;
+      if(!c||fresh(c))return false;/* تخطّي الشيكات المتغيّرة حديثاً */
       /* محصل / مدفوع need a treasury entry with checkId === c.id */
       if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryByCheckId.has(c.id))return true;
       /* مُظهّر needs a supplier payment with checkId === c.id and method=endorsed_check */
@@ -208,7 +218,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const treasuryIds=new Set((d.treasury||[]).filter(t=>t&&t.checkId).map(t=>t.checkId));
       const supPayIds=new Set((d.supplierPayments||[]).filter(p=>p&&p.checkId&&p.method==="endorsed_check").map(p=>p.checkId));
       d.checks.forEach(c=>{
-        if(!c)return;
+        if(!c||fresh(c))return;/* نفس الحماية داخل الـ transaction */
         let isOrphan=false;
         if((c.status==="محصل"||c.status==="مدفوع")&&!treasuryIds.has(c.id))isOrphan=true;
         if(c.status==="مُظهّر"&&!supPayIds.has(c.id))isOrphan=true;
@@ -3982,7 +3992,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             /* Always remove any previously-linked treasury entries for this check
                before applying the new status (idempotent re-toggle). */
             if(d.treasury)d.treasury=d.treasury.filter(t=>t.checkId!==id);
-            ch.status=status;ch.statusDate=dt;ch.statusBy=userName;
+            ch.status=status;ch.statusDate=dt;ch.statusBy=userName;ch.statusTs=Date.now();/* V21.26.6: ختم زمني دقيق لحماية الشيك من الـ orphan-revert أثناء مزامنة الخزنة المقسّمة */
             /* V18.0: Record which account the user chose (so we can show it on the check) */
             if(chosenAccount)ch.depositAccount=chosenAccount;
             if(!d.treasury)d.treasury=[];
