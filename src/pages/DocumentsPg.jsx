@@ -714,7 +714,6 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                   <Btn ghost onClick={() => navPreview(1)} title="التالي (←)" style={{ fontSize: FS + 4, fontWeight: 800 }}>‹</Btn>
                 </>
               ) : null; })()}
-              {isImg && file.downloadURL && <Btn small onClick={() => setWaPopup({ files: [file] })} style={{ background: "#25D36612", color: "#25D366", border: "1px solid #25D36640" }}>📤 واتساب</Btn>}
               <Btn small onClick={() => downloadFile(file)} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "30" }}>⬇️ تحميل</Btn>
               <Btn ghost onClick={() => setPreviewFile(null)}>✕</Btn>
             </div>

@@ -37,6 +37,7 @@ export const SHOT_TYPES = [
   { id: "reference", label: "👯 موديل مرجعي" },
   { id: "ghost",     label: "👕 مانيكان مفرغ" },
   { id: "flat",      label: "🧺 تصوير مسطّح" },
+  { id: "techpack",  label: "📐 تيك باك (رسم فني)" },
 ];
 
 export const GENDERS = [
@@ -259,6 +260,15 @@ export function buildStudioPrompt(opts, lib){
       PRESERVE, (bg.prompt || "") + ".",
       "Even soft lighting, full garment visible, sharp focus, clean e-commerce product photography, high detail, no text, no watermark.",
     ];
+  } else if(shot === "techpack"){
+    /* V21.26.14: «تيك باك» — يحوّل صورة القطعة لرسم فني خطّي بتفاصيل الخياطة. */
+    lines = [
+      "Convert the EXACT garment(s) shown in the reference image(s) into a clean professional technical fashion FLAT SKETCH (CAD-style apparel technical drawing / tech-pack spec drawing).",
+      "Render it as precise BLACK line art on a pure WHITE background — vector-like clean uniform outlines, NO color, NO shading, NO gradients, NO fabric print or texture, NO model and NO mannequin.",
+      "Show BOTH the FRONT view and the BACK view of the garment side by side, flat, symmetrical and proportionally accurate, as laid out on a production spec sheet.",
+      "Clearly draw EVERY construction and sewing detail exactly as in the garment: all seams and panel lines, topstitching and stitch lines shown as dashed lines, collar, plackets and button positions, pockets and pocket stitching, cuffs, sleeve hems, bottom hems, waistband, elastic, drawstring and any trims or labels.",
+      "Technical apparel flat illustration style — accurate, neat and production-ready, no text, no dimensions, no watermark, no background elements.",
+    ];
   } else {
     const gender = byId(GENDERS, o.genderId) || GENDERS[0];
     const isChild = gender.id === "girl" || gender.id === "boy";
@@ -383,6 +393,7 @@ export function describeStudioOptions(opts, lib){
   const bgL = (byId(backgrounds, o.backgroundId) || backgrounds[0] || BACKGROUNDS[0]).label;
   if(shot === "ghost") return "مانيكان مفرغ · " + bgL;
   if(shot === "flat")  return "تصوير مسطّح · " + bgL;
+  if(shot === "techpack") return "تيك باك (رسم فني)";
   const gender = byId(GENDERS, o.genderId) || GENDERS[0];
   const isChild = gender.id === "girl" || gender.id === "boy";
   const age = isChild ? byId(CHILD_AGES, o.ageId) : null;

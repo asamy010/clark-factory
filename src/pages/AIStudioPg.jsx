@@ -228,7 +228,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(realismOn) s += " " + buildRealismSuffix(realismLevel, shotType === "model" || shotType === "reference");
     return s;
   };
-  const effPrompt = (o) => (useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib)) + techSuffix();
+  /* V21.26.14: «تيك باك» رسم خطّي — من غير لاحقة الكاميرا/الواقعية (تتعارض مع line art). */
+  const effPrompt = (o) => { const base = useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib); return ((o && o.shotType) === "techpack") ? base : base + techSuffix(); };
 
   /* V21.26.0: اختيار نوع اللقطة مابيفعّلش البرومبت الحر إطلاقاً. المرجعي/
      المفرغ/المسطح بيبنوا برومبتهم الداخلي في buildStudioPrompt (مخفي/غير قابل
@@ -811,7 +812,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineEnd: isMob ? undefined : 4 }}>
             {/* shot type */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع اللقطة</div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع التصوير</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{SHOT_TYPES.map(s => <Chip key={s.id} on={shotType === s.id} onClick={() => setShot(s.id)}>{s.label}</Chip>)}</div>
             </div>
 
