@@ -205,6 +205,9 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   const [view, setView] = useState("grid"); /* grid | list */
   const [showTrash, setShowTrash] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set()); /* V21.26.12: تحديد متعدد */
+  const [waPopup, setWaPopup] = useState(null); /* {files} — إرسال واتساب يدوي للعملاء */
+  const [waSearch, setWaSearch] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ total: 0, done: 0 });
   const [dragOver, setDragOver] = useState(false);
@@ -280,6 +283,59 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
       (b.uploadedAt || "").localeCompare(a.uploadedAt || "")
     );
   }, [files, currentFolderId, search, showTrash, recentView]);
+
+  /* V21.26.12: تنقّل بالأسهم في المعاينة بين صور المجلد الحالي. */
+  const navPreview = (dir) => {
+    const imgs = currentFiles.filter(f => isPreviewable(f.contentType));
+    if (!previewFile || imgs.length < 2) return;
+    const idx = imgs.findIndex(f => f.id === previewFile.id);
+    if (idx < 0) return;
+    setPreviewFile(imgs[(idx + dir + imgs.length) % imgs.length]);
+  };
+  useEffect(() => {
+    if (!previewFile) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") { setPreviewFile(null); return; }
+      if (e.key === "ArrowLeft") { e.preventDefault(); navPreview(1); }   /* RTL: يسار = التالي */
+      else if (e.key === "ArrowRight") { e.preventDefault(); navPreview(-1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* V21.26.12: تحديد متعدد — حذف + إرسال واتساب يدوي. */
+  const toggleSel = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSel = () => setSelectedIds(new Set());
+  const selectedFiles = currentFiles.filter(f => selectedIds.has(f.id));
+  const bulkDeleteSelected = async () => {
+    const ids = [...selectedIds]; if (ids.length === 0) return;
+    const ok = await ask("حذف الملفات المحددة", "هيتنقل " + ids.length + " ملف لسلة المهملات.", { danger: true });
+    if (!ok) return;
+    const nowIso = new Date().toISOString();
+    upConfig(d => { (d.documentsTree?.files || []).forEach(f => { if (ids.includes(f.id)) { f.deletedAt = nowIso; f.deletedBy = userEmail; } }); });
+    clearSel(); showToast("🗑️ تم نقل المحدد لسلة المهملات");
+  };
+  /* تطبيع رقم مصري لصيغة wa.me (12 رقم تبدأ بـ20). */
+  const waDigits = (p) => {
+    let d = String(p || "").replace(/[^0-9]/g, "");
+    if (!d) return "";
+    if (d.startsWith("20")) return d;
+    if (d.startsWith("0")) return "20" + d.slice(1);
+    if (d.length === 10 && d.startsWith("1")) return "20" + d;
+    return d;
+  };
+  const sendWaToPhone = (phone, name) => {
+    const digits = waDigits(phone);
+    if (digits.length < 11) { showToast("⚠️ رقم تليفون غير صالح"); return; }
+    const files = (waPopup && waPopup.files) || [];
+    const urls = files.map(f => f.downloadURL).filter(Boolean);
+    if (urls.length === 0) { showToast("⚠️ مفيش روابط للصور"); return; }
+    const msg = (name ? "مرحباً " + name + " 👋\n" : "") + "صور من CLARK:\n\n" + urls.join("\n\n");
+    const win = window.open("about:blank", "_blank"); /* §7: pre-open للحفاظ على user-gesture */
+    const url = "https://wa.me/" + digits + "?text=" + encodeURIComponent(msg);
+    if (win && !win.closed) win.location.href = url; else window.location.href = url;
+    setWaPopup(null); showToast("✓ افتح واتساب — ابعت الرسالة يدوياً");
+  };
 
   /* V21.9.186 — per-folder active file count for the tree badges.
      Computed once over the file list. Includes files DIRECTLY in the folder
@@ -650,7 +706,15 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                 {fmtSize(file.size)} • {file.uploadedBy} • {(file.uploadedAt || "").split("T")[0]}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {(() => { const imgs = currentFiles.filter(f => isPreviewable(f.contentType)); const idx = imgs.findIndex(f => f.id === file.id); return imgs.length > 1 && idx >= 0 ? (
+                <>
+                  <Btn ghost onClick={() => navPreview(-1)} title="السابق (→)" style={{ fontSize: FS + 4, fontWeight: 800 }}>›</Btn>
+                  <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, minWidth: 50, textAlign: "center" }}>{idx + 1} / {imgs.length}</span>
+                  <Btn ghost onClick={() => navPreview(1)} title="التالي (←)" style={{ fontSize: FS + 4, fontWeight: 800 }}>‹</Btn>
+                </>
+              ) : null; })()}
+              {isImg && file.downloadURL && <Btn small onClick={() => setWaPopup({ files: [file] })} style={{ background: "#25D36612", color: "#25D366", border: "1px solid #25D36640" }}>📤 واتساب</Btn>}
               <Btn small onClick={() => downloadFile(file)} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "30" }}>⬇️ تحميل</Btn>
               <Btn ghost onClick={() => setPreviewFile(null)}>✕</Btn>
             </div>
@@ -811,6 +875,38 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   return (
     <div>
       <PreviewModal />
+      {/* V21.26.12: إرسال صور واتساب يدوي للعملاء (مش بريدج) */}
+      {waPopup && (() => {
+        const custs = (data.customers || []).filter(c => c && c.phone);
+        const q = waSearch.trim().toLowerCase();
+        const filtered = q ? custs.filter(c => (c.name || "").toLowerCase().includes(q) || (c.phone || "").includes(q)) : custs;
+        const fileCount = (waPopup.files || []).length;
+        const isPhone = /^[0-9+\s]{8,}$/.test(waSearch.trim());
+        return (
+          <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 100000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={() => setWaPopup(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 18, width: "100%", maxWidth: 460, maxHeight: "88vh", display: "flex", flexDirection: "column", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+              <div style={{ background: "#25D36612", borderBottom: "1px solid #25D36633", padding: "14px 18px" }}>
+                <div style={{ fontSize: FS + 1, fontWeight: 800, color: "#128C7E" }}>📤 إرسال {fileCount} صورة واتساب</div>
+                <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>اختر عميل أو اكتب رقم — هيفتح واتساب برسالة فيها روابط الصور، وتبعتها بنفسك.</div>
+              </div>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid " + T.brd }}>
+                <input value={waSearch} onChange={e => setWaSearch(e.target.value)} placeholder="🔍 ابحث باسم العميل أو رقمه... أو اكتب رقم" style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.inputBg, color: T.text, boxSizing: "border-box", outline: "none" }} />
+                {isPhone && <Btn small onClick={() => sendWaToPhone(waSearch.trim(), "")} style={{ marginTop: 8, background: "#25D36612", color: "#128C7E", border: "1px solid #25D36640", fontWeight: 700 }}>📞 إرسال للرقم: {waSearch.trim()}</Btn>}
+              </div>
+              <div style={{ overflowY: "auto", padding: "4px 10px 10px", flex: 1 }}>
+                {filtered.length === 0 ? <div style={{ textAlign: "center", padding: 20, color: T.textMut, fontSize: FS - 2 }}>{custs.length === 0 ? "مفيش عملاء بأرقام — اكتب رقم فوق" : "لا توجد نتائج — اكتب رقم فوق"}</div> :
+                  filtered.slice(0, 80).map(c => (
+                    <div key={c.id} onClick={() => sendWaToPhone(c.phone, c.name)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer", borderBottom: "1px solid " + T.brd }} onMouseEnter={e => e.currentTarget.style.background = "#25D3660A"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ minWidth: 0 }}><div style={{ fontSize: FS - 1, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div><div style={{ fontSize: FS - 3, color: T.textSec, direction: "ltr", textAlign: "right" }}>{c.phone}</div></div>
+                      <span style={{ fontSize: 18, color: "#25D366", flexShrink: 0 }}>📤</span>
+                    </div>
+                  ))}
+              </div>
+              <div style={{ padding: "10px 16px", borderTop: "1px solid " + T.brd, textAlign: "left" }}><Btn ghost onClick={() => setWaPopup(null)}>إلغاء</Btn></div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* V21.9.186: flex layout — sidebar (right in RTL) + main area */}
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexDirection: isMob ? "column" : "row" }}>
@@ -962,6 +1058,17 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           }}
         />
 
+        {/* V21.26.12: شريط التحديد المتعدد — حذف + إرسال واتساب */}
+        {!showTrash && selectedIds.size > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, padding: "10px 14px", marginBottom: 12, borderRadius: 12, background: T.accent + "10", border: "1px solid " + T.accent + "40" }}>
+            <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.accent }}>☑️ محدد: {selectedIds.size} ملف</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {selectedFiles.some(f => (f.contentType || "").startsWith("image/")) && <Btn small onClick={() => setWaPopup({ files: selectedFiles.filter(f => (f.contentType || "").startsWith("image/") && f.downloadURL) })} style={{ background: "#25D36612", color: "#25D366", border: "1px solid #25D36640", fontWeight: 700 }}>📤 واتساب للعميل</Btn>}
+              {canEdit && <Btn small onClick={bulkDeleteSelected} style={{ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "40", fontWeight: 700 }}>🗑️ حذف المحدد</Btn>}
+              <Btn small ghost onClick={clearSel}>✕ إلغاء التحديد</Btn>
+            </div>
+          </div>
+        )}
         {/* Files grid — V21.9.186: distinct empty-state message for recent view */}
         {currentFiles.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: T.textSec }}>
@@ -978,12 +1085,13 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
               return (
                 <div key={file.id} style={{
                   padding: 10, borderRadius: 12,
-                  background: T.cardSolid,
-                  border: "1px solid " + T.brd,
+                  background: selectedIds.has(file.id) ? T.accent + "0C" : T.cardSolid,
+                  border: "1px solid " + (selectedIds.has(file.id) ? T.accent : T.brd),
                   display: "flex", flexDirection: "column", gap: 6,
                   position: "relative",
                   opacity: file.deletedAt ? 0.7 : 1,
                 }}>
+                  {!file.deletedAt && <span onClick={(e) => { e.stopPropagation(); toggleSel(file.id); }} title="تحديد" style={{ position: "absolute", top: 6, insetInlineStart: 6, zIndex: 2, width: 22, height: 22, borderRadius: 6, border: "2px solid " + (selectedIds.has(file.id) ? T.accent : T.brd), background: selectedIds.has(file.id) ? T.accent : T.cardSolid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, fontWeight: 900, boxShadow: "0 1px 4px rgba(0,0,0,0.15)" }}>{selectedIds.has(file.id) ? "✓" : ""}</span>}
                   {/* Thumbnail / Icon */}
                   <div
                     onClick={() => previewOk ? setPreviewFile(file) : downloadFile(file)}
