@@ -386,8 +386,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
     const notesTxt = String(notes || "").trim();
+    /* V21.26.13: استبدال {{AGE}} بالعمر اللي اختاره المستخدم (قسم New). */
+    const ageObj = CHILD_AGES.find(a => a.id === ageId);
+    const ageTxt = (ageObj && ageObj.prompt) || "young child";
+    const baseP = String(sp.prompt || "").replace(/\{\{AGE\}\}/g, ageTxt);
     /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
-    const promptWithNotes = sp.prompt + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
+    const promptWithNotes = baseP + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
     setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
@@ -579,8 +583,13 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* ── مكتبة برومبتس تجربة الملابس (lazy load + CRUD على مستندات factory/) ── */
   useEffect(() => {
     let alive = true;
-    loadPromptLibrary()
-      .then(lib => { if(alive){ setLibrary(lib); setLibErr(""); } })
+    /* V21.26.13: قسم «New» (40 برومبت أولاد) مشحون static من public — بيتدمج
+       مع مكتبة Firestore. read-only (builtin) + العمر بيتحكم فيه المستخدم. */
+    Promise.all([
+      loadPromptLibrary(),
+      fetch("/aiPromptLibraryNew.json", { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => []),
+    ])
+      .then(([lib, newP]) => { if(alive){ setLibrary({ ...lib, New: (Array.isArray(newP) ? newP : []).map(r => ({ ...r, group: "New", builtin: true })) }); setLibErr(""); } })
       .catch(e => { if(alive){ setLibrary({}); setLibErr(e?.message || "فشل تحميل المكتبة"); } });
     return () => { alive = false; };
   }, []);
@@ -919,6 +928,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                           <span style={{ fontSize: FS - 1, fontWeight: 800, color: T.text }}>{open ? "▾" : "▸"} {g} <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({items.length})</span></span>
                           <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, name: "", prompt: customPrompt || "", image: "" }); }} style={{ fontSize: FS - 3, fontWeight: 700, color: T.accent }}>➕</span>
                         </div>
+                        {open && g === "New" && <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", borderTop: "1px solid " + T.brd, padding: "7px 11px", lineHeight: 1.6 }}>⭐ مجموعة أولاد احترافية (تفاصيل مشهد كاملة) — <b>اختر العمر من «الخيارات ← العمر»</b> والبرومبت بيتنفّذ بالعمر اللي تختاره.</div>}
                         {open && (
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8, padding: 10 }}>
                             {items.map(sp => (
@@ -927,7 +937,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                                   {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
                                 </div>
                                 <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
-                                <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>
+                                {g !== "New" && <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>}
                                 {!sp.builtin && <span onClick={e => { e.stopPropagation(); delLibPrompt(g, sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>}
                               </div>
                             ))}

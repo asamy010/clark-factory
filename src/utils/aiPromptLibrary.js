@@ -19,8 +19,8 @@
 import { db } from "../firebase.js";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
-/* ترتيب الجروبات (= ترتيب الشيتات في الإكسيل الأصلي). */
-export const LIBRARY_GROUPS = ["BOY", "GIRL", "FOR HIM", "FOR HER", "BABY"];
+/* ترتيب الجروبات (= ترتيب الشيتات في الإكسيل الأصلي) + قسم «New» (Claude). */
+export const LIBRARY_GROUPS = ["New", "BOY", "GIRL", "FOR HIM", "FOR HER", "BABY"];
 
 /* معرّف مستند الجروب تحت factory/ — بدون مسافات (CEL/path-safe). */
 export function libGroupDocId(group){
