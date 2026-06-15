@@ -13,7 +13,7 @@
    كل التوليد server-side (api/ai-image/generate). هنا UI بس.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Btn, Sel, Inp, SearchSel, BlockingOverlay } from "../components/ui.jsx";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { T } from "../theme.js";
@@ -28,6 +28,7 @@ import {
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
 import { LIBRARY_GROUPS, loadPromptLibrary, savePromptGroup, seedPromptLibrary } from "../utils/aiPromptLibrary.js";
+import { loadSessionIndex, loadSession as loadSessionDoc, saveSession as saveSessionDoc, deleteSession as deleteSessionDoc } from "../utils/aiStudioSessions.js";
 
 /* رسم توضيحي مبسّط لتأثير العدسة (عمق الميدان/الخلفية) */
 function CamDiagram({ type, on }){
@@ -135,6 +136,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [libBusy, setLibBusy] = useState("");        /* رسالة أثناء seed/save | "" */
   const [openGroup, setOpenGroup] = useState("");    /* الجروب المفتوح حالياً */
   const [libEditFor, setLibEditFor] = useState(null);/* {group,id?,name,prompt,image} | null */
+  /* هيستوري الجلسات (مشترك على المصنع) — lazy */
+  const [sessionList, setSessionList] = useState(null); /* الفهرس | null=بيحمّل */
+  const [showHistory, setShowHistory] = useState(false);
+  const sessionIdRef = useRef(null);                    /* id الجلسة الحالية (upsert) */
+  const sessSaveTimer = useRef(null);
   const [showUsage, setShowUsage] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [coverFor, setCoverFor] = useState(null); /* {res} */
@@ -189,6 +195,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     setEditFor(null); setEditInstr(""); setGenCount(0); setSpent(0);
     setMultiPose(false); setSelPoses([]); setCount(1); setShotType("model");
     setSavedIds(new Set());
+    sessionIdRef.current = null; /* جلسة جديدة → هيستوري جديد */
     showToast("🆕 جلسة جديدة");
   };
 
@@ -563,6 +570,74 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     return () => clearInterval(id);
   }, [busy, genTotal, genDone]);
 
+  /* ── هيستوري الجلسات (مشترك) ── */
+  useEffect(() => {
+    let alive = true;
+    loadSessionIndex().then(l => { if(alive) setSessionList(l); }).catch(() => { if(alive) setSessionList([]); });
+    return () => { alive = false; };
+  }, []);
+  /* لقطة كل الإعدادات الحالية — لإعادة فتح الجلسة وتعديلها */
+  const snapshotSettings = () => ({
+    shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes,
+    tier, aspectRatio, imageSize, cameraId, camStyle, realismOn, realismLevel, customOn, customPrompt, storageFolder,
+  });
+  const restoreSettings = (s) => {
+    if(!s) return;
+    if(s.shotType) setShotType(s.shotType);
+    if(s.genderId) setGenderId(s.genderId);
+    if(s.expressionId) setExpressionId(s.expressionId);
+    if(s.ageId) setAgeId(s.ageId);
+    if(s.poseId) setPoseId(s.poseId);
+    if(s.backgroundId) setBackgroundId(s.backgroundId);
+    if(s.framingId) setFramingId(s.framingId);
+    if(s.skinToneId) setSkinToneId(s.skinToneId);
+    if(s.lightingId) setLightingId(s.lightingId);
+    if(s.notes != null) setNotes(s.notes);
+    if(s.tier) setTier(s.tier);
+    if(s.aspectRatio) setAspectRatio(s.aspectRatio);
+    if(s.imageSize) setImageSize(s.imageSize);
+    if(s.cameraId) setCameraId(s.cameraId);
+    if(s.camStyle) setCamStyle(s.camStyle);
+    if(typeof s.realismOn === "boolean") setRealismOn(s.realismOn);
+    if(s.realismLevel) setRealismLevel(s.realismLevel);
+    if(typeof s.customOn === "boolean") setCustomOn(s.customOn);
+    if(s.customPrompt != null) setCustomPrompt(s.customPrompt);
+    if(s.storageFolder != null) setStorageFolder(s.storageFolder);
+    setMultiPose(false);
+  };
+  /* حفظ تلقائي للجلسة الحالية كل ما النتايج تتغيّر (debounced) */
+  useEffect(() => {
+    if(!results.length) return;
+    if(sessSaveTimer.current) clearTimeout(sessSaveTimer.current);
+    sessSaveTimer.current = setTimeout(async () => {
+      if(!sessionIdRef.current) sessionIdRef.current = "ses_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 5);
+      const sess = {
+        id: sessionIdRef.current, ts: Date.now(),
+        by: (user && (user.displayName || user.email)) || "",
+        modelNo: (curModel && curModel.modelNo) || storageFolder || "",
+        label: describeStudioOptions(opts, lib),
+        settings: snapshotSettings(),
+        results: results.slice(0, 24).map(r => ({ id: r.id, url: r.url, storagePath: r.storagePath || "", desc: r.desc || "", prompt: r.prompt || "", aspectRatio: r.aspectRatio || aspectRatio, ts: r.ts || Date.now(), options: r.options || null })),
+      };
+      try { const list = await saveSessionDoc(sess); if(list) setSessionList(list); } catch(e){}
+    }, 1600);
+    return () => { if(sessSaveTimer.current) clearTimeout(sessSaveTimer.current); };
+  }, [results]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openSession = async (meta) => {
+    setShowHistory(false);
+    const full = await loadSessionDoc(meta.id);
+    if(!full){ showToast("⛔ تعذّر فتح الجلسة"); return; }
+    restoreSettings(full.settings || {});
+    setResults(Array.isArray(full.results) ? full.results : []);
+    sessionIdRef.current = full.id;
+    showToast("✓ اتفتحت الجلسة — عدّل وكمّل عليها");
+  };
+  const removeSession = async (id) => {
+    const ok = await ask("حذف الجلسة؟", "هتتشال من الهيستوري نهائياً (الصور المحفوظة في المخزن متتأثرش).");
+    if(!ok) return;
+    try { const list = await deleteSessionDoc(id); setSessionList(list); if(sessionIdRef.current === id) sessionIdRef.current = null; } catch(e){ showToast("⛔ فشل الحذف"); }
+  };
+
   const doSeedLibrary = async () => {
     if(libBusy) return;
     const ok = await ask("تحميل المكتبة الجاهزة؟", "هيتحمّل ~180 برومبت تجربة ملابس (5 جروبات) مع صورهم. تقدر تعدّلهم أو تحذفهم بعد كده.");
@@ -651,7 +726,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: T.bg, overflow: isMob ? "auto" : "hidden", direction: "rtl" }}>
       <BlockingOverlay show={busy} text={batchMsg || "جاري التوليد..."} pct={genPct} sub="بـ Nano Banana Pro — ثواني" />
-      <div style={{ maxWidth: 1600, margin: "0 auto", padding: isMob ? 12 : "16px 24px 16px", height: isMob ? undefined : "100%", display: isMob ? undefined : "flex", flexDirection: isMob ? undefined : "column", boxSizing: "border-box" }}>
+      <div style={{ maxWidth: 1720, margin: "0 auto", padding: isMob ? 12 : "16px 24px 16px", height: isMob ? undefined : "100%", display: isMob ? undefined : "flex", flexDirection: isMob ? undefined : "column", boxSizing: "border-box" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap", flexShrink: 0 }}>
           <Btn small onClick={onClose} style={{ background: T.cardSolid, border: "1px solid " + T.brd, color: T.text }}>‹ رجوع</Btn>
@@ -687,7 +762,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.35fr 1fr", gap: 16, alignItems: isMob ? "start" : "stretch", flex: isMob ? undefined : 1, minHeight: isMob ? undefined : 0, overflow: isMob ? undefined : "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.25fr 1fr", gap: 16, alignItems: isMob ? "start" : "stretch", flex: isMob ? undefined : 1, minHeight: isMob ? undefined : 0, overflow: isMob ? undefined : "hidden" }}>
           {/* ── left: inputs (عمود الإعدادات — اسكرول مستقل) ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineEnd: isMob ? undefined : 4 }}>
             {/* shot type */}
@@ -1007,6 +1082,32 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
           {/* ── right: results + gallery (نتائج الجلسة — ثابتة، اسكرول مستقل) ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineStart: isMob ? undefined : 4 }}>
+            {/* هيستوري الجلسات السابقة — مشترك، lazy */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div onClick={() => setShowHistory(v => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🕘 جلسات سابقة {sessionList && sessionList.length > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({sessionList.length})</span>}</span>
+                <span style={{ color: T.textMut, fontSize: FS - 2 }}>{showHistory ? "▲ إخفاء" : "▼ عرض"}</span>
+              </div>
+              {showHistory && (
+                sessionList === null ? <div style={{ fontSize: FS - 2, color: T.textMut, marginTop: 10 }}>جاري التحميل...</div>
+                : sessionList.length === 0 ? <div style={{ fontSize: FS - 2, color: T.textMut, marginTop: 10, lineHeight: 1.7 }}>لسه مفيش جلسات محفوظة — أي توليد بيتحفظ تلقائياً هنا، وتقدر ترجعله بإعداداته.</div>
+                : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(86px,1fr))", gap: 8, marginTop: 12, maxHeight: 320, overflowY: "auto" }}>
+                  {sessionList.map(s => (
+                    <div key={s.id} onClick={() => openSession(s)} title={s.label || ""} style={{ position: "relative", border: "1px solid " + (sessionIdRef.current === s.id ? T.accent : T.brd), borderRadius: 10, overflow: "hidden", background: T.bg, cursor: "pointer" }}>
+                      <div style={{ width: "100%", aspectRatio: "3 / 4", background: "#0000000a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {s.thumb ? <img src={s.thumb} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 22 }}>🖼️</span>}
+                      </div>
+                      <div style={{ padding: "3px 5px" }}>
+                        <div style={{ fontSize: FS - 4, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.modelNo || "بدون موديل"}</div>
+                        <div style={{ fontSize: FS - 5, color: T.textMut }}>{new Date(s.ts || 0).toLocaleDateString("ar-EG", { day: "2-digit", month: "2-digit" })} · {s.count || 0}🖼️</div>
+                      </div>
+                      <span onClick={e => { e.stopPropagation(); removeSession(s.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🖼️ نتائج الجلسة</span>
