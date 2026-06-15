@@ -26,6 +26,8 @@ import { PaymentFromInvoiceModal } from "../components/sales/PaymentFromInvoiceM
 import { openSalesDoc } from "../utils/sales/navDoc.js";
 import { openPurchaseDoc } from "../utils/purchase/navDoc.js";
 import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
+/* V21.26.17: أداة صيانة — مزامنة خصومات الفواتير من التوزيعات */
+import { SyncInvoiceDiscountsModal } from "../components/sales/SyncInvoiceDiscountsModal.jsx";
 /* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
    The entityType is derived dynamically from invoice.type (sales vs purchase). */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
@@ -54,6 +56,8 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
   const [activeInvoice, setActiveInvoice] = useState(null);
   /* V18.85: Service invoice modal */
   const [showServiceModal, setShowServiceModal] = useState(false);
+  /* V21.26.17: Sync invoice discounts from distributions modal */
+  const [showSyncModal, setShowSyncModal] = useState(false);
   /* V19.39: Multi-select for bulk posting */
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -246,6 +250,10 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
         <div style={{fontSize:isMob?18:22, fontWeight:800, color:T.text}}>فواتير المبيعات</div>
         <div style={{fontSize:FS-2, color:T.textSec}}>عرض وإدارة فواتير المبيعات (مسودة / مرحّل / ملغية)</div>
       </div>
+      {/* V21.26.17: مزامنة خصومات الفواتير من التوزيعات (صيانة) */}
+      <Btn onClick={()=>setShowSyncModal(true)} style={{background:"#10B98115",color:"#10B981",border:"1px solid #10B98140",fontWeight:700}} title="تطابق خصم الفواتير المسودة مع خصم التوزيعة">
+        🔄 مزامنة خصومات التوزيعات
+      </Btn>
       {/* V18.85: Direct service invoice */}
       <Btn onClick={()=>setShowServiceModal(true)} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}}>
         🛠 فاتورة خدمات
@@ -383,6 +391,11 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
     {showServiceModal && <ServiceInvoiceModal
       mode="sales" data={data} upConfig={upConfig} user={user} isMob={isMob}
       onClose={()=>setShowServiceModal(false)}
+    />}
+    {/* V21.26.17: Sync invoice discounts from distributions */}
+    {showSyncModal && <SyncInvoiceDiscountsModal
+      data={data} upConfig={upConfig} isMob={isMob}
+      onClose={()=>setShowSyncModal(false)}
     />}
     {/* V19.39: Floating bulk-post bar (only renders when items are selected) */}
     <BulkPostBar
