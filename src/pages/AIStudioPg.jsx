@@ -616,7 +616,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: T.bg, overflowY: "auto", direction: "rtl" }}>
       <BlockingOverlay show={busy} text={batchMsg || "جاري التوليد..."} sub="بـ Nano Banana Pro — ثواني" />
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMob ? 12 : "16px 20px 60px" }}>
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: isMob ? 12 : "16px 24px 60px" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           <Btn small onClick={onClose} style={{ background: T.cardSolid, border: "1px solid " + T.brd, color: T.text }}>‹ رجوع</Btn>
@@ -652,7 +652,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.1fr 1fr", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.35fr 1fr", gap: 16, alignItems: "start" }}>
           {/* ── left: inputs ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* shot type */}
@@ -940,14 +940,17 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>عدد الصور</div><Sel value={String(count)} onChange={v => setCount(Number(v))}>{[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}</Sel></div>
             </div>
 
-            <Btn primary onClick={generate} disabled={busy || sources.length === 0 || (isReference && sources.length < 2)} style={{ fontSize: FS + 1, padding: "13px 0", fontWeight: 800 }}>
-              {busy ? "⏳ جاري التوليد..." : "🪄 توليد الصورة" + (isModelShot && multiPose && selPoses.length > 0 ? " (" + selPoses.length + " وقفة)" : (Number(count) > 1 ? " (" + count + ")" : ""))}
-            </Btn>
-            {curModel && colorList.length > 0 && (
-              <Btn onClick={generateAllColors} disabled={busy || sources.length === 0} style={{ padding: "11px 0", fontWeight: 800, background: "#EC489912", color: "#EC4899", border: "1px solid #EC489940" }}>
-                🎨 توليد كل الألوان ({colorList.length})
+            {/* زر التوليد مثبّت أسفل العمود مع الاسكرول — يفضل ظاهر أثناء ضبط الخيارات */}
+            <div style={{ position: "sticky", bottom: 0, zIndex: 6, background: T.bg, padding: "10px 0 6px", display: "flex", flexDirection: "column", gap: 8, borderTop: "1px solid " + T.brd, boxShadow: "0 -10px 20px -10px rgba(0,0,0,0.22)" }}>
+              <Btn primary onClick={generate} disabled={busy || sources.length === 0 || (isReference && sources.length < 2)} style={{ fontSize: FS + 1, padding: "13px 0", fontWeight: 800 }}>
+                {busy ? "⏳ جاري التوليد..." : "🪄 توليد الصورة" + (isModelShot && multiPose && selPoses.length > 0 ? " (" + selPoses.length + " وقفة)" : (Number(count) > 1 ? " (" + count + ")" : ""))}
               </Btn>
-            )}
+              {curModel && colorList.length > 0 && (
+                <Btn onClick={generateAllColors} disabled={busy || sources.length === 0} style={{ padding: "11px 0", fontWeight: 800, background: "#EC489912", color: "#EC4899", border: "1px solid #EC489940" }}>
+                  🎨 توليد كل الألوان ({colorList.length})
+                </Btn>
+              )}
+            </div>
           </div>
 
           {/* ── right: results + gallery ── */}
