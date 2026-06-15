@@ -355,16 +355,19 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
   };
 
-  /* تنفيذ مباشر لبرومبت جاهز من المكتبة (verbatim) — بدون الدخول في التفاصيل */
+  /* تنفيذ برومبت جاهز — V21.26.4: بنضيف «الملاحظات الإضافية» لو المستخدم كتب
+     حاجة (زي «أضف كوتش أبيض»)، عشان يقدر يخصّص حتى البرومبت الجاهز. */
   const runSavedPrompt = async (sp) => {
     if(!sp || !sp.prompt) return;
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
+    const notesTxt = String(notes || "").trim();
+    const promptWithNotes = sp.prompt + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
     setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
       setBatchMsg(n > 1 ? ("جاري توليد " + (i + 1) + " من " + n + "...") : ("جاري تنفيذ «" + (sp.name || "برومبت") + "»..."));
-      const e = await callOnce({ ...opts }, sources, sp.prompt);
+      const e = await callOnce({ ...opts }, sources, promptWithNotes);
       if(!e) break;
       news.push(e); setGenDone(d => d + 1);
     }
@@ -861,6 +864,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة البرومبتس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
                 {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
+              </div>
+              {/* V21.26.4: ملاحظات إضافية تنطبق على أي برومبت جاهز وقت تنفيذه (نفس حقل ملاحظات الخيارات) */}
+              <div style={{ marginBottom: 10 }}>
+                <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="✏️ ملاحظات إضافية للبرومبت الجاهز (مثلاً: أضف كوتش أبيض)" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", outline: "none" }} />
               </div>
               {library === null ? (
                 <div style={{ fontSize: FS - 2, color: T.textMut }}>جاري تحميل المكتبة...</div>
