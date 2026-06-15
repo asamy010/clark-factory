@@ -3058,6 +3058,22 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       const shown=isAdmin?ordered:ordered.filter(a=>!hiddenSet.has(a.id));
       const countByAcc={};txns.forEach(t=>{const n=t.account;if(n)countByAcc[n]=(countByAcc[n]||0)+1});
       const grand=shown.reduce((s,a)=>{const b=accBalances[a.name]||{in:0,out:0};return{in:s.in+b.in,out:s.out+b.out}},{in:0,out:0});
+      /* V21.26.11: بيانات المحافظ + الشيكات + التحليل المالي للنظرة العامة (قراءة مشتقّة). */
+      const wallets=accountsData.filter(a=>a.type==="wallet");
+      const walletBal=(w)=>{const b=accBalances[w.name]||{in:0,out:0};return r2(b.in-b.out+walletMonthExtra(w,"extBalance"));};
+      const shownWallets=isAdmin?wallets:wallets.filter(w=>!hiddenSet.has(w.id));
+      const rcvChecks=checks.filter(c=>c&&c.type==="receivable");
+      const payChecks=checks.filter(c=>c&&c.type==="payable");
+      const sumBy=(arr,pred)=>arr.filter(pred).reduce((s,c)=>s+(Number(c.amount)||0),0);
+      const cntBy=(arr,pred)=>arr.filter(pred).length;
+      const partialRemSum=(arr,st)=>arr.filter(c=>c.status===st).reduce((s,c)=>s+r2((Number(c.amount)||0)-(Number(c.paidAmount)||0)),0);
+      const cashBankBal=shown.reduce((s,a)=>{const b=accBalances[a.name]||{in:0,out:0};return s+r2(b.in-b.out)},0);
+      const walletsBal=shownWallets.reduce((s,w)=>s+walletBal(w),0);
+      const totalLiquidity=r2(cashBankBal+walletsBal);
+      const rcvOutstanding=r2(sumBy(rcvChecks,c=>c.status==="معلق")+partialRemSum(rcvChecks,"محصل جزئي"));
+      const payOutstanding=r2(sumBy(payChecks,c=>c.status==="معلق")+partialRemSum(payChecks,"مدفوع جزئي"));
+      const netPosition=r2(totalLiquidity+rcvOutstanding-payOutstanding);
+      const accChip=(label,value,color)=><div style={{textAlign:"center",minWidth:78}}><div style={{fontSize:FS-4,color:T.textMut,fontWeight:700,marginBottom:3}}>{label}</div><div style={{fontSize:FS+2,fontWeight:900,color:color,fontVariantNumeric:"tabular-nums"}}>{value}</div></div>;
       return<div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
           <div>
@@ -3119,6 +3135,95 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
             </div>;
           })}
         </div>}
+
+        {/* V21.26.11: المحافظ الإلكترونية */}
+        {shownWallets.length>0&&<div style={{marginTop:24}}>
+          <div style={{fontSize:FS+1,fontWeight:900,color:T.text,marginBottom:10}}>📱 المحافظ الإلكترونية <span style={{fontSize:FS-2,color:T.textMut,fontWeight:600}}>({shownWallets.length})</span></div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+            {shownWallets.map(w=>{
+              const b=accBalances[w.name]||{in:0,out:0};const bal=walletBal(w);const cnt=countByAcc[w.name]||0;const isHidden=hiddenSet.has(w.id);
+              return<div key={w.id} className="clark-card" style={{background:T.cardSolid,borderRadius:22,border:"1px solid "+T.brd,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.shadow,opacity:isHidden?0.5:1}}>
+                <div style={{padding:16,display:"flex",flexDirection:"column",gap:11,flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                    <div style={{minWidth:0}}>
+                      <span style={{display:"inline-block",fontSize:FS-3,fontWeight:800,color:"#8B5CF6",padding:"3px 11px",borderRadius:999,background:"#8B5CF612"}}>{(w.icon||"📱")} محفظة</span>
+                      <div style={{fontSize:FS+4,fontWeight:900,color:T.text,margin:"7px 0 1px",lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</div>
+                      {w.ownerEmail?<div style={{fontSize:FS-2,color:T.textSec,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {w.ownerEmail}</div>:null}
+                    </div>
+                    {isAdmin&&<span onClick={()=>toggleOverviewHidden(w.id)} title={isHidden?"مخفي — اضغط للإظهار":"ظاهر — اضغط للإخفاء"} style={{cursor:"pointer",fontSize:17,flexShrink:0}}>{isHidden?"🙈":"👁️"}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:14,flexWrap:"wrap",background:T.bg,borderRadius:18,padding:"13px 16px"}}>
+                    {accChip("الرصيد",fmt0(bal),bal>=0?"#0D9488":T.err)}
+                    {accChip("وارد",fmt0(r2(b.in)),T.ok)}
+                    {accChip("منصرف",fmt0(r2(b.out)),T.err)}
+                    {accChip("الحركات",cnt,T.text)}
+                  </div>
+                  <div style={{display:"flex",gap:8,marginTop:"auto",paddingTop:11,borderTop:"1px solid "+T.brd}}>
+                    <div onClick={()=>{setView("acc_"+w.id);setFilterAcc(w.name);setTxAccount(w.name)}} style={{flex:1,padding:"9px",borderRadius:13,background:"#8B5CF610",color:"#8B5CF6",border:"1px solid #8B5CF622",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:FS-2,fontWeight:800}}>📊 المعاملات ▸</div>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
+
+        {/* V21.26.11: الشيكات — قبض/دفع بكل التفاصيل */}
+        <div style={{marginTop:24}}>
+          <div style={{fontSize:FS+1,fontWeight:900,color:T.text,marginBottom:10}}>📝 الشيكات</div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:16}}>
+            {[{rcv:true,label:"شيكات القبض (مستحقة لنا)",icon:"📥",color:"#10B981",doneSt:"محصل",partSt:"محصل جزئي",arr:rcvChecks,out:rcvOutstanding},
+              {rcv:false,label:"شيكات الدفع (علينا)",icon:"📤",color:"#EF4444",doneSt:"مدفوع",partSt:"مدفوع جزئي",arr:payChecks,out:payOutstanding}].map((g,i)=>{
+              const pendingCnt=cntBy(g.arr,c=>c.status==="معلق"),pendingSum=sumBy(g.arr,c=>c.status==="معلق");
+              const doneCnt=cntBy(g.arr,c=>c.status===g.doneSt),doneSum=sumBy(g.arr,c=>c.status===g.doneSt);
+              const partCnt=cntBy(g.arr,c=>c.status===g.partSt),partPaid=g.arr.filter(c=>c.status===g.partSt).reduce((s,c)=>s+(Number(c.paidAmount)||0),0);
+              const bouncedCnt=cntBy(g.arr,c=>c.status==="مرتد"||c.status==="مرتجع");
+              const overdueCnt=cntBy(g.arr,c=>c.status==="معلق"&&c.dueDate&&c.dueDate<today);
+              const row=(lbl,cnt,amt,color)=><div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,padding:"6px 0",borderBottom:"1px dashed "+T.brd}}><span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{lbl} {cnt>0&&<span style={{color:T.textMut}}>({cnt})</span>}</span><span style={{fontSize:FS,fontWeight:800,color:color,fontVariantNumeric:"tabular-nums"}}>{fmt0(amt)}</span></div>;
+              return<div key={i} className="clark-card" style={{background:T.cardSolid,borderRadius:22,border:"1px solid "+T.brd,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.shadow}}>
+                <div style={{background:g.color+"12",borderBottom:"1px solid "+g.color+"25",padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:FS,fontWeight:900,color:g.color}}>{g.icon} {g.label}</span>
+                  <span style={{fontSize:FS-2,fontWeight:800,color:g.color,background:g.color+"18",borderRadius:999,padding:"2px 10px"}}>{g.arr.length} شيك</span>
+                </div>
+                <div style={{padding:"6px 16px 14px"}}>
+                  {row("معلّق",pendingCnt,pendingSum,T.warn)}
+                  {row(g.rcv?"محصّل":"مدفوع",doneCnt,doneSum,g.color)}
+                  {partCnt>0&&row(g.rcv?"محصّل جزئياً":"مدفوع جزئياً",partCnt,partPaid,"#0EA5E9")}
+                  {overdueCnt>0&&row("⚠️ متأخّر (مستحق)",overdueCnt,sumBy(g.arr,c=>c.status==="معلق"&&c.dueDate&&c.dueDate<today),T.err)}
+                  {bouncedCnt>0&&row(g.rcv?"مرتد":"ملغي",bouncedCnt,sumBy(g.arr,c=>c.status==="مرتد"||c.status==="مرتجع"),T.textMut)}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,padding:"8px 12px",borderRadius:12,background:g.color+"0D"}}>
+                    <span style={{fontSize:FS-2,fontWeight:800,color:T.text}}>{g.rcv?"المتبقّي لنا":"المتبقّي علينا"}</span>
+                    <span style={{fontSize:FS+2,fontWeight:900,color:g.color,fontVariantNumeric:"tabular-nums"}}>{fmt0(g.out)} ج.م</span>
+                  </div>
+                  <div onClick={()=>setView("checks")} style={{marginTop:10,padding:"9px",borderRadius:13,background:g.color+"10",color:g.color,border:"1px solid "+g.color+"22",textAlign:"center",cursor:"pointer",fontSize:FS-2,fontWeight:800}}>📝 افتح الشيكات ▸</div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+
+        {/* V21.26.11: بطاقة التحليل المالي الاحترافية */}
+        <div style={{marginTop:24}}>
+          <div style={{fontSize:FS+1,fontWeight:900,color:T.text,marginBottom:10}}>📊 التحليل المالي</div>
+          <div className="clark-card" style={{borderRadius:22,border:"1px solid "+T.accent+"33",overflow:"hidden",boxShadow:T.shadow,background:"linear-gradient(135deg,"+T.accent+"0D,"+T.cardSolid+")"}}>
+            <div style={{padding:"18px 20px"}}>
+              <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:14,marginBottom:16}}>
+                <div style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,padding:"14px 12px",textAlign:"center"}}><div style={{fontSize:22,marginBottom:4}}>💧</div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>إجمالي السيولة</div><div style={{fontSize:FS+3,fontWeight:900,color:"#0D9488",fontVariantNumeric:"tabular-nums"}}>{fmt0(totalLiquidity)}</div><div style={{fontSize:FS-4,color:T.textMut}}>نقدي+بنوك+محافظ</div></div>
+                <div style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,padding:"14px 12px",textAlign:"center"}}><div style={{fontSize:22,marginBottom:4}}>📥</div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>شيكات لنا (معلّقة)</div><div style={{fontSize:FS+3,fontWeight:900,color:T.ok,fontVariantNumeric:"tabular-nums"}}>{fmt0(rcvOutstanding)}</div><div style={{fontSize:FS-4,color:T.textMut}}>هتزوّد السيولة</div></div>
+                <div style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,padding:"14px 12px",textAlign:"center"}}><div style={{fontSize:22,marginBottom:4}}>📤</div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>شيكات علينا (معلّقة)</div><div style={{fontSize:FS+3,fontWeight:900,color:T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(payOutstanding)}</div><div style={{fontSize:FS-4,color:T.textMut}}>التزامات قادمة</div></div>
+                <div style={{background:netPosition>=0?"#0D948812":T.err+"12",border:"1px solid "+(netPosition>=0?"#0D948840":T.err+"40"),borderRadius:16,padding:"14px 12px",textAlign:"center"}}><div style={{fontSize:22,marginBottom:4}}>⚖️</div><div style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>الموقف الصافي المتوقّع</div><div style={{fontSize:FS+3,fontWeight:900,color:netPosition>=0?"#0D9488":T.err,fontVariantNumeric:"tabular-nums"}}>{fmt0(netPosition)}</div><div style={{fontSize:FS-4,color:T.textMut}}>سيولة + لنا − علينا</div></div>
+              </div>
+              {(()=>{const tot=grand.in+grand.out;const inPct=tot>0?Math.round(grand.in/tot*100):0;return<div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:FS-2,fontWeight:700,marginBottom:5}}><span style={{color:T.ok}}>وارد {fmt0(r2(grand.in))} ({inPct}%)</span><span style={{color:T.err}}>منصرف {fmt0(r2(grand.out))} ({100-inPct}%)</span></div>
+                <div style={{display:"flex",height:12,borderRadius:8,overflow:"hidden",background:T.bg}}><div style={{width:inPct+"%",background:T.ok}}/><div style={{width:(100-inPct)+"%",background:T.err}}/></div>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:12,gap:12,flexWrap:"wrap"}}>
+                  <div style={{fontSize:FS-2,color:T.textSec}}>الخزن النقدي/البنوك: <b style={{color:T.text}}>{fmt0(r2(cashBankBal))}</b></div>
+                  <div style={{fontSize:FS-2,color:T.textSec}}>المحافظ: <b style={{color:"#8B5CF6"}}>{fmt0(r2(walletsBal))}</b></div>
+                  <div style={{fontSize:FS-2,color:T.textSec}}>صافي حركة الخزنة: <b style={{color:(grand.in-grand.out)>=0?"#0D9488":T.err}}>{fmt0(r2(grand.in-grand.out))}</b></div>
+                </div>
+              </div>;})()}
+            </div>
+          </div>
+        </div>
       </div>;
     })()}
 
