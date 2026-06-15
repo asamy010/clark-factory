@@ -25,11 +25,18 @@ export function Spinner({size,color,inline}){
 
 /* V21.21.5: full-screen blocking overlay — يقفل الشاشة أثناء عمليات مجمّعة
    (حذف مجمّع مثلاً) فمايقدرش المستخدم يعمل أي إجراء حتى انتهائها. */
-export function BlockingOverlay({show,text,sub}){
+export function BlockingOverlay({show,text,sub,pct}){
   if(!show) return null;
+  const hasPct=typeof pct==="number"&&pct>=0;
   return <div style={{position:"fixed",inset:0,zIndex:100000,background:"rgba(0,0,0,0.6)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
     <Spinner size="large" color="#fff"/>
     <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{text||"جاري المعالجة..."}</div>
+    {hasPct&&<div style={{width:260,maxWidth:"72vw"}}>
+      <div style={{height:9,borderRadius:6,background:"rgba(255,255,255,0.22)",overflow:"hidden"}}>
+        <div style={{height:"100%",width:Math.min(100,Math.max(0,pct))+"%",background:"#fff",borderRadius:6,transition:"width 0.25s ease"}}/>
+      </div>
+      <div style={{color:"#fff",fontWeight:800,fontSize:15,textAlign:"center",marginTop:7}}>{Math.round(pct)}%</div>
+    </div>}
     {sub&&<div style={{color:"rgba(255,255,255,0.8)",fontWeight:600,fontSize:13}}>{sub}</div>}
   </div>;
 }

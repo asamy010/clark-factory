@@ -118,6 +118,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [saveColor, setSaveColor] = useState("");
   const [genCount, setGenCount] = useState(0);
   const [spent, setSpent] = useState(0);
+  const [genTotal, setGenTotal] = useState(1);   /* نسبة تقدّم التوليد */
+  const [genDone, setGenDone] = useState(0);
+  const [genPct, setGenPct] = useState(0);
   const [editFor, setEditFor] = useState(null);
   const [editInstr, setEditInstr] = useState("");
   const [showLib, setShowLib] = useState(false);
@@ -284,7 +287,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       "التكلفة التقريبية: ~‎$" + total + (over ? "\n\n⚠️ هتتجاوز ميزانية الشهر (~$" + budget + ")" : ""),
       { confirmText: "توليد" });
     if(!yes) return;
-    setBusy(true);
+    setBusy(true); setGenTotal(colorList.length); setGenDone(0);
     const news = [];
     for(let i = 0; i < colorList.length; i++){
       const col = colorList[i];
@@ -293,7 +296,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       const colorInstr = col.image ? "" : (" The garment must be in this exact color: " + (col.hex || col.name) + " (keep the same design and details, only the color is " + col.name + ").");
       const e = await callOnce({ ...opts }, srcUrls, effPrompt({ ...opts }) + colorInstr, { color: col.name });
       if(!e) break;
-      news.push(e);
+      news.push(e); setGenDone(d => d + 1);
     }
     setBusy(false); setBatchMsg("");
     if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
@@ -303,7 +306,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const doCover = async () => {
     if(!coverFor) return;
     const pr = buildCoverPrompt({ ...coverForm, modelNo: (curModel && curModel.modelNo) || storageFolder || "" });
-    setBusy(true); setBatchMsg("🏷️ إضافة الغلاف/النص...");
+    setBusy(true); setGenTotal(1); setGenDone(0); setBatchMsg("🏷️ إضافة الغلاف/النص...");
     const r = await generateModelImage({ modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [coverFor.url], prompt: pr, aspectRatio, imageSize, tier }, user);
     setBusy(false); setBatchMsg("");
     if(r && r.ok && r.url){
@@ -329,13 +332,13 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       (over ? "\n\n⚠️ هتتجاوز ميزانية الشهر (~$" + budget + ")" : ""),
       { confirmText: "توليد" });
     if(!yes) return;
-    setBusy(true);
+    setBusy(true); setGenTotal(jobs.length); setGenDone(0);
     const news = [];
     for(let i = 0; i < jobs.length; i++){
       setBatchMsg(jobs.length > 1 ? ("جاري توليد " + (i + 1) + " من " + jobs.length + "...") : "جاري التوليد...");
       const e = await callOnce(jobs[i], sources);
       if(!e) break;
-      news.push(e);
+      news.push(e); setGenDone(d => d + 1);
     }
     setBusy(false); setBatchMsg("");
     if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
@@ -346,13 +349,13 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(!sp || !sp.prompt) return;
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
-    setBusy(true);
+    setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
       setBatchMsg(n > 1 ? ("جاري توليد " + (i + 1) + " من " + n + "...") : ("جاري تنفيذ «" + (sp.name || "برومبت") + "»..."));
       const e = await callOnce({ ...opts }, sources, sp.prompt);
       if(!e) break;
-      news.push(e);
+      news.push(e); setGenDone(d => d + 1);
     }
     setBusy(false); setBatchMsg("");
     if(news.length){ recordUsage(news.length, Math.round(news.length * unitCost(tier, imageSize) * 100) / 100); autoSaveEntries(news); }
@@ -384,7 +387,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   const doEdit = async () => {
     if(!editFor || !editInstr.trim()){ showToast("⚠️ اكتب تعليمات التعديل"); return; }
-    setBusy(true); setBatchMsg("جاري تعديل الصورة...");
+    setBusy(true); setGenTotal(1); setGenDone(0); setBatchMsg("جاري تعديل الصورة...");
     const r = await generateModelImage({
       modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [editFor.url],
       prompt: buildEditPrompt(editInstr), aspectRatio, imageSize, tier,
@@ -401,7 +404,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   /* ✨ تحسين واقعية صورة مولّدة (re-render كصورة حقيقية) */
   const enhanceRealism = async (res) => {
-    setBusy(true); setBatchMsg("✨ تحسين الواقعية...");
+    setBusy(true); setGenTotal(1); setGenDone(0); setBatchMsg("✨ تحسين الواقعية...");
     const pr = buildEditPrompt("Re-render this exact image as a believable real photograph. " +
       (cameraPromptOf(cameraId) ? cameraPromptOf(cameraId) + ". " : "") +
       buildRealismSuffix("strong", shotType === "model" || shotType === "reference") +
@@ -543,6 +546,21 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   }, []);
   const libTotal = useMemo(() => library ? Object.values(library).reduce((s, a) => s + (a ? a.length : 0), 0) : 0, [library]);
 
+  /* نسبة تقدّم التوليد (٪): تقدير سلس بيتسلّق مع كل صورة تخلص في الباتش،
+     ومحاكاة ناعمة جوّه الصورة الواحدة (الـ API مبيرجّعش progress حقيقي). */
+  useEffect(() => {
+    if(!busy){ setGenPct(0); return; }
+    const id = setInterval(() => {
+      setGenPct(prev => {
+        const tot = Math.max(1, genTotal);
+        const target = Math.min(97, ((genDone + 0.9) / tot) * 100);
+        if(prev >= target) return target;
+        return prev + Math.max(0.5, (target - prev) * 0.08);
+      });
+    }, 150);
+    return () => clearInterval(id);
+  }, [busy, genTotal, genDone]);
+
   const doSeedLibrary = async () => {
     if(libBusy) return;
     const ok = await ask("تحميل المكتبة الجاهزة؟", "هيتحمّل ~180 برومبت تجربة ملابس (5 جروبات) مع صورهم. تقدر تعدّلهم أو تحذفهم بعد كده.");
@@ -629,11 +647,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: T.bg, overflowY: "auto", direction: "rtl" }}>
-      <BlockingOverlay show={busy} text={batchMsg || "جاري التوليد..."} sub="بـ Nano Banana Pro — ثواني" />
-      <div style={{ maxWidth: 1600, margin: "0 auto", padding: isMob ? 12 : "16px 24px 60px" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: T.bg, overflow: isMob ? "auto" : "hidden", direction: "rtl" }}>
+      <BlockingOverlay show={busy} text={batchMsg || "جاري التوليد..."} pct={genPct} sub="بـ Nano Banana Pro — ثواني" />
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: isMob ? 12 : "16px 24px 16px", height: isMob ? undefined : "100%", display: isMob ? undefined : "flex", flexDirection: isMob ? undefined : "column", boxSizing: "border-box" }}>
         {/* header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap", flexShrink: 0 }}>
           <Btn small onClick={onClose} style={{ background: T.cardSolid, border: "1px solid " + T.brd, color: T.text }}>‹ رجوع</Btn>
           <Btn small onClick={resetSession} disabled={busy} style={{ background: "#10B98112", color: "#10B981", border: "1px solid #10B98133", fontWeight: 700 }}>🆕 جديد</Btn>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -659,7 +677,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         </div>
 
         {showPicker && (
-          <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, marginBottom: 14, flexShrink: 0 }}>
             <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.text, marginBottom: 8 }}>🧩 اختر موديل (اختياري)</div>
             <div style={{ maxWidth: 420 }}>
               <SearchSel value={curModel ? String(curModel.id) : ""} onChange={pickModel} options={modelOpts} showAllOnFocus maxResults={8} placeholder="🔍 ابحث عن موديل..." />
@@ -667,9 +685,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.35fr 1fr", gap: 16, alignItems: "start" }}>
-          {/* ── left: inputs ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1.35fr 1fr", gap: 16, alignItems: isMob ? "start" : "stretch", flex: isMob ? undefined : 1, minHeight: isMob ? undefined : 0, overflow: isMob ? undefined : "hidden" }}>
+          {/* ── left: inputs (عمود الإعدادات — اسكرول مستقل) ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineEnd: isMob ? undefined : 4 }}>
             {/* shot type */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>📸 نوع اللقطة</div>
@@ -984,8 +1002,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             </div>
           </div>
 
-          {/* ── right: results + gallery ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* ── right: results + gallery (نتائج الجلسة — ثابتة، اسكرول مستقل) ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: isMob ? undefined : "auto", minHeight: isMob ? undefined : 0, paddingInlineStart: isMob ? undefined : 4 }}>
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🖼️ نتائج الجلسة</span>
