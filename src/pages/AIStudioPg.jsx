@@ -23,7 +23,7 @@ import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
-  SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
+  SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
 } from "../utils/aiStudioPresets.js";
@@ -213,7 +213,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
-  const useCustom = (customOn || isReference) && customPrompt.trim();
+  /* V21.26.0: البرومبت الحر يُستخدم فقط في وضع «موديل» ولمّا المستخدم يفعّله
+     بنفسه — مايتسرّبش للمرجعي/المفرغ/المسطح (دول بيستخدموا برومبتهم الداخلي). */
+  const useCustom = isModelShot && customOn && customPrompt.trim();
   /* لاحقة تقنية: نمط التصوير + العدسة + معزّز الواقعية — بتتلصق على أي برومبت */
   const techSuffix = () => {
     let s = "";
@@ -224,10 +226,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   };
   const effPrompt = (o) => (useCustom ? customPrompt.trim() : buildStudioPrompt(o, lib)) + techSuffix();
 
-  const setShot = (id) => {
-    setShotType(id);
-    if(id === "reference" && !customPrompt.trim()){ setCustomPrompt(REFERENCE_TRYON_PROMPT); setCustomOn(true); }
-  };
+  /* V21.26.0: اختيار نوع اللقطة مابيفعّلش البرومبت الحر إطلاقاً. المرجعي/
+     المفرغ/المسطح بيبنوا برومبتهم الداخلي في buildStudioPrompt (مخفي/غير قابل
+     للتعديل). البرومبت الحر اختياري يدوي في وضع «موديل» فقط. */
+  const setShot = (id) => { setShotType(id); };
   /* وضع موديل مرجعي: sources[0] = Image1 (الموديل) · الباقي = Image2 (القطعة) */
   const setRefModel = (url) => { if(url) setSources(p => [url, ...p.slice(1)]); };
   const clearRefModel = () => setSources(p => p.slice(1));
@@ -904,7 +906,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* options */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
-              {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1) والبرومبت بيقفلها. عدّل البرومبت من قسم «✍️ البرومبت» تحت لو محتاج.</div>}
+              {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
               {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId)}
               {isModelShot && isChild && chipRow("العمر", CHILD_AGES, ageId, setAgeId)}
               {isModelShot && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId)}
@@ -1019,17 +1021,18 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )}
             </div>
 
-            {/* custom prompt + analyze */}
+            {/* custom prompt + analyze — وضع «موديل» فقط (المرجعي/المفرغ/المسطح
+                بيستخدموا برومبتهم الداخلي المخفي). يدوي بالكامل — مايتفعّلش لوحده. */}
+            {isModelShot && (
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت {isReference ? "(مرجعي)" : "الحر"}</span>
-                {!isReference && <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>}
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>✍️ البرومبت الحر <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اختياري)</span></span>
+                <span onClick={() => setCustomOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: customOn ? T.accent : T.textMut }}>{customOn ? "✓ مستخدَم في التوليد" : "استخدمه في التوليد"}</span>
               </div>
-              {(customOn || isReference) ? (
+              {customOn ? (
                 <>
-                  <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} rows={isReference ? 8 : 5} placeholder="اكتب البرومبت الكامل (الإنجليزي أدق)..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 90, outline: "none", lineHeight: 1.6 }} />
+                  <textarea value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} rows={5} placeholder="اكتب البرومبت الكامل (الإنجليزي أدق)..." style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 2, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 90, outline: "none", lineHeight: 1.6 }} />
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    <Btn small onClick={() => setCustomPrompt(REFERENCE_TRYON_PROMPT)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>📋 قالب التلبيس المرجعي</Btn>
                     <Btn small onClick={runAnalyze} disabled={analyzing} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>{analyzing ? "⏳ تحليل..." : "🔎 تحليل البرومبت"}</Btn>
                     {customPrompt && <Btn small onClick={() => setCustomPrompt("")} style={{ background: T.err + "10", color: T.err, border: "1px solid " + T.err + "30" }}>مسح</Btn>}
                   </div>
@@ -1042,6 +1045,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 </div>
               )}
             </div>
+            )}
 
             {/* output settings */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
