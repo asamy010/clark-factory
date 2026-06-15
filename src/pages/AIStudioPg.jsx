@@ -26,7 +26,7 @@ import {
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
-  LOGO_POSITIONS, LOGO_SIZES, buildLogoPrompt, SCENERY_BACKGROUNDS, QUICK_EDITS,
+  LOGO_POSITIONS, LOGO_SIZES, buildLogoPrompt, SCENERY_BACKGROUNDS, QUICK_EDITS, FOOTWEAR_CLAUSE,
 } from "../utils/aiStudioPresets.js";
 import { LIBRARY_GROUPS, loadPromptLibrary, savePromptGroup, seedPromptLibrary } from "../utils/aiPromptLibrary.js";
 import { loadSessionIndex, loadSession as loadSessionDoc, saveSession as saveSessionDoc, deleteSession as deleteSessionDoc } from "../utils/aiStudioSessions.js";
@@ -386,7 +386,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(sources.length === 0){ showToast("⚠️ اختر صورة المصدر الأول"); return; }
     const n = Math.max(1, Math.min(4, Number(count) || 1));
     const notesTxt = String(notes || "").trim();
-    const promptWithNotes = sp.prompt + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
+    /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
+    const promptWithNotes = sp.prompt + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
     setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
@@ -701,6 +702,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     showToast("✓ اتحفظ");
   };
   const delLibPrompt = async (group, id) => {
+    /* V21.26.10: برومبتس المكتبة الأساسية (builtin) ممنوع حذفها — المضافة فقط. */
+    const target = ((library && library[group]) || []).find(x => x.id === id);
+    if(target && target.builtin){ showToast("🔒 ده برومبت أساسي في المكتبة — مينفعش يتحذف (تقدر تعدّله)"); return; }
     const ok = await ask("حذف البرومبت؟", "هيتشال من المكتبة نهائياً.");
     if(!ok) return;
     const cur = ((library && library[group]) || []).filter(x => x.id !== id);
@@ -924,7 +928,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                                 </div>
                                 <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
                                 <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, id: sp.id, name: sp.name || "", prompt: sp.prompt || "", image: sp.image || "" }); }} style={{ position: "absolute", top: 3, insetInlineStart: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✏️</span>
-                                <span onClick={e => { e.stopPropagation(); delLibPrompt(g, sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
+                                {!sp.builtin && <span onClick={e => { e.stopPropagation(); delLibPrompt(g, sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>}
                               </div>
                             ))}
                           </div>

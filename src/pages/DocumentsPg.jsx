@@ -988,13 +988,15 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                   <div
                     onClick={() => previewOk ? setPreviewFile(file) : downloadFile(file)}
                     style={{
-                      height: 100, borderRadius: 8, background: isImg ? "#000" : T.bg,
+                      /* V21.26.10: الصورة بتظهر بأبعادها الطبيعية (طولي/عرضي) من غير قص.
+                         الصندوق بيلفّ الصورة (minHeight يمنع الانهيار، maxHeight يحدّ الطوال). */
+                      minHeight: isImg ? 90 : 100, maxHeight: 260, borderRadius: 8, background: T.bg,
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      cursor: "pointer", overflow: "hidden",
+                      cursor: "pointer", overflow: "hidden", padding: isImg ? 3 : 0,
                     }}>
                     {isImg && file.downloadURL ? (
                       <img src={file.downloadURL} alt={file.name}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        style={{ maxWidth: "100%", maxHeight: 252, width: "auto", height: "auto", objectFit: "contain", display: "block", borderRadius: 6 }} />
                     ) : (
                       <div style={{ fontSize: 40 }}>{fileIcon(file.contentType)}</div>
                     )}

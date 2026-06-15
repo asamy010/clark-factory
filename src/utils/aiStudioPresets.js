@@ -230,6 +230,10 @@ export function mergePresets(data){
 
 const PRESERVE = "Preserve the garment's fabric texture, colors, patterns, prints, logos and every design detail with high fidelity — do not redesign or alter the clothing.";
 
+/* V21.26.10: الموديل (طفل/بنت/راجل/ست) دايماً لابس شوز مناسب — مايبقاش حافي.
+   افتراضي على كل التوليد والبرومبتس الجاهزة (أمر Ahmed). */
+export const FOOTWEAR_CLAUSE = "Important: the model must be wearing suitable, stylish footwear (clean sneakers or appropriate shoes) that matches the outfit and fits the model's gender and age — the model must NEVER be barefoot — unless the uploaded garment item itself is footwear.";
+
 export function buildStudioPrompt(opts, lib){
   const o = opts || {};
   const poses = (lib && lib.poses) || POSES;
@@ -276,6 +280,7 @@ export function buildStudioPrompt(opts, lib){
       (pose.prompt || "") + ".",
       "The model has " + (expr.prompt || EXPRESSIONS[0].prompt) + ".",
       mood,
+      FOOTWEAR_CLAUSE,
       "Use natural candid body language, authentic spontaneous movement and a genuine lively vibe — absolutely NOT a stiff, rigid, frozen or mannequin-like pose, and not an empty blank expression.",
       (bg.prompt || "") + ".",
       light && light.prompt ? (light.prompt + ".") : "",
