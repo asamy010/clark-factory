@@ -22,7 +22,7 @@ import { ask, showToast } from "../utils/popups.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import {
-  AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, CHILD_AGES, FRAMINGS,
+  AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, REFERENCE_TRYON_PROMPT, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
@@ -94,6 +94,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [imageSize, setImageSize] = useState("1K");
   const [shotType, setShotType] = useState("model");
   const [genderId, setGenderId] = useState("boy");
+  const [expressionId, setExpressionId] = useState("smile"); /* افتراضي ابتسامة */
   const [ageId, setAgeId] = useState("a4_6");
   const [poseId, setPoseId] = useState("front");
   const [backgroundId, setBackgroundId] = useState("studio_white");
@@ -202,7 +203,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const isModelShot = shotType === "model";
   const isReference = shotType === "reference";
   const isChild = genderId === "girl" || genderId === "boy";
-  const opts = { shotType, genderId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
+  const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
   const useCustom = (customOn || isReference) && customPrompt.trim();
@@ -501,6 +502,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(!o) return;
     if(o.shotType) setShotType(o.shotType);
     if(o.genderId) setGenderId(o.genderId);
+    if(o.expressionId) setExpressionId(o.expressionId);
     if(o.ageId) setAgeId(o.ageId);
     if(o.poseId) setPoseId(o.poseId);
     if(o.backgroundId) setBackgroundId(o.backgroundId);
@@ -830,6 +832,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1) والبرومبت بيقفلها. عدّل البرومبت من قسم «✍️ البرومبت» تحت لو محتاج.</div>}
               {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId)}
               {isModelShot && isChild && chipRow("العمر", CHILD_AGES, ageId, setAgeId)}
+              {isModelShot && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId)}
               {isModelShot && (
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>

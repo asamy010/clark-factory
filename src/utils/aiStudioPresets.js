@@ -46,6 +46,15 @@ export const GENDERS = [
   { id: "man",   label: "رجل",   prompt: "an adult male" },
 ];
 
+/* تعبير الوجه — افتراضي «ابتسامة» (أمر Ahmed: دايماً ابتسامة أساسي). */
+export const EXPRESSIONS = [
+  { id: "smile",     label: "ابتسامة 😊", prompt: "a warm, genuine, natural smile with bright friendly eyes and a happy approachable expression" },
+  { id: "laugh",     label: "ضحكة 😄",    prompt: "laughing joyfully with a big happy genuine expression, full of fun and delight" },
+  { id: "confident", label: "واثق 😎",    prompt: "a confident charismatic expression with a subtle natural smile and lively eyes" },
+  { id: "calm",      label: "هادئ 🙂",    prompt: "a soft pleasant relaxed expression with a gentle warm hint of a smile" },
+  { id: "candid",    label: "عفوي ✨",    prompt: "a candid natural unposed expression caught mid-moment, authentic and alive" },
+];
+
 /* مكتبة قوالب احترافية جاهزة (إعدادات كاملة) — تتدمج مع قوالب المستخدم.
    builtin:true عشان مايتحذفش. كل قالب بيظبط نوع اللقطة + الجنس + الوقفة +
    الخلفية + الإطار + الإضاءة + الكاميرا/النمط + قوة الواقعية. */
@@ -73,14 +82,22 @@ export const CHILD_AGES = [
 ];
 
 export const POSES = [
-  { id: "front",   label: "واقف أمامي",       prompt: "standing straight, facing the camera, front view" },
-  { id: "three4",  label: "ثلاثة أرباع",       prompt: "standing in a relaxed three-quarter pose" },
-  { id: "side",    label: "جانبي",            prompt: "standing in a side profile pose" },
-  { id: "back",    label: "من الخلف",          prompt: "standing with the back to the camera, showing the back of the outfit" },
-  { id: "walking", label: "ماشي",             prompt: "walking towards the camera, natural runway motion" },
-  { id: "hands",   label: "يدين على الخصر",    prompt: "standing confidently with hands on hips" },
-  { id: "sitting", label: "جالس",             prompt: "sitting casually on a simple stool" },
-  { id: "playful", label: "حركة لعب",          prompt: "in a cheerful playful pose, smiling" },
+  { id: "front",   label: "واقف طبيعي",      prompt: "standing in a relaxed natural stance facing the camera, weight shifted onto one leg, shoulders loose, a lively confident and effortless posture" },
+  { id: "three4",  label: "ثلاثة أرباع",      prompt: "a dynamic three-quarter stance, body angled, looking towards the camera with effortless natural energy" },
+  { id: "side",    label: "جانبي",           prompt: "a side profile pose with a natural lean and relaxed, lively posture" },
+  { id: "back",    label: "من الخلف",         prompt: "turned with the back to the camera glancing playfully over the shoulder, showing the back of the outfit naturally" },
+  { id: "walking", label: "ماشي",            prompt: "walking towards the camera mid-stride with natural runway motion and lively energy" },
+  { id: "hands",   label: "يدين على الخصر",   prompt: "standing confidently with hands on hips and an energetic upbeat posture" },
+  { id: "sitting", label: "جالس مرتاح",      prompt: "sitting casually and relaxed, leaning slightly with a natural candid lively feel" },
+  { id: "playful", label: "حركة لعب",         prompt: "in a cheerful playful action pose, mid-movement, full of fun and joyful energy" },
+  { id: "jump",    label: "قفزة",            prompt: "captured mid-air in a joyful energetic jump, dynamic motion frozen, full of excitement" },
+  { id: "running", label: "جري",             prompt: "running playfully towards the camera, dynamic motion with clothes and hair moving naturally" },
+  { id: "twirl",   label: "لفّة",            prompt: "spinning and twirling joyfully, the outfit flowing with the movement, candid and lively" },
+  { id: "lean",    label: "متّكي",           prompt: "leaning casually against a wall or prop, relaxed cool lifestyle posture" },
+  { id: "shoulder",label: "نظرة خلفية",      prompt: "looking back over the shoulder towards the camera with a playful natural glance" },
+  { id: "sporty",  label: "رياضي",           prompt: "an energetic sporty action pose, mid-motion, athletic and dynamic" },
+  { id: "floor",   label: "قاعد ع الأرض",    prompt: "sitting casually on the floor in a relaxed playful candid pose" },
+  { id: "hands_up",label: "إيدين لفوق",      prompt: "an excited expressive pose with arms raised playfully, full of energy and joy" },
 ];
 
 export const BACKGROUNDS = [
@@ -246,12 +263,23 @@ export function buildStudioPrompt(opts, lib){
     const framing = byId(FRAMINGS, o.framingId) || FRAMINGS[0];
     const skin = byId(SKIN_TONES, o.skinToneId);
     const light = byId(LIGHTINGS, o.lightingId);
+    const expr = byId(EXPRESSIONS, o.expressionId) || EXPRESSIONS[0];
     const subject = (age ? (age.prompt + " ") : "") + gender.prompt + (skin && skin.prompt ? " with " + skin.prompt : "");
+    /* روح/طاقة الصورة — الافتراضي ابتسامة + حيوية ومنع شكل المانيكان الجامد. */
+    const mood = isChild
+      ? "A fun, cheerful, playful and joyful kids-fashion mood, full of life and natural childlike energy and movement."
+      : "A natural, lively, confident and effortless editorial mood, full of life, personality and movement.";
     lines = [
-      "Generate a photorealistic professional fashion-catalog photograph of " + subject + " fashion model wearing the EXACT garment(s) shown in the reference image(s).",
-      PRESERVE, (framing.prompt || "") + ".", (pose.prompt || "") + ".", (bg.prompt || "") + ".",
+      "Generate a photorealistic professional lifestyle fashion-catalog photograph of " + subject + " fashion model wearing the EXACT garment(s) shown in the reference image(s).",
+      PRESERVE,
+      (framing.prompt || "") + ".",
+      (pose.prompt || "") + ".",
+      "The model has " + (expr.prompt || EXPRESSIONS[0].prompt) + ".",
+      mood,
+      "Use natural candid body language, authentic spontaneous movement and a genuine lively vibe — absolutely NOT a stiff, rigid, frozen or mannequin-like pose, and not an empty blank expression.",
+      (bg.prompt || "") + ".",
       light && light.prompt ? (light.prompt + ".") : "",
-      "Photorealistic skin and natural proportions, sharp focus on the outfit, professional studio fashion photography, high detail, no text, no watermark.",
+      "Photorealistic skin and natural proportions, sharp focus on the outfit, professional fashion photography, high detail, no text, no watermark.",
     ].filter(Boolean);
   }
   if(notes) lines.push("Additional requirements: " + notes);
@@ -301,11 +329,13 @@ export function describeStudioOptions(opts, lib){
   const isChild = gender.id === "girl" || gender.id === "boy";
   const age = isChild ? byId(CHILD_AGES, o.ageId) : null;
   const skin = byId(SKIN_TONES, o.skinToneId);
+  const expr = byId(EXPRESSIONS, o.expressionId) || EXPRESSIONS[0];
   return [
     (age ? age.label + " — " : "") + gender.label,
     skin && skin.id !== "any" ? skin.label : "",
     (byId(FRAMINGS, o.framingId) || FRAMINGS[0]).label,
     (byId(poses, o.poseId) || poses[0] || POSES[0]).label,
+    expr ? expr.label : "",
     bgL,
   ].filter(Boolean).join(" · ");
 }
