@@ -48,6 +48,21 @@ function CamDiagram({ type, on }){
   );
 }
 
+/* رسم بسيط لشكل الصورة حسب نسبة الأبعاد (طولي/أفقي/مربّع) — preview جانبي */
+function ARDiagram({ ratio, on }){
+  const parts = String(ratio).split(":").map(Number);
+  const W = parts[0] || 1, H = parts[1] || 1;
+  const box = 32, max = 24;
+  let rw, rh;
+  if(W >= H){ rw = max; rh = max * H / W; } else { rh = max; rw = max * W / H; }
+  const x = (box - rw) / 2, y = (box - rh) / 2;
+  const stroke = on ? T.accent : T.textMut;
+  return (
+    <svg width={box} height={box} viewBox={"0 0 " + box + " " + box} style={{ flexShrink: 0 }}>
+      <rect x={x} y={y} width={rw} height={rh} rx="2.5" fill={on ? T.accent + "22" : "transparent"} stroke={stroke} strokeWidth="2" />
+    </svg>
+  );
+}
 function modelImages(model){
   const out = [];
   if(!model) return out;
@@ -933,11 +948,27 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             </div>
 
             {/* output settings */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(4,1fr)", gap: 10 }}>
-              <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>النموذج</div><Sel value={tier} onChange={setTier}>{TIERS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</Sel></div>
-              <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>الأبعاد</div><Sel value={aspectRatio} onChange={setAspectRatio}>{AR_RATIOS.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</Sel></div>
-              <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>الدقة</div><Sel value={imageSize} onChange={setImageSize}>{IMAGE_SIZES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</Sel></div>
-              <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>عدد الصور</div><Sel value={String(count)} onChange={v => setCount(Number(v))}>{[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}</Sel></div>
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 8 }}>🖼️ شكل الصورة (الأبعاد)</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                {AR_RATIOS.map(a => {
+                  const on = aspectRatio === a.id;
+                  const [w, h] = a.id.split(":").map(Number);
+                  const orient = w === h ? "مربّع" : (w < h ? "طولي" : "أفقي");
+                  return (
+                    <div key={a.id} onClick={() => setAspectRatio(a.id)} title={a.label} style={{ cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 6px", borderRadius: 10, border: "1px solid " + (on ? T.accent : T.brd), background: on ? T.accent + "0D" : T.bg, width: 70 }}>
+                      <ARDiagram ratio={a.id} on={on} />
+                      <div style={{ fontSize: FS - 2, fontWeight: 800, color: on ? T.accent : T.text }}>{a.id}</div>
+                      <div style={{ fontSize: FS - 4, color: T.textMut }}>{orient}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : "repeat(3,1fr)", gap: 10 }}>
+                <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>النموذج</div><Sel value={tier} onChange={setTier}>{TIERS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</Sel></div>
+                <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>الدقة</div><Sel value={imageSize} onChange={setImageSize}>{IMAGE_SIZES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</Sel></div>
+                <div><div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 4 }}>عدد الصور</div><Sel value={String(count)} onChange={v => setCount(Number(v))}>{[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}</Sel></div>
+              </div>
             </div>
 
             {/* زر التوليد مثبّت أسفل العمود مع الاسكرول — يفضل ظاهر أثناء ضبط الخيارات */}
