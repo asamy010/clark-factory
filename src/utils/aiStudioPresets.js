@@ -300,6 +300,59 @@ export const COVER_STYLES = [
   { id: "minimal", label: "مينيمال",      prompt: "Transform this into a minimalist fashion magazine cover: a clean masthead, lots of negative space, one elegant headline, modern refined typography." },
   { id: "street",  label: "ستريت",        prompt: "Transform this into an urban streetwear magazine cover: a bold graphic masthead, edgy modern headlines, street-style layout." },
   { id: "luxury",  label: "فخامة",        prompt: "Transform this into a luxury fashion magazine cover: gold-accented elegant masthead, sophisticated serif headlines, high-end premium editorial layout." },
+  { id: "vogue",   label: "فوغ راقٍ",    prompt: "Transform this into a sophisticated high-fashion Vogue-style magazine cover: a bold serif masthead at the top, the model centered, refined cover-lines, elegant minimal premium editorial layout." },
+  { id: "vintage", label: "فينتاج",      prompt: "Transform this into a retro vintage magazine cover: warm faded film tones, a classic serif masthead, old-school cover-lines and layout." },
+  { id: "neon",    label: "نيون Y2K",    prompt: "Transform this into a bold Y2K neon magazine cover: vibrant neon colors, funky bubble typography, playful energetic layout." },
+  { id: "bwcover", label: "أبيض/أسود",   prompt: "Transform this into an elegant black-and-white editorial magazine cover: monochrome tones, a clean modern masthead, refined minimal cover-lines." },
+  { id: "sport",   label: "رياضي",       prompt: "Transform this into a dynamic sports/active magazine cover: a bold energetic masthead, motion-style headlines, vibrant athletic layout." },
+  { id: "arabic",  label: "عربي أنيق",   prompt: "Transform this into an elegant Arabic fashion magazine cover with a tasteful Arabic-style masthead and a refined modern premium layout." },
+];
+
+/* ── أدوات التصميم (V21.26.5) — إدراج لوجو + مشاهد طبيعية + تعديلات سريعة ── */
+export const LOGO_POSITIONS = [
+  { id: "top-right",    label: "أعلى يمين",   prompt: "the top-right corner" },
+  { id: "top-left",     label: "أعلى يسار",   prompt: "the top-left corner" },
+  { id: "top-center",   label: "أعلى المنتصف", prompt: "the top-center area" },
+  { id: "bottom-right", label: "أسفل يمين",   prompt: "the bottom-right corner" },
+  { id: "bottom-left",  label: "أسفل يسار",   prompt: "the bottom-left corner" },
+];
+export const LOGO_SIZES = [
+  { id: "small",  label: "صغير",  prompt: "small and subtle (about 12% of the image width)" },
+  { id: "medium", label: "متوسط", prompt: "medium sized (about 20% of the image width)" },
+];
+export function buildLogoPrompt(positionId, sizeId){
+  const pos = (LOGO_POSITIONS.find(p => p.id === positionId) || LOGO_POSITIONS[0]).prompt;
+  const size = (LOGO_SIZES.find(s => s.id === sizeId) || LOGO_SIZES[0]).prompt;
+  return "Image 1 is a finished photograph. Image 2 is a brand logo (treat any white or checkerboard area around it as transparent). "
+    + "Composite the logo from Image 2 onto Image 1 as a clean simple watermark placed in " + pos + ", " + size + ". "
+    + "Keep the logo's exact shape, proportions, colors and lettering — do NOT redraw, restyle, recolor or add any text to it. "
+    + "Do NOT change anything else in Image 1: keep the person, garment, pose, background and colors 100% identical. "
+    + "Output the same photo with only the logo neatly added. Photorealistic, high quality, no extra text or watermark.";
+}
+
+/* مشاهد طبيعية لتغيير الخلفية — كل عنصر تعليمة تعديل جاهزة (تتلفّ بـ buildEditPrompt) */
+export const SCENERY_BACKGROUNDS = [
+  { id: "garden",   label: "🌿 حديقة",  instr: "Replace the background with a beautiful sunny garden, soft blurred greenery and natural daylight." },
+  { id: "beach",    label: "🏖️ شاطئ",   instr: "Replace the background with a bright sunny beach with sea and sky and soft natural light." },
+  { id: "forest",   label: "🌲 غابة",   instr: "Replace the background with a serene green forest with soft sunlight through the trees." },
+  { id: "mountain", label: "⛰️ جبال",   instr: "Replace the background with a scenic mountain landscape under a clear sky." },
+  { id: "desert",   label: "🏜️ صحراء",  instr: "Replace the background with golden sand dunes and a warm desert sky." },
+  { id: "sunset",   label: "🌅 غروب",   instr: "Replace the background with a warm golden-hour sunset sky over a soft landscape." },
+  { id: "city",     label: "🏙️ مدينة",  instr: "Replace the background with a stylish modern city street with soft bokeh." },
+  { id: "flowers",  label: "🌸 زهور",   instr: "Replace the background with a dreamy field of blooming flowers in soft focus." },
+  { id: "snow",     label: "❄️ ثلج",    instr: "Replace the background with a soft snowy winter scene with gentle daylight." },
+  { id: "whiteBg",  label: "◻️ أبيض",   instr: "Replace the background with a clean pure white seamless studio backdrop with even lighting." },
+];
+
+/* تعديلات سريعة جاهزة (ستايل كانفا) — تعليمة جاهزة تتلفّ بـ buildEditPrompt */
+export const QUICK_EDITS = [
+  { id: "bw",     label: "⬛ أبيض/أسود", instr: "Convert the image to an elegant black-and-white monochrome photograph with rich tones, keep all the details." },
+  { id: "bright", label: "☀️ إضاءة أنصع", instr: "Brighten the image with clean even lighting and a bright airy look, keep natural skin tones." },
+  { id: "warm",   label: "🔥 دافئ",     instr: "Apply a warm cozy color grade with soft golden tones." },
+  { id: "vivid",  label: "🌈 زاهي",     instr: "Make the colors more vivid and punchy while keeping them natural and realistic." },
+  { id: "frame",  label: "⬜ إطار أبيض", instr: "Add a clean thin white border/frame around the whole image like a polaroid-style margin." },
+  { id: "smile",  label: "😊 ابتسامة",  instr: "Make the model show a warm natural genuine smile, keep the identity and everything else the same." },
+  { id: "shoes",  label: "👟 كوتش أبيض", instr: "Add clean white sneakers on the model's feet matching the outfit, keep everything else the same." },
 ];
 
 export function buildCoverPrompt(o){

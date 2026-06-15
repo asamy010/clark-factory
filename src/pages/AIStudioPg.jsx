@@ -26,6 +26,7 @@ import {
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
+  LOGO_POSITIONS, LOGO_SIZES, buildLogoPrompt, SCENERY_BACKGROUNDS, QUICK_EDITS,
 } from "../utils/aiStudioPresets.js";
 import { LIBRARY_GROUPS, loadPromptLibrary, savePromptGroup, seedPromptLibrary } from "../utils/aiPromptLibrary.js";
 import { loadSessionIndex, loadSession as loadSessionDoc, saveSession as saveSessionDoc, deleteSession as deleteSessionDoc } from "../utils/aiStudioSessions.js";
@@ -146,6 +147,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [budgetInput, setBudgetInput] = useState("");
   const [coverFor, setCoverFor] = useState(null); /* {res} */
   const [coverForm, setCoverForm] = useState({ styleId: "none", magName: "CLARK", withModelNo: true, withLogo: true, extra: "" });
+  const [logoFor, setLogoFor] = useState(null); /* {res} — إدراج لوجو */
+  const [logoForm, setLogoForm] = useState({ logoUrl: "", position: "top-right", size: "small" });
   const [autoSave, setAutoSave] = useState(true);
   const [savedIds, setSavedIds] = useState(() => new Set());
 
@@ -326,6 +329,27 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
       recordUsage(1, unitCost(tier, imageSize)); autoSaveEntries([entry]);
       setCoverFor(null); showToast("✓ اتعمل الغلاف/النص");
+    } else showToast("⛔ " + ((r && r.error) || "فشل"));
+  };
+
+  /* ── إدراج لوجو على الصورة (V21.26.5) — Image1=الصورة · Image2=اللوجو ── */
+  const onLogoImage = async (file) => {
+    try { const { url } = await uploadImageToStorage("ai-logos", "logo", file); setLogoForm(f => ({ ...f, logoUrl: url })); }
+    catch(err){ showToast("⛔ فشل رفع اللوجو" + (err?.message ? " — " + err.message : "")); }
+  };
+  const doLogo = async () => {
+    if(!logoFor) return;
+    if(!logoForm.logoUrl){ showToast("⚠️ اختر صورة اللوجو الأول"); return; }
+    const pr = buildLogoPrompt(logoForm.position, logoForm.size);
+    setBusy(true); setGenTotal(1); setGenDone(0); setBatchMsg("🏷️ إضافة اللوجو...");
+    const r = await generateModelImage({ modelId: (curModel && curModel.id) || "studio", sourceImageUrls: [logoFor.url, logoForm.logoUrl], prompt: pr, aspectRatio, imageSize, tier }, user);
+    setBusy(false); setBatchMsg("");
+    if(r && r.ok && r.url){
+      const entry = { id: "g_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6), url: r.url, storagePath: r.storagePath || "", prompt: pr, desc: "🏷️ لوجو", tier, aspectRatio, imageSize, ts: Date.now(), by: (user && (user.displayName || user.email)) || "", options: logoFor.options || opts };
+      setResults(p => [entry, ...p]);
+      setGenCount(c => c + 1); setSpent(s => Math.round((s + unitCost(tier, imageSize)) * 100) / 100);
+      recordUsage(1, unitCost(tier, imageSize)); autoSaveEntries([entry]);
+      setLogoFor(null); showToast("✓ اتضاف اللوجو");
     } else showToast("⛔ " + ((r && r.error) || "فشل"));
   };
 
@@ -722,6 +746,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ تخزين</Btn>
       <Btn small onClick={() => enhanceRealism(res)} disabled={busy} style={{ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>
       <Btn small onClick={() => { setCoverForm(f => ({ ...f, modelNo: (curModel && curModel.modelNo) || "" })); setCoverFor(res); }} style={{ background: "#A855F712", color: "#A855F7", border: "1px solid #A855F733", fontWeight: 700 }} title="غلاف مجلة / نص ولوجو">📔 غلاف/نص</Btn>
+      <Btn small onClick={() => setLogoFor(res)} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إدراج لوجو على الصورة">🏷️ لوجو</Btn>
       <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }}>✏️ تعديل</Btn>
       {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
       <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>
@@ -1262,6 +1287,34 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         </div>
       )}
 
+      {/* logo overlay modal */}
+      {logoFor && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setLogoFor(null); }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 520, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>🏷️ إدراج لوجو على الصورة</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>اختار صورة اللوجو (يفضّل PNG بخلفية شفافة)، ومكانه وحجمه — هيتحط بنفس شكله الأصلي.</div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+              <img src={logoFor.url} alt="" style={{ width: 90, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid " + T.brd, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>صورة اللوجو</div>
+                <ImagePickButton data={data} imagesOnly onFile={onLogoImage} onPickUrl={url => setLogoForm(f => ({ ...f, logoUrl: url }))}
+                  triggerStyle={{ width: 120, height: 76, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: logoForm.logoUrl ? T.bg : T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, overflow: "hidden" }}>
+                  {logoForm.logoUrl ? <img src={logoForm.logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "🖼️ اختر لوجو"}
+                </ImagePickButton>
+              </div>
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>المكان</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{LOGO_POSITIONS.map(p => <Chip key={p.id} on={logoForm.position === p.id} onClick={() => setLogoForm(f => ({ ...f, position: p.id }))}>{p.label}</Chip>)}</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الحجم</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>{LOGO_SIZES.map(s => <Chip key={s.id} on={logoForm.size === s.id} onClick={() => setLogoForm(f => ({ ...f, size: s.id }))}>{s.label}</Chip>)}</div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Btn ghost onClick={() => setLogoFor(null)}>إلغاء</Btn>
+              <Btn primary onClick={doLogo} disabled={busy || !logoForm.logoUrl}>🏷️ إضافة اللوجو (~‎${unitCost(tier, imageSize)})</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* add saved-prompt modal */}
       {spForm && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setSpForm(null); }}>
@@ -1322,11 +1375,15 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       {/* edit modal */}
       {editFor && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9100, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }} onClick={e => { if(e.target === e.currentTarget) setEditFor(null); }}>
-          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 460, padding: 20, border: "1px solid " + T.brd }}>
+          <div style={{ background: T.cardSolid, borderRadius: 16, width: "100%", maxWidth: 540, padding: 20, border: "1px solid " + T.brd, maxHeight: "92vh", overflowY: "auto" }}>
             <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>✏️ تعديل الصورة بالذكاء الاصطناعي</div>
-            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>اكتب التعديل المطلوب — هيتطبّق على الصورة دي مباشرة (نفس القطعة).</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 10 }}>اختار تعديل جاهز أو اكتب اللي إنت عايزه — هيتطبّق على الصورة دي مباشرة (نفس القطعة).</div>
             <img src={editFor.url} alt="" style={{ width: 90, height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid " + T.brd, marginBottom: 10 }} />
-            <textarea value={editInstr} onChange={e => setEditInstr(e.target.value)} rows={3} placeholder="مثلاً: غيّر الخلفية لحديقة · خلّي الموديل بيبتسم · أضف حذاء أبيض" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 64, outline: "none", marginBottom: 12 }} />
+            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🌄 تغيير الخلفية لمشهد طبيعي</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{SCENERY_BACKGROUNDS.map(s => <Chip key={s.id} on={editInstr === s.instr} onClick={() => setEditInstr(s.instr)}>{s.label}</Chip>)}</div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>⚡ تعديلات سريعة</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{QUICK_EDITS.map(q => <Chip key={q.id} on={editInstr === q.instr} onClick={() => setEditInstr(q.instr)}>{q.label}</Chip>)}</div>
+            <textarea value={editInstr} onChange={e => setEditInstr(e.target.value)} rows={3} placeholder="أو اكتب تعديلك: غيّر الخلفية لحديقة · خلّي الموديل بيبتسم · أضف حذاء أبيض" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical", minHeight: 64, outline: "none", marginBottom: 12 }} />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <Btn ghost onClick={() => setEditFor(null)}>إلغاء</Btn>
               <Btn primary onClick={doEdit} disabled={busy || !editInstr.trim()}>✏️ طبّق التعديل (~‎${unitCost(tier, imageSize)})</Btn>
