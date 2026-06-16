@@ -24,6 +24,7 @@ import { T } from "../theme.js";
 import { gid } from "../utils/format.js";
 import { showToast, ask, tell, askInput } from "../utils/popups.js";
 import { Btn, Inp, Sel, Card, Spinner } from "../components/ui.jsx";
+import { ImageLinkModal } from "../components/ImageLinkModal.jsx";
 import { storage, auth } from "../firebase.js";
 import {
   ref as storageRef,
@@ -193,7 +194,10 @@ function TreeNode({ folder, allFolders, depth, fileCounts, currentFolderId, expa
   );
 }
 
-export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
+/* V21.27.7: ستايل موحّد لأزرار أدوات الملف (صف واحد مضغوط) */
+const ACT_BTN = { padding: "2px 4px", minWidth: 0, fontSize: 13, lineHeight: 1, flex: "0 0 auto" };
+
+export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, replaceModel, updOrder }) {
   const tree = data.documentsTree || { folders: [], files: [] };
   const folders = Array.isArray(tree.folders) ? tree.folders : [];
   const files = Array.isArray(tree.files) ? tree.files : [];
@@ -205,6 +209,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   const [view, setView] = useState("grid"); /* grid | list */
   const [showTrash, setShowTrash] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
+  const [linkFile, setLinkFile] = useState(null); /* V21.27.7: ربط صورة بموديل/أمر */
   const [selectedIds, setSelectedIds] = useState(() => new Set()); /* V21.26.12: تحديد متعدد */
   const [waPopup, setWaPopup] = useState(null); /* {files} — إرسال واتساب يدوي للعملاء */
   const [waSearch, setWaSearch] = useState("");
@@ -887,6 +892,8 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
   return (
     <div>
       <PreviewModal />
+      {/* V21.27.7: ربط صورة بموديل/أمر — نفس أوبشن الاستوديو */}
+      {linkFile && <ImageLinkModal image={linkFile} models={models} orders={(data && data.orders) || []} replaceModel={canEdit ? replaceModel : null} updOrder={canEdit ? updOrder : null} onClose={() => setLinkFile(null)} />}
       {/* V21.26.12: إرسال صور واتساب يدوي للعملاء (مش بريدج) */}
       {waPopup && (() => {
         const custs = (data.customers || []).filter(c => c && c.phone);
@@ -1149,15 +1156,16 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                       {fmtSize(file.size)} • {(file.uploadedAt || "").split("T")[0]}
                     </div>
                   </div>
-                  {/* Actions */}
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {previewOk && <Btn small ghost onClick={() => setPreviewFile(file)} title="عرض">👁</Btn>}
-                    <Btn small ghost onClick={() => downloadFile(file)} title="تحميل">⬇️</Btn>
+                  {/* Actions — V21.27.7: صف واحد (nowrap) + أزرار مضغوطة */}
+                  <div style={{ display: "flex", gap: 2, flexWrap: "nowrap", justifyContent: "space-between", alignItems: "center" }}>
+                    {previewOk && <Btn small ghost onClick={() => setPreviewFile(file)} title="عرض" style={ACT_BTN}>👁</Btn>}
+                    <Btn small ghost onClick={() => downloadFile(file)} title="تحميل" style={ACT_BTN}>⬇️</Btn>
                     {!file.deletedAt && canEdit && (
                       <>
-                        <Btn small ghost onClick={() => renameFile(file)} title="تعديل الاسم">✏️</Btn>
-                        <Btn small ghost onClick={() => moveFile(file)} title="نقل">📂</Btn>
-                        <Btn small ghost onClick={() => softDeleteFile(file)} title="حذف" style={{ color: T.err }}>🗑️</Btn>
+                        {isImg && file.downloadURL && (replaceModel || updOrder) && <Btn small ghost onClick={() => setLinkFile({ url: file.downloadURL, storagePath: "" })} title="ربط بموديل / أمر تشغيل" style={ACT_BTN}>🔗</Btn>}
+                        <Btn small ghost onClick={() => renameFile(file)} title="تعديل الاسم" style={ACT_BTN}>✏️</Btn>
+                        <Btn small ghost onClick={() => moveFile(file)} title="نقل" style={ACT_BTN}>📂</Btn>
+                        <Btn small ghost onClick={() => softDeleteFile(file)} title="حذف" style={{ ...ACT_BTN, color: T.err }}>🗑️</Btn>
                       </>
                     )}
                     {file.deletedAt && canEdit && (

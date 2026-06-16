@@ -7280,7 +7280,7 @@ export default function App(){
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}
         {/* V21.9.95 — Documents Tree page */}
-        {tab==="documents"&&canViewTab("documents")&&<DocumentsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("documents")} user={user}/>}
+        {tab==="documents"&&canViewTab("documents")&&<DocumentsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("documents")} user={user} models={models} replaceModel={replaceModel} updOrder={updOrder}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}
