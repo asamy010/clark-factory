@@ -115,7 +115,7 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
           const pieces = m.orderPieces || [];
           const fabCount = FKEYS.filter(k => m["fabric" + k]).length;
           return <div key={m.id} className="clark-card" style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:22,boxShadow:T.shadow,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",flexDirection:"row-reverse",gap:13,padding:16,alignItems:"flex-start"}}>
+            <div style={{display:"flex",flexDirection:"row",gap:13,padding:16,alignItems:"flex-start"}}>
               {m.image ? <img src={m.image} alt="" style={{width:80,height:100,objectFit:"cover",borderRadius:18,border:"1px solid "+T.brd,flexShrink:0}}/>
                 : <div style={{width:80,height:100,borderRadius:18,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>🧩</div>}
               <div style={{minWidth:0,flex:1}}>
