@@ -28,6 +28,18 @@
 
 ---
 
+## V21.27.26 — أداة تحليل حجم الـ bundle (dev-only) 📊
+- `rollup-plugin-visualizer` (devDependency) — أداة قياس بتطلّع treemap
+  تفاعلي (`dist/stats.html`) بأحجام gzip/brotli لكل chunk. تشغيل:
+  `npm run build:analyze` (= `ANALYZE=1 vite build`).
+- **OFF افتراضياً:** الاستيراد ديناميكي + شرطي على `process.env.ANALYZE`،
+  فالـ build العادي مش محتاج الحزمة ولا بيتأثر. لو الحزمة مش متثبّتة والـ
+  ANALYZE مفعّل → warning بدل crash.
+- الفايدة: نشوف إيه اللي بيكبّر الـ chunks فعلاً (أكبرهم دلوقتي:
+  index 936KB، vendor-firebase 651KB، vendor-recharts 541KB، xlsx 429KB)
+  بدل التخمين — أساس لأي اختصار لاحق.
+- ملفات: `vite.config.js` · `package.json` (script + devDep).
+
 ## V21.27.25 — مراقبة الأخطاء عن بُعد (Remote error logging) 🩺
 - **السبب:** CLARK بيـ deploy على production مباشرة بدون بيئة تجربة
   (البروتوكول §1). الـ `ErrorBoundary` كان بيـ console.error محلياً بس →

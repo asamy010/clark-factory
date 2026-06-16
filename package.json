@@ -1,11 +1,12 @@
 {
   "name": "clark-factory-online",
   "private": true,
-  "version": "21.27.25",
+  "version": "21.27.26",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:analyze": "ANALYZE=1 vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,6 +32,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
+    "rollup-plugin-visualizer": "^7.0.1",
     "vite": "^5.0.0",
     "vitest": "^2.1.9"
   }

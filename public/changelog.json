@@ -1,5 +1,23 @@
 [
  {
+  "version": "V21.27.26",
+  "date": "2026-06-16",
+  "types": [
+   "improvement"
+  ],
+  "title": "📊 أداة تحليل حجم الـ bundle (dev-only)",
+  "changes": [
+   {
+    "type": "improvement",
+    "text": "اتضافت أداة rollup-plugin-visualizer لتحليل حجم الـ bundle — تطلّع treemap تفاعلي (dist/stats.html) بأحجام gzip/brotli لكل chunk عشان نشوف إيه اللي بيكبّر الحزمة فعلاً بدل التخمين. شغّلها بـ `npm run build:analyze`."
+   },
+   {
+    "type": "improvement",
+    "text": "الأداة OFF تماماً افتراضياً: الاستيراد ديناميكي + شرطي على متغيّر ANALYZE، فالـ build العادي (npm run build) مش محتاج الحزمة ولا بيتأثر أداؤه إطلاقاً."
+   }
+  ]
+ },
+ {
   "version": "V21.27.25",
   "date": "2026-06-16",
   "types": [
