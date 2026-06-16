@@ -11,7 +11,7 @@
 
 import { setCors, verifyAiStudioToken } from "../_firebase.js";
 
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 
 const TEXT_MODEL = (process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash").trim();
 
@@ -40,12 +40,32 @@ export default async function handler(req, res){
   const apiKey = (process.env.GEMINI_API_KEY || "").trim();
   if(!apiKey) return res.status(500).json({ ok: false, error: "GEMINI_API_KEY مش متظبط" });
 
-  /* الصورة كـ base64 (من غير بادئة data:) + النوع. بيتقبل data URL كامل برضه. */
+  /* الصورة كـ base64 (من غير بادئة data:) + النوع. بيتقبل data URL كامل برضه.
+     أو imageUrl (من مساحة التخزين) — بيتجاب من السيرفر (مفيش CORS). */
   let b64 = String(body.imageBase64 || "").trim();
   let mimeType = String(body.mimeType || "image/jpeg").trim();
   if(b64.startsWith("data:")){
     const m = b64.match(/^data:([^;]+);base64,(.*)$/);
     if(m){ mimeType = m[1]; b64 = m[2]; }
+  }
+  if(!b64){
+    const url = String(body.imageUrl || "").trim();
+    if(url){
+      try {
+        const ictrl = new AbortController();
+        const itimer = setTimeout(() => ictrl.abort(), 12000);
+        const ir = await fetch(url, { signal: ictrl.signal });
+        clearTimeout(itimer);
+        if(!ir.ok) return res.status(400).json({ ok: false, error: "تعذّر تحميل الصورة من الرابط (" + ir.status + ")" });
+        const ct = (ir.headers.get("content-type") || "").split(";")[0].trim();
+        if(ct.startsWith("image/")) mimeType = ct;
+        const ab = await ir.arrayBuffer();
+        if(ab.byteLength > 5_500_000) return res.status(413).json({ ok: false, error: "الصورة كبيرة جداً" });
+        b64 = Buffer.from(ab).toString("base64");
+      } catch(e){
+        return res.status(400).json({ ok: false, error: "فشل تحميل الصورة من الرابط" });
+      }
+    }
   }
   if(!b64) return res.status(400).json({ ok: false, error: "الصورة مطلوبة" });
   /* حد أمان (~7MB base64 ≈ 5MB صورة) */

@@ -1481,7 +1481,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       />}
 
       {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
-      {extractOpen && <PromptExtractModal onClose={() => setExtractOpen(false)} onSavePrompts={(entries) => {
+      {extractOpen && <PromptExtractModal data={data} onClose={() => setExtractOpen(false)} onSavePrompts={(entries) => {
         savePresets(p => { (entries || []).forEach((e, i) => p.savedPrompts.unshift({ id: "sp_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", ts: Date.now() })); });
         showToast("✓ اتحفظ " + (entries || []).length + " برومبت في المكتبة");
       }} />}

@@ -4,8 +4,9 @@
    رفع مجموعة صور وقفات → استخراج «برومبت» لكل صورة (Gemini vision) → preview
    قابل للتعديل → حفظ في مكتبة البرومبتس بالصورة (cfg.aiStudioPresets.savedPrompts).
    ═══════════════════════════════════════════════════════════════════════ */
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Btn } from "./ui.jsx";
+import { ImagePickButton } from "./DocumentImagePicker.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { showToast } from "../utils/popups.js";
@@ -31,19 +32,20 @@ function fileToResizedBase64(file, maxDim = 1280, quality = 0.85){
   });
 }
 
-export function PromptExtractModal({ onClose, onSavePrompts }){
+export function PromptExtractModal({ data, onClose, onSavePrompts }){
   const [items, setItems] = useState([]); /* {id,name,prompt,image,thumb,status,error} */
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(""); /* نص التقدّم */
-  const inputRef = useRef(null);
 
   const upd = (id, patch) => setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it));
+  const mkId = (i) => "ex_" + Date.now().toString(36) + "_" + i + "_" + Math.random().toString(36).slice(2, 5);
 
+  /* من الكمبيوتر — File[] → resize → base64 → describe → رفع للمكتبة */
   const onFiles = async (fileList) => {
     const files = Array.from(fileList || []).filter(f => (f.type || "").startsWith("image/"));
     if(files.length === 0) return;
     setBusy(true);
-    const fresh = files.map((f, i) => ({ id: "ex_" + Date.now().toString(36) + "_" + i, name: "", prompt: "", image: "", thumb: "", status: "pending", error: "" }));
+    const fresh = files.map((f, i) => ({ id: mkId(i), name: "", prompt: "", image: "", thumb: "", status: "pending", error: "" }));
     setItems(prev => [...prev, ...fresh]);
     for(let i = 0; i < files.length; i++){
       const f = files[i]; const it = fresh[i];
@@ -63,7 +65,27 @@ export function PromptExtractModal({ onClose, onSavePrompts }){
       }
     }
     setProgress(""); setBusy(false);
-    if(inputRef.current) inputRef.current.value = "";
+  };
+
+  /* من مساحة التخزين — records (downloadURL) → describe (السيرفر بيجيب الصورة) */
+  const onPickDocs = async (recs) => {
+    const list = (recs || []).map(r => ({ url: r.downloadURL || r.url, name: r.name || "" })).filter(x => x.url);
+    if(list.length === 0) return;
+    setBusy(true);
+    const fresh = list.map((x, i) => ({ id: mkId(i), name: "", prompt: "", image: x.url, thumb: x.url, status: "pending", error: "" }));
+    setItems(prev => [...prev, ...fresh]);
+    for(let i = 0; i < list.length; i++){
+      const x = list[i]; const it = fresh[i];
+      setProgress("بيحلّل صورة " + (i + 1) + " من " + list.length + "...");
+      try {
+        const r = await describeImage({ imageUrl: x.url });
+        if(!r.ok){ upd(it.id, { status: "error", error: r.error || "فشل التحليل" }); continue; }
+        upd(it.id, { status: "done", name: r.name || ("وقفة " + (i + 1)), prompt: r.prompt || "", image: x.url });
+      } catch(e){
+        upd(it.id, { status: "error", error: (e && e.message) || "خطأ" });
+      }
+    }
+    setProgress(""); setBusy(false);
   };
 
   const removeItem = (id) => setItems(prev => prev.filter(it => it.id !== id));
@@ -85,9 +107,11 @@ export function PromptExtractModal({ onClose, onSavePrompts }){
         </div>
         <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12, lineHeight: 1.7 }}>ارفع صور وقفات، والبرنامج يطلّع لكل صورة برومبت كامل (وقفة/إطار/إضاءة/خلفية/مود). راجع وعدّل، وبعدها احفظ الكل في مكتبة البرومبتس بالصور.</div>
 
-        <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => onFiles(e.target.files)} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-          <Btn primary disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>{busy ? "⏳ " + (progress || "بيشتغل...") : "📥 اختر صور الوقفات"}</Btn>
+          <ImagePickButton data={data} multiple imagesOnly onFiles={onFiles} onPickMany={onPickDocs} disabled={busy}
+            triggerStyle={{ display: "inline-block", padding: "9px 16px", borderRadius: 8, background: T.accent, color: "#fff", fontWeight: 800, fontSize: FS - 1, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
+            {busy ? "⏳ " + (progress || "بيشتغل...") : "📥 اختر صور الوقفات (كمبيوتر / مساحة التخزين)"}
+          </ImagePickButton>
           {items.length > 0 && <span style={{ fontSize: FS - 2, color: T.textMut }}>{doneItems.length + " جاهز · " + items.length + " إجمالي"}</span>}
         </div>
 
