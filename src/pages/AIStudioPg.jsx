@@ -267,10 +267,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const modelOpts = useMemo(() => (Array.isArray(models) ? models : [])
     .filter(m => m && m.id).map(m => ({ value: String(m.id), label: (m.modelNo || "—") + (m.modelDesc ? " — " + m.modelDesc : "") })),
     [models]);
-  /* V21.26.25: أوامر التشغيل (للربط بأمر/لون) — من data.orders */
+  /* V21.26.25: أوامر التشغيل (للربط بأمر/لون) — من data.orders.
+     V21.26.26: البحث برقم الموديل اللي جوّه الأمر (label = modelNo أولاً) —
+     مع fallback لرقم الأمر/الـ id لو الموديل فاضي. */
   const orders = useMemo(() => (Array.isArray(data.orders) ? data.orders : []), [data.orders]);
   const orderOpts = useMemo(() => orders
-    .filter(o => o && o.id).map(o => ({ value: String(o.id), label: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : "") })),
+    .filter(o => o && o.id).map(o => ({ value: String(o.id), label: (o.modelNo || o.poNumber || o.id || "—") + (o.modelDesc ? " — " + o.modelDesc : "") })),
     [orders]);
   /* ألوان أمر (dedup عبر colorsA..H) — نفس منطق ColorSizeMatrixTab */
   const orderColorsOf = (o) => {
@@ -1480,7 +1482,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <img src={linkFor.url} alt="" style={{ width: 64, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid " + T.brd, flexShrink: 0 }} />
               <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>{tab === "model"
                 ? "اكتب رقم الموديل واختاره — الصورة بتتحفظ كصورة رئيسية للموديل وفولدر التخزين بياخد رقمه."
-                : "اختار أمر التشغيل بالرقم — اربط الصورة كصورة رئيسية للأمر، أو بلون معيّن فتظهر في شبكة اللون/المقاس وتترحّل لشوبيفاي."}</div>
+                : "دوّر على الأمر بـ«رقم الموديل اللي جوّاه» — اربط الصورة كصورة رئيسية للأمر، أو بلون معيّن فتظهر في شبكة اللون/المقاس وتترحّل لشوبيفاي."}</div>
             </div>
             {canModel && canOrder && (
               <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -1496,7 +1498,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )
             ) : !selOrder ? (
               orderOpts.length > 0 ? (
-                <SearchSel value="" onChange={(id) => setLinkOrderId(id)} options={orderOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم أمر التشغيل..." />
+                <SearchSel value="" onChange={(id) => setLinkOrderId(id)} options={orderOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل اللي في الأمر..." />
               ) : (
                 <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش أوامر تشغيل في الموسم الحالي.</div>
               )
