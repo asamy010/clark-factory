@@ -713,7 +713,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",borderBottom:"1px solid "+T.brd,position:"sticky",top:0,background:T.cardSolid}}>
             <div>
               <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>🏭 التشغيل والورش</div>
-              <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>{wsOpOrder.modelNo||""}{wsOpOrder.modelName?" — "+wsOpOrder.modelName:""}</div>
+              {/* V21.27.6: رقم الموديل وتحته رقم أمر التشغيل */}
+              <div style={{fontSize:FS-1,color:T.text,fontWeight:700,marginTop:2}}>{wsOpOrder.modelNo||""}{wsOpOrder.modelDesc?" — "+wsOpOrder.modelDesc:""}</div>
+              {wsOpOrder.poNumber&&<div style={{fontSize:FS-2,color:T.accent,fontFamily:"monospace",fontWeight:800,letterSpacing:0.4,marginTop:1}}>📋 {wsOpOrder.poNumber}</div>}
             </div>
             <Btn ghost small onClick={()=>setWsOpOrder(null)}>✕</Btn>
           </div>
@@ -1820,7 +1822,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         try{
           await updOrder(sel,o=>{
             if(!o.workshopDeliveries)o.workshopDeliveries=[];
-            o.workshopDeliveries.push({id:gid(),wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,price:savePrice,notes:saveNote,date:saveDate,receives:[],createdBy:userName||"",agreedDays:Number(dAgreed)||0});
+            o.workshopDeliveries.push({id:gid(),wsName:dWs,wsId:wsObj?wsObj.id:null,wsType:wsObj?wsObj.type:"",wsOwner:wsObj?wsObj.owner:"",qty:saveQty,garmentType:saveType,price:savePrice,notes:saveNote,date:saveDate,receives:[],createdBy:userName||"",agreedDays:Number(dAgreed)||0,poNumber:o.poNumber||""});
             o.status=recomputeStatus(o);
           });
           showToast("✓ تم التسليم — "+dWs);setShowDeliver(false);

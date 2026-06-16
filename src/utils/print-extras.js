@@ -54,6 +54,7 @@ export async function printReceipt(wsName,wsOwner,order,garmentType,qty,date,bal
   if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
   h+="<div style='flex:1'><table>";
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
+  if(order.poNumber)h+="<tr><th>رقم أمر التشغيل</th><td colspan='3'><b style='font-family:monospace;color:#2E7BED;font-size:14px'>"+order.poNumber+"</b></td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b>"+(wsO?" — "+wsO:"")+"</td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
   if(garmentType)h+="<tr><th>قطعة التسليم</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>كمية التسليم</th><td><b style='color:#0284C7;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
@@ -138,6 +139,7 @@ export async function printReceiveReceipt(wsName,order,garmentType,qty,date,bala
   if(order.image)h+="<div style='width:80px;height:107px;border-radius:8px;overflow:hidden;border:1px solid #ddd;flex-shrink:0'><img src='"+order.image+"' style='width:100%;height:100%;object-fit:cover'/></div>";
   h+="<div style='flex:1'><table>";
   h+="<tr><th>رقم الموديل</th><td><b>"+modelNo+"</b></td><th>الوصف</th><td>"+modelDesc+"</td></tr>";
+  if(order.poNumber)h+="<tr><th>رقم أمر التشغيل</th><td colspan='3'><b style='font-family:monospace;color:#2E7BED;font-size:14px'>"+order.poNumber+"</b></td></tr>";
   h+="<tr><th>المقاسات</th><td>"+sizeLabel+"</td><th>كمية القص</th><td><b>"+t.cutQty+"</b></td></tr>";
   h+="<tr><th>الورشة</th><td><b style='color:#8B5CF6'>"+ws+"</b></td><th>التاريخ</th><td>"+(date||"")+"</td></tr>";
   if(garmentType)h+="<tr><th>القطعة</th><td><b style='color:#8B5CF6'>"+gi(garmentType)+" "+garmentType+"</b></td><th>كمية الاستلام</th><td><b style='color:#10B981;font-size:16px'>"+qty+"</b> قطعة</td></tr>";
