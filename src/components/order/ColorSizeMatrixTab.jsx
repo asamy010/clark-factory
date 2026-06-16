@@ -37,7 +37,7 @@ function distribute(total, sizesArr, uniqueSizes){
   return res;
 }
 
-export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob }){
+export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob, specMode }){
   /* الخامات اللي ليها ألوان — كل خامة لوحدها (مش مدمجة) */
   const fabricsWithColors = useMemo(() => {
     const out = [];
@@ -110,7 +110,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
   /* حفظ التوزيع التلقائي لأي لون (من المصدر الحالي) لسه مش متخزّن — عشان الـ
      push يلاقي بيانات، ويشتغل صح كمان لو غيّرت مصدر الألوان. */
   useEffect(() => {
-    if(!canEdit) return;
+    if(!canEdit || specMode) return; /* specMode (موديل): مفيش كميات تتخزّن */
     if(colors.length === 0 || uniqueSizes.length === 0) return;
     const cur = order.shopify_meta?.stock_matrix || {};
     const missing = colors.filter(c => !cur[c.color] || typeof cur[c.color] !== "object");
@@ -246,12 +246,14 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
         <span style={{ fontSize: FS - 2, color: T.textMut }}>الألوان والإجمالي من الخامة دي بس</span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-        <div style={{ fontSize: FS - 1, color: T.textSec }}>الكميات بتتوزّع تلقائياً وتقدر تعدّلها. بتترحّل لشوبيفاي كمخزون لكل variant، وصورة كل لون بتظهر لما العميل يختاره.</div>
+        <div style={{ fontSize: FS - 1, color: T.textSec }}>{specMode
+          ? "حدّد ألوان الموديل + المقاسات، وانزل صورة لكل لون. الكميات بتتحدد في أمر التشغيل (كل أوردر بكمية مختلفة)."
+          : "الكميات بتتوزّع تلقائياً وتقدر تعدّلها. بتترحّل لشوبيفاي كمخزون لكل variant، وصورة كل لون بتظهر لما العميل يختاره."}</div>
         {canEdit && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <ImagePickButton data={data} multiple imagesOnly onFiles={assignFilesToColors} onPickMany={assignDocsToColors}
             triggerStyle={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 8, background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "35", fontWeight: 700, fontSize: FS - 2 }}
             title="اختر صور متعددة وتتوزّع على الألوان اللي مفيهاش صور">🗂️ صور متعددة</ImagePickButton>
-          <Btn small onClick={redistribute} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489935", fontWeight: 700 }}>🔄 إعادة توزيع تلقائي</Btn>
+          {!specMode && <Btn small onClick={redistribute} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489935", fontWeight: 700 }}>🔄 إعادة توزيع تلقائي</Btn>}
         </div>}
       </div>
 
@@ -260,7 +262,7 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
           <thead><tr>
             <th style={{ ...th, textAlign: "right", minWidth: 110 }}>اللون</th>
             {uniqueSizes.map(s => <th key={s} style={th}>{s}</th>)}
-            <th style={{ ...th, color: T.accent }}>الإجمالي</th>
+            {!specMode && <th style={{ ...th, color: T.accent }}>الإجمالي</th>}
             <th style={{ ...th, minWidth: 96 }}>الصورة</th>
           </tr></thead>
           <tbody>
@@ -276,11 +278,13 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
                   </div>
                 </td>
                 {uniqueSizes.map(s => <td key={s} style={td}>
-                  {canEdit
-                    ? <input type="number" min="0" value={row[s] ?? 0} onChange={e => setCell(c.color, s, e.target.value)} style={{ width: 52, padding: "5px 4px", textAlign: "center", border: "1px solid " + T.brd, borderRadius: 6, fontSize: FS - 1, fontFamily: "inherit", background: T.inputBg || "#fff", color: T.text }} />
-                    : <span style={{ fontWeight: 700 }}>{row[s] ?? 0}</span>}
+                  {specMode
+                    ? <span style={{ color: T.textMut }}>—</span>
+                    : (canEdit
+                      ? <input type="number" min="0" value={row[s] ?? 0} onChange={e => setCell(c.color, s, e.target.value)} style={{ width: 52, padding: "5px 4px", textAlign: "center", border: "1px solid " + T.brd, borderRadius: 6, fontSize: FS - 1, fontFamily: "inherit", background: T.inputBg || "#fff", color: T.text }} />
+                      : <span style={{ fontWeight: 700 }}>{row[s] ?? 0}</span>)}
                 </td>)}
-                <td style={{ ...td, fontWeight: 800, color: T.accent }}>{rowTotal}</td>
+                {!specMode && <td style={{ ...td, fontWeight: 800, color: T.accent }}>{rowTotal}</td>}
                 <td style={td}>
                   {img?.url
                     ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
@@ -296,12 +300,12 @@ export function ColorSizeMatrixTab({ order, data, sel, updOrder, canEdit, isMob 
                 </td>
               </tr>;
             })}
-            <tr style={{ background: T.accentBg }}>
+            {!specMode && <tr style={{ background: T.accentBg }}>
               <td style={{ ...td, fontWeight: 800, color: T.accent, textAlign: "right" }}>الإجمالي</td>
               <td colSpan={uniqueSizes.length} />
               <td style={{ ...td, fontWeight: 900, color: T.accent, fontSize: FS + 2 }}>{grandTotal}</td>
               <td style={td} />
-            </tr>
+            </tr>}
           </tbody>
         </table>
       </div>

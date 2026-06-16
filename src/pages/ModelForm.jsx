@@ -244,7 +244,7 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
         ? <div style={{fontSize:FS-2,color:T.textMut,background:T.bg,borderRadius:10,padding:"12px 14px",lineHeight:1.8}}>
             🎨 اختر <b>المقاس</b> فوق + أضف <b>ألوان</b> في تاب «القماش والخامات» — وهتنزل <b>ماتريكس الألوان × المقاسات</b> تلقائياً هنا (مع صور الألوان)، زي تاب اللون/المقاس في أمر التشغيل بالظبط.
           </div>
-        : <ColorSizeMatrixTab order={form} data={data} sel={form.id || "new"} updOrder={updOrderShim} canEdit={true} isMob={isMob}/>}
+        : <ColorSizeMatrixTab order={form} data={data} sel={form.id || "new"} updOrder={updOrderShim} canEdit={true} isMob={isMob} specMode/>}
     </div>}
 
     {/* ── Tab: accessories ── */}
