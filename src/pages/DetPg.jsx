@@ -1392,11 +1392,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
             <th style={{...TH,padding:"10px 12px",textAlign:"center",width:"28%",whiteSpace:"nowrap"}}>اجمالي</th>
           </tr></thead>
           <tbody>
-            {accItems.map((a,i)=><tr key={i}>
-              <td style={{...TD,fontWeight:700,padding:"10px 12px",textAlign:"right",fontSize:FS}}>{a.name}</td>
-              <td style={{...TD,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS-1,color:T.textSec}}>{fmt(a.price)+" ج.م"}</td>
-              <td style={{...TDB,color:T.accent,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS,fontWeight:700}}>{fmt(a.price*t.cutQty)+" ج.م"}</td>
-            </tr>)}
+            {accItems.map((a,i)=>{const qpp=a.qtyPerPiece==null?1:(Number(a.qtyPerPiece)||0);const per=qpp*(Number(a.price)||0);return<tr key={i}>
+              <td style={{...TD,fontWeight:700,padding:"10px 12px",textAlign:"right",fontSize:FS}}>{a.name}{qpp!==1?<span style={{color:T.textMut,fontWeight:600,fontSize:FS-2}}>{" ×"+qpp+" @ "+fmt(a.price)}</span>:null}</td>
+              <td style={{...TD,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS-1,color:T.textSec}}>{fmt(per)+" ج.م"}</td>
+              <td style={{...TDB,color:T.accent,padding:"10px 12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS,fontWeight:700}}>{fmt(per*t.cutQty)+" ج.م"}</td>
+            </tr>})}
             <tr style={{background:T.inputBg||T.cardSolid,borderTop:"2px solid "+T.brd}}>
               <td style={{...TD,fontWeight:800,padding:"12px",textAlign:"right",fontSize:FS}}>الاجمالي</td>
               <td style={{...TD,fontWeight:800,padding:"12px",textAlign:"center",whiteSpace:"nowrap",fontSize:FS-1}}>{t.accPer+" ج.م/قطعة"}</td>

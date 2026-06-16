@@ -246,7 +246,7 @@ export function AccPicker({accItems,dbAcc,onChange}){
   const available=(dbAcc||[]).filter(a=>!accItems.find(x=>x.accId===a.id));
   const filtered=q.trim()?available.filter(a=>(a.name||"").toLowerCase().includes(q.toLowerCase())):available;
   useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setFocused(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
-  const addItem=(a)=>{onChange([...accItems,{accId:a.id,name:a.name,unit:a.unit,price:a.price}]);setQ("");setFocused(false)};
+  const addItem=(a)=>{onChange([...accItems,{accId:a.id,name:a.name,unit:a.unit,qtyPerPiece:1,price:a.price}]);setQ("");setFocused(false)};
   const showResults=focused&&available.length>0;
   return<div>
     {/* Inline search input — type to filter; click a result to add */}
@@ -265,9 +265,9 @@ export function AccPicker({accItems,dbAcc,onChange}){
         </div>):<div style={{padding:14,textAlign:"center",color:T.textMut,fontSize:FS-1}}>{"لا توجد نتائج لـ \""+q+"\""}</div>}
       </div>}
     </div>
-    {/* Selected items table — name / unit / per-piece price / remove */}
-    {accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}><thead><tr>{["الوصف","الوحدة","السعر/قطعة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
-      {accItems.map((a,i)=><tr key={i}><td style={{...TD,fontWeight:700}}>{a.name}</td><td style={TD}>{a.unit||"قطعة"}</td><td style={TD}><Inp type="number" value={a.price} onChange={v=>{const n=[...accItems];n[i]={...n[i],price:Number(v)||0};onChange(n)}} style={{width:90}}/></td><td style={TD}><Btn danger small onClick={()=>onChange(accItems.filter((_,j)=>j!==i))}>×</Btn></td></tr>)}
+    {/* Selected items table — V21.27.2: كمية/قطعة + سعر الوحدة + إجمالي/قطعة */}
+    {accItems.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:460}}><thead><tr>{["الوصف","الوحدة","كمية/قطعة","سعر الوحدة","إجمالي/قطعة",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead><tbody>
+      {accItems.map((a,i)=>{const qpp=a.qtyPerPiece==null?1:(Number(a.qtyPerPiece)||0);const sub=Math.round(qpp*(Number(a.price)||0)*100)/100;return<tr key={i}><td style={{...TD,fontWeight:700}}>{a.name}</td><td style={TD}>{a.unit||"قطعة"}</td><td style={TD}><Inp type="number" value={a.qtyPerPiece==null?1:a.qtyPerPiece} onChange={v=>{const n=[...accItems];n[i]={...n[i],qtyPerPiece:Number(v)||0};onChange(n)}} style={{width:70}}/></td><td style={TD}><Inp type="number" value={a.price} onChange={v=>{const n=[...accItems];n[i]={...n[i],price:Number(v)||0};onChange(n)}} style={{width:90}}/></td><td style={{...TDB,fontWeight:800,color:T.accent,textAlign:"center"}}>{sub}</td><td style={TD}><Btn danger small onClick={()=>onChange(accItems.filter((_,j)=>j!==i))}>×</Btn></td></tr>})}
     </tbody></table></div>:<div style={{textAlign:"center",padding:18,color:T.textMut,fontSize:FS-1,background:T.bg,borderRadius:10,border:"1px dashed "+T.brd}}>لم يتم اختيار اكسسوار بعد — ابحث في الخانة بالأعلى</div>}
   </div>
 }

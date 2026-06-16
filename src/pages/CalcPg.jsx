@@ -19,7 +19,7 @@ export function CalcPg({data,isMob}){
   const mainQty=cFabs[0]?(cFabs[0].layers*cFabs[0].pcsPerLayer):0;
   const fabCosts=cFabs.map(f=>{const fb=data.fabrics.find(x=>x.id===Number(f.fabId));const price=fb?fb.price:0;return{name:fb?fb.name:"",cost:r2(f.cons*price*f.layers),perPc:mainQty?r2(f.cons*price*f.layers/mainQty):0}});
   const totalFab=fabCosts.reduce((s,f)=>s+f.cost,0);const fabPerPc=mainQty?r2(totalFab/mainQty):0;
-  const accPerPc=cAccs.reduce((s,a)=>s+(Number(a.price)||0),0);const totalAcc=accPerPc*mainQty;
+  const accPerPc=cAccs.reduce((s,a)=>s+((a.qtyPerPiece==null?1:(Number(a.qtyPerPiece)||0))*(Number(a.price)||0)),0);const totalAcc=accPerPc*mainQty;
   const totalCost=totalFab+totalAcc;const costPerPc=r2(fabPerPc+accPerPc);
   const reset=()=>{setCFabs([{fabId:"",cons:0,layers:0,pcsPerLayer:0}]);setCAccs([])};
   return<div>

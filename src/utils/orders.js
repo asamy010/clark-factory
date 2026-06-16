@@ -172,7 +172,10 @@ export function calcOrder(o){
   if(cached)return cached;
   const mainCut=sqty(gc(o,"A"))||o.cutQty||0;let totalFab=0;const fp=[];
   FKEYS.forEach(k=>{if(!gf(o,k))return;const cost=gcons(o,k)*(gf(o,k,"Price")||0)*slay(gc(o,k));totalFab+=cost;fp.push(mainCut?r2(cost/mainCut):0)});
-  const fabPer=fp.reduce((s,v)=>s+v,0);const accPer=(o.accItems||[]).reduce((s,a)=>s+(a.price||0),0);
+  const fabPer=fp.reduce((s,v)=>s+v,0);
+  /* V21.27.2: تكلفة إكسسوار القطعة = Σ (كمية/قطعة × سعر الوحدة). القديم من غير
+     qtyPerPiece → بيتعامل كـ 1 (السعر كان للقطعة أصلاً) فالتوافق محفوظ. */
+  const accPer=(o.accItems||[]).reduce((s,a)=>s+((a.qtyPerPiece==null?1:(Number(a.qtyPerPiece)||0))*(Number(a.price)||0)),0);
   /* V15.3: Workshop cost — sum of actual receives from EXTERNAL workshops only.
      Internal workshops excluded (their cost comes from payroll, tracked separately).
      Uses receives (actual) not deliveries (planned) so cost reflects what was really paid.

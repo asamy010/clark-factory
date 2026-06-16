@@ -294,7 +294,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
             const accCard=<div className="ord-block-card" key="acc">
               <div className="ord-block-header">
                 <span>📦 بنود التشغيل والاكسسوار{(form.accItems||[]).length>0?" ("+(form.accItems||[]).length+")":""}</span>
-                {(data.accessories||[]).length>(form.accItems||[]).length&&<Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2,padding:"3px 9px"}}>+ اضافة الكل</Btn>}
+                {(data.accessories||[]).length>(form.accItems||[]).length&&<Btn ghost small onClick={()=>{const all=(data.accessories||[]).map(a=>({accId:a.id,name:a.name,unit:a.unit,qtyPerPiece:1,price:a.price}));updF("accItems",all)}} style={{color:T.ok,fontSize:FS-2,padding:"3px 9px"}}>+ اضافة الكل</Btn>}
               </div>
               <AccPicker accItems={form.accItems||[]} dbAcc={data.accessories} onChange={items=>updF("accItems",items)}/>
             </div>;
