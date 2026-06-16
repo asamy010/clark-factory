@@ -69,14 +69,28 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   };
   /* V19.37: handleFile removed — file attachments inside OrdForm were retired (per user request) */
   const mainQty=sqty(form.colorsA);const updF=(key,val)=>setForm(p=>setF(p,key,val));
+  /* V21.27.5: الأوردر اللي اتولّد من موديل (form.modelId موجود) = الخامات/القطع/
+     المقاسات اتقفلت (بتتعرّف في الموديل بس). المستخدم بيدخل الراقات + يقدر يضيف
+     ألوان. modelMode (الفورم نفسه كموديل) مستثنى. */
+  const fromModel=!modelMode&&!!form.modelId;
   const isDirty=form.modelNo||form.modelDesc||form.fabricA||(form.colorsA||[]).some(c=>c.color||c.layers>0);
   useEffect(()=>{window.__formDirty=!!isDirty;return()=>{window.__formDirty=false}},[isDirty]);
   const[dupPopup,setDupPopup]=useState(false);const[dupModelNo,setDupModelNo]=useState("");
   const[cancelPopup,setCancelPopup]=useState(false);
   const handleCancel=()=>{if(isDirty){setCancelPopup(true)}else{onCancel()}};
   const[dupPoPopup,setDupPoPopup]=useState(false);
-  /* Auto-generate PO number — sequential (V14.48) */
+  /* Auto-generate PO number — sequential (V14.48).
+     V21.27.5: لو في رقم موديل → النمط «#<رقم الموديل>-NNN» تسلسلي لكل موديل
+     (كل موديل يبدأ من 001). غير كده → النمط العام «PO-NNN». */
   const genPO=()=>{
+    const mn=((form.modelNo||initial?.modelNo)||"").trim();
+    if(mn){
+      const prefix="#"+mn+"-";
+      const existing=data.orders.filter(o=>o.poNumber&&o.poNumber.startsWith(prefix)&&o.id!==form.id);
+      const nums=existing.map(o=>{const rest=o.poNumber.substring(prefix.length);return /^\d+$/.test(rest)?(Number(rest)||0):0;});
+      const next=nums.length>0?Math.max(...nums)+1:1;
+      return prefix+String(next).padStart(3,"0");
+    }
     const prefix=(data.poPrefix||"PO-");
     const digits=Number(data.poDigits)||3;
     /* Find max existing number across all orders with matching prefix */
@@ -90,6 +104,14 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
     const next=nums.length>0?Math.max(...nums)+1:1;
     return prefix+String(next).padStart(digits,"0");
   };
+  /* V21.27.5: تعبئة رقم أمر التشغيل تلقائياً للأوامر المتولّدة من موديل. */
+  useEffect(()=>{
+    if(fromModel&&!form.poNumber&&((form.modelNo||"").trim())){
+      const pn=genPO();
+      setForm(p=>p.poNumber?p:{...p,poNumber:pn});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[fromModel]);
   const save=()=>{
     /* V21.22.0: model mode — وصفة بس (من غير PO/حالة/كميات). تحقّق أخف. */
     if(modelMode){
@@ -178,20 +200,24 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       </ImagePickButton></div>
       <div>
         <div style={{display:"grid",gridTemplateColumns:modelMode?(isMob?"1fr 1fr":"1fr 2fr 1fr"):(isMob?"1fr 1fr":"1fr 1fr 2fr 1fr 1fr 1fr"),gap:6,marginBottom:6}}>
-          {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم أمر التشغيل</label><Inp value={form.poNumber||""} onChange={v=>updF("poNumber",v)} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>}
+          {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"رقم أمر التشغيل"+(fromModel?" (تلقائي)":"")}</label><Inp value={fromModel?(form.poNumber||genPO()):(form.poNumber||"")} onChange={fromModel?undefined:(v=>updF("poNumber",v))} readOnly={fromModel} placeholder={initial.modelNo?"":(genPO()+" (تلقائي)")} sx={{fontFamily:"monospace",letterSpacing:1,fontWeight:700,color:T.accent}}/></div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v=>updF("modelNo",v)}/></div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الوصف *</label><Inp value={form.modelDesc} onChange={v=>updF("modelDesc",v)}/></div>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>المقاسات *</label><Sel value={form.sizeSetId} onChange={v=>{updF("sizeSetId",v);const ss=data.sizeSets.find(s=>s.id===Number(v));if(ss&&ss.pcsPerSeries){FKEYS.forEach(k=>{const cols=form["colors"+k]||[];if(cols.length>0){const nc=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===0)?{...c,pcsPerLayer:ss.pcsPerSeries,qty:(Number(c.layers)||0)*ss.pcsPerSeries}:c);updF("colors"+k,nc)}})}}}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label+(s.pcsPerSeries?" ("+s.pcsPerSeries+" قطعة/سيري)":"")}</option>)}</Sel></div>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"المقاسات"+(fromModel?" (من الموديل)":" *")}</label>{fromModel
+            ? <div style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+T.brd,background:T.bg,fontSize:FS-1,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title="المقاسات بتتعرّف في الموديل">{((data.sizeSets.find(s=>s.id===Number(form.sizeSetId))||{}).label)||form.sizeLabel||"—"}</div>
+            : <Sel value={form.sizeSetId} onChange={v=>{updF("sizeSetId",v);const ss=data.sizeSets.find(s=>s.id===Number(v));if(ss&&ss.pcsPerSeries){FKEYS.forEach(k=>{const cols=form["colors"+k]||[];if(cols.length>0){const nc=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===0)?{...c,pcsPerLayer:ss.pcsPerSeries,qty:(Number(c.layers)||0)*ss.pcsPerSeries}:c);updF("colors"+k,nc)}})}}}><option value="">-- اختر --</option>{data.sizeSets.map(s=><option key={s.id} value={s.id}>{s.label+(s.pcsPerSeries?" ("+s.pcsPerSeries+" قطعة/سيري)":"")}</option>)}</Sel>}</div>
           {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>التاريخ *</label><Inp type="date" value={form.date} onChange={v=>updF("date",v)}/></div>}
           {!modelMode&&<div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>الحالة</label><div style={{display:"flex",alignItems:"center",gap:6}}>{editStatusForm?<><Sel value={form.status} onChange={v=>{updF("status",v);setEditStatusForm(false)}}>{statuses.map(s=><option key={s} value={s}>{s}</option>)}</Sel><Btn ghost small onClick={()=>setEditStatusForm(false)} title="إغلاق">✕</Btn></>:<><Badge t={form.status} cards={statusCards}/><Btn ghost small onClick={()=>setEditStatusForm(true)} style={{fontSize:FS-3,padding:"2px 8px"}} title="تعديل">✏️</Btn></>}</div></div>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr 2fr",gap:6}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>قطع الموديل</label><Sel value="" onChange={v=>{if(!v||(form.orderPieces||[]).length>=5)return;updF("orderPieces",[...(form.orderPieces||[]),v])}}>
+          <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{"قطع الموديل"+(fromModel?" (من الموديل)":"")}</label>{fromModel
+            ? <div style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+T.brd,background:T.bg,fontSize:FS-2,fontWeight:600,color:T.textMut}} title="القطع بتتعرّف في الموديل">مقفولة — من الموديل</div>
+            : <Sel value="" onChange={v=>{if(!v||(form.orderPieces||[]).length>=5)return;updF("orderPieces",[...(form.orderPieces||[]),v])}}>
             <option value="">{"-- اضف ("+(form.orderPieces||[]).length+"/5) --"}</option>
             {(data.garmentTypes||[]).filter(g=>!(form.orderPieces||[]).includes(g.name)).map(g=><option key={g.id} value={g.name}>{(g.icon||gIcon(g.name))+" "+g.name}</option>)}
-          </Sel></div>
+          </Sel>}</div>
           <div style={{display:"flex",gap:4,alignItems:"end",flexWrap:"wrap"}}>
-            {(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:600,color:T.accent}}>{gIcon(p,data.garmentTypes)+" "+p}<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800,fontSize:FS-1}}>×</span></span>)}
+            {(form.orderPieces||[]).map((p,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"30",fontSize:FS-2,fontWeight:600,color:T.accent}}>{gIcon(p,data.garmentTypes)+" "+p}{!fromModel&&<span onClick={()=>updF("orderPieces",(form.orderPieces||[]).filter((_,j)=>j!==i))} style={{cursor:"pointer",color:T.err,fontWeight:800,fontSize:FS-1}}>×</span>}</span>)}
           </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ماركر (جربر)</label><Inp value={form.marker||""} onChange={v=>updF("marker",v)} placeholder="بيانات الماركر..."/></div>
         </div>
@@ -261,17 +287,23 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
                   <span>{"خامة "+k+(k==="A"?" *":"")}</span>
                 </span>
                 <div className="ord-fab-search">
-                  <SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus sx={{padding:"5px 9px",fontSize:FS-1}}/>
+                  {fromModel
+                    ? <div style={{padding:"5px 9px",borderRadius:8,border:"1px solid "+T.brd,background:T.bg,fontSize:FS-1,fontWeight:600,color:T.text,minHeight:30,display:"flex",alignItems:"center"}} title="الخامة بتتعرّف في الموديل">{fb?fb.name:"—"}</div>
+                    : <SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus sx={{padding:"5px 9px",fontSize:FS-1}}/>}
                 </div>
-                {upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="إضافة خامة جديدة للمخزن">+</Btn>}
-                {idx>0&&<Btn small onClick={()=>removeFabric(k)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="حذف الخامة">✕</Btn>}
+                {!fromModel&&upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="إضافة خامة جديدة للمخزن">+</Btn>}
+                {!fromModel&&idx>0&&<Btn small onClick={()=>removeFabric(k)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="حذف الخامة">✕</Btn>}
               </div>
               {/* ─ Inputs row: shown only when a fabric is selected ─ */}
               {fid&&<div className="ord-fab-inputs-row">
                 <span className="ord-fab-mini-label">استهلاك/راق</span>
-                <Inp type="number" step="any" value={form["cons"+k]} onChange={v=>updF("cons"+k,v)} style={{width:65,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+                {fromModel
+                  ? <span style={{display:"inline-block",minWidth:46,textAlign:"center",padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-1,fontWeight:700,color:T.text}} title="من الموديل">{form["cons"+k]||0}</span>
+                  : <Inp type="number" step="any" value={form["cons"+k]} onChange={v=>updF("cons"+k,v)} style={{width:65,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>}
                 <span className="ord-fab-mini-label" title="القطع في الراق الواحد — يستخدم تلقائياً عند إضافة لون جديد">قطع/راق</span>
-                <Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v=>{const newPpl=Number(v)||0;updF("pcsPerLayer"+k,v);const oldDefault=fabricPpl||ssPps;const cols=form["colors"+k]||[];const updated=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===oldDefault)?{...c,pcsPerLayer:newPpl,qty:(Number(c.layers)||0)*newPpl}:c);if(JSON.stringify(updated)!==JSON.stringify(cols))updF("colors"+k,updated)}} placeholder={ssPps?String(ssPps):"0"} style={{width:60,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+                {fromModel
+                  ? <span style={{display:"inline-block",minWidth:42,textAlign:"center",padding:"4px 8px",borderRadius:6,background:T.bg,border:"1px solid "+T.brd,fontSize:FS-1,fontWeight:700,color:T.text}} title="من الموديل">{form["pcsPerLayer"+k]||effectivePpl||0}</span>
+                  : <Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v=>{const newPpl=Number(v)||0;updF("pcsPerLayer"+k,v);const oldDefault=fabricPpl||ssPps;const cols=form["colors"+k]||[];const updated=cols.map(c=>(!c.pcsPerLayer||c.pcsPerLayer===oldDefault)?{...c,pcsPerLayer:newPpl,qty:(Number(c.layers)||0)*newPpl}:c);if(JSON.stringify(updated)!==JSON.stringify(cols))updF("colors"+k,updated)}} placeholder={ssPps?String(ssPps):"0"} style={{width:60,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>}
                 <span className="ord-fab-mini-label">تاريخ القص</span>
                 <Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)} style={{width:135,padding:"4px 6px",fontSize:FS-1}}/>
               </div>}
@@ -331,7 +363,7 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
             return fabricsFillFullRow?<>{accCard}{instCard}{tagsCard}{wasteCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}{tagsCard}{wasteCard}</div>;
           })()}
         </div>
-        {visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>
+        {!fromModel&&visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>
           <Btn small onClick={()=>setVisibleFabricCount(c=>Math.min(FKEYS.length,c+1))} style={{background:T.ok+"10",color:T.ok,border:"1.5px dashed "+T.ok+"50",padding:"7px 18px",fontWeight:700,fontSize:FS-1}}>
             {"+ إضافة خامة "+FKEYS[visibleFabricCount]}
           </Btn>

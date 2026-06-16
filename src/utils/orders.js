@@ -770,12 +770,18 @@ export function buildOrderFromModel(model){
   FKEYS.forEach(k=>{
     o["fabric"+k]=model["fabric"+k]||"";
     o["cons"+k]=model["cons"+k]||0;
+    /* V21.27.5: قطع/راق على مستوى الخامة بتتنقل من الموديل (كانت بتضيع → الأوردر
+       كان بيبان «--» في عمود القطع/راق). */
+    o["pcsPerLayer"+k]=Number(model["pcsPerLayer"+k])||0;
     o["fabricPieces"+k]=Array.isArray(model["fabricPieces"+k])?[...model["fabricPieces"+k]]:[];
     o["fabric"+k+"Label"]=model["fabric"+k+"Label"]||"";
     o["fabric"+k+"Price"]=model["fabric"+k+"Price"]||0;
     o["fabric"+k+"Unit"]=model["fabric"+k+"Unit"]||"";
     const cols=Array.isArray(model["colors"+k])?model["colors"+k]:[];
-    o["colors"+k]=cols.map(c=>({color:(c&&c.color)||"",colorHex:(c&&c.colorHex)||"",layers:Number(c&&c.layers)||0,pcsPerLayer:Number(c&&c.pcsPerLayer)||0,qty:Number(c&&c.qty)||0}));
+    /* V21.27.5: لون الموديل بيتخزّن اسم/لون بس — فناخد قطع/راق الخامة كافتراضي
+       لكل لون عشان المستخدم في الأوردر يدخل الراقات بس والكمية تتحسب تلقائياً. */
+    const fabPpl=Number(model["pcsPerLayer"+k])||0;
+    o["colors"+k]=cols.map(c=>{const ppl=Number(c&&c.pcsPerLayer)||fabPpl;const lay=Number(c&&c.layers)||0;return {color:(c&&c.color)||"",colorHex:(c&&c.colorHex)||"",layers:lay,pcsPerLayer:ppl,qty:lay*ppl};});
   });
   /* V21.22.4: نقل صور الألوان من الموديل لأمر التشغيل بالشكل اللي الـ UI
      بيقراه (order.shopify_meta.color_images = {color:{url,alt,source}}). */

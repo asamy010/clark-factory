@@ -223,7 +223,11 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
             {fid && <FCTable simple label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c => updF("colors"+k, c)} pcsPerSeries={effectivePpl}/>}
             {fid && (form.orderPieces || []).length > 0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
-              {(form.orderPieces || []).map(p => { const sel = fabPieces.includes(p); return <span key={p} onClick={() => updF("fabricPieces"+k, sel?fabPieces.filter(x=>x!==p):[...fabPieces,p])} style={{padding:"4px 10px",borderRadius:8,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>; })}
+              {/* V21.27.5: القطعة اللي اتخصّصت لخامة تانية ماينفعش تتختار هنا (حصري) */}
+              {(() => { const takenByOther = new Set(); FKEYS.filter(fk => fk !== k).forEach(fk => (form["fabricPieces"+fk] || []).forEach(p => takenByOther.add(p)));
+                return (form.orderPieces || []).map(p => { const sel = fabPieces.includes(p); const taken = takenByOther.has(p);
+                  if(taken && !sel) return <span key={p} style={{padding:"4px 10px",borderRadius:8,fontSize:FS-2,fontWeight:600,background:"#F1F5F9",color:T.textMut+"80",border:"1px dashed "+T.brd,textDecoration:"line-through",cursor:"default"}} title="متخصّصة لخامة تانية">{p}</span>;
+                  return <span key={p} onClick={() => updF("fabricPieces"+k, sel?fabPieces.filter(x=>x!==p):[...fabPieces,p])} style={{padding:"4px 10px",borderRadius:8,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>; }); })()}
             </div>}
           </div>;
         })}
