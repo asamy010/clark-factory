@@ -259,6 +259,16 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
                             (a.name || "").localeCompare(b.name || "", "ar")),
     [folders, currentFolderId]);
 
+  /* V21.26.23: لما فيه بحث — البحث بيشمل المجلدات عبر كل الشجرة (مش المجلد
+     الحالي بس)، فالنتيجة قسمين منفصلين: المجلدات المطابقة فوق ثم الملفات. */
+  const searchActive = !!search.trim() && !showTrash && !recentView;
+  const matchedFolders = useMemo(() => {
+    if (!searchActive) return [];
+    const q = search.trim().toLowerCase();
+    return folders.filter(f => (f.name || "").toLowerCase().includes(q))
+                  .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ar"));
+  }, [folders, search, searchActive]);
+
   /* Computed: files in the current folder (or trash / recent view).
      V21.9.186: added recentView — files from the last 30 days across the
      entire tree, sorted newest-first. Mutually exclusive with showTrash. */
@@ -269,6 +279,9 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
     } else if (recentView) {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       result = result.filter(f => !f.deletedAt && (f.uploadedAt || "") >= thirtyDaysAgo);
+    } else if (search.trim()) {
+      /* V21.26.23: بحث عام عبر كل المجلدات (مش المجلد الحالي بس) */
+      result = result.filter(f => !f.deletedAt);
     } else {
       result = result.filter(f => !f.deletedAt && (f.folderId || null) === currentFolderId);
     }
@@ -976,11 +989,35 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           </div>
         )}
 
-        {/* Search */}
-        <Inp value={search} onChange={setSearch} placeholder="🔍 ابحث في اسم الملف أو الوصف..." style={{ marginBottom: 12 }} />
+        {/* Drop zone — V21.26.23: اتنقل فوق مربع البحث */}
+        {!showTrash && !recentView && canEdit && (
+          <div
+            onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              padding: 20, borderRadius: 12, marginBottom: 12,
+              background: dragOver ? T.accent + "15" : T.bg,
+              border: "2px dashed " + (dragOver ? T.accent : T.brd),
+              textAlign: "center", cursor: "pointer", transition: "all 0.15s",
+            }}>
+            <div style={{ fontSize: 32, marginBottom: 6 }}>📤</div>
+            <div style={{ fontSize: FS, fontWeight: 700, color: T.text }}>
+              {uploading ? `جاري الرفع ${uploadProgress.done}/${uploadProgress.total}...` : "اسحب الملفات هنا أو اضغط للاختيار"}
+            </div>
+            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
+              حد أقصى 100 MB لكل ملف
+            </div>
+          </div>
+        )}
 
-        {/* Breadcrumbs — V21.9.186: also skip in recentView */}
-        {!showTrash && !recentView && (
+        {/* Search — V21.26.23: بيشمل المجلدات + الملفات */}
+        <Inp value={search} onChange={setSearch} placeholder="🔍 ابحث في اسم الملف/المجلد أو الوصف..." style={{ marginBottom: 12 }} />
+
+        {/* Breadcrumbs — V21.9.186: also skip in recentView. تختفي وقت البحث (النتايج عامة) */}
+        {!showTrash && !recentView && !searchActive && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 12, fontSize: FS - 1 }}>
             <span onClick={() => setCurrentFolderId(null)} style={{ cursor: "pointer", color: currentFolderId ? T.accent : T.text, fontWeight: 700 }}>🏠 الجذر</span>
             {breadcrumbs.map((c, i) => (
@@ -996,56 +1033,47 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
           </div>
         )}
 
-        {/* Folders grid (only in non-trash, non-recent view) */}
-        {!showTrash && !recentView && currentFolders.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 16 }}>
-            {currentFolders.map(f => {
-              const childFileCount = files.filter(x => x.folderId === f.id && !x.deletedAt).length;
-              return (
-                <div key={f.id} style={{
-                  padding: 12, borderRadius: 12,
-                  background: (f.color || "#8B5CF6") + "08",
-                  border: "1px solid " + (f.color || "#8B5CF6") + "30",
-                  cursor: "pointer", position: "relative",
-                }} onClick={() => setCurrentFolderId(f.id)}>
-                  <div style={{ fontSize: 32, marginBottom: 4 }}>{f.icon || "📁"}</div>
-                  <div style={{ fontSize: FS, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
-                  <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>{childFileCount} ملف</div>
-                  {canEdit && (
-                    <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, display: "flex", gap: 4 }}>
-                      <span onClick={(e) => { e.stopPropagation(); renameFolder(f); }} style={{ cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4, background: T.cardSolid, opacity: 0.85 }} title="تعديل">✏️</span>
-                      <span onClick={(e) => { e.stopPropagation(); deleteFolder(f); }} style={{ cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4, background: T.cardSolid, opacity: 0.85 }} title="حذف">🗑️</span>
-                    </div>
-                  )}
+        {/* Folders grid — عند البحث: المجلدات المطابقة عبر الشجرة (قسم منفصل) */}
+        {!showTrash && !recentView && (() => {
+          const foldersToShow = searchActive ? matchedFolders : currentFolders;
+          if (!searchActive && foldersToShow.length === 0) return null;
+          return (
+            <div style={{ marginBottom: 16 }}>
+              {searchActive && (
+                <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.textSec, margin: "2px 0 8px" }}>📁 المجلدات المطابقة <span style={{ color: T.textMut, fontWeight: 600 }}>({foldersToShow.length})</span></div>
+              )}
+              {foldersToShow.length > 0 ? (
+                <div style={{ display: "grid", gridTemplateColumns: isMob ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+                  {foldersToShow.map(f => {
+                    const childFileCount = files.filter(x => x.folderId === f.id && !x.deletedAt).length;
+                    const path = searchActive ? buildBreadcrumbs(folders, f.id).slice(0, -1).map(x => x.name).join(" / ") : "";
+                    return (
+                      <div key={f.id} style={{
+                        padding: 12, borderRadius: 12,
+                        background: (f.color || "#8B5CF6") + "08",
+                        border: "1px solid " + (f.color || "#8B5CF6") + "30",
+                        cursor: "pointer", position: "relative",
+                      }} onClick={() => { setCurrentFolderId(f.id); if (searchActive) setSearch(""); }}>
+                        <div style={{ fontSize: 32, marginBottom: 4 }}>{f.icon || "📁"}</div>
+                        <div style={{ fontSize: FS, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+                        {searchActive && <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📍 {path || "الجذر"}</div>}
+                        <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>{childFileCount} ملف</div>
+                        {canEdit && (
+                          <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, display: "flex", gap: 4 }}>
+                            <span onClick={(e) => { e.stopPropagation(); renameFolder(f); }} style={{ cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4, background: T.cardSolid, opacity: 0.85 }} title="تعديل">✏️</span>
+                            <span onClick={(e) => { e.stopPropagation(); deleteFolder(f); }} style={{ cursor: "pointer", fontSize: 14, padding: 4, borderRadius: 4, background: T.cardSolid, opacity: 0.85 }} title="حذف">🗑️</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Drop zone (only in non-trash, non-recent view) */}
-        {!showTrash && !recentView && canEdit && (
-          <div
-            onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              padding: 20, borderRadius: 12, marginBottom: 14,
-              background: dragOver ? T.accent + "15" : T.bg,
-              border: "2px dashed " + (dragOver ? T.accent : T.brd),
-              textAlign: "center", cursor: "pointer", transition: "all 0.15s",
-            }}>
-            <div style={{ fontSize: 32, marginBottom: 6 }}>📤</div>
-            <div style={{ fontSize: FS, fontWeight: 700, color: T.text }}>
-              {uploading ? `جاري الرفع ${uploadProgress.done}/${uploadProgress.total}...` : "اسحب الملفات هنا أو اضغط للاختيار"}
+              ) : (
+                <div style={{ fontSize: FS - 2, color: T.textMut, padding: "4px 0 8px" }}>— مفيش مجلدات بالاسم ده</div>
+              )}
             </div>
-            <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4 }}>
-              حد أقصى 100 MB لكل ملف
-            </div>
-          </div>
-        )}
+          );
+        })()}
         <input
           ref={fileInputRef}
           type="file"
@@ -1067,6 +1095,10 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user }) {
               <Btn small ghost onClick={clearSel}>✕ إلغاء التحديد</Btn>
             </div>
           </div>
+        )}
+        {/* V21.26.23: عنوان قسم الملفات وقت البحث — يفصل نتايج الملفات عن المجلدات */}
+        {searchActive && (
+          <div style={{ fontSize: FS - 1, fontWeight: 800, color: T.textSec, margin: "6px 0 8px" }}>📄 الملفات المطابقة <span style={{ color: T.textMut, fontWeight: 600 }}>({currentFiles.length})</span></div>
         )}
         {/* Files grid — V21.9.186: distinct empty-state message for recent view */}
         {currentFiles.length === 0 ? (
