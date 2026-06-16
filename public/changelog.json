@@ -1,5 +1,23 @@
 [
  {
+  "version": "V21.27.24",
+  "date": "2026-06-17",
+  "types": [
+   "doc"
+  ],
+  "title": "📄 سجل إصدارات تفصيلي (docs/RELEASE-LOG.md) + تحديثه كل إصدار",
+  "changes": [
+   {
+    "type": "doc",
+    "text": "أضيف ملف docs/RELEASE-LOG.md — سجل رولينج بكل اللي اتعمل في كل نسخة بالتفصيل + قسم «اللي لسه (TODO)» — عشان أي session جديد يفهم تاريخ التطوير. اتوثّق فيه كل السيشن (V21.27.0 → V21.27.23)."
+   },
+   {
+    "type": "doc",
+    "text": "اتضافت للبروتوكول (CLAUDE.md §AUTO-WORKFLOW خطوة 2.b): تحديث docs/RELEASE-LOG.md في كل إصدار جديد بجانب bump النسخة والـ changelog."
+   }
+  ]
+ },
+ {
   "version": "V21.27.23",
   "date": "2026-06-17",
   "types": [

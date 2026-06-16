@@ -13,6 +13,9 @@
 > 2. **Bump** النسخة في ٣ أماكن (`package.json` + `src/constants/index.js` +
 >    entry جديد في أول `public/changelog.json` — **V21.21.37: مش في
 >    AboutVersionModal.jsx زي زمان؛ الـ CHANGELOG بقى JSON منفصل**).
+> 2.b **حدّث `docs/RELEASE-LOG.md`** (V21.27.23+): ضيف إدخال للنسخة الجديدة
+>    (الأحدث في الأعلى) بكل اللي اتعمل + الملفات، وراجِع قسم «🔜 اللي لسه».
+>    ده ملف رولينج يخلّي أي session جديد يفهم تاريخ التطوير بالتفصيل.
 > 3. **Commit** للملفات المحددة بس (مفيش `git add .`)، رسالة V-tagged.
 > 4. **Push**: فرع التطوير `claude/code-review-3e12c` **و** `main` (النشر على
 >    Vercel — بـ fast-forward من فرع التطوير). *(لو السيشن من غير فرع تطوير
