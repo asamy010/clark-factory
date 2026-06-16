@@ -14,25 +14,29 @@ import { AIStudioPg } from "./AIStudioPg.jsx";
 import { mkOrder } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
-import { ask, tell } from "../utils/popups.js";
+import { ask, tell, showToast } from "../utils/popups.js";
 import { gIcon } from "../utils/format.js";
 
-/* كل ألوان الموديل (palette) عبر كل الأقمشة A→H — أسماء فريدة + hex. */
+/* ألوان الموديل (palette) — من خامة المصدر في تاب اللون/المقاس
+   (color_source_fabric) بس، مش كل الأقمشة. مطابق للماتريكس والربط. */
 function modelColors(m){
+  if(!m) return [];
+  const withColors = FKEYS.filter(k => (m["colors" + k] || []).some(c => (typeof c === "string" ? c : (c && c.color) || "").trim()));
+  if(withColors.length === 0) return [];
+  const src = m.shopify_meta && m.shopify_meta.color_source_fabric;
+  const key = (src && withColors.includes(src)) ? src : withColors[0];
   const seen = new Set();
   const out = [];
-  FKEYS.forEach(k => {
-    (m["colors" + k] || []).forEach(c => {
-      const name = (typeof c === "string" ? c : (c && c.color) || "").trim();
-      if(!name || seen.has(name)) return;
-      seen.add(name);
-      out.push({ name, hex: (c && c.colorHex) || "#cbd5e1" });
-    });
+  (m["colors" + key] || []).forEach(c => {
+    const name = (typeof c === "string" ? c : (c && c.color) || "").trim();
+    if(!name || seen.has(name)) return;
+    seen.add(name);
+    out.push({ name, hex: (c && c.colorHex) || "#cbd5e1" });
   });
   return out;
 }
 
-export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder, importModelsFromOrders }){
+export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder, importModelsFromOrders, propagateModelToOrders }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
   const [studio, setStudio] = useState(null); /* null | modelObj — استوديو الـ AI */
   const [q, setQ] = useState("");
@@ -64,7 +68,12 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
   /* تعديل موديل */
   if(editing && editing.id){
     return <ModelForm data={data} initial={editing}
-      onSave={m => { replaceModel(editing.id, m); setEditing(null); }}
+      onSave={async m => {
+        await replaceModel(editing.id, m);
+        /* V21.27.16: نفّذ التعديل في الأوامر المرتبطة (الوصفة المقفولة بس) */
+        if(propagateModelToOrders){ const r = await propagateModelToOrders(editing.id, m); if(r && r.updated > 0) showToast("✓ اتحدّث " + r.updated + " أمر تشغيل مرتبط بالموديل"); }
+        setEditing(null);
+      }}
       onCancel={() => setEditing(null)} isMob={isMob} upConfig={upConfig} user={user}/>;
   }
 

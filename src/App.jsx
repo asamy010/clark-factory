@@ -5503,6 +5503,44 @@ export default function App(){
       return{ok:true,created,linked};
     }catch(e){console.error("importModelsFromOrders error:",e);showToast("⚠️ فشل سحب الموديلات: "+((e.message||String(e)).slice(0,80)));return{ok:false,error:e.message||String(e)}}
   };
+  /* V21.27.16: تعديل الموديل بيتنفّذ في الأوامر المرتبطة — يحدّث *الحقول المقفولة*
+     بس (اللي الأوردر مايقدرش يعدّلها): الخامات/استهلاك/قطع-راق/المقاسات/القطع +
+     تفاصيل التشغيل (المنسّقة) + خامة المصدر/صور الألوان. بيسيب اللي الأوردر بيملكه
+     (ألوان+كميات/إكسسوار/هالك/تعليمات/ماركر/PO/حالة/تسليمات) زي ما هو. batched. */
+  const propagateModelToOrders=async(modelId,model)=>{
+    try{
+      if(!model) return {ok:true,updated:0};
+      const ords=(Array.isArray(orders)?orders:[]).filter(o=>o&&String(o.modelId)===String(modelId)&&o._docId);
+      if(ords.length===0) return {ok:true,updated:0};
+      let batch=writeBatch(db),ops=0,updated=0;
+      const flush=async()=>{if(ops>0){await batch.commit();batch=writeBatch(db);ops=0}};
+      for(const o of ords){
+        const patch={
+          sizeSetId:model.sizeSetId||"",sizeLabel:model.sizeLabel||"",
+          orderPieces:Array.isArray(model.orderPieces)?[...model.orderPieces]:[],
+          prodDetails:model.prodDetails||"",
+        };
+        FKEYS.forEach(k=>{
+          patch["fabric"+k]=model["fabric"+k]||"";
+          patch["cons"+k]=model["cons"+k]||0;
+          patch["pcsPerLayer"+k]=Number(model["pcsPerLayer"+k])||0;
+          patch["fabricPieces"+k]=Array.isArray(model["fabricPieces"+k])?[...model["fabricPieces"+k]]:[];
+          patch["fabric"+k+"Label"]=model["fabric"+k+"Label"]||"";
+          patch["fabric"+k+"Price"]=model["fabric"+k+"Price"]||0;
+          patch["fabric"+k+"Unit"]=model["fabric"+k+"Unit"]||"";
+        });
+        /* خامة المصدر + صور الألوان من الموديل، مع الحفاظ على باقي shopify_meta
+           بتاع الأوردر (stock_matrix...). ألوان الأوردر نفسها مش بتتلمس. */
+        const sm={...(o.shopify_meta||{})};
+        if(model.shopify_meta&&model.shopify_meta.color_source_fabric) sm.color_source_fabric=model.shopify_meta.color_source_fabric;
+        if(model.shopify_meta&&model.shopify_meta.color_images) sm.color_images={...(sm.color_images||{}),...model.shopify_meta.color_images};
+        patch.shopify_meta=sm;
+        batch.update(doc(db,"seasons",season,"orders",o._docId),patch);ops++;updated++;if(ops>=400)await flush();
+      }
+      await flush();
+      return {ok:true,updated};
+    }catch(e){console.error("propagateModelToOrders error:",e);showToast("⚠️ فشل تحديث الأوامر المرتبطة: "+((e.message||String(e)).slice(0,80)));return {ok:false,error:e.message||String(e)}}
+  };
   const delOrder=async orderId=>{
     const ord=orders.find(o=>o.id===orderId);
     if(!ord||!ord._docId)return;
@@ -7294,7 +7332,7 @@ export default function App(){
             })}
           </div>}
           {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user} updOrder={updOrder} importModelsFromOrders={importModelsFromOrders}/>}
+          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user} updOrder={updOrder} importModelsFromOrders={importModelsFromOrders} propagateModelToOrders={propagateModelToOrders}/>}
           {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}

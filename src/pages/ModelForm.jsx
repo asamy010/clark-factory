@@ -8,7 +8,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { useState } from "react";
-import { Btn, Card, Inp, Sel, SearchSel, FCTable, AccPicker } from "../components/ui.jsx";
+import { Btn, Card, Inp, Sel, SearchSel, AccPicker, ColorPicker } from "../components/ui.jsx";
 import { FCOL, FKEYS, FS } from "../constants/index.js";
 import { T } from "../theme.js";
 import { gIcon, gid, getSizesFromSet } from "../utils/format.js";
@@ -220,7 +220,15 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
                 <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 12px",borderRadius:8,background:FCOL[idx]+"15",border:"1px solid "+FCOL[idx]+"40",color:FCOL[idx],fontSize:FS-2,fontWeight:800}} title="استهلاك القطعة الواحدة = استهلاك الراق ÷ قطع الراق">🧮 استهلاك القطعة: {perTxt}{perPiece > 0 && fb ? " " + fb.unit : ""}</span>
               </div>;
             })()}
-            {fid && <FCTable simple label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c => updF("colors"+k, c)} pcsPerSeries={effectivePpl}/>}
+            {/* V21.27.16: ألوان inline مضغوطة (بدل الجدول الكبير) — اسم/لون بس */}
+            {fid && <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>الألوان:</span>
+              {(form["colors"+k]||[]).map((c, ci) => <span key={ci} style={{display:"inline-flex",alignItems:"center",gap:2,padding:"2px 4px",borderRadius:999,border:"1px solid "+T.brd,background:T.bg}}>
+                <ColorPicker value={c.color} colorHex={c.colorHex} onSelect={(nm,hx) => updF("colors"+k, (form["colors"+k]||[]).map((x,j) => j===ci?{...x,color:nm,colorHex:hx}:x))}/>
+                <span onClick={() => updF("colors"+k, (form["colors"+k]||[]).filter((_,j) => j!==ci))} style={{cursor:"pointer",color:T.err,fontWeight:800,fontSize:FS-1,padding:"0 3px"}}>×</span>
+              </span>)}
+              <Btn small onClick={() => updF("colors"+k, [...(form["colors"+k]||[]), {color:"",colorHex:""}])} style={{background:FCOL[idx]+"12",color:FCOL[idx],border:"1px dashed "+FCOL[idx]+"40",fontWeight:700,padding:"3px 10px"}}>+ لون</Btn>
+            </div>}
             {fid && (form.orderPieces || []).length > 0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
               {/* V21.27.5: القطعة اللي اتخصّصت لخامة تانية ماينفعش تتختار هنا (حصري) */}
