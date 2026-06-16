@@ -17,12 +17,14 @@ import { uploadMultiple, deleteAttachment, getFileIcon, getFileType, formatFileS
 import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
+import { RichTextEditor } from "../components/RichTextEditor.jsx";
 import { tell, showToast } from "../utils/popups.js";
 
 const TABS = [
   { id: "fabrics",   label: "🧵 القماش والخامات" },
   { id: "colorsize", label: "🎨 اللون / المقاس" },
   { id: "acc",       label: "🔘 الاكسسوار" },
+  { id: "prod",      label: "📋 تفاصيل التشغيل" },
   { id: "attach",    label: "📎 المرفقات" },
 ];
 
@@ -266,6 +268,12 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
         <Inp type="number" step="any" value={form.wasteAccPct||""} onChange={v => updF("wasteAccPct", Number(v)||0)} placeholder="0" style={{width:80,textAlign:"center"}}/>
         <span style={{fontSize:FS-2,color:T.textMut}}>بتتزاد على تكلفة الإكسسوار كبند مستقل.</span>
       </div>
+    </div>}
+
+    {/* ── Tab: production details (Word-like) — V21.27.4 ── */}
+    {tab === "prod" && <div>
+      <div style={{fontSize:FS-1,color:T.textSec,marginBottom:10,lineHeight:1.7}}>📋 اكتب تفاصيل التشغيل / التيك-باك (قياسات، طريقة الخياطة، ملاحظات الجودة...) — بتتطبع مع أمر التشغيل لكل أوردر من الموديل ده.</div>
+      <RichTextEditor value={form.prodDetails || ""} onChange={html => updF("prodDetails", html)} placeholder="اكتب تفاصيل التشغيل هنا..." minHeight={240}/>
     </div>}
 
     {/* ── Tab: attachments ── */}

@@ -10,6 +10,7 @@ import { FKEYS, FS } from "../constants/index.js";
 import { TD, TDB, TDL, TH } from "../theme.js";
 import { gIcon, gc, gcons, gf, ltrPhone } from "../utils/format.js";
 import { calcOrder, calcStockNeeded, checkStockAvailability, deductStockForOrder, getOrderDetails, getOrderTimeline, getStatusColor } from "../utils/orders.js";
+import { sanitizeHtml } from "../utils/sanitizeHtml.js";
 import { tell } from "../utils/popups.js";
 import { printPage } from "../utils/print.js";
 import { loadQR, loadXLSX } from "../utils/qr.js";
@@ -285,6 +286,8 @@ export async function printOrderSheet(order,t,activeFabs,statusCards){
       h+="</table></div>"})};
   if(wsRows)h+="<h2 style='font-size:14px;margin:12px 0 6px'>الورش</h2><table><tr><th>الورشة</th><th>القطعة</th><th>الكمية</th><th>استلام مصنع</th><th>رصيد حالي</th></tr>"+wsRows+"</table>";
   if(order.instructions)h+="<h2 style='font-size:14px;margin:12px 0 6px'>تعليمات التشغيل</h2><div style='background:#f8fafc;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px'>"+order.instructions+"</div>";
+  /* V21.27.4: تفاصيل التشغيل المنسّقة (HTML) — تيك-باك يطبع مع الأمر */
+  if(order.prodDetails&&String(order.prodDetails).replace(/<[^>]*>/g,"").trim())h+="<h2 style='font-size:14px;margin:12px 0 6px'>تفاصيل التشغيل / تيك-باك</h2><div style='border:1px solid #e2e8f0;padding:10px;border-radius:6px;font-size:12px;line-height:1.7'>"+sanitizeHtml(order.prodDetails)+"</div>";
   h+="<div class='sig'><div class='sig-box'>توقيع مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
   printPage("أمر قص — "+order.modelNo,h)
 }

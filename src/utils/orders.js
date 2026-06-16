@@ -760,6 +760,8 @@ export function buildOrderFromModel(model){
   o.image=model.image||"";
   o.imageStoragePath=model.imageStoragePath||"";
   o.instructions=model.instructions||"";
+  /* V21.27.4: تفاصيل التشغيل المنسّقة (HTML) — بتتطبع مع أمر التشغيل */
+  o.prodDetails=model.prodDetails||"";
   o.marker=model.marker||"";
   /* V21.27.3: نسبتا الهالك من الموديل (قابلة للتعديل لكل أوردر) */
   o.wasteFabricPct=Number(model.wasteFabricPct)||0;
