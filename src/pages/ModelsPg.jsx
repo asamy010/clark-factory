@@ -32,10 +32,12 @@ function modelColors(m){
   return out;
 }
 
-export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder }){
+export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder, importModelsFromOrders }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
   const [studio, setStudio] = useState(null); /* null | modelObj — استوديو الـ AI */
   const [q, setQ] = useState("");
+  const [pullPreview, setPullPreview] = useState(null); /* V21.27.11: dry-run سحب الموديلات */
+  const [pullBusy, setPullBusy] = useState(false);
 
   /* ⚠️ كل الـ hooks قبل أي early return (Rules of Hooks) */
   const list = useMemo(() => {
@@ -82,6 +84,18 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
     delModel(m.id);
   };
 
+  /* V21.27.11: حساب dry-run لسحب الموديلات من الأوامر (قراءة فقط) */
+  const computePull = () => {
+    const ords = Array.isArray(data.orders) ? data.orders : [];
+    const byNo = new Map();
+    ords.forEach(o => { const mn = (o.modelNo || "").trim(); if(!mn) return; if(!byNo.has(mn)) byNo.set(mn, []); byNo.get(mn).push(o); });
+    const existing = new Set((Array.isArray(models) ? models : []).map(m => (m.modelNo || "").trim()).filter(Boolean));
+    const toCreate = [...byNo.keys()].filter(mn => !existing.has(mn)).sort();
+    const matched = [...byNo.keys()].filter(mn => existing.has(mn)).length;
+    const ordersToLink = ords.filter(o => { const mn = (o.modelNo || "").trim(); return mn && byNo.has(mn) && !o.modelId; }).length;
+    return { toCreate, matched, ordersToLink, totalNos: byNo.size, totalOrders: ords.length };
+  };
+
   return <div>
     {/* Header */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:14}}>
@@ -89,8 +103,40 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
         <div style={{fontSize:FS+4,fontWeight:800,color:T.text}}>🧩 الموديلات</div>
         <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>وصفات قابلة لإعادة الاستخدام — اعمل الموديل مرة وشغّله كتير من غير تكرار</div>
       </div>
-      {canEdit && <Btn primary onClick={() => setEditing("new")}>➕ موديل جديد</Btn>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {canEdit && importModelsFromOrders && <Btn onClick={() => setPullPreview(computePull())} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="إنشاء موديلات من أوامر التشغيل القديمة + ربطها">📥 سحب من الأوامر</Btn>}
+        {canEdit && <Btn primary onClick={() => setEditing("new")}>➕ موديل جديد</Btn>}
+      </div>
     </div>
+
+    {/* V21.27.11: dry-run popup لسحب الموديلات من الأوامر */}
+    {pullPreview && <div onClick={() => !pullBusy && setPullPreview(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10010,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e => e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"min(480px,100%)",maxHeight:"88vh",overflowY:"auto",border:"1px solid "+T.brd,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:FS+2,fontWeight:900,color:T.accent,marginBottom:4}}>📥 سحب الموديلات من الأوامر</div>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:14}}>{"فحص "+pullPreview.totalOrders+" أمر · "+pullPreview.totalNos+" رقم موديل مختلف"}</div>
+        {(pullPreview.toCreate.length === 0 && pullPreview.ordersToLink === 0)
+          ? <div style={{fontSize:FS-1,color:T.ok,background:T.ok+"10",border:"1px solid "+T.ok+"30",borderRadius:10,padding:"12px 14px",fontWeight:700,textAlign:"center"}}>✓ كل الموديلات متسحوبة ومربوطة بالفعل — مفيش حاجة جديدة.</div>
+          : <>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <div style={{flex:1,padding:"10px 8px",borderRadius:10,background:T.accent+"0D",textAlign:"center"}}><div style={{fontSize:FS+5,fontWeight:900,color:T.accent}}>{pullPreview.toCreate.length}</div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>موديل جديد</div></div>
+              <div style={{flex:1,padding:"10px 8px",borderRadius:10,background:T.ok+"0D",textAlign:"center"}}><div style={{fontSize:FS+5,fontWeight:900,color:T.ok}}>{pullPreview.ordersToLink}</div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>أمر هيتربط</div></div>
+              <div style={{flex:1,padding:"10px 8px",borderRadius:10,background:T.bg,textAlign:"center"}}><div style={{fontSize:FS+5,fontWeight:900,color:T.textMut}}>{pullPreview.matched}</div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>موجود خلاص</div></div>
+            </div>
+            {pullPreview.toCreate.length > 0 && <div style={{marginBottom:12}}>
+              <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700,marginBottom:6}}>الموديلات اللي هتتعمل:</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",maxHeight:160,overflowY:"auto"}}>
+                {pullPreview.toCreate.slice(0,60).map(mn => <span key={mn} style={{padding:"3px 10px",borderRadius:8,background:T.accentBg,border:"1px solid "+T.accent+"25",fontSize:FS-2,fontWeight:700,color:T.accent}}>{mn}</span>)}
+                {pullPreview.toCreate.length > 60 && <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{"+"+(pullPreview.toCreate.length-60)+" غيرهم"}</span>}
+              </div>
+            </div>}
+            <div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.7,background:T.bg,borderRadius:8,padding:"8px 10px"}}>ℹ️ كل موديل بياخد وصفة أحدث أمر بنفس الرقم (خامات/ألوان/مقاس/إكسسوار/صورة). الأوامر بتتربط بـ modelId — فالأقفال هتطبّق عليها. مفيش حذف ولا تعديل في كميات الأوامر.</div>
+          </>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+          <Btn ghost onClick={() => setPullPreview(null)} disabled={pullBusy}>{(pullPreview.toCreate.length === 0 && pullPreview.ordersToLink === 0) ? "إغلاق" : "إلغاء"}</Btn>
+          {!(pullPreview.toCreate.length === 0 && pullPreview.ordersToLink === 0) && <Btn primary disabled={pullBusy} onClick={async () => { setPullBusy(true); try { await importModelsFromOrders({ link: true }); } finally { setPullBusy(false); setPullPreview(null); } }}>{pullBusy ? "⏳ جاري السحب..." : "🚀 تنفيذ"}</Btn>}
+        </div>
+      </div>
+    </div>}
 
     {/* Search */}
     {models.length > 0 && <div style={{marginBottom:12,maxWidth:360}}>

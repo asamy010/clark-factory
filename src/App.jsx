@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { auth, db, getSecondaryAuth } from "./firebase";
 import { signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc, writeBatch } from "firebase/firestore";
 
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { APP_VERSION, FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
@@ -78,7 +78,7 @@ import { validateDoc } from "./utils/validateData.js";
 import { configureBridgeProxy } from "./utils/whatsappBridge.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
-import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc } from "./utils/orders.js";
+import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc, buildModelFromOrder } from "./utils/orders.js";
 import { ensureCategoriesInit } from "./utils/categories.js";
 /* V19.91: Shopify integration — schema migration on app load (idempotent). */
 import { ensureShopifyInit } from "./utils/shopify/shopifyMigration.js";
@@ -5464,6 +5464,42 @@ export default function App(){
   const addModel=async m=>{try{const obj={...m};obj.createdBy=userName;obj.createdAt=obj.createdAt||new Date().toISOString();delete obj._docId;await addDoc(collection(db,"models"),obj);showToast("✓ تم حفظ الموديل")}catch(e){console.error("addModel error:",e);showToast("⚠️ خطأ في حفظ الموديل: "+((e.message||String(e)).substring(0,80)))}};
   const replaceModel=async(id,newData)=>{try{const m=models.find(x=>x.id===id);if(!m)return;const clean={...newData};delete clean._docId;await updateDoc(doc(db,"models",m._docId),clean);showToast("✓ تم حفظ التعديلات")}catch(e){console.error("replaceModel error:",e);showToast("⚠️ خطأ في حفظ الموديل")}};
   const delModel=async id=>{try{const m=models.find(x=>x.id===id);if(!m)return;await deleteDoc(doc(db,"models",m._docId));showToast("✓ تم حذف الموديل")}catch(e){console.error("delModel error:",e);showToast("⚠️ خطأ في حذف الموديل")}};
+  /* V21.27.11: سحب الموديلات من الأوامر — ينشئ موديل لكل رقم موديل ناقص (الأحدث
+     كممثّل) + (اختياري) يربط الأوامر بموديلاتها عبر modelId. idempotent: بيتخطّى
+     أرقام الموديلات الموجودة. batched (≤450 op/batch). */
+  const importModelsFromOrders=async({link=true}={})=>{
+    try{
+      const ords=Array.isArray(orders)?orders:[];
+      const byNo=new Map();
+      ords.forEach(o=>{const mn=(o.modelNo||"").trim();if(!mn)return;if(!byNo.has(mn))byNo.set(mn,[]);byNo.get(mn).push(o)});
+      const idByNo=new Map();
+      (Array.isArray(models)?models:[]).forEach(m=>{const mn=(m.modelNo||"").trim();if(mn&&!idByNo.has(mn))idByNo.set(mn,m.id)});
+      const newModels=[];
+      byNo.forEach((list,mn)=>{
+        if(idByNo.has(mn))return;
+        const rep=list.slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")))[0];
+        const mdl=buildModelFromOrder(rep);
+        newModels.push(mdl);idByNo.set(mn,mdl.id);
+      });
+      let batch=writeBatch(db),ops=0,created=0,linked=0;
+      const flush=async()=>{if(ops>0){await batch.commit();batch=writeBatch(db);ops=0}};
+      for(const mdl of newModels){
+        const ref=doc(collection(db,"models"));
+        const obj={...mdl,createdBy:userName,createdAt:new Date().toISOString()};delete obj._docId;
+        batch.set(ref,obj);ops++;created++;if(ops>=450)await flush();
+      }
+      if(link){
+        for(const o of ords){
+          const mn=(o.modelNo||"").trim();if(!mn||!o._docId)continue;
+          const mid=idByNo.get(mn);if(!mid||o.modelId===mid)continue;
+          batch.update(doc(db,"seasons",season,"orders",o._docId),{modelId:mid});ops++;linked++;if(ops>=450)await flush();
+        }
+      }
+      await flush();
+      showToast("✓ تم سحب الموديلات — "+created+" موديل جديد"+(link?" + ربط "+linked+" أمر":""));
+      return{ok:true,created,linked};
+    }catch(e){console.error("importModelsFromOrders error:",e);showToast("⚠️ فشل سحب الموديلات: "+((e.message||String(e)).slice(0,80)));return{ok:false,error:e.message||String(e)}}
+  };
   const delOrder=async orderId=>{
     const ord=orders.find(o=>o.id===orderId);
     if(!ord||!ord._docId)return;
@@ -7237,7 +7273,7 @@ export default function App(){
             })}
           </div>}
           {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user} updOrder={updOrder}/>}
+          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user} updOrder={updOrder} importModelsFromOrders={importModelsFromOrders}/>}
           {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}

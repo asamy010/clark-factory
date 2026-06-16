@@ -805,6 +805,48 @@ export function buildOrderFromModel(model){
   return o;
 }
 
+/* V21.27.11: عكس buildOrderFromModel — يبني «وصفة موديل» من أمر تشغيل موجود
+   (لسحب الموديلات من الأوامر القديمة). بياخد الوصفة (خامات/استهلاك/قطع-راق/
+   ألوان أسماء بس/مقاس/قطع/إكسسوار/صورة/صور ألوان/هالك/تفاصيل تشغيل) ويرمي
+   حقول التنفيذ (PO/حالة/كميات/تسليمات). id جديد للموديل. */
+export function buildModelFromOrder(order){
+  const m={ id:gid(), _isModel:true };
+  if(!order||typeof order!=="object") return m;
+  m.modelNo=order.modelNo||"";
+  m.modelDesc=order.modelDesc||"";
+  m.sizeSetId=order.sizeSetId||"";
+  m.sizeLabel=order.sizeLabel||"";
+  m.orderPieces=Array.isArray(order.orderPieces)?[...order.orderPieces]:[];
+  m.image=order.image||"";
+  m.imageStoragePath=order.imageStoragePath||"";
+  m.instructions=order.instructions||"";
+  m.prodDetails=order.prodDetails||"";
+  m.marker=order.marker||"";
+  m.wasteFabricPct=Number(order.wasteFabricPct)||0;
+  m.wasteAccPct=Number(order.wasteAccPct)||0;
+  m.accItems=JSON.parse(JSON.stringify(order.accItems||[]));
+  FKEYS.forEach(k=>{
+    m["fabric"+k]=order["fabric"+k]||"";
+    m["cons"+k]=order["cons"+k]||0;
+    m["pcsPerLayer"+k]=Number(order["pcsPerLayer"+k])||0;
+    m["fabricPieces"+k]=Array.isArray(order["fabricPieces"+k])?[...order["fabricPieces"+k]]:[];
+    m["fabric"+k+"Label"]=order["fabric"+k+"Label"]||"";
+    m["fabric"+k+"Price"]=order["fabric"+k+"Price"]||0;
+    m["fabric"+k+"Unit"]=order["fabric"+k+"Unit"]||"";
+    /* الموديل = وصفة: ألوان اسم/لون بس (من غير راقات/كميات) */
+    const cols=Array.isArray(order["colors"+k])?order["colors"+k]:[];
+    m["colors"+k]=cols.map(c=>({color:(c&&c.color)||"",colorHex:(c&&c.colorHex)||""})).filter(c=>(c.color||"").trim());
+  });
+  /* صور الألوان + خامة المصدر */
+  if(order.shopify_meta&&typeof order.shopify_meta==="object"){
+    const sm={};
+    if(order.shopify_meta.color_images) sm.color_images=JSON.parse(JSON.stringify(order.shopify_meta.color_images));
+    if(order.shopify_meta.color_source_fabric) sm.color_source_fabric=order.shopify_meta.color_source_fabric;
+    if(Object.keys(sm).length) m.shopify_meta=sm;
+  }
+  return m;
+}
+
 /* Validate order form - returns array of error messages.
    V21.9.79 (Bug #5 + #7 in cutting audit):
    - Defensive `||""` on modelNo/modelDesc to handle legacy/migration data
