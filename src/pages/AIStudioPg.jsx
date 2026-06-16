@@ -99,7 +99,7 @@ function arInfo(ar){
    كامل (gridColumn 1/-1) بينما الطولي بياخد عمود واحد → صورتين جنب بعض.
    مُعرّف على مستوى الموديول (مش جوّا الصفحة) عشان حالة القياس متتفقدش مع كل
    re-render للأب. */
-function ResultCard({ res, isMob, pinned, onTogglePin, onDelete, onZoom, children }){
+function ResultCard({ res, isMob, onDelete, onZoom, children }){
   const init = arInfo(res.aspectRatio);
   const [css, setCss] = useState(init.css);
   const [portrait, setPortrait] = useState(init.portrait);
@@ -110,14 +110,12 @@ function ResultCard({ res, isMob, pinned, onTogglePin, onDelete, onZoom, childre
   const fullW = !isMob && !portrait;   /* أفقي → عرض كامل */
   const ovBtn = (bg, color) => ({ width: 30, height: 30, borderRadius: "50%", background: bg, color, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" });
   return (
-    <div style={{ gridColumn: fullW ? "1 / -1" : "auto", border: "1px solid " + (pinned ? T.accent : T.brd), borderRadius: 12, overflow: "hidden", background: T.bg, position: "relative", boxShadow: pinned ? "0 0 0 2px " + T.accent + "66" : undefined }}>
+    <div style={{ gridColumn: fullW ? "1 / -1" : "auto", border: "1px solid " + T.brd, borderRadius: 12, overflow: "hidden", background: T.bg, position: "relative" }}>
       <div style={{ position: "relative", width: "100%", aspectRatio: css, background: T.cardSolid }}>
         <img src={res.url} alt="" loading="lazy" onLoad={onLoad} onClick={() => onZoom && onZoom(res)} title="اضغط لعرض الصورة بكامل الجودة" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", cursor: "zoom-in" }} />
         <div style={{ position: "absolute", top: 6, insetInlineEnd: 6, display: "flex", gap: 6 }}>
-          {onTogglePin && <button onClick={(e) => { e.stopPropagation(); onTogglePin(res.id); }} title={pinned ? "إلغاء التثبيت" : "تثبيت الصورة (تفضل فوق لحد ما تخلص)"} style={ovBtn(pinned ? T.accent : "rgba(0,0,0,0.55)", "#fff")}>📌</button>}
           {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(res); }} title="حذف الصورة من النتائج والتخزين" style={ovBtn("rgba(0,0,0,0.55)", "#fff")}>🗑</button>}
         </div>
-        {pinned && <span style={{ position: "absolute", top: 8, insetInlineStart: 8, background: T.accent, color: "#fff", borderRadius: 999, fontSize: FS - 4, fontWeight: 800, padding: "2px 9px", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>📌 مثبّتة</span>}
       </div>
       {res.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{res.desc}</div>}
       {children}
@@ -192,7 +190,25 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [autoSave, setAutoSave] = useState(true);
   const [savedIds, setSavedIds] = useState(() => new Set());
   /* V21.26.18: تثبيت نتائج (تفضل فوق لحد ما المستخدم يخلّص شغله عليها) */
-  const [pinnedIds, setPinnedIds] = useState(() => new Set());
+  /* V21.26.22: تثبيت «صورة المصدر/العينة» — بتتحفظ في localStorage فتفضل
+     موجودة لو قفلت وفتحت الاستوديو من غير رفع تاني (الروابط من Storage ثابتة). */
+  const PIN_SRC_KEY = "clark_ai_pinned_sources";
+  const loadPinnedSrc = () => { try { const a = JSON.parse(localStorage.getItem(PIN_SRC_KEY) || "[]"); return Array.isArray(a) ? a.filter(x => typeof x === "string" && x) : []; } catch(_e){ return []; } };
+  const [pinnedSrc, setPinnedSrc] = useState(loadPinnedSrc);
+  const savePinnedSrc = (arr) => { try { localStorage.setItem(PIN_SRC_KEY, JSON.stringify(arr.slice(0, 5))); } catch(_e){} };
+  const togglePinSrc = (url) => setPinnedSrc(prev => {
+    const has = prev.includes(url);
+    const next = has ? prev.filter(u => u !== url) : [...prev, url].slice(0, 5);
+    savePinnedSrc(next);
+    if(!has) setSources(s => s.includes(url) ? s : [...s, url].slice(0, 5)); /* اظهرها فوراً */
+    return next;
+  });
+  /* استرجاع العينات المثبّتة عند فتح الاستوديو (مرة واحدة) — من غير رفع تاني */
+  useEffect(() => {
+    if(!pinnedSrc.length) return;
+    setSources(s => { const m = s.slice(); for(const u of pinnedSrc) if(!m.includes(u)) m.push(u); return m.slice(0, 5); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* إجماليات الاستهلاك المحفوظة (يومي/شهري + لكل موديل + ميزانية) */
   const budget = Number(data.aiStudioBudget) || 0;
@@ -298,7 +314,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   };
 
   const addSource = (url) => { if(!url) return; setSources(p => p.includes(url) ? p : [...p, url].slice(0, 5)); };
-  const removeSource = (url) => setSources(p => p.filter(u => u !== url));
+  const removeSource = (url) => { setSources(p => p.filter(u => u !== url)); setPinnedSrc(prev => { if(!prev.includes(url)) return prev; const next = prev.filter(u => u !== url); savePinnedSrc(next); return next; }); };
   const onSourceFiles = async (files) => {
     for(const f of files){
       try { const { url } = await uploadImageToStorage("ai-sources", (curModel && curModel.id) || "studio", f); addSource(url); }
@@ -623,14 +639,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const saveToDocuments = (res) => _saveEntries([res], false);
   const saveAllToDocuments = () => _saveEntries(results, false);
 
-  /* V21.26.18: تثبيت/إلغاء تثبيت نتيجة — المثبّتة تفضل في أول القائمة */
-  const togglePin = (id) => setPinnedIds(prev => { const n = new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
-  /* النتائج للعرض: المثبّتة الأول (ترتيب ثابت stable) */
-  const sortedResults = useMemo(() => {
-    const arr = results.slice();
-    arr.sort((a, b) => (pinnedIds.has(b.id) ? 1 : 0) - (pinnedIds.has(a.id) ? 1 : 0));
-    return arr;
-  }, [results, pinnedIds]);
+  /* V21.26.22: التثبيت اتنقل من النتائج لصورة المصدر — النتائج بترتيبها كما هي */
+  const sortedResults = results;
 
   /* V21.26.18: حذف نتيجة من النتائج + من مساحة التخزين + الملف الأصلي من Storage.
      دفاعي: لو الصورة محفوظة كصورة موديل رئيسية أو في المعرض، مابنحذفش الملف
@@ -883,7 +893,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   const resultActions = (res, inGallery) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
-      {replaceModel && Array.isArray(models) && models.length > 0 && <Btn small onClick={() => setLinkFor(res)} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل من القايمة (بالرقم)">🔗 ربط بموديل</Btn>}
+      {replaceModel && <Btn small onClick={() => setLinkFor(res)} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل من القايمة (بالرقم)">🔗 ربط بموديل</Btn>}
       {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
       {curModel && replaceModel && (colorNames.length > 0 || res.color) && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
@@ -980,14 +990,19 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 8 }}>🧵 صور المصدر (القطعة/العينة) — لغاية ٥</div>
+                  <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>🧵 صور المصدر (القطعة/العينة) — لغاية ٥</div>
+                  <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 8, lineHeight: 1.6 }}>📌 ثبّت العينة عشان تفضل محفوظة لو قفلت وفتحت الاستوديو — من غير ما ترفعها تاني.</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                    {sources.map(u => (
-                      <div key={u} style={{ position: "relative", width: 70, height: 90, borderRadius: 10, overflow: "hidden", border: "1px solid " + T.brd }}>
+                    {sources.map(u => {
+                      const pin = pinnedSrc.includes(u);
+                      return (
+                      <div key={u} style={{ position: "relative", width: 70, height: 90, borderRadius: 10, overflow: "hidden", border: "2px solid " + (pin ? T.accent : T.brd), boxShadow: pin ? "0 0 0 2px " + T.accent + "55" : undefined }}>
                         <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <span onClick={() => togglePinSrc(u)} title={pin ? "إلغاء تثبيت العينة" : "تثبيت العينة (تفضل محفوظة لو قفلت وفتحت)"} style={{ position: "absolute", top: 2, insetInlineStart: 2, width: 18, height: 18, borderRadius: "50%", background: pin ? T.accent : "rgba(0,0,0,0.5)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, cursor: "pointer" }}>📌</span>
                         <span onClick={() => removeSource(u)} style={{ position: "absolute", top: 2, insetInlineEnd: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, cursor: "pointer" }}>✕</span>
                       </div>
-                    ))}
+                      );
+                    })}
                     {sources.length < 5 && (
                       <ImagePickButton data={data} multiple imagesOnly onFiles={onSourceFiles} onPickMany={(recs) => recs.forEach(r => addSource(r.downloadURL || r.url))}
                         triggerStyle={{ width: 70, height: 90, borderRadius: 10, border: "1px dashed " + T.accent + "66", background: T.accent + "0D", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FS - 2, fontWeight: 700, textAlign: "center" }}>+ أضف</ImagePickButton>
@@ -1324,12 +1339,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                       <Sel value={saveColor} onChange={setSaveColor}><option value="">— اختر اللون —</option>{colorNames.map(c => <option key={c} value={c}>{c}</option>)}</Sel>
                     </div>
                   )}
-                  {pinnedIds.size > 0 && <div style={{ fontSize: FS - 3, color: T.accent, fontWeight: 700 }}>📌 {pinnedIds.size} صورة مثبّتة فوق</div>}
                   {/* V21.26.18: شبكة — الطولي صورتين جنب بعض، الأفقي عرض كامل، بدون مساحة سوداء */}
                   <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 12, alignItems: "start" }}>
                     {sortedResults.map(res => (
                       <ResultCard key={res.id} res={res} isMob={isMob}
-                        pinned={pinnedIds.has(res.id)} onTogglePin={togglePin}
                         onDelete={deleteResult} onZoom={(r) => setImgZoom({ url: r.url, desc: r.desc })}>
                         {resultActions(res, false)}
                       </ResultCard>
@@ -1419,7 +1432,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <img src={linkFor.url} alt="" style={{ width: 64, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid " + T.brd, flexShrink: 0 }} />
               <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>اكتب رقم الموديل واختاره من القايمة — هتتحفظ الصورة كصورة <b>رئيسية</b> للموديل (رابط الصورة بيتسجّل على الأوردر)، وفولدر التخزين بياخد رقم الموديل.</div>
             </div>
-            <SearchSel value="" onChange={(id) => linkImageToModel(linkFor, id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
+            {modelOpts.length > 0 ? (
+              <SearchSel value="" onChange={(id) => linkImageToModel(linkFor, id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
+            ) : (
+              <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش موديلات متاحة للربط — أنشئ موديل الأول من تبويب «الموديلات»، وبعدين ارجع اربط الصورة بيه.</div>
+            )}
           </div>
         </div>
       )}
