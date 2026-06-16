@@ -636,6 +636,21 @@ service cloud.firestore {
     }
 
     /* ──────────────────────────────────────────────────────────
+       V21.27.25 — Remote error logs (errorLogsDays/{YYYY-MM-DD})
+       per-day doc { entries:[...] } يكتبه errorLog.js best-effort.
+
+       Read: manager+ فقط (لوحة تشخيص — مش لكل المستخدمين).
+       Create/Update: أي مستخدم مسجّل (عشان نلتقط crash من أي دور)،
+                      مشروط بإن entries عبارة عن list (validDayDoc).
+       Delete: manager+ فقط (تنظيف السجل).
+       ────────────────────────────────────────────────────────── */
+    match /errorLogsDays/{day} {
+      allow read:   if isManagerPlus();
+      allow create, update: if isAnyUser() && validDayDoc();
+      allow delete: if isManagerPlus();
+    }
+
+    /* ──────────────────────────────────────────────────────────
        Default deny — أي حاجة مش مذكورة فوق ممنوعة تماماً
        ────────────────────────────────────────────────────────── */
     match /{document=**} {

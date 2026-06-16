@@ -10,6 +10,7 @@
 
 import React from "react";
 import { T } from "../theme.js";
+import { logClientError } from "../utils/errorLog.js";
 
 export class ErrorBoundary extends React.Component {
   constructor(props){
@@ -21,6 +22,9 @@ export class ErrorBoundary extends React.Component {
   }
   componentDidCatch(error,errorInfo){
     console.error("ErrorBoundary caught:",error,errorInfo);
+    /* V21.27.25: سجّل الخطأ عن بُعد (best-effort) عشان يبقى مرئي للمطوّر
+       — مفيش بيئة تجربة، الـ deploy على production مباشرة. */
+    try{ logClientError(error,{kind:"boundary",componentStack:errorInfo?.componentStack}); }catch(_){}
   }
   reset=()=>{
     this.setState({hasError:false,error:null});

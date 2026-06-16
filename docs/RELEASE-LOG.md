@@ -28,6 +28,24 @@
 
 ---
 
+## V21.27.25 — مراقبة الأخطاء عن بُعد (Remote error logging) 🩺
+- **السبب:** CLARK بيـ deploy على production مباشرة بدون بيئة تجربة
+  (البروتوكول §1). الـ `ErrorBoundary` كان بيـ console.error محلياً بس →
+  أي crash عند مستخدم كان بيختفي تماماً عن المطوّر. دلوقتي بقى مرئي.
+- `src/utils/errorLog.js` (جديد): logger خفيف best-effort بيكتب الأخطاء في
+  `errorLogsDays/{YYYY-MM-DD}` (per-day doc، نفس نمط daily-split §2).
+  بيلتقط ٣ مصادر: شجرة React (ErrorBoundary.componentDidCatch)، `window.onerror`،
+  و`unhandledrejection`. كل entry: ts/version/kind/msg/stack/ctx/url/ua/by.
+- **محسوب للأداء:** best-effort (مايرميش exception أبداً)، dedup للأخطاء
+  المتكررة خلال دقيقة (يمنع طوفان الكتابات في render loop)، حد أقصى ٢٥ كتابة
+  في الجلسة (حماية حصة Firestore). صفر تأثير في الحالة العادية.
+- `firestore.rules`: match clause لـ `errorLogsDays` (قراءة manager+، كتابة
+  أي مستخدم مسجّل + `validDayDoc`). ⚠️ **لازم deploy للـ rules قبل/مع الـ
+  client** (§10) — لو الـ rules مش متظبّطة، الكتابة بتفشل بصمت (degraded مش
+  breaking).
+- ملفات: `src/utils/errorLog.js` · `src/components/ErrorBoundary.jsx` ·
+  `src/main.jsx` · `firestore.rules`.
+
 ## V21.27.23 — المحرر: جودة الاسطمبة + تكبيرها + فتح بأبعاد الصورة (fix)
 - جودة الاسطمبة: شيل وزن 700 (Anton وزن واحد → faux-bold غامق/مبكسل) → 400
   في الـ DOM والـ canvas. `buildBlob` بيعمل `document.fonts.load` للخطوط
@@ -141,6 +159,15 @@
 ---
 
 ## 🔜 اللي لسه (TODO / للمتابعة)
+
+- **مراقبة الأخطاء (V21.27.25):** ⚠️ **لازم deploy لـ `firestore.rules`** عشان
+  الكتابة في `errorLogsDays` تشتغل (من غيره permission-denied بصمت). بعد
+  الـ deploy: لوحة عرض للأخطاء في `DiagnosticsPanel` (TODO) عشان manager+
+  يشوفها من غير Firestore console.
+- **اقتراحات اختار Ahmed يبدأ بيها (V21.27.25 session):** ١) مراقبة الأخطاء ✅
+  ٢) virtualization للقوائم الضخمة (react-window) — لسه. ٣) تحليل حجم الـ
+  bundle (rollup-plugin-visualizer) — لسه. ٤) تحديث Firestore persistence لـ
+  `persistentLocalCache` متعدد التابات — لسه (محتاج تأكيد production).
 
 - **CORS التصدير:** اتعمل `/api/img-proxy` (V21.27.22). لو لسه فيه فشل تصدير،
   البديل: ضبط CORS على الـ Storage bucket مباشرة، أو compositor سيرفر كامل.

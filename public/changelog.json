@@ -1,5 +1,27 @@
 [
  {
+  "version": "V21.27.25",
+  "date": "2026-06-16",
+  "types": [
+   "improvement"
+  ],
+  "title": "🩺 مراقبة الأخطاء عن بُعد — أي crash بقى مرئي للمطوّر",
+  "changes": [
+   {
+    "type": "improvement",
+    "text": "اتضاف logger خفيف (src/utils/errorLog.js) بيسجّل أي خطأ JavaScript في Firestore (errorLogsDays/{YYYY-MM-DD}) بدل ما يختفي في console المستخدم. بيلتقط: أخطاء شجرة React (ErrorBoundary)، أخطاء window العامة، والـ promise rejections غير المعالجة — مع النسخة والجهاز والمستخدم والـ stack."
+   },
+   {
+    "type": "improvement",
+    "text": "التصميم محسوب للأداء: best-effort (مايرميش exception أبداً ومايعطّلش أي مسار)، dedup للأخطاء المتكررة خلال دقيقة، وحد أقصى 25 كتابة في الجلسة (حماية حصة Firestore). صفر تأثير على الأداء في الحالة العادية — بيكتب وقت الـ crash فقط."
+   },
+   {
+    "type": "architectural",
+    "text": "اتضافت match clause في firestore.rules لـ errorLogsDays (قراءة: manager+، كتابة: أي مستخدم مسجّل عشان نلتقط crash من أي دور). التخزين per-day doc بنفس نمط daily-split (CLAUDE.md §2)."
+   }
+  ]
+ },
+ {
   "version": "V21.27.24",
   "date": "2026-06-17",
   "types": [
