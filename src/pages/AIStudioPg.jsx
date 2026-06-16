@@ -21,6 +21,7 @@ import { FS, FKEYS } from "../constants/index.js";
 import { ask, showToast } from "../utils/popups.js";
 import { uploadImageToStorage, deleteStorageImage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
+import { PromptExtractModal } from "../components/PromptExtractModal.jsx";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
@@ -169,6 +170,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [newBg, setNewBg] = useState({ label: "", prompt: "" });
   const [tplName, setTplName] = useState("");
   const [spForm, setSpForm] = useState(null); /* {name,prompt,image} | null — إضافة برومبت جاهز */
+  const [extractOpen, setExtractOpen] = useState(false); /* V21.27.13: استخراج برومبتس من صور */
   /* مكتبة برومبتس تجربة الملابس (factory/aiPromptLibrary_*) — lazy + editable */
   const [library, setLibrary] = useState(null);     /* { [group]: prompt[] } | null=بيحمّل */
   const [libErr, setLibErr] = useState("");
@@ -1066,7 +1068,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>📸 برومبتس جاهزة <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اضغط للتنفيذ المباشر)</span></span>
-                <Btn small onClick={() => setSpForm({ name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <Btn small onClick={() => setExtractOpen(true)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }} title="ارفع صور وقفات واستخرج منها برومبتس تلقائياً">🪄 استخراج من صور</Btn>
+                  <Btn small onClick={() => setSpForm({ name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>
+                </div>
               </div>
               {lib.savedPrompts.length === 0 ? (
                 <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>احفظ برومبت جاهز بصورة — وبعدين اختار صورة المصدر واضغط عليه يتنفّذ على طول من غير تفاصيل.</div>
@@ -1528,6 +1533,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         </div>
         );
       })()}
+
+      {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
+      {extractOpen && <PromptExtractModal onClose={() => setExtractOpen(false)} onSavePrompts={(entries) => {
+        savePresets(p => { (entries || []).forEach((e, i) => p.savedPrompts.unshift({ id: "sp_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", ts: Date.now() })); });
+        showToast("✓ اتحفظ " + (entries || []).length + " برومبت في المكتبة");
+      }} />}
 
       {/* cover / text modal */}
       {coverFor && (
