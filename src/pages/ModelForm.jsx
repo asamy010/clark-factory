@@ -196,12 +196,13 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
         + قطع/راق → البرنامج يحسب «استهلاك القطعة». الألوان اختيار بس (من غير راقات/
         كميات — الكمية بتتحدد في أمر التشغيل). */}
     {tab === "fabrics" && <div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12}}>
+      {/* V21.27.19: كل الخامات على صف واحد أفقي (تمرير لو لزم) */}
+      <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:6,alignItems:"flex-start"}}>
         {visible.map((k, idx) => {
           const fid = form["fabric" + k]; const fb = fabObj(fid);
           const fabPieces = form["fabricPieces" + k] || [];
           const effectivePpl = (Number(form["pcsPerLayer" + k]) || 0) || ssPps;
-          return <div key={k} style={{background:T.cardSolid,border:"1.5px solid "+T.brd,borderInlineStartWidth:4,borderInlineStartColor:FCOL[idx],borderRadius:12,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+          return <div key={k} style={{background:T.cardSolid,border:"1.5px solid "+T.brd,borderInlineStartWidth:4,borderInlineStartColor:FCOL[idx],borderRadius:12,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8,flex:"0 0 "+(isMob?"86%":"320px")}}>
             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
               <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,fontSize:FS-1,fontWeight:800,background:FCOL[idx]+"15",color:FCOL[idx],border:"1px solid "+FCOL[idx]+"40"}}><span style={{width:8,height:8,borderRadius:2,background:FCOL[idx]}}/>{"خامة "+k+(k==="A"?" *":"")}</span>
               <div style={{flex:1,minWidth:140}}><SearchSel value={fid?String(fid):""} onChange={v => updF("fabric"+k, v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus sx={{padding:"5px 9px",fontSize:FS-1}}/></div>

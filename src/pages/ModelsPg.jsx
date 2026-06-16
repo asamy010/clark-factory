@@ -11,6 +11,8 @@ import { useState, useMemo } from "react";
 import { Btn } from "../components/ui.jsx";
 import { ModelForm } from "./ModelForm.jsx";
 import { AIStudioPg } from "./AIStudioPg.jsx";
+import { ModelDetailModal } from "../components/ModelDetailModal.jsx";
+import { ImageLightbox } from "../components/ImageLightbox.jsx";
 import { mkOrder } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
@@ -44,6 +46,8 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
   const [pullBusy, setPullBusy] = useState(false);
   const [pullSel, setPullSel] = useState(() => new Set()); /* V21.27.14: الأرقام المحدّدة للسحب */
   const [pullQ, setPullQ] = useState(""); /* V21.27.15: فلتر برقم الموديل */
+  const [detailModel, setDetailModel] = useState(null); /* V21.27.19: بوب اب تفاصيل الموديل */
+  const [cardZoom, setCardZoom] = useState(null); /* lightbox لصورة الكارت */
 
   /* ⚠️ كل الـ hooks قبل أي early return (Rules of Hooks) */
   const list = useMemo(() => {
@@ -187,8 +191,8 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
           const pieces = m.orderPieces || [];
           const fabCount = FKEYS.filter(k => m["fabric" + k]).length;
           return <div key={m.id} className="clark-card" style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:22,boxShadow:T.shadow,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",flexDirection:"row",gap:13,padding:16,alignItems:"flex-start"}}>
-              {m.image ? <img src={m.image} alt="" style={{width:80,height:100,objectFit:"cover",borderRadius:18,border:"1px solid "+T.brd,flexShrink:0}}/>
+            <div onClick={() => setDetailModel(m)} style={{display:"flex",flexDirection:"row",gap:13,padding:16,alignItems:"flex-start",cursor:"pointer"}} title="عرض تفاصيل الموديل">
+              {m.image ? <img src={m.image} alt="" onClick={e => { e.stopPropagation(); setCardZoom({ src: m.image, alt: m.modelNo }); }} title="عرض الصورة بالجودة الكاملة" style={{width:80,height:100,objectFit:"cover",borderRadius:18,border:"1px solid "+T.brd,flexShrink:0,cursor:"zoom-in"}}/>
                 : <div style={{width:80,height:100,borderRadius:18,background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>🧩</div>}
               <div style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:FS+3,fontWeight:900,color:T.text,lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelNo || "—"}</div>
@@ -218,6 +222,11 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
         })}
       </div>
     )}
+
+    {/* V21.27.19: بوب اب تفاصيل الموديل (تابات + أوامر مرتبطة + تعديل/إغلاق) */}
+    {detailModel && <ModelDetailModal model={detailModel} data={data} orders={data.orders} statusCards={statusCards}
+      onEdit={(m) => { setDetailModel(null); setEditing(m); }} onClose={() => setDetailModel(null)} />}
+    {cardZoom && <ImageLightbox src={cardZoom.src} alt={cardZoom.alt} onClose={() => setCardZoom(null)} />}
   </div>;
 }
 

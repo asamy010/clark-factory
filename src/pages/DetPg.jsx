@@ -2203,9 +2203,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     {/* V19.80.5: Image zoom lightbox — click anywhere on the backdrop or press Esc to close.
         The image is constrained to a 3:4 portrait frame so it never blows past 90vh. */}
     {imgZoom&&order.image&&<div onClick={()=>setImgZoom(false)} className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
-      <div style={{position:"relative",height:"90vh",aspectRatio:"4 / 5",maxWidth:"95vw",borderRadius:16,overflow:"hidden",boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
-        <img src={order.image} alt={order.modelNo||""} loading="eager" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-      </div>
+      {/* V21.27.19: عرض بالجودة الكاملة (contain، من غير قص) */}
+      <img src={order.image} alt={order.modelNo||""} loading="eager" decoding="async" onClick={e=>e.stopPropagation()} style={{maxWidth:"95vw",maxHeight:"92vh",objectFit:"contain",borderRadius:14,boxShadow:"0 30px 80px rgba(0,0,0,0.6)",display:"block",cursor:"default"}}/>
       <button onClick={(e)=>{e.stopPropagation();setImgZoom(false)}} style={{position:"absolute",top:18,insetInlineEnd:18,width:40,height:40,borderRadius:20,background:"rgba(0,0,0,0.55)",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",fontSize:18,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="إغلاق (Esc)">✕</button>
       <div style={{position:"absolute",bottom:18,insetInlineStart:18,padding:"6px 14px",borderRadius:10,background:"rgba(0,0,0,0.55)",color:"#fff",fontSize:FS-1,fontWeight:700,fontFamily:"monospace",letterSpacing:0.5}}>{order.poNumber||order.modelNo}</div>
     </div>}
