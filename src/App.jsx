@@ -5504,6 +5504,24 @@ export default function App(){
     const ord=orders.find(o=>o.id===orderId);
     if(!ord||!ord._docId)return;
     const orderRef=doc(db,"seasons",season,"orders",ord._docId);
+    /* V21.27.12 PERF: مسار سريع — الأغلب (مفيش خصم مخزون ولا مراجع في
+       config/sales) بيتحذف بـ deleteDoc واحدة بدل transaction تقرأ وتكتب
+       factory/config + factory/sales (~1MB لكل واحد) — اللي كان بياخد وقت كبير
+       وبيتعارض مع أي كتابة تانية فيعيد المحاولة. بنفحص المراجع من اللقطة المحلية
+       (committed، الـ sales listener بيتخطّى hasPendingWrites). */
+    const _cfg=configDoc||{}, _sales=salesDoc||{};
+    const _cfgRefs = !!ord._stockDeducted
+      || (Array.isArray(_cfg.qrSales) && _cfg.qrSales.some(s=>s&&s.orderId===orderId))
+      || (Array.isArray(_cfg.salesAudits) && _cfg.salesAudits.some(a=>a&&a.grid&&Object.keys(a.grid).some(k=>k.startsWith(orderId+"_"))));
+    const _salesRefs = (Array.isArray(_sales.custDeliverySessions) && _sales.custDeliverySessions.some(s=>s&&((Array.isArray(s.modelIds)&&s.modelIds.includes(orderId))||(s.grid&&Object.keys(s.grid).some(k=>k.startsWith(orderId+"_"))))))
+      || (Array.isArray(_sales.packages) && _sales.packages.some(p=>p&&Array.isArray(p.items)&&p.items.some(it=>it.orderId===orderId)));
+    if(!_cfgRefs && !_salesRefs){
+      try{
+        await deleteDoc(orderRef);
+        if(ord.imageStoragePath){import("./utils/orderImages.js").then(({deleteOrderImage})=>{deleteOrderImage(ord.imageStoragePath).catch(err=>console.warn("[delOrder] image cleanup:",err))})}
+      }catch(e){console.error("delOrder fast-path error:",e);showToast("⚠️ خطأ في حذف الأوردر: "+((e.message||String(e)).substring(0,100)))}
+      return;
+    }
     const configRef=doc(db,"factory","config");
     const salesRef=doc(db,"factory","sales");
     try{
