@@ -23,6 +23,7 @@ import { uploadImageToStorage, deleteStorageImage } from "../utils/imageStorage.
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import { PromptExtractModal } from "../components/PromptExtractModal.jsx";
 import { ImageLinkModal } from "../components/ImageLinkModal.jsx";
+import { ImageEditorModal } from "../components/ImageEditorModal.jsx";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
@@ -172,6 +173,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [tplName, setTplName] = useState("");
   const [spForm, setSpForm] = useState(null); /* {name,prompt,image} | null — إضافة برومبت جاهز */
   const [extractOpen, setExtractOpen] = useState(false); /* V21.27.13: استخراج برومبتس من صور */
+  const [editorFor, setEditorFor] = useState(null); /* V21.27.21: محرّر الصور الكامل */
   /* مكتبة برومبتس تجربة الملابس (factory/aiPromptLibrary_*) — lazy + editable */
   const [library, setLibrary] = useState(null);     /* { [group]: prompt[] } | null=بيحمّل */
   const [libErr, setLibErr] = useState("");
@@ -961,7 +963,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       <Btn small onClick={() => enhanceRealism(res)} disabled={busy} style={{ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>
       <Btn small onClick={() => { setCoverForm(f => ({ ...f, modelNo: (curModel && curModel.modelNo) || "" })); setCoverFor(res); }} style={{ background: "#A855F712", color: "#A855F7", border: "1px solid #A855F733", fontWeight: 700 }} title="غلاف مجلة / نص ولوجو">📔 غلاف/نص</Btn>
       <Btn small onClick={() => setLogoFor(res)} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إدراج لوجو على الصورة">🏷️ لوجو</Btn>
-      <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }}>✏️ تعديل</Btn>
+      <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }} title="تعديل بالـ AI (برومبت)">✏️ تعديل AI</Btn>
+      <Btn small onClick={() => setEditorFor(res)} style={{ background: "#DB277712", color: "#DB2777", border: "1px solid #DB277733", fontWeight: 800 }} title="محرّر صور كامل — نص ولوجو وتحريك بالماوس">🎨 محرّر</Btn>
       {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
       <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>
       {inGallery && <Btn small onClick={() => deleteFromGallery(res.id)} style={{ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" }}>🗑</Btn>}
@@ -1476,6 +1479,19 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       />}
 
       {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
+      {/* V21.27.21: محرّر الصور الكامل (Canva-like) */}
+      {editorFor && <ImageEditorModal src={editorFor.url} logoUrl={data.logo || ""} data={data} onClose={() => setEditorFor(null)}
+        onSave={async (blob) => {
+          try {
+            const file = new File([blob], "clark-edit-" + Date.now() + ".png", { type: "image/png" });
+            const { url, storagePath } = await uploadImageToStorage("ai-generated", (curModel && curModel.id) || "studio", file);
+            const entry = { id: "edit_" + Date.now().toString(36), url, storagePath, desc: "تعديل المحرّر 🎨", prompt: "", ts: Date.now() };
+            setResults(p => [entry, ...p]);
+            setEditorFor(null);
+            showToast("✓ اتحفظت الصورة المعدّلة في النتائج");
+          } catch(e){ showToast("⛔ فشل الحفظ: " + ((e && e.message) || e)); }
+        }} />}
+
       {extractOpen && <PromptExtractModal data={data} groups={allGroups} defaultGroup={openGroup || allGroups[0]} onClose={() => setExtractOpen(false)}
         onSave={async (entries, group) => {
           const recs = (entries || []).map((e, i) => ({ id: "lib_x_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", group, ts: Date.now() }));
