@@ -31,6 +31,7 @@ const FONTS = [
   { v: "'Playfair Display', serif", n: "Playfair" },
   { v: "Oswald, sans-serif", n: "Oswald" },
   { v: "'Bebas Neue', system-ui", n: "Bebas Neue" },
+  { v: "'Anton', sans-serif", n: "Anton · عريض مضغوط" },
   { v: "Lobster, system-ui", n: "Lobster" },
   { v: "Impact, sans-serif", n: "Impact" },
   { v: "Arial, sans-serif", n: "Arial" },
@@ -38,7 +39,7 @@ const FONTS = [
   { v: "Georgia, serif", n: "Georgia" },
   { v: "'Times New Roman', serif", n: "Times" },
 ];
-const GFONTS_HREF = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Tajawal:wght@400;700&family=Almarai:wght@400;800&family=Noto+Kufi+Arabic:wght@400;700&family=Reem+Kufi&family=Amiri:wght@400;700&family=Lalezar&family=Poppins:wght@400;700&family=Montserrat:wght@400;700;800&family=Playfair+Display:wght@400;700&family=Oswald:wght@400;600&family=Bebas+Neue&family=Lobster&display=swap";
+const GFONTS_HREF = "https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Tajawal:wght@400;700&family=Almarai:wght@400;800&family=Noto+Kufi+Arabic:wght@400;700&family=Reem+Kufi&family=Amiri:wght@400;700&family=Lalezar&family=Poppins:wght@400;700&family=Montserrat:wght@400;700;800&family=Playfair+Display:wght@400;700&family=Oswald:wght@400;600&family=Bebas+Neue&family=Anton&family=Lobster&display=swap";
 
 function loadImg(src, cross){
   return new Promise((resolve, reject) => {
@@ -57,7 +58,7 @@ function ensureFonts(){
   const l = document.createElement("link"); l.rel = "stylesheet"; l.href = GFONTS_HREF; document.head.appendChild(l);
 }
 
-export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
+export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave }){
   const [ready, setReady] = useState(false);
   const [dims, setDims] = useState({ w: 0, h: 0 });     /* الأبعاد الطبيعية */
   const [scale, setScale] = useState(1);
@@ -112,6 +113,23 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
     } catch(e){ showToast("⛔ تعذّر تحميل الصورة"); }
   };
   const onLogo = () => { if(logoUrl) addImageLayer(logoUrl); else showToast("⚠️ مفيش لوجو محفوظ — ارفع صورة"); };
+  /* V21.27.22: اسطمبة «الكود/الموديل/المقاسات» — كائن واحد (٣ سطور مرتبطة)
+     بستايل Anton: الكود+الرقم أسود، المقاسات أحمر. قابلة للتحريك/التدوير/التعديل. */
+  const addStamp = () => {
+    const id = nid();
+    setLayers(ls => [...ls, { id, type: "stamp", cx: dims.w / 2, cy: dims.h / 2, rot: 0, opacity: 1,
+      code: "CODE", modelNo: (prefill && prefill.modelNo) || "0000", sizes: (prefill && prefill.sizes) || "2-3-4-5",
+      font: "'Anton', sans-serif", size: Math.max(28, Math.round(dims.h * 0.11)), codeColor: "#111111", sizesColor: "#E11D48" }]);
+    setSelId(id);
+  };
+  /* أسطر الاسطمبة (مشترك بين العرض والتصدير) */
+  const stampLines = (l) => {
+    const out = [];
+    if((l.code || "").trim()) out.push({ t: l.code, fs: l.size * 0.5, color: l.codeColor });
+    out.push({ t: l.modelNo || "", fs: l.size, color: l.codeColor });
+    if((l.sizes || "").trim()) out.push({ t: l.sizes, fs: l.size * 0.7, color: l.sizesColor });
+    return out;
+  };
 
   const removeLayer = (id) => { setLayers(ls => ls.filter(l => l.id !== id)); if(selId === id) setSelId(null); };
   const dupLayer = (id) => setLayers(ls => { const i = ls.findIndex(l => l.id === id); if(i < 0) return ls; const c = { ...ls[i], id: nid(), cx: ls[i].cx + dims.w * 0.04, cy: ls[i].cy + dims.h * 0.04 }; const n = [...ls]; n.splice(i + 1, 0, c); setSelId(c.id); return n; });
@@ -146,12 +164,14 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
   const startRotate = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "rotate", id: l.id, ccx: c.x, ccy: c.y, startAng: Math.atan2(e.clientY - c.y, e.clientX - c.x) * 180 / Math.PI, startRot: l.rot || 0 }; };
 
   /* ── التصدير ── */
+  /* V21.27.22: الصور البعيدة بتتحمّل عبر /api/img-proxy (نفس الدومين + CORS)
+     عشان canvas مايتلوّثش. الـ blob/data URLs بتتحمّل مباشرة. */
+  const proxify = (u) => (/^https?:/i.test(u) ? ("/api/img-proxy?url=" + encodeURIComponent(u)) : u);
   const buildBlob = async () => {
     if(document.fonts && document.fonts.ready){ try { await document.fonts.ready; } catch(_){} }
-    /* تحميل crossOrigin وقت التصدير عشان canvas مايتلوّثش */
-    const bi = await loadImg(src, true);
+    const bi = await loadImg(proxify(src), true);
     const cache = {};
-    for(const L of layers){ if(L.type === "image" && !cache[L.url]){ try { cache[L.url] = await loadImg(L.url, true); } catch(_){ cache[L.url] = null; } } }
+    for(const L of layers){ if(L.type === "image" && !cache[L.url]){ try { cache[L.url] = await loadImg(proxify(L.url), true); } catch(_){ cache[L.url] = null; } } }
     const cv = document.createElement("canvas"); cv.width = dims.w; cv.height = dims.h;
     const ctx = cv.getContext("2d");
     ctx.drawImage(bi, 0, 0, dims.w, dims.h);
@@ -174,6 +194,17 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
       } else if(L.type === "image" && cache[L.url]){
         const h = L.w / (L.aspect || 1);
         ctx.drawImage(cache[L.url], -L.w / 2, -h / 2, L.w, h);
+      } else if(L.type === "stamp"){
+        const lines = stampLines(L); const gap = L.size * 0.06;
+        const total = lines.reduce((s, ln) => s + ln.fs, 0) + gap * Math.max(0, lines.length - 1);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        let y = -total / 2;
+        for(const ln of lines){
+          ctx.font = "700 " + ln.fs + "px " + L.font;
+          ctx.fillStyle = ln.color;
+          ctx.fillText(ln.t, 0, y + ln.fs / 2);
+          y += ln.fs + gap;
+        }
       }
       ctx.restore();
     }
@@ -195,7 +226,8 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
           <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.accent }}>🎨 محرّر الصورة</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn small onClick={addText} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ نص</Btn>
-            {logoUrl && <Btn small onClick={onLogo} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }}>🏷️ لوجو</Btn>}
+            <Btn small onClick={addStamp} style={{ background: "#11111112", color: "#111", border: "1px solid #11111133", fontWeight: 800 }} title="اسطمبة الكود/الموديل/المقاسات (جاهزة)">🏷️ اسطمبة</Btn>
+            {logoUrl && <Btn small onClick={onLogo} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }}>🖼️ لوجو</Btn>}
             <ImagePickButton data={data} imagesOnly onFile={f => { const u = URL.createObjectURL(f); addImageLayer(u); }} onPickUrl={u => addImageLayer(u)}
               triggerStyle={{ display: "inline-block", padding: "6px 12px", borderRadius: 8, background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700, fontSize: FS - 2 }}>🖼️ صورة</ImagePickButton>
             <Btn small onClick={onDownload} disabled={busy} style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd, fontWeight: 700 }}>⬇️ تحميل</Btn>
@@ -216,6 +248,8 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
                 return <div key={l.id} onPointerDown={e => startMove(e, l)} style={common}>
                   {l.type === "text"
                     ? <div style={{ fontFamily: l.font, fontSize: l.size * scale, color: l.color, fontWeight: l.bold ? 700 : 400, fontStyle: l.italic ? "italic" : "normal", textAlign: l.align, whiteSpace: "pre", lineHeight: 1.25, textShadow: l.shadow ? "0 " + (l.size * scale * 0.06) + "px " + (l.size * scale * 0.14) + "px rgba(0,0,0,0.55)" : "none", WebkitTextStroke: l.stroke ? Math.max(1, l.size * scale * 0.07) + "px " + (l.strokeColor || "#000") : undefined, padding: "0 2px" }}>{l.text || "نص"}</div>
+                    : l.type === "stamp"
+                    ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: l.font, lineHeight: 1.06, whiteSpace: "pre", fontWeight: 700 }}>{stampLines(l).map((ln, i) => <span key={i} style={{ fontSize: ln.fs * scale, color: ln.color, letterSpacing: "0.01em" }}>{ln.t}</span>)}</div>
                     : <img src={l.url} alt="" draggable={false} style={{ width: l.w * scale, height: "auto", display: "block", pointerEvents: "none" }} />}
                   {isSel && <>
                     <div onPointerDown={e => startResize(e, l)} style={{ ...handleDot("nwse-resize"), insetInlineEnd: -8, bottom: -8 }} title="تكبير/تصغير" />
@@ -252,6 +286,17 @@ export function ImageEditorModal({ src, logoUrl, data, onClose, onSave }){
                 </>}
                 {sel.type === "image" && <>
                   <div><label style={lbl}>الحجم: {Math.round((sel.w / dims.w) * 100)}%</label><input type="range" min={Math.round(dims.w * 0.03)} max={dims.w} value={sel.w} onChange={e => updSel({ w: Number(e.target.value) })} style={{ width: "100%" }} /></div>
+                </>}
+                {sel.type === "stamp" && <>
+                  <div><label style={lbl}>الكود (label)</label><input value={sel.code} onChange={e => updSel({ code: e.target.value })} style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box" }} /></div>
+                  <div><label style={lbl}>رقم الموديل</label><input value={sel.modelNo} onChange={e => updSel({ modelNo: e.target.value })} style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS, fontWeight: 800, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box" }} /></div>
+                  <div><label style={lbl}>المقاسات</label><input value={sel.sizes} onChange={e => updSel({ sizes: e.target.value })} placeholder="مثلاً: 2-3-4-5" style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS, fontWeight: 800, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box" }} /></div>
+                  <div><label style={lbl}>الخط</label><select value={sel.font} onChange={e => updSel({ font: e.target.value })} style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, background: T.bg, color: T.text }}>{FONTS.map(f => <option key={f.v} value={f.v} style={{ fontFamily: f.v }}>{f.n}</option>)}</select></div>
+                  <div><label style={lbl}>الحجم: {Math.round(sel.size)}</label><input type="range" min={Math.round(dims.h * 0.02)} max={Math.round(dims.h * 0.3)} value={sel.size} onChange={e => updSel({ size: Number(e.target.value) })} style={{ width: "100%" }} /></div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div><label style={lbl}>لون الكود/الرقم</label><input type="color" value={/^#[0-9a-fA-F]{6}$/.test(sel.codeColor) ? sel.codeColor : "#111111"} onChange={e => updSel({ codeColor: e.target.value })} style={{ width: 40, height: 30, border: "1px solid " + T.brd, borderRadius: 8, padding: 0, cursor: "pointer" }} /></div>
+                    <div><label style={lbl}>لون المقاسات</label><input type="color" value={/^#[0-9a-fA-F]{6}$/.test(sel.sizesColor) ? sel.sizesColor : "#E11D48"} onChange={e => updSel({ sizesColor: e.target.value })} style={{ width: 40, height: 30, border: "1px solid " + T.brd, borderRadius: 8, padding: 0, cursor: "pointer" }} /></div>
+                  </div>
                 </>}
                 <div><label style={lbl}>الدوران: {Math.round(sel.rot || 0)}°</label><input type="range" min={-180} max={180} value={sel.rot || 0} onChange={e => updSel({ rot: Number(e.target.value) })} style={{ width: "100%" }} /></div>
                 <div><label style={lbl}>الشفافية: {Math.round((sel.opacity != null ? sel.opacity : 1) * 100)}%</label><input type="range" min={0} max={1} step={0.05} value={sel.opacity != null ? sel.opacity : 1} onChange={e => updSel({ opacity: Number(e.target.value) })} style={{ width: "100%" }} /></div>

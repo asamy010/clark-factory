@@ -1480,7 +1480,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
       {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
       {/* V21.27.21: محرّر الصور الكامل (Canva-like) */}
-      {editorFor && <ImageEditorModal src={editorFor.url} logoUrl={data.logo || ""} data={data} onClose={() => setEditorFor(null)}
+      {editorFor && <ImageEditorModal src={editorFor.url} logoUrl={data.logo || ""} data={data} prefill={{ modelNo: (curModel && curModel.modelNo) || "", sizes: (curModel && curModel.sizeLabel) || "" }} onClose={() => setEditorFor(null)}
         onSave={async (blob) => {
           try {
             const file = new File([blob], "clark-edit-" + Date.now() + ".png", { type: "image/png" });
