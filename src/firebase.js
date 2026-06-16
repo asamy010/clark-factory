@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 /*
@@ -40,15 +40,23 @@ export const auth = getAuth(app);
    semantics. This is defense-in-depth — we still validate user input at
    form boundaries, this only handles internal undefined leaks from
    conditional field spreads in mutators. */
+/* V21.27.27 (perf/offline): النقل من enableIndexedDbPersistence(db)
+   المهجور (single-tab فقط — كان بيفشل بـ "failed-precondition" لو المستخدم
+   فاتح أكتر من تاب → مفيش offline cache) للـ API الحديث localCache +
+   persistentMultipleTabManager. الفايدة:
+   - دعم متعدد التابات: كل التابات بتشارك نفس الـ IndexedDB cache.
+   - cold-start أسرع: القراءات بتتخدم من الـ cache فوراً قبل الشبكة.
+   - الـ fallback لـ in-memory cache تلقائي في المتصفحات/الأوضاع اللي
+     مابتدعمش IndexedDB (تصفّح خاص) — مفيش throw.
+   ملاحظة: ده بيلمس تهيئة Firestore — محتاج تأكيد سريع على production
+     (افتح التطبيق + تابين، اتأكد إن الداتا بتحمّل والـ offline شغّال). */
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 });
 export const storage = getStorage(app);
-
-/* Enable offline persistence */
-enableIndexedDbPersistence(db).catch(err=>{
-  /* Silently ignore - multi-tab or unsupported browser */
-});
 
 /* Secondary auth for admin creating users without logging out */
 let _secApp=null;

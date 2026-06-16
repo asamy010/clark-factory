@@ -1,5 +1,23 @@
 [
  {
+  "version": "V21.27.27",
+  "date": "2026-06-16",
+  "types": [
+   "improvement"
+  ],
+  "title": "⚡ تحديث التخزين المؤقت لـ Firestore (متعدد التابات + أسرع)",
+  "changes": [
+   {
+    "type": "improvement",
+    "text": "النقل من enableIndexedDbPersistence المهجور (single-tab فقط — كان بيفشل لو فاتح أكتر من تاب → مفيش offline cache) للـ API الحديث persistentLocalCache + persistentMultipleTabManager. النتيجة: كل التابات بتشارك نفس الـ cache، والقراءات بتتخدم منه فوراً (cold-start أسرع)."
+   },
+   {
+    "type": "improvement",
+    "text": "fallback تلقائي لـ in-memory cache في المتصفحات/الأوضاع اللي مابتدعمش IndexedDB (تصفّح خاص) — مفيش أخطاء. ⚠️ التغيير بيلمس تهيئة Firestore — محتاج تأكيد سريع على production بعد النشر."
+   }
+  ]
+ },
+ {
   "version": "V21.27.26",
   "date": "2026-06-16",
   "types": [

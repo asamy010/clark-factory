@@ -28,6 +28,19 @@
 
 ---
 
+## V21.27.27 — تحديث Firestore persistence (متعدد التابات + أسرع) ⚡
+- النقل من `enableIndexedDbPersistence(db)` المهجور (single-tab فقط — كان
+  بيرمي `failed-precondition` لو المستخدم فاتح أكتر من تاب → التاب التاني
+  من غير offline cache) للـ API الحديث في `initializeFirestore`:
+  `localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })`.
+- **الفايدة:** كل التابات بتشارك نفس الـ IndexedDB cache · cold-start أسرع
+  (القراءات من الـ cache قبل الشبكة) · fallback تلقائي لـ in-memory في
+  المتصفحات اللي مابتدعمش IndexedDB (مفيش throw).
+- ⚠️ **بيلمس تهيئة Firestore — محتاج تأكيد سريع على production** (افتح
+  التطبيق + تابين، اتأكد إن الداتا بتحمّل والـ offline شغّال). لو حصل أي
+  سلوك غريب، الـ rollback = رجوع `enableIndexedDbPersistence`.
+- ملف: `src/firebase.js`.
+
 ## V21.27.26 — أداة تحليل حجم الـ bundle (dev-only) 📊
 - `rollup-plugin-visualizer` (devDependency) — أداة قياس بتطلّع treemap
   تفاعلي (`dist/stats.html`) بأحجام gzip/brotli لكل chunk. تشغيل:
