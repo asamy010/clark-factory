@@ -39,6 +39,7 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
   const [pullPreview, setPullPreview] = useState(null); /* V21.27.11: dry-run سحب الموديلات */
   const [pullBusy, setPullBusy] = useState(false);
   const [pullSel, setPullSel] = useState(() => new Set()); /* V21.27.14: الأرقام المحدّدة للسحب */
+  const [pullQ, setPullQ] = useState(""); /* V21.27.15: فلتر برقم الموديل */
 
   /* ⚠️ كل الـ hooks قبل أي early return (Rules of Hooks) */
   const list = useMemo(() => {
@@ -105,7 +106,7 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
         <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>وصفات قابلة لإعادة الاستخدام — اعمل الموديل مرة وشغّله كتير من غير تكرار</div>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {canEdit && importModelsFromOrders && <Btn onClick={() => { const pv = computePull(); setPullPreview(pv); setPullSel(new Set(pv.toCreate)); }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="إنشاء موديلات من أوامر التشغيل القديمة + ربطها">📥 سحب من الأوامر</Btn>}
+        {canEdit && importModelsFromOrders && <Btn onClick={() => { const pv = computePull(); setPullPreview(pv); setPullSel(new Set(pv.toCreate)); setPullQ(""); }} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}} title="إنشاء موديلات من أوامر التشغيل القديمة + ربطها">📥 سحب من الأوامر</Btn>}
         {canEdit && <Btn primary onClick={() => setEditing("new")}>➕ موديل جديد</Btn>}
       </div>
     </div>
@@ -123,21 +124,27 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
               <div style={{flex:1,padding:"10px 8px",borderRadius:10,background:T.ok+"0D",textAlign:"center"}}><div style={{fontSize:FS+5,fontWeight:900,color:T.ok}}>{pullPreview.ordersToLink}</div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>أمر هيتربط</div></div>
               <div style={{flex:1,padding:"10px 8px",borderRadius:10,background:T.bg,textAlign:"center"}}><div style={{fontSize:FS+5,fontWeight:900,color:T.textMut}}>{pullPreview.matched}</div><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>موجود خلاص</div></div>
             </div>
-            {pullPreview.toCreate.length > 0 && <div style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:6}}>
-                <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>{"اختر اللي هتسحبه ("+pullSel.size+"/"+pullPreview.toCreate.length+"):"}</div>
-                <div style={{display:"flex",gap:6}}>
-                  <span onClick={() => setPullSel(new Set(pullPreview.toCreate))} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,fontWeight:700}}>تحديد الكل</span>
-                  <span style={{color:T.textMut}}>·</span>
-                  <span onClick={() => setPullSel(new Set())} style={{cursor:"pointer",fontSize:FS-3,color:T.textMut,fontWeight:700}}>إلغاء التحديد</span>
+            {pullPreview.toCreate.length > 0 && (() => {
+              const vis = pullQ.trim() ? pullPreview.toCreate.filter(mn => mn.toLowerCase().includes(pullQ.trim().toLowerCase())) : pullPreview.toCreate;
+              return <div style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,flexWrap:"wrap",gap:6}}>
+                  <div style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>{"اختر اللي هتسحبه ("+pullSel.size+"/"+pullPreview.toCreate.length+"):"}</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <span onClick={() => setPullSel(prev => { const n = new Set(prev); vis.forEach(mn => n.add(mn)); return n; })} style={{cursor:"pointer",fontSize:FS-3,color:T.accent,fontWeight:700}}>تحديد الكل</span>
+                    <span style={{color:T.textMut}}>·</span>
+                    <span onClick={() => setPullSel(prev => { const n = new Set(prev); vis.forEach(mn => n.delete(mn)); return n; })} style={{cursor:"pointer",fontSize:FS-3,color:T.textMut,fontWeight:700}}>إلغاء التحديد</span>
+                  </div>
                 </div>
-              </div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",maxHeight:180,overflowY:"auto"}}>
-                {/* V21.27.14: شيپس قابلة للاختيار — تقدر تسحب موديل واحد للتجربة قبل الكل */}
-                {pullPreview.toCreate.slice(0,200).map(mn => { const on = pullSel.has(mn); return <span key={mn} onClick={() => setPullSel(prev => { const n = new Set(prev); if(n.has(mn)) n.delete(mn); else n.add(mn); return n; })} style={{padding:"3px 10px",borderRadius:8,cursor:"pointer",background:on?T.accentBg:T.bg,border:"1px solid "+(on?T.accent+"50":T.brd),fontSize:FS-2,fontWeight:700,color:on?T.accent:T.textMut,opacity:on?1:0.7}}>{(on?"✓ ":"")+mn}</span>; })}
-                {pullPreview.toCreate.length > 200 && <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{"+"+(pullPreview.toCreate.length-200)+" غيرهم"}</span>}
-              </div>
-            </div>}
+                {/* V21.27.15: فلتر برقم الموديل */}
+                <input value={pullQ} onChange={e => setPullQ(e.target.value)} placeholder="🔍 فلتر برقم الموديل..." style={{width:"100%",padding:"7px 11px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box",marginBottom:8,outline:"none"}}/>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",maxHeight:180,overflowY:"auto"}}>
+                  {/* شيپس قابلة للاختيار — تقدر تسحب موديل واحد للتجربة قبل الكل */}
+                  {vis.slice(0,200).map(mn => { const on = pullSel.has(mn); return <span key={mn} onClick={() => setPullSel(prev => { const n = new Set(prev); if(n.has(mn)) n.delete(mn); else n.add(mn); return n; })} style={{padding:"3px 10px",borderRadius:8,cursor:"pointer",background:on?T.accentBg:T.bg,border:"1px solid "+(on?T.accent+"50":T.brd),fontSize:FS-2,fontWeight:700,color:on?T.accent:T.textMut,opacity:on?1:0.7}}>{(on?"✓ ":"")+mn}</span>; })}
+                  {vis.length === 0 && <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{"مفيش نتائج لـ \""+pullQ.trim()+"\""}</span>}
+                  {vis.length > 200 && <span style={{fontSize:FS-2,color:T.textMut,alignSelf:"center"}}>{"+"+(vis.length-200)+" غيرهم — ضيّق الفلتر"}</span>}
+                </div>
+              </div>;
+            })()}
             <div style={{fontSize:FS-3,color:T.textMut,lineHeight:1.7,background:T.bg,borderRadius:8,padding:"8px 10px"}}>ℹ️ كل موديل بياخد وصفة أحدث أمر بنفس الرقم (خامات/ألوان/مقاس/إكسسوار/صورة). الأوامر بتتربط بـ modelId — فالأقفال هتطبّق عليها. مفيش حذف ولا تعديل في كميات الأوامر.</div>
           </>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
