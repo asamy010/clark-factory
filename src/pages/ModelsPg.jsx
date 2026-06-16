@@ -32,7 +32,7 @@ function modelColors(m){
   return out;
 }
 
-export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user }){
+export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
   const [studio, setStudio] = useState(null); /* null | modelObj — استوديو الـ AI */
   const [q, setQ] = useState("");
@@ -47,8 +47,8 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
 
   /* استوديو الموديلات (AI) — view ملء الشاشة */
   if(studio){
-    return <AIStudioPg model={studio} data={data} upConfig={upConfig} user={user}
-      isMob={isMob} replaceModel={replaceModel} onClose={() => setStudio(null)}/>;
+    return <AIStudioPg model={studio} models={models} data={data} upConfig={upConfig} user={user}
+      isMob={isMob} replaceModel={replaceModel} updOrder={updOrder} onClose={() => setStudio(null)}/>;
   }
 
   /* فورم موديل جديد */

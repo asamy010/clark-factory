@@ -123,7 +123,7 @@ function ResultCard({ res, isMob, onDelete, onZoom, children }){
   );
 }
 
-export function AIStudioPg({ model, models, data, upConfig, user, isMob, replaceModel, onClose }){
+export function AIStudioPg({ model, models, data, upConfig, user, isMob, replaceModel, updOrder, onClose }){
   const lib = useMemo(() => mergePresets(data), [data]);
 
   const [curModel, setCurModel] = useState(model || null);
@@ -186,6 +186,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [coverForm, setCoverForm] = useState({ styleId: "none", magName: "CLARK", withModelNo: true, withLogo: true, extra: "" });
   const [logoFor, setLogoFor] = useState(null); /* {res} — إدراج لوجو */
   const [linkFor, setLinkFor] = useState(null); /* V21.26.20: {res} — ربط الصورة بموديل من قايمة بالرقم */
+  const [linkTab, setLinkTab] = useState("model"); /* V21.26.25: model | order */
+  const [linkOrderId, setLinkOrderId] = useState(null); /* الأمر المختار في تبويب الأوامر (لاختيار اللون) */
   const [logoForm, setLogoForm] = useState({ logoUrl: "", position: "top-right", size: "small" });
   const [autoSave, setAutoSave] = useState(true);
   const [savedIds, setSavedIds] = useState(() => new Set());
@@ -265,6 +267,22 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const modelOpts = useMemo(() => (Array.isArray(models) ? models : [])
     .filter(m => m && m.id).map(m => ({ value: String(m.id), label: (m.modelNo || "—") + (m.modelDesc ? " — " + m.modelDesc : "") })),
     [models]);
+  /* V21.26.25: أوامر التشغيل (للربط بأمر/لون) — من data.orders */
+  const orders = useMemo(() => (Array.isArray(data.orders) ? data.orders : []), [data.orders]);
+  const orderOpts = useMemo(() => orders
+    .filter(o => o && o.id).map(o => ({ value: String(o.id), label: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : "") })),
+    [orders]);
+  /* ألوان أمر (dedup عبر colorsA..H) — نفس منطق ColorSizeMatrixTab */
+  const orderColorsOf = (o) => {
+    const out = []; const seen = new Set();
+    if(!o) return out;
+    FKEYS.forEach(k => (o["colors" + k] || []).forEach(c => {
+      const nm = String((typeof c === "string" ? c : (c?.color || c?.n || c?.name || "")) || "").trim();
+      const hex = (typeof c === "object" ? (c.colorHex || "#cbd5e1") : "#cbd5e1");
+      if(nm && !seen.has(nm.toLowerCase())){ seen.add(nm.toLowerCase()); out.push({ color: nm, colorHex: hex }); }
+    }));
+    return out;
+  };
 
   const availFromModel = useMemo(() => modelImages(curModel), [curModel]);
   const colorNames = useMemo(() => modelColorNames(curModel), [curModel]);
@@ -568,6 +586,28 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(m.modelNo) setStorageFolder(m.modelNo);
     setLinkFor(null);
     showToast("🔗 اتربطت الصورة بموديل «" + (m.modelNo || m.id) + "» (الصورة الرئيسية)");
+  };
+  /* V21.26.25: ربط صورة بأمر تشغيل — إمّا الصورة الرئيسية (order.image) أو صورة
+     لون معيّن (order.shopify_meta.color_images[color]) اللي بتظهر في شبكة اللون/
+     المقاس + بتترحّل لشوبيفاي كصورة الـ variant. updOrder هو المسار الآمن
+     (بيقرا الأمر الحالي ويكتبه كامل). */
+  const linkImageToOrder = (res, orderId, color) => {
+    if(!updOrder){ showToast("⚠️ ربط الأوامر مش متاح من هنا"); return; }
+    const o = orders.find(x => String(x.id) === String(orderId));
+    if(!o){ showToast("⚠️ اختر أمر تشغيل"); return; }
+    if(color){
+      updOrder(orderId, d => {
+        if(!d.shopify_meta) d.shopify_meta = {};
+        if(!d.shopify_meta.color_images) d.shopify_meta.color_images = {};
+        d.shopify_meta.color_images[color] = { url: res.url, alt: color, source: "ai" };
+      });
+      showToast("🎨 اتربطت الصورة بلون «" + color + "» في أمر «" + (o.modelNo || orderId) + "» — هتظهر في شبكة اللون/المقاس");
+    } else {
+      updOrder(orderId, d => { d.image = res.url; d.imageStoragePath = res.storagePath || ""; });
+      showToast("🔗 اتربطت كصورة رئيسية لأمر «" + (o.modelNo || orderId) + "»");
+    }
+    if(o.modelNo) setStorageFolder(o.modelNo);
+    setLinkFor(null); setLinkOrderId(null);
   };
   const saveAsColorImage = (res) => {
     if(!replaceModel || !curModel) return;
@@ -893,7 +933,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
 
   const resultActions = (res, inGallery) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
-      {replaceModel && <Btn small onClick={() => setLinkFor(res)} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل من القايمة (بالرقم)">🔗 ربط بموديل</Btn>}
+      {(replaceModel || updOrder) && <Btn small onClick={() => { setLinkFor(res); setLinkOrderId(null); setLinkTab(replaceModel ? "model" : "order"); }} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل أو أمر تشغيل (بالرقم) أو بلون">🔗 ربط</Btn>}
       {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
       {curModel && replaceModel && (colorNames.length > 0 || res.color) && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>}
       {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
@@ -1420,26 +1460,72 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         </div>
       )}
 
-      {/* V21.26.20: ربط الصورة بموديل من قايمة بالرقم */}
-      {linkFor && (
-        <div onClick={() => setLinkFor(null)} style={{ position: "fixed", inset: 0, zIndex: 100002, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: 14, width: "100%", maxWidth: 460, border: "2px solid " + T.accent + "30", boxShadow: "0 25px 70px rgba(0,0,0,0.4)", padding: 18 }}>
+      {/* V21.26.25: ربط الصورة بموديل أو أمر تشغيل (بالرقم) أو بلون معيّن */}
+      {linkFor && (() => {
+        const canModel = !!replaceModel;
+        const canOrder = !!updOrder;
+        const tab = ((linkTab === "order" && canOrder) || !canModel) ? "order" : "model";
+        const selOrder = linkOrderId ? orders.find(o => String(o.id) === String(linkOrderId)) : null;
+        const selColors = selOrder ? orderColorsOf(selOrder) : [];
+        const closeAll = () => { setLinkFor(null); setLinkOrderId(null); };
+        const tabBtn = (on) => ({ flex: 1, background: on ? T.accent : T.accent + "12", color: on ? "#fff" : T.accent, border: "1px solid " + T.accent + (on ? "" : "33"), fontWeight: 800 });
+        return (
+        <div onClick={closeAll} style={{ position: "fixed", inset: 0, zIndex: 100002, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: 14, width: "100%", maxWidth: 460, border: "2px solid " + T.accent + "30", boxShadow: "0 25px 70px rgba(0,0,0,0.4)", padding: 18, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.accent }}>🔗 ربط الصورة بموديل</div>
-              <Btn ghost onClick={() => setLinkFor(null)}>✕</Btn>
+              <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.accent }}>🔗 ربط الصورة</div>
+              <Btn ghost onClick={closeAll}>✕</Btn>
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
               <img src={linkFor.url} alt="" style={{ width: 64, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid " + T.brd, flexShrink: 0 }} />
-              <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>اكتب رقم الموديل واختاره من القايمة — هتتحفظ الصورة كصورة <b>رئيسية</b> للموديل (رابط الصورة بيتسجّل على الأوردر)، وفولدر التخزين بياخد رقم الموديل.</div>
+              <div style={{ fontSize: FS - 2, color: T.textSec, lineHeight: 1.6 }}>{tab === "model"
+                ? "اكتب رقم الموديل واختاره — الصورة بتتحفظ كصورة رئيسية للموديل وفولدر التخزين بياخد رقمه."
+                : "اختار أمر التشغيل بالرقم — اربط الصورة كصورة رئيسية للأمر، أو بلون معيّن فتظهر في شبكة اللون/المقاس وتترحّل لشوبيفاي."}</div>
             </div>
-            {modelOpts.length > 0 ? (
-              <SearchSel value="" onChange={(id) => linkImageToModel(linkFor, id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
+            {canModel && canOrder && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                <Btn small onClick={() => { setLinkTab("model"); setLinkOrderId(null); }} style={tabBtn(tab === "model")}>🧩 موديل</Btn>
+                <Btn small onClick={() => setLinkTab("order")} style={tabBtn(tab === "order")}>📋 أمر تشغيل</Btn>
+              </div>
+            )}
+            {tab === "model" ? (
+              modelOpts.length > 0 ? (
+                <SearchSel value="" onChange={(id) => linkImageToModel(linkFor, id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
+              ) : (
+                <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش موديلات متاحة للربط — أنشئ موديل الأول من تبويب «الموديلات».</div>
+              )
+            ) : !selOrder ? (
+              orderOpts.length > 0 ? (
+                <SearchSel value="" onChange={(id) => setLinkOrderId(id)} options={orderOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم أمر التشغيل..." />
+              ) : (
+                <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش أوامر تشغيل في الموسم الحالي.</div>
+              )
             ) : (
-              <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش موديلات متاحة للربط — أنشئ موديل الأول من تبويب «الموديلات»، وبعدين ارجع اربط الصورة بيه.</div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10, padding: "8px 10px", background: T.accent + "0D", borderRadius: 8, border: "1px solid " + T.accent + "22" }}>
+                  <div style={{ fontWeight: 800, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📋 {selOrder.modelNo || selOrder.id}{selOrder.modelDesc ? " — " + selOrder.modelDesc : ""}</div>
+                  <span onClick={() => setLinkOrderId(null)} style={{ cursor: "pointer", color: T.accent, fontWeight: 700, fontSize: FS - 2, flexShrink: 0 }}>تغيير</span>
+                </div>
+                <Btn primary onClick={() => linkImageToOrder(linkFor, linkOrderId, null)} style={{ width: "100%", marginBottom: 12 }}>📌 ربط كصورة رئيسية للأمر</Btn>
+                <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🎨 أو اربطها بلون (تظهر في شبكة اللون/المقاس):</div>
+                {selColors.length > 0 ? (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {selColors.map(c => (
+                      <span key={c.color} onClick={() => linkImageToOrder(linkFor, linkOrderId, c.color)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 999, border: "1px solid " + T.brd, background: T.cardSolid, cursor: "pointer", fontWeight: 700, fontSize: FS - 1, color: T.text }}>
+                        <span style={{ width: 14, height: 14, borderRadius: 4, background: c.colorHex || "#ccc", border: "1px solid " + T.brd }} />
+                        {c.color}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: FS - 2, color: T.textMut }}>الأمر مفيهوش ألوان محددة — حدّد ألوان القماش في الأمر الأول.</div>
+                )}
+              </div>
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* cover / text modal */}
       {coverFor && (
