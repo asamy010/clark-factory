@@ -32,10 +32,11 @@ function fileToResizedBase64(file, maxDim = 1280, quality = 0.85){
   });
 }
 
-export function PromptExtractModal({ data, onClose, onSavePrompts }){
+export function PromptExtractModal({ data, groups, defaultGroup, onClose, onSave }){
   const [items, setItems] = useState([]); /* {id,name,prompt,image,thumb,status,error} */
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(""); /* نص التقدّم */
+  const [group, setGroup] = useState(defaultGroup || (Array.isArray(groups) && groups[0]) || "New"); /* القسم المستهدف */
 
   const upd = (id, patch) => setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it));
   const mkId = (i) => "ex_" + Date.now().toString(36) + "_" + i + "_" + Math.random().toString(36).slice(2, 5);
@@ -94,7 +95,7 @@ export function PromptExtractModal({ data, onClose, onSavePrompts }){
   const saveAll = () => {
     const valid = doneItems.filter(it => (it.name || "").trim() && (it.prompt || "").trim());
     if(valid.length === 0){ showToast("⚠️ مفيش برومبتس جاهزة للحفظ"); return; }
-    onSavePrompts(valid.map(it => ({ name: it.name.trim(), prompt: it.prompt.trim(), image: it.image || "" })));
+    onSave && onSave(valid.map(it => ({ name: it.name.trim(), prompt: it.prompt.trim(), image: it.image || "" })), group);
     onClose && onClose();
   };
 
@@ -134,9 +135,15 @@ export function PromptExtractModal({ data, onClose, onSavePrompts }){
           ))}
         </div>}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid " + T.brd, paddingTop: 14 }}>
+        {/* اختيار القسم اللي هتتحفظ فيه البرومبتس */}
+        {Array.isArray(groups) && groups.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", borderTop: "1px solid " + T.brd, paddingTop: 12, marginBottom: 10 }}>
+          <span style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700 }}>القسم:</span>
+          {groups.map(g => <span key={g} onClick={() => setGroup(g)} style={{ padding: "4px 12px", borderRadius: 999, cursor: "pointer", fontSize: FS - 2, fontWeight: 700, background: group === g ? T.accent : T.bg, color: group === g ? "#fff" : T.textSec, border: "1px solid " + (group === g ? T.accent : T.brd) }}>{g}</span>)}
+        </div>}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: (Array.isArray(groups) && groups.length > 0) ? "none" : "1px solid " + T.brd, paddingTop: (Array.isArray(groups) && groups.length > 0) ? 0 : 14 }}>
           <Btn ghost disabled={busy} onClick={() => onClose && onClose()}>إغلاق</Btn>
-          <Btn primary disabled={busy || doneItems.length === 0} onClick={saveAll}>💾 حفظ الكل ({doneItems.length})</Btn>
+          <Btn primary disabled={busy || doneItems.length === 0} onClick={saveAll}>💾 حفظ في «{group}» ({doneItems.length})</Btn>
         </div>
       </div>
     </div>

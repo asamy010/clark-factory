@@ -1065,37 +1065,15 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )}
             </div>
 
-            {/* saved visual prompts — one-click execute */}
+            {/* مكتبة البرومبتس — مخزن منفصل (factory/aiPromptLibrary_*) lazy + editable.
+                V21.27.18: «برومبتس جاهزة» اتدمجت هنا؛ الاستخراج من الصور بقى يحفظ هنا. */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>📸 برومبتس جاهزة <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>(اضغط للتنفيذ المباشر)</span></span>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <Btn small onClick={() => setExtractOpen(true)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }} title="ارفع صور وقفات واستخرج منها برومبتس تلقائياً">🪄 استخراج من صور</Btn>
-                  <Btn small onClick={() => setSpForm({ name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>
-                </div>
-              </div>
-              {lib.savedPrompts.length === 0 ? (
-                <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>احفظ برومبت جاهز بصورة — وبعدين اختار صورة المصدر واضغط عليه يتنفّذ على طول من غير تفاصيل.</div>
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8 }}>
-                  {lib.savedPrompts.map(sp => (
-                    <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp)} title={sp.prompt}>
-                      <div style={{ width: "100%", aspectRatio: "3 / 4", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {sp.image ? <img src={sp.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 26 }}>📝</span>}
-                      </div>
-                      <div style={{ padding: "4px 6px", fontSize: FS - 3, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sp.name || "—"}</div>
-                      <span onClick={e => { e.stopPropagation(); delSavedPrompt(sp.id); }} style={{ position: "absolute", top: 3, insetInlineEnd: 3, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✕</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* مكتبة تجربة الملابس — مخزن منفصل (factory/aiPromptLibrary_*) lazy + editable */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 14, padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة البرومبتس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
-                {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {library !== null && <Btn small onClick={() => setExtractOpen(true)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }} title="ارفع صور وقفات واستخرج منها برومبتس → تتحفظ في القسم اللي تختاره">🪄 استخراج من صور</Btn>}
+                  {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
+                </div>
               </div>
               {/* V21.26.4: ملاحظات إضافية تنطبق على أي برومبت جاهز وقت تنفيذه (نفس حقل ملاحظات الخيارات) */}
               <div style={{ marginBottom: 10 }}>
@@ -1481,10 +1459,13 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       />}
 
       {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
-      {extractOpen && <PromptExtractModal data={data} onClose={() => setExtractOpen(false)} onSavePrompts={(entries) => {
-        savePresets(p => { (entries || []).forEach((e, i) => p.savedPrompts.unshift({ id: "sp_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", ts: Date.now() })); });
-        showToast("✓ اتحفظ " + (entries || []).length + " برومبت في المكتبة");
-      }} />}
+      {extractOpen && <PromptExtractModal data={data} groups={LIBRARY_GROUPS} defaultGroup={openGroup || LIBRARY_GROUPS[0]} onClose={() => setExtractOpen(false)}
+        onSave={async (entries, group) => {
+          const recs = (entries || []).map((e, i) => ({ id: "lib_x_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", group, ts: Date.now() }));
+          const cur = (library && library[group]) ? [...library[group]] : [];
+          await persistGroup(group, [...recs, ...cur]);
+          showToast("✓ اتحفظ " + recs.length + " برومبت في «" + group + "»");
+        }} />}
 
       {/* cover / text modal */}
       {coverFor && (
