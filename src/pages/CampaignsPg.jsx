@@ -2618,12 +2618,16 @@ function DashboardTab({liveStatus, liveStats, liveActivity, url, token, onPause,
               <span>{liveStatus.waState === "QR" ? "محتاج QR scan" : liveStatus.waState === "REPAIRING" ? "جاري الإصلاح..." : "غير متصل"}</span>
             </div>
             <div style={{fontSize:FS-2,color:T.textSec,marginTop:4}}>الحالة: {liveStatus.waState}</div>
-            {/* V19.37: Repair button — appears when stuck in INIT/DISCONNECTED. ~90% of bridge issues
-                are Singleton lock files left over from a forced shutdown; this fixes those without SSH. */}
-            {canEdit && ["INIT","DISCONNECTED"].includes(liveStatus.waState) && onRepair && (
-              <Btn small onClick={onRepair} style={{marginTop:10,background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}}>
-                🔧 إصلاح تلقائي
-              </Btn>
+            {/* V21.27.8: أزرار التعافي بتظهر لأي حالة عالقة (مش بس INIT/DISCONNECTED)
+                — قبل كده كانت محبوسة جوه كارت «تحكم سريع» اللي بيظهر وقت الاتصال
+                بس (isReady)، فالمستخدم ماكانش يقدر يصلّح وهو عالق على AUTHENTICATING.
+                الإصلاح: reset للـ WhatsApp client (الجلسة سليمة). لو ما نفعش →
+                قطع الاتصال + QR جديد (الجلسة غالباً اتلغت من التليفون). */}
+            {canEdit && liveStatus.waState !== "REPAIRING" && (onRepair || onLogout) && (
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+                {onRepair && <Btn small onClick={onRepair} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}} title="بيعمل reset للـ WhatsApp client من غير ما يفقد الجلسة (~30 ث) — جرّبه الأول">🔧 إصلاح تلقائي</Btn>}
+                {onLogout && liveStatus.waState !== "QR" && <Btn small onClick={onLogout} style={{background:T.bg,color:T.text,border:"1px solid "+T.brd,fontWeight:700}} title="يقطع الجلسة ويطلب QR جديد — استخدمه لو الإصلاح ما نفعش">🔌 قطع الاتصال (إعادة QR)</Btn>}
+              </div>
             )}
             {liveStatus.waState === "REPAIRING" && (
               <div style={{marginTop:8,fontSize:FS-2,color:T.textMut,lineHeight:1.6}}>
