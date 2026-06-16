@@ -18,7 +18,7 @@ import { Btn, Sel, Inp, SearchSel, BlockingOverlay } from "../components/ui.jsx"
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
-import { ask, showToast } from "../utils/popups.js";
+import { ask, showToast, askInput } from "../utils/popups.js";
 import { uploadImageToStorage, deleteStorageImage } from "../utils/imageStorage.js";
 import { generateModelImage, analyzePrompt } from "../utils/aiImageClient.js";
 import { PromptExtractModal } from "../components/PromptExtractModal.jsx";
@@ -742,6 +742,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(!Array.isArray(d.aiStudioPresets.backgrounds)) d.aiStudioPresets.backgrounds = [];
     if(!Array.isArray(d.aiStudioPresets.templates)) d.aiStudioPresets.templates = [];
     if(!Array.isArray(d.aiStudioPresets.savedPrompts)) d.aiStudioPresets.savedPrompts = [];
+    if(!Array.isArray(d.aiStudioPresets.promptGroups)) d.aiStudioPresets.promptGroups = []; /* V21.27.20: أقسام مخصّصة */
     mut(d.aiStudioPresets);
   });
   /* برومبتس جاهزة بصور (حرّة) */
@@ -762,7 +763,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     /* V21.26.13: قسم «New» (40 برومبت أولاد) مشحون static من public — بيتدمج
        مع مكتبة Firestore. read-only (builtin) + العمر بيتحكم فيه المستخدم. */
     Promise.all([
-      loadPromptLibrary(),
+      loadPromptLibrary((data.aiStudioPresets && data.aiStudioPresets.promptGroups) || []),
       fetch("/aiPromptLibraryNew.json", { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => []),
     ])
       .then(([lib, newP]) => { if(alive){
@@ -777,6 +778,20 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     return () => { alive = false; };
   }, []);
   const libTotal = useMemo(() => library ? Object.values(library).reduce((s, a) => s + (a ? a.length : 0), 0) : 0, [library]);
+  /* V21.27.20: أقسام مخصّصة يضيفها المستخدم (cfg.aiStudioPresets.promptGroups) */
+  const customGroups = useMemo(() => (data.aiStudioPresets && Array.isArray(data.aiStudioPresets.promptGroups)) ? data.aiStudioPresets.promptGroups.filter(g => g && !LIBRARY_GROUPS.includes(g)) : [], [data.aiStudioPresets]);
+  const allGroups = useMemo(() => [...LIBRARY_GROUPS, ...customGroups], [customGroups]);
+  /* إضافة قسم جديد للمكتبة */
+  const addLibGroup = async () => {
+    const name = await askInput("قسم جديد للمكتبة", { label: "اسم القسم:", placeholder: "مثلاً: BABY GIRL", validate: v => v.trim() ? null : "الاسم مطلوب" });
+    if(!name) return;
+    const g = name.trim();
+    if(allGroups.includes(g)){ showToast("⚠️ القسم موجود بالفعل"); return; }
+    savePresets(p => { if(!Array.isArray(p.promptGroups)) p.promptGroups = []; if(!p.promptGroups.includes(g)) p.promptGroups.push(g); });
+    setLibrary(prev => ({ ...(prev || {}), [g]: (prev && prev[g]) ? prev[g] : [] }));
+    setOpenGroup(g);
+    showToast("✓ اتضاف قسم «" + g + "» — تقدر تضيف فيه برومبتس");
+  };
 
   /* نسبة تقدّم التوليد (٪): تقدير سلس بيتسلّق مع كل صورة تخلص في الباتش،
      ومحاكاة ناعمة جوّه الصورة الواحدة (الـ API مبيرجّعش progress حقيقي). */
@@ -1071,8 +1086,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
                 <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🗂️ مكتبة البرومبتس {libTotal > 0 && <span style={{ fontSize: FS - 3, color: T.textMut, fontWeight: 600 }}>({libTotal})</span>}</span>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {library !== null && <Btn small onClick={addLibGroup} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }} title="أضف قسم جديد للمكتبة">🗂️ قسم جديد</Btn>}
                   {library !== null && <Btn small onClick={() => setExtractOpen(true)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }} title="ارفع صور وقفات واستخرج منها برومبتس → تتحفظ في القسم اللي تختاره">🪄 استخراج من صور</Btn>}
-                  {libTotal > 0 && <Btn small onClick={() => setLibEditFor({ group: openGroup || LIBRARY_GROUPS[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
+                  {(libTotal > 0 || customGroups.length > 0) && <Btn small onClick={() => setLibEditFor({ group: openGroup || allGroups[0], name: "", prompt: customPrompt || "", image: "" })} style={{ background: T.accent + "12", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>➕ إضافة</Btn>}
                 </div>
               </div>
               {/* V21.26.4: ملاحظات إضافية تنطبق على أي برومبت جاهز وقت تنفيذه (نفس حقل ملاحظات الخيارات) */}
@@ -1081,7 +1097,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               </div>
               {library === null ? (
                 <div style={{ fontSize: FS - 2, color: T.textMut }}>جاري تحميل المكتبة...</div>
-              ) : libTotal === 0 ? (
+              ) : (libTotal === 0 && customGroups.length === 0) ? (
                 <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.8 }}>
                   مكتبة جاهزة من برومبتس تجربة الملابس (Virtual Try-On) مقسّمة بالجروبات — اختار صورة المصدر واضغط أي برومبت يتنفّذ على طول.
                   <div style={{ marginTop: 10 }}>
@@ -1091,7 +1107,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {LIBRARY_GROUPS.filter(g => library[g] && library[g].length).map(g => {
+                  {allGroups.filter(g => (library[g] && library[g].length) || customGroups.includes(g)).map(g => {
                     const items = library[g] || [];
                     const open = openGroup === g;
                     return (
@@ -1101,7 +1117,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                           <span onClick={e => { e.stopPropagation(); setLibEditFor({ group: g, name: "", prompt: customPrompt || "", image: "" }); }} style={{ fontSize: FS - 3, fontWeight: 700, color: T.accent }}>➕</span>
                         </div>
                         {open && g === "New" && <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", borderTop: "1px solid " + T.brd, padding: "7px 11px", lineHeight: 1.6 }}>⭐ مجموعة أولاد احترافية — <b>اختر العمر من «الخيارات ← العمر»</b>. تقدر تعدّل أي برومبت (زرار ✏️) وتغيّر صورته بصورة حقيقية للوقفة — والتعديل بيثبت.</div>}
-                        {open && (
+                        {open && items.length === 0 && <div style={{ fontSize: FS - 3, color: T.textMut, borderTop: "1px solid " + T.brd, padding: "10px 11px", lineHeight: 1.6 }}>القسم فاضي — اضغط <b style={{ color: T.accent }}>➕</b> لإضافة برومبت، أو <b style={{ color: "#8B5CF6" }}>🪄 استخراج من صور</b>.</div>}
+                        {open && items.length > 0 && (
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(96px,1fr))", gap: 8, padding: 10 }}>
                             {items.map(sp => (
                               <div key={sp.id} style={{ position: "relative", border: "1px solid " + T.brd, borderRadius: 10, overflow: "hidden", background: T.bg, cursor: busy ? "wait" : "pointer" }} onClick={() => !busy && runSavedPrompt(sp, g)} title={sp.prompt}>
@@ -1459,7 +1476,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
       />}
 
       {/* V21.27.13: استخراج برومبتس من صور الوقفات → مكتبة البرومبتس بالصور */}
-      {extractOpen && <PromptExtractModal data={data} groups={LIBRARY_GROUPS} defaultGroup={openGroup || LIBRARY_GROUPS[0]} onClose={() => setExtractOpen(false)}
+      {extractOpen && <PromptExtractModal data={data} groups={allGroups} defaultGroup={openGroup || allGroups[0]} onClose={() => setExtractOpen(false)}
         onSave={async (entries, group) => {
           const recs = (entries || []).map((e, i) => ({ id: "lib_x_" + Date.now().toString(36) + "_" + i, name: e.name, prompt: e.prompt, image: e.image || "", group, ts: Date.now() }));
           const cur = (library && library[group]) ? [...library[group]] : [];
@@ -1561,7 +1578,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.text, marginBottom: 4 }}>{libEditFor.id ? "✏️ تعديل برومبت" : "➕ إضافة برومبت"} <span style={{ fontSize: FS - 2, color: T.accent }}>· {libEditFor.group}</span></div>
             <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>برومبت تجربة ملابس بصورة مثال — يتنفّذ بضغطة على صورة المصدر.</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-              {LIBRARY_GROUPS.map(g => <Chip key={g} on={libEditFor.group === g} onClick={() => setLibEditFor(p => ({ ...p, group: g }))}>{g}</Chip>)}
+              {allGroups.map(g => <Chip key={g} on={libEditFor.group === g} onClick={() => setLibEditFor(p => ({ ...p, group: g }))}>{g}</Chip>)}
             </div>
             <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
               <ImagePickButton data={data} imagesOnly onFile={onLibEditImage} onPickUrl={url => setLibEditFor(p => ({ ...(p || {}), image: url }))}

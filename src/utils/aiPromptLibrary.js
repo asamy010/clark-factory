@@ -22,15 +22,24 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 /* ترتيب الجروبات (= ترتيب الشيتات في الإكسيل الأصلي) + قسم «New» (Claude). */
 export const LIBRARY_GROUPS = ["New", "BOY", "GIRL", "FOR HIM", "FOR HER", "BABY"];
 
-/* معرّف مستند الجروب تحت factory/ — بدون مسافات (CEL/path-safe). */
+/* معرّف مستند الجروب تحت factory/ — بدون مسافات (CEL/path-safe).
+   الجروبات المدمجة (إنجليزي) بتفضل بنفس المعرّف القديم (مفيش هجرة).
+   V21.27.20: الأقسام المخصّصة (ممكن عربي) بتاخد هاش قصير ثابت عشان مايحصلش
+   تصادم لما الأحرف غير الـ ASCII تتشال. */
 export function libGroupDocId(group){
-  return "aiPromptLibrary_" + String(group).replace(/[^A-Za-z0-9]+/g, "_");
+  const g = String(group);
+  const ascii = g.replace(/[^A-Za-z0-9]+/g, "_");
+  if(LIBRARY_GROUPS.includes(g)) return "aiPromptLibrary_" + ascii;
+  let h = 0; for(let i = 0; i < g.length; i++){ h = (h * 31 + g.charCodeAt(i)) >>> 0; }
+  const base = ascii.replace(/^_+|_+$/g, "") || "g";
+  return "aiPromptLibrary_" + base + "_" + h.toString(36);
 }
 
 /* تحميل كل الجروبات دفعة واحدة (lazy). بيرجّع { [group]: prompt[] }. */
-export async function loadPromptLibrary(){
+export async function loadPromptLibrary(extraGroups){
+  const groups = [...LIBRARY_GROUPS, ...((Array.isArray(extraGroups) ? extraGroups : []).filter(g => g && !LIBRARY_GROUPS.includes(g)))];
   const out = {};
-  await Promise.all(LIBRARY_GROUPS.map(async g => {
+  await Promise.all(groups.map(async g => {
     try {
       const snap = await getDoc(doc(db, "factory", libGroupDocId(g)));
       const d = snap.exists() ? snap.data() : null;
