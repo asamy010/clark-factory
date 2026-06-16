@@ -41,6 +41,7 @@ export function ImageLinkModal({ image, models, orders, replaceModel, updOrder, 
   const canOrder = !!updOrder;
   const [linkTab, setLinkTab] = useState(canModel ? "model" : "order");
   const [linkOrderId, setLinkOrderId] = useState(null);
+  const [linkModelId, setLinkModelId] = useState(null);
 
   const modelOpts = useMemo(() => (Array.isArray(models) ? models : [])
     .filter(m => m && m.id).map(m => ({ value: String(m.id), label: (m.modelNo || "—") + (m.modelDesc ? " — " + m.modelDesc : "") })),
@@ -54,12 +55,23 @@ export function ImageLinkModal({ image, models, orders, replaceModel, updOrder, 
   const tab = ((linkTab === "order" && canOrder) || !canModel) ? "order" : "model";
   const selOrder = linkOrderId ? ordersArr.find(o => String(o.id) === String(linkOrderId)) : null;
   const selColors = selOrder ? orderColorsOf(selOrder) : [];
+  const selModel = linkModelId ? (Array.isArray(models) ? models : []).find(m => String(m.id) === String(linkModelId)) : null;
+  const selModelColors = selModel ? orderColorsOf(selModel) : [];
 
-  const linkToModel = (id) => {
+  /* V21.27.9: ربط بالموديل = صورة رئيسية (أول اختيار) أو صورة لون — زي الأمر.
+     صورة الموديل/صور ألوانه بتنزل تلقائياً لأي أوردر يتعمل منه (buildOrderFromModel). */
+  const linkToModel = (id, color) => {
     const m = (Array.isArray(models) ? models : []).find(x => String(x.id) === String(id));
     if(!m){ showToast("⚠️ اختر موديل من القايمة"); return; }
-    replaceModel(m.id, { ...m, image: image.url, imageStoragePath: image.storagePath || "" });
-    showToast("🔗 اتربطت الصورة بموديل «" + (m.modelNo || m.id) + "» (الصورة الرئيسية)");
+    if(color){
+      const sm = { ...(m.shopify_meta || {}) };
+      sm.color_images = { ...(sm.color_images || {}), [color]: { url: image.url, alt: color, source: "document" } };
+      replaceModel(m.id, { ...m, shopify_meta: sm });
+      showToast("🎨 اتربطت الصورة بلون «" + color + "» في موديل «" + (m.modelNo || m.id) + "» — هتنزل لأوامره");
+    } else {
+      replaceModel(m.id, { ...m, image: image.url, imageStoragePath: image.storagePath || "" });
+      showToast("🔗 اتربطت كصورة رئيسية لموديل «" + (m.modelNo || m.id) + "» — هتنزل لأوامره");
+    }
     onClose && onClose();
   };
   const linkToOrder = (orderId, color) => {
@@ -100,10 +112,31 @@ export function ImageLinkModal({ image, models, orders, replaceModel, updOrder, 
           </div>
         )}
         {tab === "model" ? (
-          modelOpts.length > 0 ? (
-            <SearchSel value="" onChange={(id) => linkToModel(id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
-          ) : (
+          modelOpts.length === 0 ? (
             <div style={{ fontSize: FS - 2, color: T.textMut, background: T.cardSolid, border: "1px dashed " + T.brd, borderRadius: 8, padding: "12px 14px", lineHeight: 1.7, textAlign: "center" }}>مفيش موديلات متاحة للربط — أنشئ موديل الأول من تبويب «الموديلات».</div>
+          ) : !selModel ? (
+            <SearchSel value="" onChange={(id) => setLinkModelId(id)} options={modelOpts} showAllOnFocus maxResults={10} placeholder="🔍 اكتب رقم الموديل..." />
+          ) : (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10, padding: "8px 10px", background: T.accent + "0D", borderRadius: 8, border: "1px solid " + T.accent + "22" }}>
+                <div style={{ fontWeight: 800, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🧩 {selModel.modelNo || selModel.id}{selModel.modelDesc ? " — " + selModel.modelDesc : ""}</div>
+                <span onClick={() => setLinkModelId(null)} style={{ cursor: "pointer", color: T.accent, fontWeight: 700, fontSize: FS - 2, flexShrink: 0 }}>تغيير</span>
+              </div>
+              <Btn primary onClick={() => linkToModel(linkModelId, null)} style={{ width: "100%", marginBottom: 12 }}>📌 ربط كصورة رئيسية للموديل</Btn>
+              <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>🎨 أو اربطها بلون (تظهر في شبكة اللون/المقاس وتنزل لأوامره):</div>
+              {selModelColors.length > 0 ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {selModelColors.map(c => (
+                    <span key={c.color} onClick={() => linkToModel(linkModelId, c.color)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 999, border: "1px solid " + T.brd, background: T.cardSolid, cursor: "pointer", fontWeight: 700, fontSize: FS - 1, color: T.text }}>
+                      <span style={{ width: 14, height: 14, borderRadius: 4, background: c.colorHex || "#ccc", border: "1px solid " + T.brd }} />
+                      {c.color}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: FS - 2, color: T.textMut }}>الموديل مفيهوش ألوان محددة.</div>
+              )}
+            </div>
           )
         ) : !selOrder ? (
           orderOpts.length > 0 ? (
