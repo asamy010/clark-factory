@@ -24,15 +24,20 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { showToast } from "../utils/popups.js";
 
-/* ألوان أمر (dedup عبر colorsA..H) — نفس منطق ColorSizeMatrixTab/الاستوديو */
+/* ألوان «الماتريكس» = ألوان خامة المصدر (color_source_fabric) بس — مش كل
+   الخامات. مطابق لـ ColorSizeMatrixTab/الـ push (الماتريكس بيعرض خامة واحدة). */
 function orderColorsOf(o){
+  if(!o) return [];
+  const withColors = FKEYS.filter(k => (o["colors" + k] || []).some(c => String((typeof c === "string" ? c : (c?.color || c?.n || c?.name || "")) || "").trim()));
+  if(withColors.length === 0) return [];
+  const src = o.shopify_meta && o.shopify_meta.color_source_fabric;
+  const key = (src && withColors.includes(src)) ? src : withColors[0];
   const out = []; const seen = new Set();
-  if(!o) return out;
-  FKEYS.forEach(k => (o["colors" + k] || []).forEach(c => {
+  (o["colors" + key] || []).forEach(c => {
     const nm = String((typeof c === "string" ? c : (c?.color || c?.n || c?.name || "")) || "").trim();
     const hex = (typeof c === "object" ? (c.colorHex || "#cbd5e1") : "#cbd5e1");
     if(nm && !seen.has(nm.toLowerCase())){ seen.add(nm.toLowerCase()); out.push({ color: nm, colorHex: hex }); }
-  }));
+  });
   return out;
 }
 
