@@ -5467,11 +5467,13 @@ export default function App(){
   /* V21.27.11: سحب الموديلات من الأوامر — ينشئ موديل لكل رقم موديل ناقص (الأحدث
      كممثّل) + (اختياري) يربط الأوامر بموديلاتها عبر modelId. idempotent: بيتخطّى
      أرقام الموديلات الموجودة. batched (≤450 op/batch). */
-  const importModelsFromOrders=async({link=true}={})=>{
+  const importModelsFromOrders=async({link=true,only=null}={})=>{
     try{
+      /* V21.27.14: only = قايمة أرقام موديلات محدّدة (للسحب الانتقائي/التجربة) */
+      const onlySet=(Array.isArray(only)&&only.length)?new Set(only.map(x=>String(x).trim())):null;
       const ords=Array.isArray(orders)?orders:[];
       const byNo=new Map();
-      ords.forEach(o=>{const mn=(o.modelNo||"").trim();if(!mn)return;if(!byNo.has(mn))byNo.set(mn,[]);byNo.get(mn).push(o)});
+      ords.forEach(o=>{const mn=(o.modelNo||"").trim();if(!mn)return;if(onlySet&&!onlySet.has(mn))return;if(!byNo.has(mn))byNo.set(mn,[]);byNo.get(mn).push(o)});
       const idByNo=new Map();
       (Array.isArray(models)?models:[]).forEach(m=>{const mn=(m.modelNo||"").trim();if(mn&&!idByNo.has(mn))idByNo.set(mn,m.id)});
       const newModels=[];
@@ -5491,6 +5493,7 @@ export default function App(){
       if(link){
         for(const o of ords){
           const mn=(o.modelNo||"").trim();if(!mn||!o._docId)continue;
+          if(onlySet&&!onlySet.has(mn))continue;
           const mid=idByNo.get(mn);if(!mid||o.modelId===mid)continue;
           batch.update(doc(db,"seasons",season,"orders",o._docId),{modelId:mid});ops++;linked++;if(ops>=450)await flush();
         }
