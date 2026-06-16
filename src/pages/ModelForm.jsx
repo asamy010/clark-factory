@@ -227,6 +227,12 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
         })}
       </div>
       {visibleFabricCount < FKEYS.length && <Btn small onClick={addFabric} style={{marginTop:12,background:T.accent+"10",color:T.accent,border:"1px dashed "+T.accent+"40",fontWeight:700}}>+ إضافة خامة</Btn>}
+      {/* V21.27.3: نسبة هالك القماش — بند تكلفة مستقل في الأوردر */}
+      <div style={{marginTop:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",borderRadius:10,background:T.warn+"0D",border:"1px solid "+T.warn+"33"}}>
+        <span style={{fontSize:FS-1,fontWeight:800,color:T.warn}}>🗑️ نسبة هالك القماش %</span>
+        <Inp type="number" step="any" value={form.wasteFabricPct||""} onChange={v => updF("wasteFabricPct", Number(v)||0)} placeholder="0" style={{width:80,textAlign:"center"}}/>
+        <span style={{fontSize:FS-2,color:T.textMut}}>بتتزاد على تكلفة القماش كبند مستقل (هدر القص/العيوب) — في الأوردر على الكمية الفعلية.</span>
+      </div>
     </div>}
 
     {/* ── Tab: color / size (+ images) ── */}
@@ -254,6 +260,12 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
         {(data.accessories || []).length > (form.accItems || []).length && <Btn ghost small onClick={() => updF("accItems", (data.accessories || []).map(a => ({ accId:a.id, name:a.name, unit:a.unit, qtyPerPiece:1, price:a.price })))} style={{color:T.ok}}>+ اضافة الكل</Btn>}
       </div>
       <AccPicker accItems={form.accItems || []} dbAcc={data.accessories} onChange={items => updF("accItems", items)}/>
+      {/* V21.27.3: نسبة هالك الإكسسوار — بند تكلفة مستقل */}
+      <div style={{marginTop:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",borderRadius:10,background:T.warn+"0D",border:"1px solid "+T.warn+"33"}}>
+        <span style={{fontSize:FS-1,fontWeight:800,color:T.warn}}>🗑️ نسبة هالك الإكسسوار %</span>
+        <Inp type="number" step="any" value={form.wasteAccPct||""} onChange={v => updF("wasteAccPct", Number(v)||0)} placeholder="0" style={{width:80,textAlign:"center"}}/>
+        <span style={{fontSize:FS-2,color:T.textMut}}>بتتزاد على تكلفة الإكسسوار كبند مستقل.</span>
+      </div>
     </div>}
 
     {/* ── Tab: attachments ── */}

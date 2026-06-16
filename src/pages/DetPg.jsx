@@ -1579,6 +1579,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               "اي بند اضافي يطلع فوق في الجدول والاجمالي يظهر تحت اخر صف". */}
           <tr><td style={TD}>تكلفة الخامات</td><td style={TDB}>{fmt(r2(t.totalFab))+" ج.م"}</td><td style={TDB}>{t.fabPer+" ج.م"}</td></tr>
           <tr><td style={TD}>تكاليف الاكسسوار</td><td style={TDB}>{fmt(accAll)+" ج.م"}</td><td style={TDB}>{t.accPer+" ج.م"}</td></tr>
+          {/* V21.27.3: بنود الهالك (عرض فقط — داخلة أصلاً في t.costAllProjected) */}
+          {(t.fabWasteAll||0)>0&&<tr style={{background:T.warn+"08"}}><td style={{...TD,color:T.warn,fontWeight:700}}>{"🗑️ هالك القماش ("+t.wasteFabricPct+"%)"}</td><td style={TDB}>{fmt(r2(t.fabWasteAll))+" ج.م"}</td><td style={TDB}>{r2(t.fabWastePer)+" ج.م"}</td></tr>}
+          {(t.accWasteAll||0)>0&&<tr style={{background:T.warn+"08"}}><td style={{...TD,color:T.warn,fontWeight:700}}>{"🗑️ هالك الإكسسوار ("+t.wasteAccPct+"%)"}</td><td style={TDB}>{fmt(r2(t.accWasteAll))+" ج.م"}</td><td style={TDB}>{r2(t.accWastePer)+" ج.م"}</td></tr>}
           {/* V21.13.3: تكلفة تشغيل الورش — تلقائي من الاستلامات (سعر القطعة × المستلم).
               نفس أساس الإجمالي (projected = مستلم + معلّق) عشان الجدول يطابق الإجمالي.
               داخلة أصلاً في t.costAllProjected — فدي عرض فقط، مش بتتجمع تاني. */}

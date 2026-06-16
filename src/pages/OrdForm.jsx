@@ -319,7 +319,16 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
                 placeholder="إضافة تاج (مثلاً: عاجل، VIP، sample)..."
               />
             </div>;
-            return fabricsFillFullRow?<>{accCard}{instCard}{tagsCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}{tagsCard}</div>;
+            /* V21.27.3: نسب الهالك (قماش/إكسسوار) — بنود تكلفة مستقلة لكل أوردر */
+            const wasteCard=<div className="ord-block-card" key="waste">
+              <div className="ord-block-header"><span>🗑️ نسب الهالك (هدر القماش/الإكسسوار)</span></div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,padding:"4px 2px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:FS-1,fontWeight:700,color:T.textSec,minWidth:96}}>هالك القماش %</span><Inp type="number" step="any" value={form.wasteFabricPct||""} onChange={v=>updF("wasteFabricPct",Number(v)||0)} placeholder="0" style={{width:90,textAlign:"center"}}/></div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:FS-1,fontWeight:700,color:T.textSec,minWidth:96}}>هالك الإكسسوار %</span><Inp type="number" step="any" value={form.wasteAccPct||""} onChange={v=>updF("wasteAccPct",Number(v)||0)} placeholder="0" style={{width:90,textAlign:"center"}}/></div>
+                <span style={{fontSize:FS-3,color:T.textMut}}>بتتزاد على التكلفة كبنود مستقلة على الكمية الفعلية للأوردر.</span>
+              </div>
+            </div>;
+            return fabricsFillFullRow?<>{accCard}{instCard}{tagsCard}{wasteCard}</>:<div className="ord-extras-stack" key="extras">{accCard}{instCard}{tagsCard}{wasteCard}</div>;
           })()}
         </div>
         {visibleFabricCount<FKEYS.length&&<div style={{marginBottom:14}}>

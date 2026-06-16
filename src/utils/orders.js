@@ -167,7 +167,7 @@ export function getPieceCutQty(order,piece){
 }
 
 export function calcOrder(o){
-  if(!o||typeof o!=="object")return{cutQty:0,totalFab:0,fabPer:0,accPer:0,accAll:0,wsCostAll:0,wsCostPer:0,costPer:0,costAll:0,wsCostAllProjected:0,wsCostPerProjected:0,costPerProjected:0,costAllProjected:0,balance:0};
+  if(!o||typeof o!=="object")return{cutQty:0,totalFab:0,fabPer:0,accPer:0,accAll:0,wsCostAll:0,wsCostPer:0,wasteFabricPct:0,wasteAccPct:0,fabWastePer:0,accWastePer:0,fabWasteAll:0,accWasteAll:0,wastePer:0,wasteAll:0,costPer:0,costAll:0,wsCostAllProjected:0,wsCostPerProjected:0,costPerProjected:0,costAllProjected:0,balance:0};
   const cached=_orderCache.get(o);
   if(cached)return cached;
   const mainCut=sqty(gc(o,"A"))||o.cutQty||0;let totalFab=0;const fp=[];
@@ -220,14 +220,22 @@ export function calcOrder(o){
   });
   const wsCostPer=mainCut>0?r2(wsCostAll/mainCut):0;
   const wsCostPerProjected=mainCut>0?r2(wsCostAllProjected/mainCut):0;
+  /* V21.27.3: نسبتا الهالك (هدر القماش/الإكسسوار) — بند تكلفة مستقل يتزاد على
+     الإجمالي. Default 0 → مفيش تأثير على الأوامر القديمة. القماش على totalFab/
+     fabPer، والإكسسوار على accAll/accPer. */
+  const wfp=Number(o.wasteFabricPct)||0,wap=Number(o.wasteAccPct)||0;
+  const fabWastePer=r2(fabPer*wfp/100),accWastePer=r2(accPer*wap/100);
+  const fabWasteAll=r2(totalFab*wfp/100),accWasteAll=r2(accPer*mainCut*wap/100);
+  const wastePer=r2(fabWastePer+accWastePer),wasteAll=r2(fabWasteAll+accWasteAll);
   const result={
     cutQty:mainCut,totalFab,fabPer:r2(fabPer),accPer,accAll:accPer*mainCut,
     wsCostAll:r2(wsCostAll),wsCostPer,
     wsCostAllProjected:r2(wsCostAllProjected),wsCostPerProjected,
-    costPer:r2(fabPer+accPer+wsCostPer),
-    costAll:r2(totalFab+accPer*mainCut+wsCostAll),
-    costPerProjected:r2(fabPer+accPer+wsCostPerProjected),
-    costAllProjected:r2(totalFab+accPer*mainCut+wsCostAllProjected),
+    wasteFabricPct:wfp,wasteAccPct:wap,fabWastePer,accWastePer,fabWasteAll,accWasteAll,wastePer,wasteAll,
+    costPer:r2(fabPer+accPer+wsCostPer+wastePer),
+    costAll:r2(totalFab+accPer*mainCut+wsCostAll+wasteAll),
+    costPerProjected:r2(fabPer+accPer+wsCostPerProjected+wastePer),
+    costAllProjected:r2(totalFab+accPer*mainCut+wsCostAllProjected+wasteAll),
     balance:mainCut-(o.deliveredQty||0)
   };
   _orderCache.set(o,result);
@@ -753,6 +761,9 @@ export function buildOrderFromModel(model){
   o.imageStoragePath=model.imageStoragePath||"";
   o.instructions=model.instructions||"";
   o.marker=model.marker||"";
+  /* V21.27.3: نسبتا الهالك من الموديل (قابلة للتعديل لكل أوردر) */
+  o.wasteFabricPct=Number(model.wasteFabricPct)||0;
+  o.wasteAccPct=Number(model.wasteAccPct)||0;
   o.accItems=JSON.parse(JSON.stringify(model.accItems||[]));
   FKEYS.forEach(k=>{
     o["fabric"+k]=model["fabric"+k]||"";
