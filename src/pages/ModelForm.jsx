@@ -139,7 +139,13 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
     const ss = (data.sizeSets || []).find(s => s.id === Number(form.sizeSetId));
     const o = { ...form, sizeLabel: ss ? ss.label : "", _isModel: true };
     if(!o.id) o.id = gid();
-    FKEYS.forEach(k => { const fb = fabObj(o["fabric" + k]); o["fabric" + k + "Label"] = fb ? (fb.name + " - " + fb.unit) : ""; o["fabric" + k + "Price"] = fb ? fb.price : 0; o["fabric" + k + "Unit"] = fb ? fb.unit : ""; });
+    FKEYS.forEach(k => {
+      const fb = fabObj(o["fabric" + k]); o["fabric" + k + "Label"] = fb ? (fb.name + " - " + fb.unit) : ""; o["fabric" + k + "Price"] = fb ? fb.price : 0; o["fabric" + k + "Unit"] = fb ? fb.unit : "";
+      /* V21.27.0: الموديل = وصفة — الألوان اسم/هكس بس (الراقات/الكميات بتتحدد في
+         أمر التشغيل، عشان كل أوردر بكمية مختلفة). */
+      const arr = o["colors" + k];
+      if(Array.isArray(arr)) o["colors" + k] = arr.filter(c => c && (c.color || "").trim()).map(c => ({ color: c.color, colorHex: c.colorHex || "" }));
+    });
     delete o.poNumber; delete o.status; delete o.cutQty; delete o._docId;
     onSave(o);
   };
@@ -184,9 +190,11 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       {TABS.map(t => <div key={t.id} onClick={() => setTab(t.id)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:tab===t.id?"3px solid "+T.accent:"3px solid transparent",marginBottom:-2,fontWeight:tab===t.id?800:600,color:tab===t.id?T.accent:T.textSec,fontSize:FS-1,whiteSpace:"nowrap"}}>{t.label}</div>)}
     </div>
 
-    {/* ── Tab: fabrics ── */}
+    {/* ── Tab: fabrics ── V21.27.0: الموديل = وصفة. كل خامة سطر واحد: استهلاك/راق
+        + قطع/راق → البرنامج يحسب «استهلاك القطعة». الألوان اختيار بس (من غير راقات/
+        كميات — الكمية بتتحدد في أمر التشغيل). */}
     {tab === "fabrics" && <div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12}}>
         {visible.map((k, idx) => {
           const fid = form["fabric" + k]; const fb = fabObj(fid);
           const fabPieces = form["fabricPieces" + k] || [];
@@ -198,13 +206,19 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
               {upConfig && <Btn small onClick={() => setQfab({ name:"", unit:"كيلو", price:"", forKey:k })} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 9px",fontWeight:700}} title="إضافة خامة للمخزن">+</Btn>}
               {idx > 0 && <Btn small onClick={() => removeFabric(k)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 9px",fontWeight:700}}>✕</Btn>}
             </div>
-            {fid && <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:"1px dashed "+T.brd,borderBottom:"1px dashed "+T.brd}}>
-              <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>استهلاك/راق</span>
-              <Inp type="number" step="any" value={form["cons"+k]} onChange={v => updF("cons"+k, v)} style={{width:65,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
-              <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}} title="القطع في الراق الواحد">قطع/راق</span>
-              <Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v => updF("pcsPerLayer"+k, v)} placeholder={ssPps?String(ssPps):"0"} style={{width:60,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
-            </div>}
-            {fid && <FCTable label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c => updF("colors"+k, c)} pcsPerSeries={effectivePpl}/>}
+            {fid && (() => {
+              const consVal = Number(form["cons"+k]) || 0;
+              const perPiece = (consVal > 0 && effectivePpl > 0) ? consVal / effectivePpl : 0;
+              const perTxt = perPiece > 0 ? (Math.round(perPiece * 10000) / 10000).toString() : "—";
+              return <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:"1px dashed "+T.brd,borderBottom:"1px dashed "+T.brd}}>
+                <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}} title="استهلاك الراق الواحد">استهلاك/راق</span>
+                <Inp type="number" step="any" value={form["cons"+k]} onChange={v => updF("cons"+k, v)} style={{width:65,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+                <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}} title="القطع في الراق الواحد">قطع/راق</span>
+                <Inp type="number" value={form["pcsPerLayer"+k]||""} onChange={v => updF("pcsPerLayer"+k, v)} placeholder={ssPps?String(ssPps):"0"} style={{width:60,padding:"4px 6px",fontSize:FS-1,textAlign:"center"}}/>
+                <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 12px",borderRadius:8,background:FCOL[idx]+"15",border:"1px solid "+FCOL[idx]+"40",color:FCOL[idx],fontSize:FS-2,fontWeight:800}} title="استهلاك القطعة الواحدة = استهلاك الراق ÷ قطع الراق">🧮 استهلاك القطعة: {perTxt}{perPiece > 0 && fb ? " " + fb.unit : ""}</span>
+              </div>;
+            })()}
+            {fid && <FCTable simple label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c => updF("colors"+k, c)} pcsPerSeries={effectivePpl}/>}
             {fid && (form.orderPieces || []).length > 0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>{"قطع خامة "+k+":"}</span>
               {(form.orderPieces || []).map(p => { const sel = fabPieces.includes(p); return <span key={p} onClick={() => updF("fabricPieces"+k, sel?fabPieces.filter(x=>x!==p):[...fabPieces,p])} style={{padding:"4px 10px",borderRadius:8,fontSize:FS-2,fontWeight:600,cursor:"pointer",background:sel?FCOL[idx]+"20":"#F1F5F9",color:sel?FCOL[idx]:T.textMut,border:"1px solid "+(sel?FCOL[idx]+"50":T.brd)}}>{p}</span>; })}
