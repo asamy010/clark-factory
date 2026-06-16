@@ -83,8 +83,10 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
       if(!alive) return;
       const w = im.naturalWidth || 1024, h = im.naturalHeight || 1024;
       setDims({ w, h }); setReady(true);
-      const maxW = Math.min(720, (typeof window !== "undefined" ? window.innerWidth : 720) - 360);
-      const maxH = (typeof window !== "undefined" ? window.innerHeight : 800) * 0.66;
+      const vw = (typeof window !== "undefined" ? window.innerWidth : 1200);
+      const vh = (typeof window !== "undefined" ? window.innerHeight : 800);
+      const maxW = Math.max(280, vw * 0.96 - 330); /* ناقص لوحة التحكم 300 */
+      const maxH = vh * 0.82;
       const s = Math.min(maxW / w, maxH / h, 1);
       setScale(s); scaleRef.current = s;
     }).catch(() => { if(alive) setErr("تعذّر تحميل الصورة"); });
@@ -145,7 +147,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
     } else if(g.type === "resize"){
       const dist = Math.hypot(e.clientX - g.ccx, e.clientY - g.ccy);
       const ratio = Math.max(0.05, dist / (g.startDist || 1));
-      setLayers(ls => ls.map(l => { if(l.id !== g.id) return l; return l.type === "text" ? { ...l, size: Math.max(6, g.startSize * ratio) } : { ...l, w: Math.max(12, g.startSize * ratio) }; }));
+      setLayers(ls => ls.map(l => { if(l.id !== g.id) return l; return l.type === "image" ? { ...l, w: Math.max(12, g.startSize * ratio) } : { ...l, size: Math.max(6, g.startSize * ratio) }; }));
     } else if(g.type === "rotate"){
       const ang = Math.atan2(e.clientY - g.ccy, e.clientX - g.ccx) * 180 / Math.PI;
       setLayers(ls => ls.map(l => l.id === g.id ? { ...l, rot: Math.round(g.startRot + (ang - g.startAng)) } : l));
@@ -160,7 +162,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
 
   const centerClient = (l) => { const r = stageRef.current.getBoundingClientRect(); return { x: r.left + l.cx * scaleRef.current, y: r.top + l.cy * scaleRef.current }; };
   const startMove = (e, l) => { e.stopPropagation(); setSelId(l.id); gestureRef.current = { type: "move", id: l.id, sx: e.clientX, sy: e.clientY, scx: l.cx, scy: l.cy }; };
-  const startResize = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "resize", id: l.id, ccx: c.x, ccy: c.y, startDist: Math.hypot(e.clientX - c.x, e.clientY - c.y), startSize: l.type === "text" ? l.size : l.w }; };
+  const startResize = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "resize", id: l.id, ccx: c.x, ccy: c.y, startDist: Math.hypot(e.clientX - c.x, e.clientY - c.y), startSize: l.type === "image" ? l.w : l.size }; };
   const startRotate = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "rotate", id: l.id, ccx: c.x, ccy: c.y, startAng: Math.atan2(e.clientY - c.y, e.clientX - c.x) * 180 / Math.PI, startRot: l.rot || 0 }; };
 
   /* ── التصدير ── */
@@ -168,7 +170,13 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
      عشان canvas مايتلوّثش. الـ blob/data URLs بتتحمّل مباشرة. */
   const proxify = (u) => (/^https?:/i.test(u) ? ("/api/img-proxy?url=" + encodeURIComponent(u)) : u);
   const buildBlob = async () => {
-    if(document.fonts && document.fonts.ready){ try { await document.fonts.ready; } catch(_){} }
+    /* تأكيد تحميل الخطوط المستخدمة فعلياً قبل الرسم (canvas مش بيـ trigger تحميل) */
+    if(document.fonts && document.fonts.load){
+      const want = new Set();
+      for(const L of layers){ if(L.type === "text") want.add((L.bold ? "700 " : "400 ") + "48px " + L.font); else if(L.type === "stamp") want.add("400 48px " + L.font); }
+      try { await Promise.all([...want].map(f => document.fonts.load(f).catch(() => {}))); } catch(_){}
+      try { await document.fonts.ready; } catch(_){}
+    }
     const bi = await loadImg(proxify(src), true);
     const cache = {};
     for(const L of layers){ if(L.type === "image" && !cache[L.url]){ try { cache[L.url] = await loadImg(proxify(L.url), true); } catch(_){ cache[L.url] = null; } } }
@@ -200,7 +208,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         let y = -total / 2;
         for(const ln of lines){
-          ctx.font = "700 " + ln.fs + "px " + L.font;
+          ctx.font = "400 " + ln.fs + "px " + L.font;
           ctx.fillStyle = ln.color;
           ctx.fillText(ln.t, 0, y + ln.fs / 2);
           y += ln.fs + gap;
@@ -220,7 +228,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100080, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, direction: "rtl" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "min(1140px,100%)", maxHeight: "94vh", overflow: "hidden", border: "1px solid " + T.brd, boxShadow: "0 25px 80px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, width: "fit-content", maxWidth: "98vw", maxHeight: "96vh", overflow: "hidden", border: "1px solid " + T.brd, boxShadow: "0 25px 80px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column" }}>
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid " + T.brd, flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontSize: FS + 2, fontWeight: 900, color: T.accent }}>🎨 محرّر الصورة</div>
@@ -238,7 +246,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
 
         <div style={{ display: "flex", gap: 0, flex: 1, minHeight: 0 }}>
           {/* Stage */}
-          <div style={{ flex: 1, minWidth: 0, overflow: "auto", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setSelId(null)}>
+          <div style={{ width: dispW || 480, minHeight: dispH || 320, flexShrink: 0, overflow: "auto", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelId(null)}>
             {err && <div style={{ position: "absolute", top: 70, color: "#fca5a5", fontSize: FS - 2, fontWeight: 700, background: "rgba(0,0,0,0.5)", padding: "6px 12px", borderRadius: 8 }}>⚠️ {err}</div>}
             {ready && <div ref={stageRef} onClick={e => e.stopPropagation()} style={{ position: "relative", width: dispW, height: dispH, flexShrink: 0, boxShadow: "0 10px 40px rgba(0,0,0,0.5)", userSelect: "none", touchAction: "none" }}>
               <img src={src} alt="" draggable={false} style={{ width: "100%", height: "100%", display: "block", pointerEvents: "none" }} />
@@ -249,7 +257,7 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
                   {l.type === "text"
                     ? <div style={{ fontFamily: l.font, fontSize: l.size * scale, color: l.color, fontWeight: l.bold ? 700 : 400, fontStyle: l.italic ? "italic" : "normal", textAlign: l.align, whiteSpace: "pre", lineHeight: 1.25, textShadow: l.shadow ? "0 " + (l.size * scale * 0.06) + "px " + (l.size * scale * 0.14) + "px rgba(0,0,0,0.55)" : "none", WebkitTextStroke: l.stroke ? Math.max(1, l.size * scale * 0.07) + "px " + (l.strokeColor || "#000") : undefined, padding: "0 2px" }}>{l.text || "نص"}</div>
                     : l.type === "stamp"
-                    ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: l.font, lineHeight: 1.06, whiteSpace: "pre", fontWeight: 700 }}>{stampLines(l).map((ln, i) => <span key={i} style={{ fontSize: ln.fs * scale, color: ln.color, letterSpacing: "0.01em" }}>{ln.t}</span>)}</div>
+                    ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: l.font, lineHeight: 1.06, whiteSpace: "pre", fontWeight: 400 }}>{stampLines(l).map((ln, i) => <span key={i} style={{ fontSize: ln.fs * scale, color: ln.color, letterSpacing: "0.01em" }}>{ln.t}</span>)}</div>
                     : <img src={l.url} alt="" draggable={false} style={{ width: l.w * scale, height: "auto", display: "block", pointerEvents: "none" }} />}
                   {isSel && <>
                     <div onPointerDown={e => startResize(e, l)} style={{ ...handleDot("nwse-resize"), insetInlineEnd: -8, bottom: -8 }} title="تكبير/تصغير" />
