@@ -37,6 +37,8 @@ export function PromptExtractModal({ data, groups, defaultGroup, onClose, onSave
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(""); /* نص التقدّم */
   const [group, setGroup] = useState(defaultGroup || (Array.isArray(groups) && groups[0]) || "New"); /* القسم المستهدف */
+  /* V21.27.44: وضع سحب الخلفية — studio (وقفة + خلفية بيضاء) / full (كل التفاصيل مع الخلفية) */
+  const [bgMode, setBgMode] = useState("studio");
 
   const upd = (id, patch) => setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it));
   const mkId = (i) => "ex_" + Date.now().toString(36) + "_" + i + "_" + Math.random().toString(36).slice(2, 5);
@@ -54,7 +56,7 @@ export function PromptExtractModal({ data, groups, defaultGroup, onClose, onSave
       try {
         const { dataUrl, base64, mimeType } = await fileToResizedBase64(f);
         upd(it.id, { thumb: dataUrl });
-        const r = await describeImage({ imageBase64: base64, mimeType });
+        const r = await describeImage({ imageBase64: base64, mimeType, bgMode });
         if(!r.ok){ upd(it.id, { status: "error", error: r.error || "فشل التحليل" }); continue; }
         /* رفع الصورة الأصلية للمكتبة (URL ثابت) — best effort */
         let url = "";
@@ -79,7 +81,7 @@ export function PromptExtractModal({ data, groups, defaultGroup, onClose, onSave
       const x = list[i]; const it = fresh[i];
       setProgress("بيحلّل صورة " + (i + 1) + " من " + list.length + "...");
       try {
-        const r = await describeImage({ imageUrl: x.url });
+        const r = await describeImage({ imageUrl: x.url, bgMode });
         if(!r.ok){ upd(it.id, { status: "error", error: r.error || "فشل التحليل" }); continue; }
         upd(it.id, { status: "done", name: r.name || ("وقفة " + (i + 1)), prompt: r.prompt || "", image: x.url });
       } catch(e){
@@ -106,7 +108,23 @@ export function PromptExtractModal({ data, groups, defaultGroup, onClose, onSave
           <div style={{ fontSize: FS + 3, fontWeight: 900, color: T.accent }}>🪄 استخراج برومبتس من صور الوقفات</div>
           <Btn ghost onClick={() => !busy && onClose && onClose()}>✕</Btn>
         </div>
-        <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12, lineHeight: 1.7 }}>ارفع صور وقفات، والبرنامج يطلّع لكل صورة برومبت كامل (وقفة/إطار/إضاءة/خلفية/مود). راجع وعدّل، وبعدها احفظ الكل في مكتبة البرومبتس بالصور.</div>
+        <div style={{ fontSize: FS - 2, color: T.textSec, marginBottom: 12, lineHeight: 1.7 }}>ارفع صور وقفات، والبرنامج يطلّع لكل صورة برومبت كامل (وقفة/إطار/إضاءة/مود). راجع وعدّل، وبعدها احفظ الكل في مكتبة البرومبتس بالصور.</div>
+
+        {/* V21.27.44: اختيار طريقة سحب الخلفية — اختر قبل التحليل */}
+        <div style={{ marginBottom: 14, border: "1px solid " + T.brd, borderRadius: 10, padding: 10, background: T.bg }}>
+          <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 8 }}>🎬 طريقة سحب الخلفية:</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { id: "studio", t: "🎯 وقفة + خلفية استوديو بيضاء", d: "يسحب الوقفة/الكاميرا/حركة الجسم/الجزمة ويتجاهل الخلفية → خلفية بيضاء ناعمة احترافية" },
+              { id: "full",   t: "🖼️ كل التفاصيل مع الخلفية",      d: "يسحب كل التفاصيل بما فيها لون وتفاصيل الخلفية والإضاءة" },
+            ].map(o => (
+              <div key={o.id} onClick={() => !busy && setBgMode(o.id)} style={{ flex: "1 1 220px", cursor: busy ? "default" : "pointer", padding: "9px 11px", borderRadius: 9, border: "1px solid " + (bgMode === o.id ? T.accent : T.brd), background: bgMode === o.id ? T.accent + "12" : T.cardSolid, opacity: busy ? 0.7 : 1 }}>
+                <div style={{ fontSize: FS - 1, fontWeight: 800, color: bgMode === o.id ? T.accent : T.text }}>{bgMode === o.id ? "● " : "○ "}{o.t}</div>
+                <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 3, lineHeight: 1.5 }}>{o.d}</div>
+              </div>
+            ))}
+          </div>
+        </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
           <ImagePickButton data={data} multiple imagesOnly onFiles={onFiles} onPickMany={onPickDocs} disabled={busy}

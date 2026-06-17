@@ -15,15 +15,28 @@ export const config = { maxDuration: 60 };
 
 const TEXT_MODEL = (process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash").trim();
 
-const INSTRUCTION =
-  "You are a fashion-photography prompt engineer. Look at the photo and write ONE detailed, " +
-  "reusable text-to-image PROMPT (in English) that would recreate the SAME SHOT. Focus on: model " +
-  "pose & body position, framing/crop (full-body / half / close-up), camera angle & lens feel, " +
-  "lighting style & direction, background/setting, mood & facial expression, and overall composition. " +
-  "Do NOT describe the specific garment fabric/brand, and ignore any text or logos. Keep it " +
+/* V21.27.44: التعليمة بتتبني حسب bgMode:
+   • "studio" (افتراضي) — يسحب الوقفة/الكاميرا/حركة الجسم/الإطار/التعبير/الجزمة
+     ويتجاهل الخلفية الأصلية تماماً → خلفية استوديو بيضاء ناعمة احترافية.
+   • "full" — يسحب كل التفاصيل مع لون وتفاصيل الخلفية والإضاءة في المشهد. */
+const COMMON_FOCUS =
+  "Focus on: the model's exact pose, body position & body movement/gesture, framing/crop " +
+  "(full-body / half / close-up), camera angle & lens feel, mood & facial expression, and overall " +
+  "composition. ALSO capture the footwear/shoes style. Do NOT describe the main garment's " +
+  "fabric/brand/print and ignore any text or logos (the outfit will be swapped later). Keep it " +
   "production-ready, comma-separated, no markdown, no preamble. " +
   "Also produce a SHORT Arabic name (2-4 words) describing the pose. " +
   "Return ONLY a JSON object with exactly these keys: { \"prompt\": \"...\", \"name\": \"...\" }";
+
+function buildInstruction(bgMode){
+  const intro = "You are a fashion-photography prompt engineer. Look at the photo and write ONE detailed, " +
+    "reusable text-to-image PROMPT (in English) that would recreate the SAME SHOT. ";
+  const bg = bgMode === "full"
+    ? "Describe the background/setting in full detail INCLUDING its exact colors, environment, props and the scene lighting. "
+    : "IGNORE the original background completely — do NOT mention its colors or setting at all. Instead, set the " +
+      "background to a clean seamless pure white professional studio backdrop with soft, even, professional studio lighting. ";
+  return intro + bg + COMMON_FOCUS;
+}
 
 export default async function handler(req, res){
   setCors(res, req);
@@ -70,6 +83,10 @@ export default async function handler(req, res){
   if(!b64) return res.status(400).json({ ok: false, error: "الصورة مطلوبة" });
   /* حد أمان (~7MB base64 ≈ 5MB صورة) */
   if(b64.length > 7_000_000) return res.status(413).json({ ok: false, error: "الصورة كبيرة — صغّرها قبل الرفع" });
+
+  /* V21.27.44: وضع الخلفية — "studio" (افتراضي) أو "full". */
+  const bgMode = String(body.bgMode || "studio").trim() === "full" ? "full" : "studio";
+  const INSTRUCTION = buildInstruction(bgMode);
 
   /* V21.27.36: استدعاء Gemini مرة واحدة. بيرجّع { raw, finishReason, block }.
      - thinkingConfig.thinkingBudget=0: يعطّل «التفكير» في gemini-2.5-flash —
