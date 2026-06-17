@@ -19,7 +19,7 @@ import { FS } from "../constants/index.js";
    wrongly required `status.ok` and flipped offline on a single blip). */
 import { BridgeStatusIndicator } from "../components/BridgeStatusIndicator.jsx";
 import { gid } from "../utils/format.js";
-import { ask, showToast } from "../utils/popups.js";
+import { ask, tell, showToast } from "../utils/popups.js";
 import { buildDailyReport, DEFAULT_AUTOMATION_CONFIG, DEFAULT_DAILY_TEMPLATE, DAILY_REPORT_VARIABLES } from "../utils/automation/buildDailyReport.js";
 import {
   EVENT_VARIABLES,
@@ -539,14 +539,25 @@ export function AutomationPg({ data, upConfig, isMob, user }){
       showToast("⛔ مفيش مستلمين مشتركين في التقرير اليومي");
       return;
     }
-    /* Quick health check.
-       V19.68 FIX: bridge /status returns {waState, waReady} not {state}.
-       waReady is the canonical "ready to send" boolean. */
+    /* V21.27.39: comprehensive pre-flight — waReady ALONE is NOT enough.
+       ROOT CAUSE this fixes: a connected session (waReady=true) can still fail
+       to deliver if the queue is paused (it auto-pauses at the daily cap), the
+       worker stalled, or the cap is already hit. The old check gated on waReady
+       only, so messages got ENQUEUED onto a dead/paused queue and we reported a
+       FALSE "تم الإرسال". Now we surface the real blocker before sending. */
     setBusy(true);
     const status = await bridgeStatus(bridgeUrl, bridgeToken);
-    if (!status?.waReady) {/* V21.9.202: gate on waReady only (bridge /status has no `ok`); a fetch failure leaves waReady undefined so unreachable still blocks. */
+    const _dailySent = Number(status?.daily?.sent) || 0;
+    const _dailyCap  = Number(status?.settings?.dailyCap) || 0;
+    const blockers = [];
+    if (status?.error) blockers.push("تعذّر الاتصال بالبريدج: " + status.error);
+    if (!status?.waReady) blockers.push("واتساب مش متصل (waReady=false) — افتح dashboard البريدج وامسح QR");
+    if (status?.queuePaused === true) blockers.push("الطابور موقّف (queuePaused) — افتح البريدج واضغط Resume");
+    if (status?.queueRunning === false) blockers.push("معالج الطابور واقف (queueRunning=false) — اعمل restart للبريدج");
+    if (_dailyCap && _dailySent >= _dailyCap) blockers.push("وصلت الحد اليومي (" + _dailySent + "/" + _dailyCap + ") — الطابور وقّف نفسه. زوّد الـ cap أو اعمل reset.");
+    if (blockers.length) {
       setBusy(false);
-      showToast("⛔ الـbridge مش جاهز (" + (status?.waState || status?.error || "unknown") + ")");
+      tell("⛔ البريدج مش جاهز للإرسال", blockers.map(b => "• " + b).join("\n"));
       return;
     }
     try {
@@ -574,8 +585,27 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         return { phone: r.phone, message: reportCache[cacheKey].text };
       });
       const sendResult = await bridgeSend(bridgeUrl, bridgeToken, messages);
-      const accepted = (sendResult?.queued || sendResult?.accepted || messages.length);
-      /* Append to history */
+      const accepted = messages.length;
+      /* V21.27.39: bridge /send only ENQUEUES — HTTP 200 does NOT mean delivered.
+         Watch the bridge for ~20s to see if the queue is actually DRAINING
+         (daily.sent rises OR pending falls below the post-send baseline). This
+         turns the old blind "✓ تم الإرسال" into the truth: queued+draining (on
+         the way) vs queued+stuck (paused / stalled / zombie session). The bridge
+         sends ~1 msg / 6-12s, so we detect "moving", not "all delivered". */
+      const sentBefore = _dailySent;
+      const pendingBaseline = Number(sendResult?.queueTotal);
+      let moving = false, deliveredApprox = 0, lastPending = null;
+      for (let i = 0; i < 7 && !moving; i++) {
+        await new Promise(res => setTimeout(res, 2800));
+        const s2 = await bridgeStatus(bridgeUrl, bridgeToken);
+        if (s2?.error) continue;
+        deliveredApprox = Math.max(0, (Number(s2?.daily?.sent) || 0) - sentBefore);
+        const pend = Number(s2?.queue?.pending);
+        if (Number.isFinite(pend)) lastPending = pend;
+        if (deliveredApprox >= 1) moving = true;
+        else if (Number.isFinite(pendingBaseline) && Number.isFinite(pend) && pend < pendingBaseline) moving = true;
+      }
+      /* Append to history — success reflects REAL queue movement, not enqueue. */
       updateAutomation(a => {
         if (!Array.isArray(a.history)) a.history = [];
         a.history.unshift({
@@ -585,7 +615,9 @@ export function AutomationPg({ data, upConfig, isMob, user }){
           source: "manual-test",/* V19.69.2: was "manual" */
           recipientCount: messages.length,
           accepted,
-          success: true,
+          delivered: deliveredApprox,
+          queueDraining: moving,
+          success: moving,/* V21.27.39: was hardcoded true (false success on a stuck queue) */
           by: userEmail,
         });
         a.history = a.history.slice(0, 50);
@@ -597,7 +629,14 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         if (!a.dailyReport) a.dailyReport = { ...DEFAULT_AUTOMATION_CONFIG.dailyReport };
         a.dailyReport.lastManualTestAt = new Date().toISOString();
       });
-      showToast("✓ تم إرسال التقرير لـ" + accepted + " مستلم");
+      if (moving) {
+        showToast("✓ اتحطّت " + accepted + " في الطابور والطابور بيفرّغ — هتوصل خلال دقايق (~10ث/رسالة)");
+      } else {
+        tell("⚠️ اتحطّت في الطابور لكن مفيش تسليم",
+          accepted + " رسالة دخلت طابور البريدج، لكن الطابور مش بيفرّغ خلال ~20 ثانية (اتسلّم " + deliveredApprox + " بس)."
+          + "\n\nالأسباب المحتملة:\n• الطابور موقّف → Resume من البريدج\n• معالج الطابور واقف → restart للبريدج\n• جلسة واتساب منتهية → امسح QR"
+          + (lastPending != null ? "\n\nفي الطابور دلوقتي: " + lastPending + " رسالة." : ""));
+      }
     } catch(e){
       updateAutomation(a => {
         if (!Array.isArray(a.history)) a.history = [];
@@ -632,7 +671,7 @@ export function AutomationPg({ data, upConfig, isMob, user }){
         </div>
       </div>
       {/* Bridge status pill */}
-      <BridgeStatusPill bridgeUrl={bridgeUrl} bridgeToken={bridgeToken}/>
+      <BridgeStatusPill bridgeUrl={bridgeUrl} bridgeToken={bridgeToken} lastTickAt={automation?.lastTickAt}/>
     </div>
 
     {/* Tabs */}
@@ -1986,6 +2025,9 @@ function CronSetupHelper(){
    before checking waReady, and it flipped to offline on a single transient
    fetch failure. The shared indicator checks waReady (like Campaigns) and is
    resilient to a single blip. */
-function BridgeStatusPill({ bridgeUrl, bridgeToken }){
-  return <BridgeStatusIndicator url={bridgeUrl} token={bridgeToken}/>;
+function BridgeStatusPill({ bridgeUrl, bridgeToken, lastTickAt }){
+  /* V21.27.39: forward lastTickAt so the Automation pill also shows the
+     "🟡 متصل — المجدول متوقف" warning when the VPS cron is dead, instead of a
+     green "واتساب متصل" that hides a 5-month-stale scheduler. */
+  return <BridgeStatusIndicator url={bridgeUrl} token={bridgeToken} lastTickAt={lastTickAt}/>;
 }
