@@ -47,8 +47,10 @@ export const GENDERS = [
   { id: "man",   label: "رجل",   prompt: "an adult male" },
 ];
 
-/* تعبير الوجه — افتراضي «ابتسامة» (أمر Ahmed: دايماً ابتسامة أساسي). */
+/* تعبير الوجه — افتراضي «ابتسامة» (أمر Ahmed: دايماً ابتسامة أساسي).
+   V21.27.46: «تلقائي» متاح كـ opt-out (يسيب التعبير للبرومبت نفسه). */
 export const EXPRESSIONS = [
+  { id: "auto",      label: "تلقائي",     prompt: "" },
   { id: "smile",     label: "ابتسامة 😊", prompt: "a warm, genuine, natural smile with bright friendly eyes and a happy approachable expression" },
   { id: "laugh",     label: "ضحكة 😄",    prompt: "laughing joyfully with a big happy genuine expression, full of fun and delight" },
   { id: "confident", label: "واثق 😎",    prompt: "a confident charismatic expression with a subtle natural smile and lively eyes" },
@@ -169,6 +171,7 @@ export const SKIN_TONES = [
 ];
 
 export const LIGHTINGS = [
+  { id: "auto",     label: "تلقائي",       prompt: "" },
   { id: "soft",     label: "استوديو ناعم", prompt: "soft even studio lighting" },
   { id: "natural",  label: "طبيعي",        prompt: "natural daylight" },
   { id: "dramatic", label: "درامي",        prompt: "dramatic directional lighting with soft shadows" },
@@ -188,8 +191,9 @@ export const CAMERA_PRESETS = [
   { id: "none",   label: "تلقائي",       diagram: "auto",     desc: "النموذج يختار الأنسب", prompt: "" },
 ];
 
-/* نمط التصوير — الافتراضي احترافي */
+/* نمط التصوير — V21.27.46: «تلقائي» افتراضي (مايتحقنش)؛ الواقعية بتغطّي الاحتراف */
 export const CAM_STYLES = [
+  { id: "auto", label: "تلقائي",     prompt: "" },
   { id: "pro",  label: "احترافي",    prompt: "professional studio editorial fashion photography, clean and polished" },
   { id: "life", label: "لايف ستايل", prompt: "natural lifestyle photography with a candid everyday feel" },
   { id: "cine", label: "سينمائي",    prompt: "cinematic photography with moody dramatic color grading" },
@@ -336,7 +340,7 @@ export function buildStudioPrompt(opts, lib){
       (camAngle && camAngle.prompt) ? (camAngle.prompt + ".") : "",
       (pose.prompt || "") + ".",
       (gaze && gaze.prompt) ? (gaze.prompt + ".") : "",
-      "The model has " + (expr.prompt || EXPRESSIONS[0].prompt) + ".",
+      (expr && expr.prompt) ? ("The model has " + expr.prompt + ".") : "",
       mood,
       FOOTWEAR_CLAUSE,
       "Use natural candid body language, authentic spontaneous movement and a genuine lively vibe — absolutely NOT a stiff, rigid, frozen or mannequin-like pose, and not an empty blank expression.",

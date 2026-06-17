@@ -144,7 +144,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [backgroundId, setBackgroundId] = useState("studio_white");
   const [framingId, setFramingId] = useState("auto"); /* V21.27.45: افتراضي «تلقائي» — مايغيّرش البرومبت الجاهز إلا لو المستخدم اختار إطار */
   const [skinToneId, setSkinToneId] = useState("any");
-  const [lightingId, setLightingId] = useState("soft");
+  const [lightingId, setLightingId] = useState("auto"); /* V21.27.46: افتراضي تلقائي — مايطغاش على إضاءة البرومبت الجاهز */
   /* V21.27.42: تحكّمات احترافية إضافية (auto = مايتحقنش) */
   const [camAngleId, setCamAngleId] = useState("auto");
   const [gazeId, setGazeId] = useState("auto");
@@ -152,8 +152,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [notes, setNotes] = useState("");
   const [realismOn, setRealismOn] = useState(true);
   const [realismLevel, setRealismLevel] = useState("medium");
-  const [cameraId, setCameraId] = useState("dslr85");
-  const [camStyle, setCamStyle] = useState("pro");
+  const [cameraId, setCameraId] = useState("none");   /* V21.27.46: افتراضي تلقائي — مايفرضش عدسة على البرومبت الجاهز */
+  const [camStyle, setCamStyle] = useState("auto");   /* V21.27.46: افتراضي تلقائي — الواقعية بتغطّي الاحتراف */
   const [storageFolder, setStorageFolder] = useState((model && model.modelNo) || "");
   const [customOn, setCustomOn] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
@@ -1249,7 +1249,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             {/* V21.27.42: العدسة + النمط بقوا يتحقنوا في البرومبت الجاهز كمان → الكارت مؤثّر دايماً */}
             <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14 }}>
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
-              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
+              <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي «تلقائي» (مايفرضش عدسة على البرومبت الجاهز) — اختار عدسة للتحكّم في تمويه الخلفية.</div>
               {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
               <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
               <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr" : "1fr 1fr", gap: 8 }}>
