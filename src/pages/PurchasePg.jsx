@@ -15,6 +15,7 @@ import { ask, tell, showToast, denyAction } from "../utils/popups.js";
 import { nowISO } from "../utils/serverTime.js";
 import { getCategories, getCategoryById, getItemsForCategory, addCategory, updateCategory, deleteCategory, addTypeToCategory, removeTypeFromCategory, addInventoryItem, updateInventoryItem, deleteInventoryItem, applyStockDelta } from "../utils/categories.js";
 import { Btn, Inp, Sel, SearchSel, Card, useDebounced, BlockingOverlay } from "../components/ui.jsx";
+import { VirtualList } from "../components/VirtualList.jsx";
 /* V21.9.106: Universal Tagging — Slice 5 Supplier integration. Same pattern
    as Slice 4b (Customer). Tag IDs stored on supplier.tags; inline create
    gated on canEdit (sales/purchase accountants share the same pragmatic gate). */
@@ -1958,7 +1959,45 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           else if(supSortBy==="recent")list.sort((a,b)=>(b._stats.lastActivity||"").localeCompare(a._stats.lastActivity||""));
           
           if(list.length===0)return<div style={{padding:30,textAlign:"center",color:T.textMut}}>لا توجد نتائج لهذا البحث</div>;
-          
+
+          /* V21.27.38: للقوائم الكبيرة (>120 مورد) virtualization (زي العملاء) —
+             يعرض الكل ويرندر الصفوف الظاهرة بس. الأصغر يفضل بالجدول تحت. */
+          if(list.length>120){
+            const ROW_H=58;
+            const cChk={width:36,flexShrink:0,textAlign:"center"};
+            const cName={flex:1.8,minWidth:140,padding:"0 8px",overflow:"hidden"};
+            const cPhone={width:120,flexShrink:0,fontSize:FS-2,color:T.textSec};
+            const cNum={width:70,flexShrink:0,textAlign:"center"};
+            const cMon={width:104,flexShrink:0,textAlign:"center"};
+            const cBal={width:104,flexShrink:0,textAlign:"center"};
+            const cAct={width:150,flexShrink:0};
+            const hdr={fontWeight:800,color:T.textSec,fontSize:FS-2};
+            const renderRow=(s,i,style)=>{const st=s._stats||{};const bal=Number(st.balance)||0;const isOwed=bal>1;const isOverpaid=bal<-1;const supTagsArr=Array.isArray(s.tags)?s.tags:[];const _isSelSup=supSel.has(s.id);return(
+              <div key={s.id} onClick={()=>{if(supSelMode){setSupSel(prev=>{const n=new Set(prev);if(n.has(s.id))n.delete(s.id);else n.add(s.id);return n})}else setActiveSupplier(s)}} style={{...style,display:"flex",alignItems:"center",boxSizing:"border-box",borderBottom:"1px solid "+T.brd,fontSize:FS-1,cursor:"pointer",background:_isSelSup?T.err+"10":(i%2===0?"transparent":T.bg+"60")}}>
+                {supSelMode&&<div style={cChk} onClick={e=>{e.stopPropagation();setSupSel(prev=>{const n=new Set(prev);if(n.has(s.id))n.delete(s.id);else n.add(s.id);return n})}}><input type="checkbox" checked={_isSelSup} onChange={()=>{}} style={{width:16,height:16,cursor:"pointer"}}/></div>}
+                <div style={{...cName,fontWeight:700,color:T.text}}><div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>{supTagsArr.length>0&&<div style={{marginTop:2}}><TagChips tagIds={supTagsArr} registry={data.tagRegistry||[]} small max={2}/></div>}</div>
+                <div style={cPhone}>{s.phone?ltrPhone(s.phone):"—"}</div>
+                <div style={cNum}>{st.receiptCount||0}</div>
+                <div style={{...cMon,fontWeight:600}}>{fmt(r2(st.totalInvoiced||0))}</div>
+                <div style={{...cMon,color:T.ok,fontWeight:600}}>{fmt(r2(st.totalPaid||0))}</div>
+                <div style={{...cBal,fontWeight:800,color:isOwed?T.err:isOverpaid?T.accent:T.textMut}}>{isOwed?fmt(r2(bal)):isOverpaid?"+"+fmt(r2(Math.abs(bal))):"مسدد"}</div>
+                <div style={{...cMon,fontSize:FS-2,color:T.textMut}}>{st.lastActivity||"—"}</div>
+                <div style={{...cAct,display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+                  {canEdit&&isOwed&&<Btn small onClick={()=>openPayForm(s)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 8px",fontSize:FS-3}}>💰 دفعة</Btn>}
+                  {canEdit&&<Btn small onClick={()=>openEditSupplier(s)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"3px 8px",fontSize:FS-3}} title="تعديل">✏️</Btn>}
+                  {canEdit&&(st.receiptCount||0)===0&&Math.abs(st.balance||0)<0.01&&<Btn small onClick={()=>deleteSupplier(s)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 8px",fontSize:FS-3}} title="حذف">🗑️</Btn>}
+                </div>
+              </div>
+            );};
+            return(<div>
+              <div style={{display:"flex",alignItems:"center",borderBottom:"2px solid "+T.brd,padding:"8px 0",paddingInlineEnd:12,background:T.cardSolid}}>
+                {supSelMode&&<div style={{...cChk,...hdr}}>☑</div>}<div style={{...cName,...hdr}}>المورد</div><div style={{...cPhone,...hdr,color:T.textSec}}>التليفون</div><div style={{...cNum,...hdr}}>الفواتير</div><div style={{...cMon,...hdr}}>المشتريات</div><div style={{...cMon,...hdr}}>المدفوع</div><div style={{...cBal,...hdr}}>الرصيد</div><div style={{...cMon,...hdr}}>آخر نشاط</div><div style={{...cAct,...hdr}}/>
+              </div>
+              <VirtualList items={list} rowHeight={ROW_H} renderRow={renderRow} overscanCount={10} style={{overflowX:isMob?"auto":"hidden"}}/>
+              <div style={{textAlign:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>إجمالي {list.length} مورد — العرض مُحسّن (virtualized) ⚡</div>
+            </div>);
+          }
+
           return<div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
               <thead><tr>
