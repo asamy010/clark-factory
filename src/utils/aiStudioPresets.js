@@ -113,9 +113,11 @@ export const BACKGROUNDS = [
 ];
 
 export const FRAMINGS = [
-  { id: "full",  label: "جسم كامل", prompt: "full-body shot, head to toe fully visible, full outfit shown" },
-  { id: "half",  label: "نصفي",     prompt: "half-body shot from the waist up" },
-  { id: "three", label: "٣/٤ جسم",  prompt: "three-quarter body shot, from the knees up" },
+  { id: "closeup", label: "قريبة (وش/كتف)", prompt: "a close-up portrait shot, head and shoulders only, the face prominent and the upper garment detail clearly visible" },
+  { id: "half",  label: "نصفي (نص الجسم)",   prompt: "a half-body shot from the waist up" },
+  { id: "three", label: "٣/٤ جسم",          prompt: "a three-quarter body shot, from the knees up" },
+  { id: "full",  label: "جسم كامل",          prompt: "a full-body shot, head to toe fully visible, full outfit shown" },
+  { id: "wide",  label: "بعيدة (واسعة)",     prompt: "a wide full-length shot with the full body visible and more of the surrounding scene around the subject" },
 ];
 
 export const SKIN_TONES = [

@@ -301,9 +301,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* V21.26.21: «وضع البرومبت الجاهز» — لما مجموعة برومبت مفتوحة (openGroup)،
      خيارات الموديل اللي مابتأثّرش على تنفيذ البرومبت الجاهز تتعرض باهتة (غير
      مؤثّرة). المؤثّر فعلاً على البرومبت الجاهز: العمر (لغير جروبات الكبار) +
-     لون البشرة + الملاحظات + العدد + صورة المصدر. باقي الخيارات (نوع التصوير/
-     الجنس/التعبير/الوقفة/الإطار/الإضاءة/الخلفية/الواقعية/الكاميرا/البرومبت الحر)
-     بتغذّي وضع «موديل» اليدوي بس — مالهاش تأثير على البرومبت الجاهز. */
+     الإطار (قُرب اللقطة) + لون البشرة + الملاحظات + العدد + صورة المصدر. باقي
+     الخيارات (نوع التصوير/الجنس/التعبير/الوقفة/الإضاءة/الخلفية/الواقعية/
+     الكاميرا/البرومبت الحر) بتغذّي وضع «موديل» اليدوي بس — مالهاش تأثير. */
   const readyMode = !!openGroup;
   const groupIsAdult = openGroup === "FOR HIM" || openGroup === "FOR HER";
   const ageInert = readyMode && groupIsAdult;  /* العمر باهت لجروبات الكبار */
@@ -494,11 +494,17 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const isAdultGroup = group && ADULT_GROUPS.includes(group);
     const toneObj = SKIN_TONES.find(s => s.id === skinToneId);
     const toneTxt = (toneObj && skinToneId !== "any" && toneObj.prompt) ? toneObj.prompt : "";
+    /* V21.27.41: طبّق «الإطار» (قُرب اللقطة/القَص) المختار على أي برومبت جاهز —
+       override لأي إطار مكتوب جوّه البرومبت، عشان المستخدم يتحكّم في اللقطة
+       (قريبة/نصفي/٣٤/كامل/واسعة) زي ما بيتحكّم في العمر. أمر Ahmed: ضروري. */
+    const framingObj = FRAMINGS.find(f => f.id === framingId);
+    const framingTxt = (framingObj && framingObj.prompt) || "";
     const attrLines = [];
     if(!hadAgePlaceholder && !isAdultGroup) attrLines.push("- Subject age: " + ageTxt);
     if(toneTxt) attrLines.push("- Subject skin tone: " + toneTxt);
+    if(framingTxt) attrLines.push("- Shot framing / crop: " + framingTxt);
     const attrClause = attrLines.length
-      ? "\n\nSubject attributes (must apply — override any conflicting age/skin description above):\n" + attrLines.join("\n")
+      ? "\n\nSubject attributes (must apply — override any conflicting age / skin / framing description above):\n" + attrLines.join("\n")
       : "";
     /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
     const promptWithNotes = baseP + attrClause + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
@@ -1153,7 +1159,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
               {readyMode && (
                 <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", border: "1px solid " + T.accent + "22", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.7 }}>
-                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — المؤثّر بس: <b>{groupIsAdult ? "لون البشرة + الملاحظات" : "العمر + لون البشرة + الملاحظات"}</b>. باقي الإعدادات <b>الباهتة</b> دي للوضع اليدوي (موديل) ومالهاش تأثير على البرومبت الجاهز.
+                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — المؤثّر بس: <b>{groupIsAdult ? "الإطار + لون البشرة + الملاحظات" : "العمر + الإطار + لون البشرة + الملاحظات"}</b>. باقي الإعدادات <b>الباهتة</b> دي للوضع اليدوي (موديل) ومالهاش تأثير على البرومبت الجاهز.
                 </div>
               )}
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
@@ -1174,7 +1180,8 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
                   </div>
                 </div>
               )}
-              {isModelShot && chipRow("الإطار", FRAMINGS, framingId, setFramingId, optInert)}
+              {/* V21.27.41: الإطار بقى مؤثّر وفعّال في البرومبت الجاهز كمان (مش الموديل اليدوي بس) */}
+              {(isModelShot || readyMode) && chipRow("الإطار", FRAMINGS, framingId, setFramingId)}
               {(isModelShot || readyMode) && chipRow("لون البشرة", SKIN_TONES, skinToneId, setSkinToneId)}
               {isModelShot && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId, optInert)}
               {!isReference && (
