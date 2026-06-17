@@ -3761,7 +3761,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{display:"flex",alignItems:"center",borderBottom:"2px solid "+T.brd,padding:"8px 0",paddingInlineEnd:12,background:T.cardSolid}}>
                 <div style={{...cNum,...hdr}}>#</div><div style={{...cName,...hdr}}>الاسم</div><div style={{...cTags,...hdr}}>التاجز</div><div style={{...cType,...hdr,color:T.textSec}}>النوع</div><div style={{...cPhone,...hdr}}>التليفون</div><div style={{...cAddr,...hdr}}>العنوان</div><div style={{...cTot,...hdr}}>اجمالي</div>{canEdit&&<div style={{...cAct,...hdr}}/>}
               </div>
-              <VirtualList items={fc} rowHeight={ROW_H} height={Math.min(fc.length*ROW_H,640)} renderRow={renderRow} overscanCount={8}/>
+              <VirtualList items={fc} rowHeight={ROW_H} renderRow={renderRow} overscanCount={10}/>
               <div style={{textAlign:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>إجمالي {fc.length} عميل — العرض مُحسّن (virtualized) ⚡</div>
             </div>);
           }

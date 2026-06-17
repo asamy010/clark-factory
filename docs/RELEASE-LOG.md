@@ -28,6 +28,16 @@
 
 ---
 
+## V21.27.29 — قائمة العملاء بتمتد لآخر الشاشة (fix) 📋
+- المشكلة: في V21.27.28 الـ VirtualList كان بارتفاع ثابت `min(rows*54,640)` →
+  القائمة بتبان مقطوعة في نص الصفحة مع فراغ كبير تحتها.
+- الحل: `VirtualList` بقى ليه وضع `fill` (لما `height` مش متمرّر) — بيقيس
+  `getBoundingClientRect().top` ويملأ `innerHeight - top - bottomGap`، مع
+  cap على ارتفاع المحتوى الفعلي (مفيش فراغ تحت القوائم القصيرة) وحد أدنى 220px.
+  بيتحدّث على `resize` وتغيّر عدد العناصر.
+- `CustDeliverPg`: شيل الـ `height={min(...,640)}` → بقى fill تلقائي + overscan 10.
+- ملفات: `src/components/VirtualList.jsx` · `src/pages/CustDeliverPg.jsx`.
+
 ## V21.27.28 — قائمة العملاء الضخمة: عرض مُحسّن (virtualization) ⚡
 - `src/components/VirtualList.jsx` (جديد، مشترك): wrapper رفيع فوق
   `react-window` v2 (`<List>` + `rowComponent` + `rowProps`) — بيرندر الصفوف
