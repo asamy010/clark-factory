@@ -180,8 +180,18 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
     const bi = await loadImg(proxify(src), true);
     const cache = {};
     for(const L of layers){ if(L.type === "image" && !cache[L.url]){ try { cache[L.url] = await loadImg(proxify(L.url), true); } catch(_){ cache[L.url] = null; } } }
-    const cv = document.createElement("canvas"); cv.width = dims.w; cv.height = dims.h;
+    /* V21.27.30: supersampling — السبب الجذري للبكسلة إن الـ canvas كان
+       بيترسم بأبعاد الصورة الطبيعية بس (dims)، فلو دقة الصورة واطية النص/
+       الأرقام بيطلعوا مبكسلين. بنرسم على canvas بدقة أعلى (ES) وكل الرسم
+       بيتعمل بإحداثيات dims المنطقية عبر ctx.scale — فالنص بيتحوّل لـ fs*ES
+       بكسل حقيقي → حواف حادة. مقصوص لـ 4096px أطول ضلع عشان مانعملش canvas
+       عملاق. (الصورة نفسها بتتكبّر بنفس النسبة — مقبول؛ المهم وضوح النص.) */
+    const ES = Math.max(1, Math.min(2.5, 4096 / Math.max(dims.w, dims.h, 1)));
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(dims.w * ES); cv.height = Math.round(dims.h * ES);
     const ctx = cv.getContext("2d");
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.scale(ES, ES);
     ctx.drawImage(bi, 0, 0, dims.w, dims.h);
     for(const L of layers){
       ctx.save(); ctx.translate(L.cx, L.cy); ctx.rotate((L.rot || 0) * Math.PI / 180); ctx.globalAlpha = L.opacity != null ? L.opacity : 1;
