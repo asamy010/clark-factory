@@ -113,11 +113,51 @@ export const BACKGROUNDS = [
 ];
 
 export const FRAMINGS = [
+  { id: "auto",  label: "تلقائي",          prompt: "" },
   { id: "closeup", label: "قريبة (وش/كتف)", prompt: "a close-up portrait shot, head and shoulders only, the face prominent and the upper garment detail clearly visible" },
   { id: "half",  label: "نصفي (نص الجسم)",   prompt: "a half-body shot from the waist up" },
   { id: "three", label: "٣/٤ جسم",          prompt: "a three-quarter body shot, from the knees up" },
   { id: "full",  label: "جسم كامل",          prompt: "a full-body shot, head to toe fully visible, full outfit shown" },
   { id: "wide",  label: "بعيدة (واسعة)",     prompt: "a wide full-length shot with the full body visible and more of the surrounding scene around the subject" },
+];
+
+/* ── V21.27.42: تحكّمات احترافية إضافية تتحقن في البرومبت الجاهز + اليدوي ──
+   كلها أول خيار «تلقائي» (prompt فاضي = مايتحقنش) عشان مايخرّبوش برومبت
+   مكتوب بعناية — الحقن يحصل بس لما المستخدم يختار قيمة فعلية. */
+
+/* زاوية الكاميرا — أقوى تحكّم بصري */
+export const CAMERA_ANGLES = [
+  { id: "auto",   label: "تلقائي",        prompt: "" },
+  { id: "eye",    label: "مستوى العين",   prompt: "shot straight-on at eye level" },
+  { id: "high",   label: "من فوق",        prompt: "shot from a high angle looking slightly down at the subject" },
+  { id: "low",    label: "من تحت",        prompt: "shot from a low angle looking slightly up at the subject, making the subject look tall and powerful" },
+  { id: "top",    label: "من فوق مباشرة", prompt: "shot from directly overhead, a top-down bird's-eye view" },
+  { id: "side",   label: "جانبي",         prompt: "shot from the side as a profile camera angle" },
+  { id: "threeq", label: "٣/٤ زاوية",     prompt: "shot from a three-quarter front camera angle" },
+  { id: "back",   label: "من الخلف",       prompt: "shot from behind the subject" },
+];
+
+/* اتجاه نظر الموديل */
+export const GAZES = [
+  { id: "auto",     label: "تلقائي",       prompt: "" },
+  { id: "camera",   label: "على الكاميرا", prompt: "the subject is looking directly into the camera lens" },
+  { id: "away",     label: "بعيد (عفوي)",  prompt: "the subject is looking away from the camera off to the side in a natural candid way" },
+  { id: "shoulder", label: "نظرة خلفية",   prompt: "the subject is glancing back over the shoulder towards the camera" },
+  { id: "down",     label: "لتحت",         prompt: "the subject is looking gently downward" },
+];
+
+/* درجة الألوان / المود العام للصورة */
+export const COLOR_GRADES = [
+  { id: "auto",    label: "تلقائي",      prompt: "" },
+  { id: "warm",    label: "دافئ",        prompt: "a warm color grade with soft golden tones" },
+  { id: "cool",    label: "بارد",        prompt: "a cool color grade with crisp clean blue-leaning tones" },
+  { id: "neutral", label: "محايد",       prompt: "a neutral natural true-to-life color grade" },
+  { id: "film",    label: "فيلم",        prompt: "a warm analog film color grade with fine natural grain" },
+  { id: "highkey", label: "ساطع نضيف",   prompt: "a bright airy high-key look with light clean tones, ideal for clean e-commerce" },
+  { id: "lowkey",  label: "درامي",       prompt: "a moody low-key look with deep shadows and dramatic contrast" },
+  { id: "bw",      label: "أبيض/أسود",   prompt: "an elegant black-and-white monochrome look with rich tones" },
+  { id: "pastel",  label: "باستيل",      prompt: "a soft pastel color palette, gentle and dreamy" },
+  { id: "vivid",   label: "زاهي",        prompt: "vivid punchy yet natural and realistic saturated colors" },
 ];
 
 export const SKIN_TONES = [
@@ -280,6 +320,10 @@ export function buildStudioPrompt(opts, lib){
     const skin = byId(SKIN_TONES, o.skinToneId);
     const light = byId(LIGHTINGS, o.lightingId);
     const expr = byId(EXPRESSIONS, o.expressionId) || EXPRESSIONS[0];
+    /* V21.27.42: تحكّمات إضافية (auto = prompt فاضي → مايتحقنش) */
+    const camAngle = byId(CAMERA_ANGLES, o.camAngleId);
+    const gaze = byId(GAZES, o.gazeId);
+    const grade = byId(COLOR_GRADES, o.colorGradeId);
     const subject = (age ? (age.prompt + " ") : "") + gender.prompt + (skin && skin.prompt ? " with " + skin.prompt : "");
     /* روح/طاقة الصورة — الافتراضي ابتسامة + حيوية ومنع شكل المانيكان الجامد. */
     const mood = isChild
@@ -288,14 +332,17 @@ export function buildStudioPrompt(opts, lib){
     lines = [
       "Generate a photorealistic professional lifestyle fashion-catalog photograph of " + subject + " fashion model wearing the EXACT garment(s) shown in the reference image(s).",
       PRESERVE,
-      (framing.prompt || "") + ".",
+      (framing && framing.prompt) ? (framing.prompt + ".") : "",
+      (camAngle && camAngle.prompt) ? (camAngle.prompt + ".") : "",
       (pose.prompt || "") + ".",
+      (gaze && gaze.prompt) ? (gaze.prompt + ".") : "",
       "The model has " + (expr.prompt || EXPRESSIONS[0].prompt) + ".",
       mood,
       FOOTWEAR_CLAUSE,
       "Use natural candid body language, authentic spontaneous movement and a genuine lively vibe — absolutely NOT a stiff, rigid, frozen or mannequin-like pose, and not an empty blank expression.",
       (bg.prompt || "") + ".",
       light && light.prompt ? (light.prompt + ".") : "",
+      (grade && grade.prompt) ? (grade.prompt + ".") : "",
       "Photorealistic skin and natural proportions, sharp focus on the outfit, professional fashion photography, high detail, no text, no watermark.",
     ].filter(Boolean);
   }

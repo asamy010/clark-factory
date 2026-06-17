@@ -27,6 +27,7 @@ import { ImageEditorModal } from "../components/ImageEditorModal.jsx";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
+  CAMERA_ANGLES, GAZES, COLOR_GRADES,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
   LOGO_POSITIONS, LOGO_SIZES, buildLogoPrompt, SCENERY_BACKGROUNDS, QUICK_EDITS, FOOTWEAR_CLAUSE,
@@ -144,6 +145,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [framingId, setFramingId] = useState("full");
   const [skinToneId, setSkinToneId] = useState("any");
   const [lightingId, setLightingId] = useState("soft");
+  /* V21.27.42: تحكّمات احترافية إضافية (auto = مايتحقنش) */
+  const [camAngleId, setCamAngleId] = useState("auto");
+  const [gazeId, setGazeId] = useState("auto");
+  const [colorGradeId, setColorGradeId] = useState("auto");
   const [notes, setNotes] = useState("");
   const [realismOn, setRealismOn] = useState(true);
   const [realismLevel, setRealismLevel] = useState("medium");
@@ -308,7 +313,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const groupIsAdult = openGroup === "FOR HIM" || openGroup === "FOR HER";
   const ageInert = readyMode && groupIsAdult;  /* العمر باهت لجروبات الكبار */
   const optInert = readyMode;                  /* باقي خيارات الموديل باهتة */
-  const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes };
+  const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, camAngleId, gazeId, colorGradeId, notes };
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
   /* V21.26.0: البرومبت الحر يُستخدم فقط في وضع «موديل» ولمّا المستخدم يفعّله
@@ -499,12 +504,29 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
        (قريبة/نصفي/٣٤/كامل/واسعة) زي ما بيتحكّم في العمر. أمر Ahmed: ضروري. */
     const framingObj = FRAMINGS.find(f => f.id === framingId);
     const framingTxt = (framingObj && framingObj.prompt) || "";
+    /* V21.27.42: تحكّمات احترافية إضافية تتحقن في البرومبت الجاهز (override).
+       كلها «تلقائي» (فاضي) افتراضي ماعدا الإضاءة/التعبير ليهم default مفيد
+       (ناعم/ابتسامة) متوافق مع قاعدة Ahmed. العدسة من إعدادات الكاميرا. */
+    const angleTxt   = (CAMERA_ANGLES.find(a => a.id === camAngleId)   || {}).prompt || "";
+    const gazeTxt    = (GAZES.find(g => g.id === gazeId)               || {}).prompt || "";
+    const gradeTxt   = (COLOR_GRADES.find(c => c.id === colorGradeId)  || {}).prompt || "";
+    const lightTxt   = (LIGHTINGS.find(l => l.id === lightingId)       || {}).prompt || "";
+    const exprTxt    = (EXPRESSIONS.find(x => x.id === expressionId)   || {}).prompt || "";
+    const lensTxt    = cameraPromptOf(cameraId);
+    const styleTxt   = stylePromptOf(camStyle);
     const attrLines = [];
     if(!hadAgePlaceholder && !isAdultGroup) attrLines.push("- Subject age: " + ageTxt);
-    if(toneTxt) attrLines.push("- Subject skin tone: " + toneTxt);
+    if(toneTxt)    attrLines.push("- Subject skin tone: " + toneTxt);
     if(framingTxt) attrLines.push("- Shot framing / crop: " + framingTxt);
+    if(angleTxt)   attrLines.push("- Camera angle: " + angleTxt);
+    if(gazeTxt)    attrLines.push("- Gaze direction: " + gazeTxt);
+    if(lensTxt)    attrLines.push("- Lens / depth of field: " + lensTxt);
+    if(styleTxt)   attrLines.push("- Photography style: " + styleTxt);
+    if(lightTxt)   attrLines.push("- Lighting: " + lightTxt);
+    if(exprTxt)    attrLines.push("- Facial expression: the subject has " + exprTxt);
+    if(gradeTxt)   attrLines.push("- Color grade / overall mood: " + gradeTxt);
     const attrClause = attrLines.length
-      ? "\n\nSubject attributes (must apply — override any conflicting age / skin / framing description above):\n" + attrLines.join("\n")
+      ? "\n\nSubject & shot attributes (must apply — override any conflicting description above):\n" + attrLines.join("\n")
       : "";
     /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
     const promptWithNotes = baseP + attrClause + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
@@ -738,6 +760,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(o.framingId) setFramingId(o.framingId);
     if(o.skinToneId) setSkinToneId(o.skinToneId);
     if(o.lightingId) setLightingId(o.lightingId);
+    if(o.camAngleId) setCamAngleId(o.camAngleId);
+    if(o.gazeId) setGazeId(o.gazeId);
+    if(o.colorGradeId) setColorGradeId(o.colorGradeId);
     if(o.camStyle) setCamStyle(o.camStyle);
     if(o.cameraId) setCameraId(o.cameraId);
     if(o.realismLevel) setRealismLevel(o.realismLevel);
@@ -828,6 +853,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* لقطة كل الإعدادات الحالية — لإعادة فتح الجلسة وتعديلها */
   const snapshotSettings = () => ({
     shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes,
+    camAngleId, gazeId, colorGradeId,
     tier, aspectRatio, imageSize, cameraId, camStyle, realismOn, realismLevel, customOn, customPrompt, storageFolder,
   });
   const restoreSettings = (s) => {
@@ -841,6 +867,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(s.framingId) setFramingId(s.framingId);
     if(s.skinToneId) setSkinToneId(s.skinToneId);
     if(s.lightingId) setLightingId(s.lightingId);
+    if(s.camAngleId) setCamAngleId(s.camAngleId);
+    if(s.gazeId) setGazeId(s.gazeId);
+    if(s.colorGradeId) setColorGradeId(s.colorGradeId);
     if(s.notes != null) setNotes(s.notes);
     if(s.tier) setTier(s.tier);
     if(s.aspectRatio) setAspectRatio(s.aspectRatio);
@@ -1159,13 +1188,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
               {readyMode && (
                 <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", border: "1px solid " + T.accent + "22", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.7 }}>
-                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — المؤثّر بس: <b>{groupIsAdult ? "الإطار + لون البشرة + الملاحظات" : "العمر + الإطار + لون البشرة + الملاحظات"}</b>. باقي الإعدادات <b>الباهتة</b> دي للوضع اليدوي (موديل) ومالهاش تأثير على البرومبت الجاهز.
+                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — بيتطبّق على البرومبت: <b>{groupIsAdult ? "" : "العمر + "}الإطار + زاوية الكاميرا + اتجاه النظر + درجة الألوان + لون البشرة + العدسة + الإضاءة + التعبير + الملاحظات</b>. (كل واحد على «تلقائي» مابيتحقنش — اختار قيمة عشان تتطبّق). الوقفة/الخلفية/تعزيز الواقعية للوضع اليدوي بس.
                 </div>
               )}
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
               {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId, optInert)}
               {((isModelShot && isChild) || readyMode) && chipRow("العمر", CHILD_AGES, ageId, setAgeId, ageInert)}
-              {isModelShot && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId, optInert)}
+              {/* V21.27.42: التعبير بقى مؤثّر في البرومبت الجاهز كمان */}
+              {(isModelShot || readyMode) && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId)}
               {isModelShot && (
                 <div style={{ marginBottom: 10, opacity: optInert ? 0.4 : 1, transition: "opacity .15s" }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1182,8 +1212,13 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               )}
               {/* V21.27.41: الإطار بقى مؤثّر وفعّال في البرومبت الجاهز كمان (مش الموديل اليدوي بس) */}
               {(isModelShot || readyMode) && chipRow("الإطار", FRAMINGS, framingId, setFramingId)}
+              {/* V21.27.42: تحكّمات احترافية جديدة — مؤثّرة في اليدوي والبرومبت الجاهز (auto=مايتحقنش) */}
+              {(isModelShot || readyMode) && chipRow("زاوية الكاميرا 📐", CAMERA_ANGLES, camAngleId, setCamAngleId)}
+              {(isModelShot || readyMode) && chipRow("اتجاه النظر 👁️", GAZES, gazeId, setGazeId)}
+              {(isModelShot || readyMode) && chipRow("درجة الألوان/المود 🎨", COLOR_GRADES, colorGradeId, setColorGradeId)}
               {(isModelShot || readyMode) && chipRow("لون البشرة", SKIN_TONES, skinToneId, setSkinToneId)}
-              {isModelShot && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId, optInert)}
+              {/* V21.27.42: الإضاءة بقت مؤثّرة في البرومبت الجاهز كمان */}
+              {(isModelShot || readyMode) && chipRow("الإضاءة", LIGHTINGS, lightingId, setLightingId)}
               {!isReference && (
                 <div style={{ marginBottom: 10, opacity: optInert ? 0.4 : 1, transition: "opacity .15s" }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
                   <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الخلفية{optInert ? " · غير مؤثّر" : ""}</div>
@@ -1207,8 +1242,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
             </div>
 
             {/* camera settings — with visual diagrams */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
-              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا{optInert ? " · غير مؤثّر" : ""}</div>
+            {/* V21.27.42: العدسة + النمط بقوا يتحقنوا في البرومبت الجاهز كمان → الكارت مؤثّر دايماً */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14 }}>
+              <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 إعدادات الكاميرا</div>
               <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 10, lineHeight: 1.6 }}>اختار العدسة — كل واحدة ليها شكل مختلف للخلفية والعمق (الرسم جنبها بيوضّح). الافتراضي احترافي (بورتريه 85mm).</div>
               {chipRow("النمط", CAM_STYLES, camStyle, setCamStyle)}
               <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>العدسة / المدى البؤري</div>
