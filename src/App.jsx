@@ -6939,7 +6939,7 @@ export default function App(){
               {canViewTab("treasury")&&<div onClick={()=>{try{sessionStorage.setItem("treasury-deep-link",JSON.stringify({view:"wallets",ts:Date.now()}))}catch(_){}setTab("treasury")}} title="إدارة المحافظ الإلكترونية — استلام/صرف/تحويل وحدود" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,flexShrink:0,padding:"6px 12px",borderRadius:999,background:"#8B5CF614",border:"1px solid #8B5CF640",color:"#8B5CF6",fontSize:FS-2,fontWeight:800,whiteSpace:"nowrap",transition:"transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.04)"}} onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)"}}>
                 <span style={{fontSize:FS-3}}>📱</span><span>محافظ إلكترونية</span>
               </div>}
-              {(config.campaignBridge||{}).url&&<BridgeStatusIndicator url={(config.campaignBridge||{}).url} token={(config.campaignBridge||{}).token}/>}
+              {(config.campaignBridge||{}).url&&<BridgeStatusIndicator url={(config.campaignBridge||{}).url} token={(config.campaignBridge||{}).token} lastTickAt={(config.automation||{}).lastTickAt}/>}
             </div>
           </div>
 

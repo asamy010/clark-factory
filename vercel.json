@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/reconcile-financials",
       "schedule": "10 2 * * *"
+    },
+    {
+      "path": "/api/cron/scheduler-watchdog",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

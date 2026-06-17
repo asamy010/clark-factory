@@ -28,6 +28,24 @@
 
 ---
 
+## V21.27.37 — مؤشّر واتساب صادق + مراقب المجدول 🚨
+- **السياق (تشخيص حادثة):** التقارير/التريجرات/الحملات بتعتمد على **VPS
+  crontab خارجي** بيضرب `/api/automation-tick` كل 5 دقايق (مش Vercel cron —
+  مش في `vercel.json`). لو الـ VPS cron وقف، كله بيقف بصمت، ومؤشّر واتساب
+  يفضل أخضر لإنه بيقيس جلسة واتساب (`waReady`) بس — مش حياة المجدول.
+- **المؤشّر الصادق:** `BridgeStatusIndicator` بقى ياخد `lastTickAt` (من
+  `cfg.automation`) — لو ready بس آخر نبضة >15 دقيقة → 🟡 «متصل — المجدول
+  متوقف» + تفاصيل في التول-تيب. تمريره من home bar في `App.jsx`.
+- **مراقب المجدول:** `api/cron/scheduler-watchdog.js` (جديد) — Vercel cron كل
+  30 دقيقة (بنية مستقلة عن الـ VPS فبيكتشف موته فعلاً). لو lastTickAt >20
+  دقيقة → تنبيه واتساب واحد لمستلمي الأتمتة (idempotency عبر
+  `automation.watchdogAlertedAt`، cooldown 6 ساعات) عبر `bridgeSend`. لما
+  المجدول يرجع، العلم بيتصفّى. cron مضاف في `vercel.json`.
+- ⚠️ **الإصلاح الفعلي تشغيلي** (على الـ owner): راجِع الـ VPS crontab +
+  `AUTOMATION_TICK_SECRET` + الـ bridge host. الكود هنا بيكشف ويبلّغ بس.
+- ملفات: `src/components/BridgeStatusIndicator.jsx` · `src/App.jsx` ·
+  `api/cron/scheduler-watchdog.js` · `vercel.json`.
+
 ## V21.27.36 — استخراج البرومبت من الصور: fix خطأ التحليل المتقطّع 🪄
 - **root cause:** `describe-image.js` بيستخدم gemini-2.5-flash اللي «التفكير»
   فيه enabled افتراضياً — أحياناً بياكل ميزانية التوكنز فيرجّع `parts` فاضية

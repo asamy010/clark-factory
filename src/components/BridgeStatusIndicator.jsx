@@ -93,17 +93,29 @@ const STATE_META = {
   offline:  { icon: "🔴", label: "البريدج غير متصل",   color: "#EF4444" },
 };
 
-/* Professional compact pill. `compact` (mobile) shows icon + short text only. */
-export function BridgeStatusIndicator({ url, token, compact = false, intervalMs }){
+/* Professional compact pill. `compact` (mobile) shows icon + short text only.
+   V21.27.37: `lastTickAt` (ISO من cfg.automation) — لو واتساب «متصل» بس
+   المجدول (VPS cron اللي بيطلّق التقارير/التريجرات) متوقف >15 دقيقة، المؤشّر
+   بيتحوّل 🟡 «متصل — المجدول متوقف» بدل ما يكدب ويقول كله تمام. السبب: المؤشّر
+   كان بيقيس جلسة واتساب بس (waReady)، مش حياة المجدول. */
+export function BridgeStatusIndicator({ url, token, compact = false, intervalMs, lastTickAt }){
   const health = useBridgeHealth(url, token, intervalMs);
-  const meta = STATE_META[health.state] || STATE_META.checking;
+  const minsSinceTick = lastTickAt ? Math.floor((Date.now() - new Date(lastTickAt).getTime()) / 60000) : null;
+  const schedulerStale = minsSinceTick != null && minsSinceTick >= 15;
+  const warnScheduler = health.state === "ready" && schedulerStale;
+  const meta = warnScheduler
+    ? { icon: "🟡", label: "متصل — المجدول متوقف", color: "#F59E0B" }
+    : (STATE_META[health.state] || STATE_META.checking);
   const sent = health.info?.daily?.sent;
   const cap = health.info?.settings?.dailyCap;
-  const showDaily = health.state === "ready" && sent != null;
+  const showDaily = health.state === "ready" && !warnScheduler && sent != null;
   const title = "WhatsApp Bridge: " + meta.label
+    + (warnScheduler ? " — آخر نبضة مجدول من " + minsSinceTick + " دقيقة (التقارير/التريجرات/الحملات متوقفة — راجع الـ VPS cron)" : "")
     + (showDaily ? " · رسائل اليوم: " + sent + (cap ? "/" + cap : "") : "")
     + (health.error ? " — " + health.error : "");
-  const shortLabel = compact
+  const shortLabel = warnScheduler
+    ? (compact ? "المجدول؟" : "متصل — المجدول متوقف")
+    : compact
     ? (health.state === "ready" ? "واتساب" : health.state === "offline" ? "بريدج" : meta.label)
     : meta.label;
   return <div title={title} style={{
