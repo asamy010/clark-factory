@@ -120,7 +120,8 @@ function ResultCard({ res, isMob, onDelete, onZoom, children }){
           {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(res); }} title="حذف الصورة من النتائج والتخزين" style={ovBtn("rgba(0,0,0,0.55)", "#fff")}>🗑</button>}
         </div>
       </div>
-      {res.desc && <div style={{ fontSize: FS - 3, color: T.textMut, padding: "6px 10px 0" }}>{res.desc}</div>}
+      {/* V21.27.31: اتشال الوصف تحت الصورة (طلب Ahmed) — الوصف لسه متخزّن
+          في res.desc وبيظهر في الزووم/التخزين، بس مش تحت الكارت. */}
       {children}
     </div>
   );
@@ -703,9 +704,11 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
         : "هتتشال من النتائج ومن مساحة التخزين، والملف الأصلي هيتحذف من السيرفر نهائياً — مش هينفع ترجعها.",
       { danger: true });
     if(!ok) return;
-    /* state: شيلها من النتائج + التثبيت + المحفوظة */
+    /* state: شيلها من النتائج + المحفوظة */
+    /* V21.27.31 FIX: اتشال سطر setPinnedIds — كان bug كامن (pinnedIds مش
+       معرّف خالص بعد refactor قديم) فكان بيرمي ReferenceError ويكسر حذف
+       الصورة بالكامل. */
     setResults(prev => prev.filter(r => r.id !== res.id));
-    setPinnedIds(prev => { if(!prev.has(res.id)) return prev; const n = new Set(prev); n.delete(res.id); return n; });
     setSavedIds(prev => { if(!prev.has(res.id)) return prev; const n = new Set(prev); n.delete(res.id); return n; });
     /* مساحة التخزين: شيل سجل/سجلات الملف المطابق (storagePath أولاً، وإلا الرابط) */
     upConfig(d => {
@@ -953,23 +956,28 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* V21.26.21: ستايل تعتيم لأي بلوك إعدادات غير مؤثّر في الوضع الحالي. */
   const inertCard = (inert) => inert ? { opacity: 0.4, transition: "opacity .15s" } : null;
 
-  const resultActions = (res, inGallery) => (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 10 }}>
-      {(replaceModel || updOrder) && <Btn small onClick={() => { setLinkFor(res); setLinkOrderId(null); setLinkTab(replaceModel ? "model" : "order"); }} style={{ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 }} title="ربط الصورة بموديل أو أمر تشغيل (بالرقم) أو بلون">🔗 ربط</Btn>}
-      {curModel && replaceModel && <Btn small onClick={() => saveAsModelImage(res)} style={{ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 }}>⭐ رئيسية</Btn>}
-      {curModel && replaceModel && (colorNames.length > 0 || res.color) && <Btn small onClick={() => saveAsColorImage(res)} style={{ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 }}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>}
-      {!inGallery && curModel && replaceModel && <Btn small onClick={() => saveToGallery(res)} style={{ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 }}>💾 المعرض</Btn>}
-      <Btn small onClick={() => saveToDocuments(res)} style={{ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 }}>🗂️ تخزين</Btn>
-      <Btn small onClick={() => enhanceRealism(res)} disabled={busy} style={{ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>
-      <Btn small onClick={() => { setCoverForm(f => ({ ...f, modelNo: (curModel && curModel.modelNo) || "" })); setCoverFor(res); }} style={{ background: "#A855F712", color: "#A855F7", border: "1px solid #A855F733", fontWeight: 700 }} title="غلاف مجلة / نص ولوجو">📔 غلاف/نص</Btn>
-      <Btn small onClick={() => setLogoFor(res)} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }} title="إدراج لوجو على الصورة">🏷️ لوجو</Btn>
-      <Btn small onClick={() => { setEditFor(res); setEditInstr(""); }} style={{ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 }} title="تعديل بالـ AI (برومبت)">✏️ تعديل AI</Btn>
-      <Btn small onClick={() => setEditorFor(res)} style={{ background: "#DB277712", color: "#DB2777", border: "1px solid #DB277733", fontWeight: 800 }} title="محرّر صور كامل — نص ولوجو وتحريك بالماوس">🎨 محرّر</Btn>
-      {res.options && <Btn small onClick={() => applyOptions(res.options)} style={{ background: T.bg, color: T.textSec, border: "1px solid " + T.brd }}>🔁 إعدادات</Btn>}
-      <a href={res.url} target="_blank" rel="noreferrer"><Btn small style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd }}>⬇️</Btn></a>
-      {inGallery && <Btn small onClick={() => deleteFromGallery(res.id)} style={{ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" }}>🗑</Btn>}
-    </div>
-  );
+  /* V21.27.31: الأزرار بقت grid صفّين منظّم (أعمدة = ceil(عدد الأزرار/2))
+     بدل flex-wrap المتعرّج — كل زر بيملأ خليته فبيبانوا متساويين ومرتّبين.
+     bStyle بتضيف عرض كامل + توسيط + قص للنص الطويل. */
+  const resultActions = (res, inGallery) => {
+    const bStyle = (extra) => ({ width: "100%", justifyContent: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...extra });
+    const btns = [];
+    if(replaceModel || updOrder) btns.push(<Btn key="link" small onClick={() => { setLinkFor(res); setLinkOrderId(null); setLinkTab(replaceModel ? "model" : "order"); }} style={bStyle({ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 })} title="ربط الصورة بموديل أو أمر تشغيل (بالرقم) أو بلون">🔗 ربط</Btn>);
+    if(curModel && replaceModel) btns.push(<Btn key="main" small onClick={() => saveAsModelImage(res)} style={bStyle({ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 })}>⭐ رئيسية</Btn>);
+    if(curModel && replaceModel && (colorNames.length > 0 || res.color)) btns.push(<Btn key="color" small onClick={() => saveAsColorImage(res)} style={bStyle({ background: "#EC489912", color: "#EC4899", border: "1px solid #EC489933", fontWeight: 700 })}>🎨 {res.color ? "لون «" + res.color + "»" : "لون"}</Btn>);
+    if(!inGallery && curModel && replaceModel) btns.push(<Btn key="gallery" small onClick={() => saveToGallery(res)} style={bStyle({ background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700 })}>💾 المعرض</Btn>);
+    btns.push(<Btn key="store" small onClick={() => saveToDocuments(res)} style={bStyle({ background: T.ok + "12", color: T.ok, border: "1px solid " + T.ok + "33", fontWeight: 700 })}>🗂️ تخزين</Btn>);
+    btns.push(<Btn key="real" small onClick={() => enhanceRealism(res)} disabled={busy} style={bStyle({ background: "#0EA5E912", color: "#0EA5E9", border: "1px solid #0EA5E933", fontWeight: 700 })} title="إعادة رسم كصورة حقيقية">✨ واقعية</Btn>);
+    btns.push(<Btn key="cover" small onClick={() => { setCoverForm(f => ({ ...f, modelNo: (curModel && curModel.modelNo) || "" })); setCoverFor(res); }} style={bStyle({ background: "#A855F712", color: "#A855F7", border: "1px solid #A855F733", fontWeight: 700 })} title="غلاف مجلة / نص ولوجو">📔 غلاف/نص</Btn>);
+    btns.push(<Btn key="logo" small onClick={() => setLogoFor(res)} style={bStyle({ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 })} title="إدراج لوجو على الصورة">🏷️ لوجو</Btn>);
+    btns.push(<Btn key="aiedit" small onClick={() => { setEditFor(res); setEditInstr(""); }} style={bStyle({ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 })} title="تعديل بالـ AI (برومبت)">✏️ تعديل AI</Btn>);
+    btns.push(<Btn key="editor" small onClick={() => setEditorFor(res)} style={bStyle({ background: "#DB277712", color: "#DB2777", border: "1px solid #DB277733", fontWeight: 800 })} title="محرّر صور كامل — نص ولوجو وتحريك بالماوس">🎨 محرّر</Btn>);
+    if(res.options) btns.push(<Btn key="opts" small onClick={() => applyOptions(res.options)} style={bStyle({ background: T.bg, color: T.textSec, border: "1px solid " + T.brd })}>🔁 إعدادات</Btn>);
+    btns.push(<a key="dl" href={res.url} target="_blank" rel="noreferrer" style={{ display: "block" }}><Btn small style={bStyle({ background: T.bg, color: T.text, border: "1px solid " + T.brd })}>⬇️ تحميل</Btn></a>);
+    if(inGallery) btns.push(<Btn key="del" small onClick={() => deleteFromGallery(res.id)} style={bStyle({ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" })}>🗑 حذف</Btn>);
+    const cols = Math.max(1, Math.ceil(btns.length / 2));
+    return <div style={{ display: "grid", gridTemplateColumns: "repeat(" + cols + ", 1fr)", gap: 6, padding: 10 }}>{btns}</div>;
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: T.bg, overflow: isMob ? "auto" : "hidden", direction: "rtl" }}>
