@@ -528,8 +528,12 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const attrClause = attrLines.length
       ? "\n\nSubject & shot attributes (must apply — override any conflicting description above):\n" + attrLines.join("\n")
       : "";
+    /* V21.27.43: تعزيز الواقعية بقى يتحقن في البرومبت الجاهز كمان (لو مفعّل) —
+       نسيج جلد/خامة حقيقي + نفي «شكل الـ AI». البرومبتس الجاهزة كلها مشاهد
+       أشخاص/موديل فالـ isPerson=true. */
+    const realismSuffix = realismOn ? ("\n\n" + buildRealismSuffix(realismLevel, true)) : "";
     /* V21.26.10: الموديل دايماً لابس شوز (افتراضي) + الملاحظات الإضافية. */
-    const promptWithNotes = baseP + attrClause + "\n\n" + FOOTWEAR_CLAUSE + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
+    const promptWithNotes = baseP + attrClause + "\n\n" + FOOTWEAR_CLAUSE + realismSuffix + (notesTxt ? "\n\nAdditional requirements (must apply): " + notesTxt : "");
     setBusy(true); setGenTotal(n); setGenDone(0);
     const news = [];
     for(let i = 0; i < n; i++){
@@ -1188,7 +1192,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
               {readyMode && (
                 <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", border: "1px solid " + T.accent + "22", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.7 }}>
-                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — بيتطبّق على البرومبت: <b>{groupIsAdult ? "" : "العمر + "}الإطار + زاوية الكاميرا + اتجاه النظر + درجة الألوان + لون البشرة + العدسة + الإضاءة + التعبير + الملاحظات</b>. (كل واحد على «تلقائي» مابيتحقنش — اختار قيمة عشان تتطبّق). الوقفة/الخلفية/تعزيز الواقعية للوضع اليدوي بس.
+                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — بيتطبّق على البرومبت: <b>{groupIsAdult ? "" : "العمر + "}الإطار + زاوية الكاميرا + اتجاه النظر + درجة الألوان + لون البشرة + العدسة + الإضاءة + التعبير + الملاحظات</b>. (كل واحد على «تلقائي» مابيتحقنش — اختار قيمة عشان تتطبّق). + تعزيز الواقعية (لو مفعّل). الوقفة/الخلفية للوضع اليدوي بس.
                 </div>
               )}
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
@@ -1231,10 +1235,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               </div>
             </div>
 
-            {/* realism booster */}
-            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14, ...inertCard(optInert) }} title={optInert ? "غير مؤثّر على البرومبت الجاهز" : undefined}>
+            {/* realism booster — V21.27.43: بقى مؤثّر في البرومبت الجاهز كمان */}
+            <div style={{ background: T.cardSolid, border: "1px solid " + T.brd, padding: 14, borderRadius: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية{optInert ? " · غير مؤثّر" : ""}</span>
+                <span style={{ fontSize: FS, fontWeight: 800, color: T.text }}>🎞️ تعزيز الواقعية</span>
                 <span onClick={() => setRealismOn(v => !v)} style={{ cursor: "pointer", fontSize: FS - 3, fontWeight: 700, color: realismOn ? T.accent : T.textMut }}>{realismOn ? "✓ مفعّل" : "متوقّف"}</span>
               </div>
               <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: realismOn ? 8 : 0, lineHeight: 1.6 }}>بيخلّي الصورة تبان فوتوغرافيا حقيقية (نسيج جلد/خامة طبيعي + نفي «شكل الـ AI») — مهم لمصداقية العملاء.</div>
