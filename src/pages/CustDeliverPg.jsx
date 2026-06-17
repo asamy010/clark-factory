@@ -3680,7 +3680,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* V21.22.11: قائمة العملاء بقت VIEW ملء الشاشة بدل بوب اب (مبدأ:
         الكبير = صفحة، الصغير = popup). فورم «+ عميل جديد» يفضل popup صغير. */}
     {showCustList&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflowY:"auto",overflowX:"hidden"}}>
-      <div style={{maxWidth:1500,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>
+      <div style={{maxWidth:"100%",margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap",position:"sticky",top:0,background:T.bg,paddingTop:4,paddingBottom:10,zIndex:2}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <Btn small onClick={()=>setShowCustList(false)} style={{background:T.cardSolid,border:"1px solid "+T.brd,fontWeight:700}}>← رجوع</Btn>
@@ -3761,7 +3761,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <div style={{display:"flex",alignItems:"center",borderBottom:"2px solid "+T.brd,padding:"8px 0",paddingInlineEnd:12,background:T.cardSolid}}>
                 <div style={{...cNum,...hdr}}>#</div><div style={{...cName,...hdr}}>الاسم</div><div style={{...cTags,...hdr}}>التاجز</div><div style={{...cType,...hdr,color:T.textSec}}>النوع</div><div style={{...cPhone,...hdr}}>التليفون</div><div style={{...cAddr,...hdr}}>العنوان</div><div style={{...cTot,...hdr}}>اجمالي</div>{canEdit&&<div style={{...cAct,...hdr}}/>}
               </div>
-              <VirtualList items={fc} rowHeight={ROW_H} renderRow={renderRow} overscanCount={10}/>
+              <VirtualList items={fc} rowHeight={ROW_H} renderRow={renderRow} overscanCount={10} style={{overflowX:isMob?"auto":"hidden"}}/>
               <div style={{textAlign:"center",marginTop:8,fontSize:FS-2,color:T.textSec}}>إجمالي {fc.length} عميل — العرض مُحسّن (virtualized) ⚡</div>
             </div>);
           }
