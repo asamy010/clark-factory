@@ -426,6 +426,8 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
   const [createdCN, setCreatedCN] = useState(null);  /* مرحلة «تم» */
   const [posting, setPosting] = useState(false);
   const [posted, setPosted]   = useState(false);
+  /* V21.27.40: بوب اب عرض مستند مرتبط (فاتورة / أمر بيع) — قراءة فقط */
+  const [docView, setDocView] = useState(null);  /* {kind:"invoice"|"so", doc} */
 
   const customer = customers.find(c => String(c.id) === String(custId)) || null;
   const custOpts = customers.map(c => ({ value: c.id, label: c.name + (c.phone ? " — " + c.phone : "") }));
@@ -456,14 +458,22 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
         i && i.status !== "void" && i.customerId === custId &&
         Array.isArray(i.items) && i.items.some(it => it.orderId === o.id)
       );
+      /* V21.27.40: أمر بيع مرتبط (غير ملغى) لنفس العميل + الأوردر، إن وُجد.
+         بنود أمر البيع بتربط بالأوردر عبر sourceId (sourceType="order"). */
+      const so = (data.salesOrders || []).find(s =>
+        s && s.status !== "cancelled" &&
+        (String(s.customerId) === String(custId) || String(s.custId) === String(custId)) &&
+        Array.isArray(s.items) && s.items.some(it => it.sourceId === o.id || it.orderId === o.id)
+      );
       out.push({
         orderId: o.id, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "",
         sellPrice: Number(o.sellPrice) || 0, net, delQty, retQty,
-        sessions, invoiceNo: inv ? inv.invoiceNo : null, image: o.image || null,
+        sessions, invoiceNo: inv ? inv.invoiceNo : null, invoice: inv || null,
+        salesOrder: so || null, image: o.image || null,
       });
     });
     return out.sort((a, b) => String(a.modelNo).localeCompare(String(b.modelNo)));
-  }, [custId, orders, data.salesInvoices]);
+  }, [custId, orders, data.salesInvoices, data.salesOrders]);
 
   const returnableMap = useMemo(() => Object.fromEntries(returnable.map(r => [r.orderId, r])), [returnable]);
   const searchResults = useMemo(() => {
@@ -641,13 +651,21 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
               {/* السياق: تسليمات (تاريخ + كمية) · فاتورة · صافي متاح */}
               <div style={{ marginTop: 8, fontSize: FS - 2, color: T.textSec, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
                 <span>📦 صافي متاح للإرجاع: <b style={{ color: T.ok }}>{r.net}</b> <span style={{ color: T.textMut }}>(مُسلّم {r.delQty} − مُرتجع {r.retQty})</span></span>
-                {r.invoiceNo && <span>🧾 الفاتورة: <b style={{ color: T.accent, fontFamily: "monospace" }}>{r.invoiceNo}</b></span>}
+                {/* V21.27.40: لينك الفاتورة يفتح بوب اب قراءة فقط */}
+                {r.invoice && <span onClick={() => setDocView({ kind: "invoice", doc: r.invoice })} title="اعرض الفاتورة" style={{ cursor: "pointer" }}>🧾 الفاتورة: <b style={{ color: T.accent, fontFamily: "monospace", textDecoration: "underline" }}>{r.invoiceNo}</b></span>}
+                {/* V21.27.40: لينك أمر البيع (لو موجود) يفتح بوب اب قراءة فقط */}
+                {r.salesOrder && <span onClick={() => setDocView({ kind: "so", doc: r.salesOrder })} title="اعرض أمر البيع" style={{ cursor: "pointer" }}>📄 أمر بيع: <b style={{ color: "#6366F1", fontFamily: "monospace", textDecoration: "underline" }}>{r.salesOrder.orderNo}</b></span>}
                 <span>💰 السعر: <b style={{ direction: "ltr" }}>{fmt(r.sellPrice)}</b></span>
               </div>
               <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {r.sessions.map((s, i) => <span key={i} style={{ fontSize: FS - 3, padding: "2px 8px", borderRadius: 6, background: T.accent + "10", color: T.accent, border: "1px solid " + T.accent + "25" }}>
-                  📅 تسليم {s.date || "—"} · {s.qty} قطعة
-                </span>)}
+                {r.sessions.map((s, i) => {
+                  /* V21.27.40: كام يوم من تاريخ التسليم لحد النهاردة (أحمر) — يبيّن الصنف اتستلم من إمتى. */
+                  const days = s.date ? Math.floor((Date.now() - new Date(s.date).getTime()) / 86400000) : null;
+                  return <span key={i} style={{ fontSize: FS - 3, padding: "2px 8px", borderRadius: 6, background: T.accent + "10", color: T.accent, border: "1px solid " + T.accent + "25" }}>
+                    📅 تسليم {s.date || "—"} · {s.qty} قطعة
+                    {days != null && days >= 0 && <b style={{ color: T.err, marginInlineStart: 5 }}>· من {days} يوم</b>}
+                  </span>;
+                })}
               </div>
               {err && <div style={{ marginTop: 6, fontSize: FS - 3, color: T.err, fontWeight: 700 }}>⛔ {err}</div>}
             </div>;
@@ -668,6 +686,54 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
           <Btn primary onClick={confirmReturn} disabled={!valid || busy} style={{ background: valid ? "#6366F1" : T.brd, color: "#fff", border: "none", fontWeight: 800 }}>{busy ? "⏳ جاري التسجيل..." : "↩️ تأكيد المرتجع (" + totalQty + ")"}</Btn>
         </div>
       </div>
+
+      {/* V21.27.40: بوب اب عرض مستند مرتبط (فاتورة / أمر بيع) — قراءة فقط، فوق المودال */}
+      {docView && (() => {
+        const dv = docView.doc; const isInv = docView.kind === "invoice";
+        const items = Array.isArray(dv.items) ? dv.items : [];
+        const paid = Number(dv.paidAmount) || 0;
+        const total = Number(dv.total) || 0;
+        const remaining = total - paid;
+        return <div onClick={() => setDocView(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, padding: 20, width: "100%", maxWidth: 540, maxHeight: "85vh", overflowY: "auto", border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid " + T.brd }}>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: isInv ? T.accent : "#6366F1" }}>
+                {isInv ? "🧾 فاتورة " : "📄 أمر بيع "}<span style={{ fontFamily: "monospace" }}>{isInv ? dv.invoiceNo : dv.orderNo}</span>
+              </div>
+              <Btn ghost small onClick={() => setDocView(null)}>✕</Btn>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", fontSize: FS - 2, color: T.textSec, marginBottom: 12 }}>
+              <span>👤 {dv.customerName || customer?.name || "—"}</span>
+              <span>📅 {dv.date || "—"}</span>
+              {dv.status && <span>الحالة: <b style={{ color: T.text }}>{dv.status}</b></span>}
+            </div>
+            <div style={{ border: "1px solid " + T.brd, borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ display: "flex", padding: "6px 10px", background: T.bg, fontSize: FS - 3, fontWeight: 700, color: T.textSec }}>
+                <span style={{ flex: 1 }}>الموديل</span><span style={{ width: 50, textAlign: "center" }}>كمية</span><span style={{ width: 70, textAlign: "left" }}>سعر</span><span style={{ width: 80, textAlign: "left" }}>إجمالي</span>
+              </div>
+              {items.length === 0 ? <div style={{ padding: 12, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>لا توجد بنود</div> :
+                items.map((it, i) => {
+                  const q = Number(it.qty) || 0;
+                  const price = Number(it.unitPrice != null ? it.unitPrice : (it.price != null ? it.price : it.sellPrice)) || 0;
+                  const lt = Number(it.total != null ? it.total : it.lineTotal) || (q * price);
+                  return <div key={i} style={{ display: "flex", padding: "6px 10px", borderTop: "1px solid " + T.brd, fontSize: FS - 2, color: T.text }}>
+                    <span style={{ flex: 1 }}>{it.modelNo || it.model || it.description || "—"}</span>
+                    <span style={{ width: 50, textAlign: "center" }}>{q}</span>
+                    <span style={{ width: 70, textAlign: "left", direction: "ltr" }}>{fmt(price)}</span>
+                    <span style={{ width: 80, textAlign: "left", direction: "ltr", fontWeight: 700 }}>{fmt(lt)}</span>
+                  </div>;
+                })}
+            </div>
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4, fontSize: FS - 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: T.textSec }}>الإجمالي</span><b style={{ direction: "ltr" }}>{fmt(total)}</b></div>
+              {isInv && paid > 0 && <>
+                <div style={{ display: "flex", justifyContent: "space-between", color: T.ok }}><span>المدفوع</span><b style={{ direction: "ltr" }}>{fmt(paid)}</b></div>
+                <div style={{ display: "flex", justifyContent: "space-between", color: remaining > 0 ? T.err : T.textSec }}><span>المتبقي</span><b style={{ direction: "ltr" }}>{fmt(remaining)}</b></div>
+              </>}
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>
   </div>;
 }

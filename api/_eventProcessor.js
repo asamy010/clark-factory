@@ -391,7 +391,21 @@ export async function processEvent(db, params){
   }
   const auto = cfg.automation || {};
   const et = auto.eventTriggers || {};
-  const eventCfg = (et.events || {})[eventType] || {};
+  let eventCfg = (et.events || {})[eventType] || {};
+  /* V21.27.40: per-call template/recipient override. Lets a caller reuse an
+     existing ENABLED event's gate (enabled flag + recipients) while swapping the
+     wording — e.g. account-transfer notifications piggyback the paymentReceived
+     gate but send "تم نقل حسابك..." instead of "تم استلام دفعة". `enabled` is
+     intentionally NOT overridable (the piggyback must respect the real config). */
+  if (params.eventCfgOverride && typeof params.eventCfgOverride === "object") {
+    const ov = params.eventCfgOverride;
+    eventCfg = {
+      ...eventCfg, ...ov,
+      enabled: eventCfg.enabled,
+      templates:  { ...(eventCfg.templates  || {}), ...(ov.templates  || {}) },
+      recipients: { ...(eventCfg.recipients || {}), ...(ov.recipients || {}) },
+    };
+  }
 
   /* Idempotency */
   if (!force && isAlreadyFired(et, idempotencyKey)) {

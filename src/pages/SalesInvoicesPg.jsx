@@ -510,9 +510,19 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   return <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} style={{
       background:T.cardSolid, borderRadius:14, padding:isMob?16:24,
-      width:"100%", maxWidth:920, maxHeight:"90vh", overflowY:"auto",
+      width:"100%", maxWidth:920, maxHeight:"90vh", overflowY:"auto", overflowX:"hidden", position:"relative",
       border:"1px solid "+T.brd, boxShadow:"0 25px 70px rgba(0,0,0,0.4)"
     }}>
+      {/* V21.27.40: شريط حالة الدفع القطري (زي أودو) — أخضر «مدفوع كلياً»،
+          رمادي «مدفوعة جزئياً». بيظهر للمبيعات والمشتريات حسب paidAmount/total. */}
+      {(() => {
+        const _total = Number(invoice.total) || 0;
+        const _paid = Number(invoice.paidAmount) || 0;
+        if(invoice.status === "void" || _total <= 0 || _paid <= 0) return null;
+        const full = _paid >= _total - 0.01;
+        const rb = full ? { label: "مدفوع كلياً", color: "#10B981" } : { label: "مدفوعة جزئياً", color: "#6B7280" };
+        return <div style={{ position: "absolute", top: 20, left: -54, width: 200, transform: "rotate(-45deg)", transformOrigin: "center", background: rb.color, color: "#fff", textAlign: "center", fontSize: FS - 3, fontWeight: 800, padding: "5px 0", boxShadow: "0 2px 6px rgba(0,0,0,0.25)", zIndex: 5, pointerEvents: "none", letterSpacing: 0.3 }}>{rb.label}</div>;
+      })()}
       {/* V18.94: Review-request banner — visible only to the sender if there's an active request */}
       <ReviewRequestBanner
         linkType="invoice"

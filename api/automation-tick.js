@@ -523,6 +523,45 @@ async function scanRecentPayments(db, cfg, eventCfg, cairoDate, ordersCache){
     const customer = customersById[p.custId] || {};
     /* V19.70.2 + V19.76.2: balance from full ledger AFTER applying customer discount */
     const balance = Math.round(balances[p.custId] || 0);
+
+    /* V21.27.40: مدفوعات «تحميل حساب» = نقل رصيد بين طرفين، مش دفعة فعلية. الرسالة
+       العامة «تم استلام دفعة» غلط (خصوصًا للطرف المنقول منه — وصله إنه استلم دفعة).
+       نبعت رسالة تحويل مخصّصة عبر eventCfgOverride، بنعيد استخدام بوابة
+       paymentReceived المفعّلة (نفس enabled/recipients) من غير نوع حدث جديد. */
+    if (p.method === "تحميل حساب" || p.transferSide || p.transferId) {
+      const amt = Math.abs(Number(p.amount) || 0);
+      const isFrom = p.transferSide === "from" || (Number(p.amount) || 0) < 0;
+      const other = isFrom ? (p.transferTo || {}) : (p.transferFrom || {});
+      const otherName = other.name || "—";
+      const otherBalance = (other.type === "customer" && other.id != null)
+        ? Math.round(balances[other.id] || 0).toLocaleString("en-US")
+        : "—";
+      const fromName = (p.transferFrom && p.transferFrom.name) || "—";
+      const toName   = (p.transferTo   && p.transferTo.name)   || "—";
+      const rt = await processEvent(db, {
+        eventType: "paymentReceived",
+        payload: {
+          customerName: customer.name || p.custName || "—",
+          amount: amt, method: "تحميل حساب", balance, date, portalLink: "",
+          otherParty: otherName, otherBalance, fromName, toName,
+        },
+        customerPhone: customer.phone || null,
+        idempotencyKey: `payment:${p.id}`,
+        force: false, source: "cron", cfgCache: cfg,
+        eventCfgOverride: {
+          templates: {
+            customer: isFrom
+              ? "🔄 *تم نقل حسابك*\nاتنقل من حسابك {amount} ج.م لحساب {otherParty}.\nرصيدك الحالي: {balance} ج.م\nرصيد {otherParty}: {otherBalance} ج.م"
+              : "🔄 *تحويل لحسابك*\nاتضاف لحسابك {amount} ج.م من حساب {otherParty}.\nرصيدك الحالي: {balance} ج.م",
+            owner: "🔄 *تحميل حساب*\nاتنقل {amount} ج.م من {fromName} لـ {toName}.",
+          },
+        },
+      });
+      if (rt.body?.sent) fired++;
+      else if (rt.body?.deduped || rt.body?.skipped) skipped++;
+      continue;
+    }
+
     const idempotencyKey = `payment:${p.id}`;
     const r = await processEvent(db, {
       eventType: "paymentReceived",
