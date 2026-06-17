@@ -956,11 +956,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   /* V21.26.21: ستايل تعتيم لأي بلوك إعدادات غير مؤثّر في الوضع الحالي. */
   const inertCard = (inert) => inert ? { opacity: 0.4, transition: "opacity .15s" } : null;
 
-  /* V21.27.31: الأزرار بقت grid صفّين منظّم (أعمدة = ceil(عدد الأزرار/2))
-     بدل flex-wrap المتعرّج — كل زر بيملأ خليته فبيبانوا متساويين ومرتّبين.
-     bStyle بتضيف عرض كامل + توسيط + قص للنص الطويل. */
+  /* V21.27.35: رجوع لـ flex-wrap بعرض طبيعي عشان أسماء الأزرار تظهر كاملة
+     (الـ grid في V21.27.31 كان بيضيّق الأزرار فالأسماء تتقصّ لـ «...»). */
   const resultActions = (res, inGallery) => {
-    const bStyle = (extra) => ({ width: "100%", justifyContent: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...extra });
+    const bStyle = (extra) => ({ whiteSpace: "nowrap", ...extra });
     const btns = [];
     if(replaceModel || updOrder) btns.push(<Btn key="link" small onClick={() => { setLinkFor(res); setLinkOrderId(null); setLinkTab(replaceModel ? "model" : "order"); }} style={bStyle({ background: T.accent + "1f", color: T.accent, border: "1px solid " + T.accent + "55", fontWeight: 800 })} title="ربط الصورة بموديل أو أمر تشغيل (بالرقم) أو بلون">🔗 ربط</Btn>);
     if(curModel && replaceModel) btns.push(<Btn key="main" small onClick={() => saveAsModelImage(res)} style={bStyle({ background: T.accent + "14", color: T.accent, border: "1px solid " + T.accent + "33", fontWeight: 700 })}>⭐ رئيسية</Btn>);
@@ -973,10 +972,9 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     btns.push(<Btn key="aiedit" small onClick={() => { setEditFor(res); setEditInstr(""); }} style={bStyle({ background: T.warn + "12", color: T.warn, border: "1px solid " + T.warn + "33", fontWeight: 700 })} title="تعديل بالـ AI (برومبت)">✏️ تعديل AI</Btn>);
     btns.push(<Btn key="editor" small onClick={() => setEditorFor(res)} style={bStyle({ background: "#DB277712", color: "#DB2777", border: "1px solid #DB277733", fontWeight: 800 })} title="محرّر صور كامل — نص ولوجو وتحريك بالماوس">🎨 محرّر</Btn>);
     if(res.options) btns.push(<Btn key="opts" small onClick={() => applyOptions(res.options)} style={bStyle({ background: T.bg, color: T.textSec, border: "1px solid " + T.brd })}>🔁 إعدادات</Btn>);
-    btns.push(<a key="dl" href={res.url} target="_blank" rel="noreferrer" style={{ display: "block" }}><Btn small style={bStyle({ background: T.bg, color: T.text, border: "1px solid " + T.brd })}>⬇️ تحميل</Btn></a>);
+    btns.push(<a key="dl" href={res.url} target="_blank" rel="noreferrer" style={{ display: "inline-block" }}><Btn small style={bStyle({ background: T.bg, color: T.text, border: "1px solid " + T.brd })}>⬇️ تحميل</Btn></a>);
     if(inGallery) btns.push(<Btn key="del" small onClick={() => deleteFromGallery(res.id)} style={bStyle({ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" })}>🗑 حذف</Btn>);
-    const cols = Math.max(1, Math.ceil(btns.length / 2));
-    return <div style={{ display: "grid", gridTemplateColumns: "repeat(" + cols + ", 1fr)", gap: 6, padding: 10 }}>{btns}</div>;
+    return <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 10 }}>{btns}</div>;
   };
 
   return (
