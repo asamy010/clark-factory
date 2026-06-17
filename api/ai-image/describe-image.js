@@ -71,41 +71,61 @@ export default async function handler(req, res){
   /* حد أمان (~7MB base64 ≈ 5MB صورة) */
   if(b64.length > 7_000_000) return res.status(413).json({ ok: false, error: "الصورة كبيرة — صغّرها قبل الرفع" });
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
+  /* V21.27.36: استدعاء Gemini مرة واحدة. بيرجّع { raw, finishReason, block }.
+     - thinkingConfig.thinkingBudget=0: يعطّل «التفكير» في gemini-2.5-flash —
+       كان بياكل ميزانية التوكنز فالموديل يرجّع parts فاضية (finishReason
+       MAX_TOKENS) → «تعذّر قراءة نتيجة التحليل» بشكل متقطّع. ده السبب الجذري.
+     - maxOutputTokens: سقف واضح للمخرجات. */
+  const callOnce = async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + TEXT_MODEL + ":generateContent?key=" + apiKey, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [
+            { text: INSTRUCTION },
+            { inlineData: { mimeType, data: b64 } },
+          ] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+        signal: ctrl.signal,
+      });
+      const text = await resp.text();
+      if(!resp.ok){
+        let em = text; try { em = JSON.parse(text)?.error?.message || text; } catch(_){}
+        const e = new Error("فشل التحليل: " + em); e.statusCode = resp.status >= 500 ? 502 : 400; throw e;
+      }
+      const json = JSON.parse(text);
+      const cand = json?.candidates?.[0] || {};
+      const raw = (cand?.content?.parts || []).map(p => p.text || "").join("").trim();
+      return { raw, finishReason: cand.finishReason || "", block: json?.promptFeedback?.blockReason || "" };
+    } finally { clearTimeout(timer); }
+  };
+
   try {
-    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + TEXT_MODEL + ":generateContent?key=" + apiKey, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [
-          { text: INSTRUCTION },
-          { inlineData: { mimeType, data: b64 } },
-        ] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
-      }),
-      signal: ctrl.signal,
-    });
-    const text = await resp.text();
-    if(!resp.ok){
-      let em = text; try { em = JSON.parse(text)?.error?.message || text; } catch(_){}
-      return res.status(resp.status >= 500 ? 502 : 400).json({ ok: false, error: "فشل التحليل: " + em });
+    let r = await callOnce();
+    /* إعادة محاولة واحدة لو الرد فاضي (مش بسبب حجب أمان) — يعالج التقطّع */
+    if(!r.raw && r.block !== "SAFETY" && r.block !== "PROHIBITED_CONTENT") r = await callOnce();
+
+    if(!r.raw){
+      const why = r.block ? ("المحتوى اتحجب (" + r.block + ")") : (r.finishReason ? ("النموذج مرجّعش نص (" + r.finishReason + ")") : "النموذج رجّع رد فاضي");
+      return res.status(502).json({ ok: false, error: "تعذّر التحليل: " + why + " — جرّب صورة تانية أو تاني." });
     }
-    const json = JSON.parse(text);
-    const raw = (json?.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("").trim();
     let fields;
-    try { fields = JSON.parse(raw); }
+    try { fields = JSON.parse(r.raw); }
     catch(_){
-      const mm = raw.match(/\{[\s\S]*\}/);
-      if(!mm) return res.status(502).json({ ok: false, error: "تعذّر قراءة نتيجة التحليل" });
-      fields = JSON.parse(mm[0]);
+      const mm = r.raw.match(/\{[\s\S]*\}/);
+      try { fields = mm ? JSON.parse(mm[0]) : null; } catch(__){ fields = null; }
+      if(!fields) return res.status(502).json({ ok: false, error: "تعذّر قراءة نتيجة التحليل — جرّب تاني." });
     }
     const prompt = String(fields?.prompt || "").trim();
     const name = String(fields?.name || "").trim();
-    if(!prompt) return res.status(502).json({ ok: false, error: "مفيش برومبت في النتيجة" });
+    if(!prompt) return res.status(502).json({ ok: false, error: "مفيش برومبت في النتيجة — جرّب تاني." });
     return res.status(200).json({ ok: true, prompt, name });
   } catch(e){
-    if(e.name === "AbortError") return res.status(504).json({ ok: false, error: "انتهت مهلة التحليل" });
-    return res.status(500).json({ ok: false, error: (e && e.message) || "خطأ في التحليل" });
-  } finally { clearTimeout(timer); }
+    if(e.name === "AbortError") return res.status(504).json({ ok: false, error: "انتهت مهلة التحليل — جرّب تاني." });
+    return res.status(e.statusCode || 500).json({ ok: false, error: (e && e.message) || "خطأ في التحليل" });
+  }
 }

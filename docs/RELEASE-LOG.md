@@ -28,6 +28,16 @@
 
 ---
 
+## V21.27.36 — استخراج البرومبت من الصور: fix خطأ التحليل المتقطّع 🪄
+- **root cause:** `describe-image.js` بيستخدم gemini-2.5-flash اللي «التفكير»
+  فيه enabled افتراضياً — أحياناً بياكل ميزانية التوكنز فيرجّع `parts` فاضية
+  (`finishReason=MAX_TOKENS`) → raw فاضي → «تعذّر قراءة نتيجة التحليل».
+- **الحل:** `thinkingConfig:{thinkingBudget:0}` + `maxOutputTokens:1024` +
+  إعادة محاولة واحدة لو الرد فاضي (مش بسبب حجب أمان) + تشخيص `finishReason`/
+  `blockReason` في رسالة الخطأ.
+- ملف: `api/ai-image/describe-image.js`. (ملاحظة: `analyze-prompt.js` ليه نفس
+  النمط — مرشّح لنفس التحصين لو ظهرت نفس المشكلة فيه.)
+
 ## V21.27.35 — استوديو الصور: رجوع أسماء الأزرار كاملة (fix) 🔤
 - الـ grid (cols=ceil(n/2)) في V21.27.31 كان بيضيّق الأزرار فالأسماء تتقصّ
   لـ «...». رجعنا لـ `flex-wrap` بعرض طبيعي (`bStyle` بدون width:100%/ellipsis)
