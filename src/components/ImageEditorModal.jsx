@@ -58,12 +58,20 @@ function ensureFonts(){
   const l = document.createElement("link"); l.rel = "stylesheet"; l.href = GFONTS_HREF; document.head.appendChild(l);
 }
 
+/* V21.27.33: حافظة عناصر على مستوى الموديول — بتفضل بين فتحات المحرّر في
+   نفس الجلسة، فتقدر تنسخ عناصر من صورة وتلصقها في صورة تانية بنفس المواصفات.
+   (مش بتنجو من reload الصفحة — الـ object URLs للصور المرفوعة محلياً بتتلغي.) */
+let _editorClipboard = [];
+
 export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave }){
   const [ready, setReady] = useState(false);
   const [dims, setDims] = useState({ w: 0, h: 0 });     /* الأبعاد الطبيعية */
   const [scale, setScale] = useState(1);
   const [layers, setLayers] = useState([]);
-  const [selId, setSelId] = useState(null);
+  const [selId, setSelId] = useState(null);           /* العنصر الأساسي (للـ inspector) */
+  const [selIds, setSelIds] = useState(() => new Set()); /* V21.27.33: تحديد متعدد */
+  const [multiSel, setMultiSel] = useState(false);     /* V21.27.33: وضع التحديد المتعدد (للموبايل) */
+  const [, forceTick] = useState(0);                   /* لإعادة الرسم بعد نسخ (clipboard module-var) */
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const stageRef = useRef(null);
@@ -119,8 +127,36 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
   const onLogo = () => { if(logoUrl) addImageLayer(logoUrl); else showToast("⚠️ مفيش لوجو محفوظ — ارفع صورة"); };
   /* V21.27.32: اتشالت الاسطمبة بالكامل (طلب Ahmed) — البديل: نص عادي + خط Anton. */
 
-  const removeLayer = (id) => { setLayers(ls => ls.filter(l => l.id !== id)); if(selId === id) setSelId(null); };
-  const dupLayer = (id) => setLayers(ls => { const i = ls.findIndex(l => l.id === id); if(i < 0) return ls; const c = { ...ls[i], id: nid(), cx: ls[i].cx + dims.w * 0.04, cy: ls[i].cy + dims.h * 0.04 }; const n = [...ls]; n.splice(i + 1, 0, c); setSelId(c.id); return n; });
+  const removeLayer = (id) => { setLayers(ls => ls.filter(l => l.id !== id)); if(selId === id) setSelId(null); setSelIds(p => { const n = new Set(p); n.delete(id); return n; }); };
+  const dupLayer = (id) => setLayers(ls => { const i = ls.findIndex(l => l.id === id); if(i < 0) return ls; const c = { ...ls[i], id: nid(), cx: ls[i].cx + dims.w * 0.04, cy: ls[i].cy + dims.h * 0.04 }; const n = [...ls]; n.splice(i + 1, 0, c); setSelId(c.id); setSelIds(new Set([c.id])); return n; });
+
+  /* V21.27.33: حذف/نسخ/لصق للتحديد (مفرد أو متعدد) */
+  const removeSelected = () => { if(!selIds.size) return; setLayers(ls => ls.filter(l => !selIds.has(l.id))); setSelId(null); setSelIds(new Set()); };
+  const copySelected = () => {
+    const picked = layers.filter(l => selIds.has(l.id));
+    if(!picked.length){ showToast("⚠️ اختر عنصر/عناصر الأول"); return; }
+    /* استنساخ عميق بدون id — يتولّد id جديد عند اللصق */
+    _editorClipboard = picked.map(l => { const c = JSON.parse(JSON.stringify(l)); delete c.id; return c; });
+    forceTick(t => t + 1);
+    showToast("📋 اتنسخ " + picked.length + " عنصر — افتح أي صورة و«الصق»");
+  };
+  const pasteClipboard = () => {
+    if(!_editorClipboard.length){ showToast("⚠️ مفيش حاجة منسوخة"); return; }
+    const newIds = [];
+    setLayers(ls => {
+      const add = _editorClipboard.map(c => {
+        const id = nid(); newIds.push(id);
+        /* نفس المواصفات؛ نحصر الموضع جوّه حدود الصورة الحالية */
+        let cx = c.cx != null ? c.cx : dims.w / 2, cy = c.cy != null ? c.cy : dims.h / 2;
+        cx = Math.max(0, Math.min(dims.w, cx)); cy = Math.max(0, Math.min(dims.h, cy));
+        return { ...c, id, cx, cy };
+      });
+      return [...ls, ...add];
+    });
+    setSelIds(new Set(newIds));
+    setSelId(newIds[newIds.length - 1] || null);
+    showToast("✓ اتلصق " + _editorClipboard.length + " عنصر بنفس المواصفات");
+  };
   const moveZ = (id, dir) => setLayers(ls => { const i = ls.findIndex(l => l.id === id); if(i < 0) return ls; const j = dir > 0 ? Math.min(ls.length - 1, i + 1) : Math.max(0, i - 1); if(i === j) return ls; const n = [...ls]; const [it] = n.splice(i, 1); n.splice(j, 0, it); return n; });
 
   /* ── الإيماءات (تحريك/تكبير/تدوير) عبر مستمعين على الويندو ── */
@@ -129,7 +165,8 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
     const s = scaleRef.current;
     if(g.type === "move"){
       const dx = (e.clientX - g.sx) / s, dy = (e.clientY - g.sy) / s;
-      setLayers(ls => ls.map(l => l.id === g.id ? { ...l, cx: g.scx + dx, cy: g.scy + dy } : l));
+      /* V21.27.33: تحريك كل العناصر المحددة مع بعض (من مواضعها الأصلية) */
+      setLayers(ls => ls.map(l => g.starts[l.id] ? { ...l, cx: g.starts[l.id].cx + dx, cy: g.starts[l.id].cy + dy } : l));
     } else if(g.type === "resize"){
       const dist = Math.hypot(e.clientX - g.ccx, e.clientY - g.ccy);
       const ratio = Math.max(0.05, dist / (g.startDist || 1));
@@ -147,9 +184,27 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
   }, [onMove, onUp]);
 
   const centerClient = (l) => { const r = stageRef.current.getBoundingClientRect(); return { x: r.left + l.cx * scaleRef.current, y: r.top + l.cy * scaleRef.current }; };
-  const startMove = (e, l) => { e.stopPropagation(); setSelId(l.id); gestureRef.current = { type: "move", id: l.id, sx: e.clientX, sy: e.clientY, scx: l.cx, scy: l.cy }; };
-  const startResize = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "resize", id: l.id, ccx: c.x, ccy: c.y, startDist: Math.hypot(e.clientX - c.x, e.clientY - c.y), startSize: l.type === "image" ? l.w : l.size }; };
-  const startRotate = (e, l) => { e.stopPropagation(); setSelId(l.id); const c = centerClient(l); gestureRef.current = { type: "rotate", id: l.id, ccx: c.x, ccy: c.y, startAng: Math.atan2(e.clientY - c.y, e.clientX - c.x) * 180 / Math.PI, startRot: l.rot || 0 }; };
+  const startMove = (e, l) => {
+    e.stopPropagation();
+    /* V21.27.33: تحديد متعدد — additive لو وضع «تحديد متعدد» شغّال أو
+       Shift/Ctrl/⌘. غير كده اختيار مفرد. */
+    const additive = multiSel || e.shiftKey || e.ctrlKey || e.metaKey;
+    let next;
+    if(additive){
+      next = new Set(selIds);
+      if(next.has(l.id)) next.delete(l.id); else next.add(l.id);
+      if(next.size === 0) next.add(l.id);
+    } else {
+      next = (selIds.has(l.id) && selIds.size > 1) ? new Set(selIds) : new Set([l.id]);
+    }
+    setSelIds(next); setSelId(l.id);
+    /* التقاط المواضع الأصلية لكل العناصر المحددة عشان التحريك الجماعي */
+    const starts = {};
+    layers.forEach(L => { if(next.has(L.id)) starts[L.id] = { cx: L.cx, cy: L.cy }; });
+    gestureRef.current = { type: "move", starts, sx: e.clientX, sy: e.clientY };
+  };
+  const startResize = (e, l) => { e.stopPropagation(); setSelId(l.id); setSelIds(new Set([l.id])); const c = centerClient(l); gestureRef.current = { type: "resize", id: l.id, ccx: c.x, ccy: c.y, startDist: Math.hypot(e.clientX - c.x, e.clientY - c.y), startSize: l.type === "image" ? l.w : l.size }; };
+  const startRotate = (e, l) => { e.stopPropagation(); setSelId(l.id); setSelIds(new Set([l.id])); const c = centerClient(l); gestureRef.current = { type: "rotate", id: l.id, ccx: c.x, ccy: c.y, startAng: Math.atan2(e.clientY - c.y, e.clientX - c.x) * 180 / Math.PI, startRot: l.rot || 0 }; };
 
   /* ── التصدير ── */
   /* V21.27.22: الصور البعيدة بتتحمّل عبر /api/img-proxy (نفس الدومين + CORS)
@@ -222,6 +277,10 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
             {logoUrl && <Btn small onClick={onLogo} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }}>🖼️ لوجو</Btn>}
             <ImagePickButton data={data} imagesOnly onFile={f => { const u = URL.createObjectURL(f); addImageLayer(u); }} onPickUrl={u => addImageLayer(u)}
               triggerStyle={{ display: "inline-block", padding: "6px 12px", borderRadius: 8, background: "#8B5CF612", color: "#8B5CF6", border: "1px solid #8B5CF633", fontWeight: 700, fontSize: FS - 2 }}>🖼️ صورة</ImagePickButton>
+            {/* V21.27.33: تحديد متعدد + نسخ/لصق بين الصور */}
+            <Btn small onClick={() => setMultiSel(m => !m)} style={{ background: multiSel ? T.accent : T.bg, color: multiSel ? "#fff" : T.textSec, border: "1px solid " + (multiSel ? T.accent : T.brd), fontWeight: 800 }} title="تحديد متعدد — دوس على العناصر لإضافتها للتحديد، وحرّكهم مع بعض">🔲 تحديد متعدد</Btn>
+            <Btn small onClick={copySelected} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933", fontWeight: 700 }} title="نسخ العناصر المحددة للذاكرة">📋 نسخ</Btn>
+            <Btn small onClick={pasteClipboard} disabled={!_editorClipboard.length} style={{ background: _editorClipboard.length ? "#10B98112" : T.bg, color: _editorClipboard.length ? "#059669" : T.textMut, border: "1px solid " + (_editorClipboard.length ? "#10B98133" : T.brd), fontWeight: 700 }} title="لصق العناصر المنسوخة بنفس المواصفات">📌 لصق{_editorClipboard.length ? " (" + _editorClipboard.length + ")" : ""}</Btn>
             <Btn small onClick={onDownload} disabled={busy} style={{ background: T.bg, color: T.text, border: "1px solid " + T.brd, fontWeight: 700 }}>⬇️ تحميل</Btn>
             <Btn small primary onClick={onSaveClick} disabled={busy}>{busy ? "⏳..." : "💾 حفظ"}</Btn>
             <Btn small ghost onClick={onClose}>✕</Btn>
@@ -230,18 +289,20 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
 
         <div style={{ display: "flex", gap: 0, flex: 1, minHeight: 0 }}>
           {/* Stage */}
-          <div style={{ width: dispW || 480, minHeight: dispH || 320, flexShrink: 0, overflow: "auto", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelId(null)}>
+          <div style={{ width: dispW || 480, minHeight: dispH || 320, flexShrink: 0, overflow: "auto", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setSelId(null); setSelIds(new Set()); }}>
             {err && <div style={{ position: "absolute", top: 70, color: "#fca5a5", fontSize: FS - 2, fontWeight: 700, background: "rgba(0,0,0,0.5)", padding: "6px 12px", borderRadius: 8 }}>⚠️ {err}</div>}
             {ready && <div ref={stageRef} onClick={e => e.stopPropagation()} style={{ position: "relative", width: dispW, height: dispH, flexShrink: 0, boxShadow: "0 10px 40px rgba(0,0,0,0.5)", userSelect: "none", touchAction: "none" }}>
               <img src={src} alt="" draggable={false} style={{ width: "100%", height: "100%", display: "block", pointerEvents: "none" }} />
               {layers.map(l => {
-                const isSel = l.id === selId;
-                const common = { position: "absolute", left: l.cx * scale, top: l.cy * scale, transform: "translate(-50%,-50%) rotate(" + (l.rot || 0) + "deg)", cursor: "move", opacity: l.opacity != null ? l.opacity : 1, outline: isSel ? "2px solid " + T.accent : "1px dashed rgba(255,255,255,0.45)", outlineOffset: 2 };
+                const isSel = selIds.has(l.id);
+                const isPrimary = l.id === selId;
+                const single = selIds.size === 1;
+                const common = { position: "absolute", left: l.cx * scale, top: l.cy * scale, transform: "translate(-50%,-50%) rotate(" + (l.rot || 0) + "deg)", cursor: "move", opacity: l.opacity != null ? l.opacity : 1, outline: isSel ? ((isPrimary ? "2px solid " : "2px dashed ") + T.accent) : "1px dashed rgba(255,255,255,0.45)", outlineOffset: 2 };
                 return <div key={l.id} onPointerDown={e => startMove(e, l)} style={common}>
                   {l.type === "text"
                     ? <div style={{ fontFamily: l.font, fontSize: l.size * scale, color: l.color, fontWeight: l.bold ? 700 : 400, fontStyle: l.italic ? "italic" : "normal", textAlign: l.align, whiteSpace: "pre", lineHeight: 1.25, textShadow: l.shadow ? "0 " + (l.size * scale * 0.06) + "px " + (l.size * scale * 0.14) + "px rgba(0,0,0,0.55)" : "none", WebkitTextStroke: l.stroke ? Math.max(1, l.size * scale * 0.07) + "px " + (l.strokeColor || "#000") : undefined, padding: "0 2px" }}>{l.text || "نص"}</div>
                     : <img src={l.url} alt="" draggable={false} style={{ width: l.w * scale, height: "auto", display: "block", pointerEvents: "none" }} />}
-                  {isSel && <>
+                  {isSel && single && <>
                     <div onPointerDown={e => startResize(e, l)} style={{ ...handleDot("nwse-resize"), insetInlineEnd: -8, bottom: -8 }} title="تكبير/تصغير" />
                     <div onPointerDown={e => startRotate(e, l)} style={{ ...handleDot("grab"), insetInlineStart: "50%", marginInlineStart: -8, top: -30 }} title="تدوير" />
                   </>}
@@ -253,13 +314,15 @@ export function ImageEditorModal({ src, logoUrl, data, prefill, onClose, onSave 
 
           {/* Inspector */}
           <div style={{ width: 300, flexShrink: 0, borderInlineStart: "1px solid " + T.brd, overflowY: "auto", padding: 14, background: T.cardSolid }}>
-            {!sel ? <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.9, textAlign: "center", padding: 20 }}>اختر طبقة لتعديلها، أو أضف نص/لوجو/صورة من فوق.<br />حرّكها بالسحب · مقبض الركن للتكبير · المقبض الأعلى للتدوير.</div>
+            {!sel ? <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.9, textAlign: "center", padding: 20 }}>اختر طبقة لتعديلها، أو أضف نص/لوجو/صورة من فوق.<br />حرّكها بالسحب · مقبض الركن للتكبير · المقبض الأعلى للتدوير.<br /><br />🔲 «تحديد متعدد» لاختيار أكتر من عنصر وتحريكهم مع بعض · 📋 نسخ / 📌 لصق بين الصور.</div>
               : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {selIds.size > 1 && <div style={{ fontSize: FS - 2, fontWeight: 800, color: T.accent, background: T.accent + "12", border: "1px solid " + T.accent + "33", borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>🔲 {selIds.size} عناصر محددة — اسحب لتحريكهم مع بعض · التعديلات تحت تخص العنصر الأساسي</div>}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <Btn small onClick={() => moveZ(sel.id, 1)} style={{ background: T.bg, border: "1px solid " + T.brd, color: T.textSec }} title="للأمام">⬆️</Btn>
                   <Btn small onClick={() => moveZ(sel.id, -1)} style={{ background: T.bg, border: "1px solid " + T.brd, color: T.textSec }} title="للخلف">⬇️</Btn>
                   <Btn small onClick={() => dupLayer(sel.id)} style={{ background: T.bg, border: "1px solid " + T.brd, color: T.textSec }} title="تكرار">⧉</Btn>
-                  <Btn small onClick={() => removeLayer(sel.id)} style={{ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" }} title="حذف">🗑</Btn>
+                  <Btn small onClick={copySelected} style={{ background: "#0EA5E912", color: "#0284C7", border: "1px solid #0EA5E933" }} title="نسخ المحدد للذاكرة">📋</Btn>
+                  <Btn small onClick={removeSelected} style={{ background: T.err + "12", color: T.err, border: "1px solid " + T.err + "33" }} title={selIds.size > 1 ? "حذف المحدد" : "حذف"}>🗑</Btn>
                 </div>
                 {sel.type === "text" && <>
                   <div><label style={lbl}>النص</label><textarea value={sel.text} onChange={e => updSel({ text: e.target.value })} rows={2} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", resize: "vertical" }} /></div>
