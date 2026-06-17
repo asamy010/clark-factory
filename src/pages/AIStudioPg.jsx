@@ -142,7 +142,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [ageId, setAgeId] = useState("a4_6");
   const [poseId, setPoseId] = useState("front");
   const [backgroundId, setBackgroundId] = useState("studio_white");
-  const [framingId, setFramingId] = useState("full");
+  const [framingId, setFramingId] = useState("auto"); /* V21.27.45: افتراضي «تلقائي» — مايغيّرش البرومبت الجاهز إلا لو المستخدم اختار إطار */
   const [skinToneId, setSkinToneId] = useState("any");
   const [lightingId, setLightingId] = useState("soft");
   /* V21.27.42: تحكّمات احترافية إضافية (auto = مايتحقنش) */
