@@ -678,6 +678,33 @@ export function reversePartyTransfer(transferId, data){
   };
 }
 
+/* V21.27.52: تعديل تحميل حساب «في المكان» — يعدّل المقدار/التاريخ/الملاحظة في
+   رِجلَي التحويل (بنفس transferId) مع الحفاظ على إشارة كل رِجل (from/to). مفيش
+   قيد محاسبي للتحويل (دفعات طرف فقط)، فالأرصدة مشتقّة وبتتظبط تلقائيًا.
+   يرجّع { patch, touched }. يرمي لو الـ id ناقص/المقدار غير صالح/التحويل مش موجود. */
+export function editPartyTransfer(transferId, data, { magnitude, date, note }){
+  if(!transferId) throw new Error("TRANSFER_ID_REQUIRED");
+  const mag = r2(Math.abs(Number(magnitude) || 0));
+  if(mag <= 0) throw new Error("INVALID_MAGNITUDE");
+  const cps = Array.isArray(data && data.custPayments) ? data.custPayments : [];
+  const sps = Array.isArray(data && data.supplierPayments) ? data.supplierPayments : [];
+  let touched = 0;
+  const upd = (p) => {
+    if(!(p && p.transferId === transferId)) return p;
+    touched++;
+    const sign = (Number(p.amount) || 0) < 0 ? -1 : 1; /* حافظ على اتجاه الرِجل */
+    const next = { ...p, amount: r2(sign * mag) };
+    if(date) next.date = String(date).slice(0, 10);
+    if(note != null) next.note = String(note).slice(0, 300);
+    next.editedAt = new Date().toISOString();
+    return next;
+  };
+  const nextCps = cps.map(upd);
+  const nextSps = sps.map(upd);
+  if(touched === 0) throw new Error("TRANSFER_NOT_FOUND");
+  return { patch: { custPayments: nextCps, supplierPayments: nextSps }, touched };
+}
+
 /* قائمة تحويلات «تحميل حساب» (مجمّعة بالـ transferId) — للعرض/العكس. */
 export function listAccountTransfers(data){
   const cps = Array.isArray(data && data.custPayments) ? data.custPayments : [];

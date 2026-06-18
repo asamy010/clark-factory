@@ -86,6 +86,55 @@ export async function createCustomerDiscount(data, upConfig, input, customer, us
   }
 }
 
+/* V21.27.52: تعديل خصم إضافي «في المكان» — نفس السجل ونفس القيد. postEntry
+   idempotent بيلاقي القيد بـ (sourceType=salesDiscount, sourceId=cn.id) ويحدّث
+   سطوره بنفس الـ refNo (مفيش قيد جديد). لو التاريخ اتغيّر بس: القيد بيتنقل ليوم
+   تاني، فنعكس القديم في يومه الأصلي الأول ثم نرحّل في اليوم الجديد.
+   بيعدّل: المبلغ + السبب + التاريخ. لا يرمي — بيرجّع { ok, error? }. */
+export async function editCustomerDiscount(data, upConfig, oldCN, input, customer, userName){
+  try {
+    if(!oldCN || oldCN.kind !== "discount") return { ok: false, error: "ليس إشعار خصم" };
+    if(oldCN.status === "void") return { ok: false, error: "الخصم ملغى — لا يمكن تعديله" };
+    const amt = r2(Number(input && input.amount) || 0);
+    if(amt <= 0) return { ok: false, error: "أدخل مبلغ صحيح" };
+    const newDate = String(input.date || oldCN.date || "").slice(0, 10);
+    const newReason = String(input.reason || "خصم إضافي").slice(0, 200);
+    const dateChanged = !!newDate && newDate !== oldCN.date;
+
+    /* لو التاريخ اتغيّر: اعكس القيد القديم في يومه الأصلي (postEntry بيدوّر باليوم؛
+       اليوم الجديد مش هيلاقي القديم → نعكسه يدوي عشان مايفضلش يتيم). */
+    if(dateChanged){
+      try { await autoPost.discountVoided(data, oldCN, userName); }
+      catch(e){ console.warn("[editCustomerDiscount] reverse(old date) failed:", e?.message || e); }
+    }
+
+    /* حدّث السجل في المكان — نفس id/رقم/حالة */
+    let updatedCN = null;
+    await upConfig(d => {
+      const idx = (d.salesCreditNotes || []).findIndex(c => c.id === oldCN.id);
+      if(idx < 0) return;
+      const cn = d.salesCreditNotes[idx];
+      cn.subtotal = amt; cn.total = amt;
+      cn.reason = newReason; cn.notes = newReason;
+      cn.date = newDate;
+      cn.editedAt = nowISO(); cn.editedBy = userName || "";
+      cn.postedJournalRef = { date: newDate, sourceType: "salesDiscount", sourceId: cn.id };
+      updatedCN = { ...cn };
+    });
+    if(!updatedCN) return { ok: false, error: "السجل غير موجود" };
+
+    /* أعِد الترحيل — نفس التاريخ → postEntry بيحدّث القيد نفسه (نفس refNo)؛
+       التاريخ اتغيّر → قيد جديد في اليوم الجديد (القديم اتعكس فوق). */
+    try { await autoPost.discountPosted(data, updatedCN, customer || null, userName); }
+    catch(e){ console.warn("[editCustomerDiscount] re-post failed:", e?.message || e); }
+
+    return { ok: true, cn: updatedCN };
+  } catch(e){
+    console.error("[editCustomerDiscount] failed:", e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
 /* إلغاء خصم — بيفضل في السجل (status=void، للأرشيف) + بيعكس القيد المحاسبي.
    الخصم الملغى مش بيأثّر على الرصيد (مستبعد من الكشف والملخص). */
 export async function voidCustomerDiscount(data, upConfig, discountNote, userName){

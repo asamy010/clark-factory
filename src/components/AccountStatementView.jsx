@@ -14,6 +14,9 @@ import { buildAccountStatement, statementToAOA } from "../utils/accounting/state
 import { DocItemsTable } from "./DocItemsTable.jsx";
 import { DiscountModal } from "./sales/DiscountModal.jsx";
 import { DiscountsManager } from "./sales/DiscountsManager.jsx";
+/* V21.27.52: تعديل حركات الخصم/التحويل من الكشف */
+import { editCustomerDiscount } from "../utils/sales/discounts.js";
+import { editPartyTransfer } from "../utils/contacts.js";
 import { buildDocColumns } from "../utils/docColumns.js";
 import { printPage } from "../utils/print.js";
 import { exportExcel } from "../utils/print-extras.js";
@@ -148,6 +151,42 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
   const [openingOn, setOpeningOn] = useState(true);
   const [detailed, setDetailed] = useState(false); /* V21.21.56: حساب تفصيلي — الافتراضي عادي */
   const [drill, setDrill] = useState(null); /* row being drilled into */
+  /* V21.27.52: تعديل حركة خصم/تحويل من الكشف */
+  const canEditEntry = typeof upConfig === "function";
+  const userName = (user && (user.name || user.displayName || user.email)) || "";
+  const [editEntry, setEditEntry] = useState(null); /* {kind:"discount"|"transfer", raw, transferId, amount, reason, date, note} */
+  const [savingEntry, setSavingEntry] = useState(false);
+  /* كاشفات نوع الصف */
+  const isDiscountRow = (r) => r && r.type === "discount" && r.raw && r.raw.kind === "discount" && r.raw.status !== "void";
+  const isTransferRow = (r) => r && r.raw && (r.raw.transferId || r.raw.method === "تحميل حساب");
+  const openEditEntry = (r) => {
+    if(!canEditEntry) return;
+    if(isDiscountRow(r)){
+      setEditEntry({ kind: "discount", raw: r.raw, amount: Number(r.raw.total) || 0, reason: r.raw.reason || "", date: r.raw.date || "" });
+    } else if(isTransferRow(r)){
+      setEditEntry({ kind: "transfer", raw: r.raw, transferId: r.raw.transferId, amount: Math.abs(Number(r.raw.amount) || 0), date: r.raw.date || "", note: r.raw.note || r.raw.notes || "" });
+    }
+  };
+  const saveEditEntry = async () => {
+    if(!editEntry || savingEntry) return;
+    setSavingEntry(true);
+    try {
+      if(editEntry.kind === "discount"){
+        const res = await editCustomerDiscount(data, upConfig, editEntry.raw, { amount: editEntry.amount, reason: editEntry.reason, date: editEntry.date }, party, userName);
+        showToast(res && res.ok ? "✓ تم تعديل الخصم (نفس القيد)" : "⛔ " + ((res && res.error) || "تعذّر التعديل"));
+        if(res && res.ok) setEditEntry(null);
+      } else if(editEntry.kind === "transfer"){
+        let err = "";
+        await upConfig(d => {
+          try { const r = editPartyTransfer(editEntry.transferId, d, { magnitude: editEntry.amount, date: editEntry.date, note: editEntry.note }); d.custPayments = r.patch.custPayments; d.supplierPayments = r.patch.supplierPayments; }
+          catch(e){ err = e.message || String(e); }
+        });
+        showToast(err ? "⛔ " + err : "✓ تم تعديل التحويل");
+        if(!err) setEditEntry(null);
+      }
+    } catch(e){ showToast("⛔ " + (e.message || "تعذّر التعديل")); }
+    finally { setSavingEntry(false); }
+  };
 
   const party = parties.find(p => String(p.id) === String(partyId)) || (fixedPartyId != null ? parties.find(p => String(p.id) === String(fixedPartyId)) : null);
   const partyOpts = parties.filter(p => !p.archived).map(p => ({ value: p.id, label: p.name + (p.phone ? " — " + ltrPhone(p.phone) : "") }));
@@ -471,7 +510,10 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                   <tr style={{ opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
                     <td style={{ ...td, fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.date || ""}</td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      <div style={{ fontWeight: 600 }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</div>
+                      {/* V21.27.52: صفوف الخصم/التحويل قابلة للضغط → بوب اب تعديل */}
+                      {canEditEntry && (isDiscountRow(r) || isTransferRow(r))
+                        ? <div onClick={() => openEditEntry(r)} title="اضغط للتعديل" style={{ fontWeight: 600, cursor: "pointer", color: accent, textDecoration: "underline", textUnderlineOffset: 2 }}>{r.desc} ✏️</div>
+                        : <div style={{ fontWeight: 600 }}>{r.desc}{r.draft && <span style={{ marginInlineStart: 6, fontSize: FS - 3, color: T.warn, fontWeight: 700 }}>(مسودة)</span>}</div>}
                       {r.sub && <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 2 }}>{r.sub}</div>}
                     </td>
                     <td style={td}>{r.detail ? (
@@ -582,6 +624,41 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       {/* V21.21.59: مودال الخصم الإضافي (للعميل المحدّد) */}
       {showDiscount && canDiscount && (
         <DiscountModal data={data} upConfig={upConfig} user={user} fixedCustomerId={party ? party.id : null} onClose={() => setShowDiscount(false)} />
+      )}
+
+      {/* V21.27.52: بوب اب تعديل حركة خصم/تحويل */}
+      {editEntry && (
+        <div onClick={() => !savingEntry && setEditEntry(null)} style={{ position: "fixed", inset: 0, zIndex: 100003, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, direction: "rtl" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 14, width: "100%", maxWidth: 420, padding: 20, border: "1px solid " + T.brd, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: accent }}>
+                {editEntry.kind === "discount" ? "🏷️ تعديل خصم إضافي" : "💱 تعديل تحميل حساب"}
+              </div>
+              <Btn small ghost onClick={() => !savingEntry && setEditEntry(null)}>✕</Btn>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>{editEntry.kind === "discount" ? "مبلغ الخصم (ج.م)" : "المبلغ المحوّل (ج.م)"}</label>
+                <Inp type="number" value={String(editEntry.amount)} onChange={v => setEditEntry(p => ({ ...p, amount: v }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>التاريخ</label>
+                <Inp type="date" value={editEntry.date || ""} onChange={v => setEditEntry(p => ({ ...p, date: v }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, display: "block", marginBottom: 4 }}>{editEntry.kind === "discount" ? "السبب" : "ملاحظة"}</label>
+                <Inp value={(editEntry.kind === "discount" ? editEntry.reason : editEntry.note) || ""} onChange={v => setEditEntry(p => editEntry.kind === "discount" ? ({ ...p, reason: v }) : ({ ...p, note: v }))} placeholder={editEntry.kind === "discount" ? "سبب الخصم..." : "ملاحظة التحويل..."} />
+              </div>
+              {editEntry.kind === "discount"
+                ? <div style={{ fontSize: FS - 3, color: T.textMut, lineHeight: 1.6 }}>💡 التعديل بيظبط نفس القيد المحاسبي (نفس الرقم) — مش بيعمل قيد جديد.</div>
+                : <div style={{ fontSize: FS - 3, color: T.textMut, lineHeight: 1.6 }}>💡 التعديل بيظبط رِجلَي التحويل (الطرفين) معاً.</div>}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <Btn ghost disabled={savingEntry} onClick={() => setEditEntry(null)}>إلغاء</Btn>
+              <Btn disabled={savingEntry} onClick={saveEditEntry} style={{ background: accent, color: "#fff", border: "none", fontWeight: 700 }}>{savingEntry ? "⏳ جاري الحفظ..." : "💾 حفظ"}</Btn>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
