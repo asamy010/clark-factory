@@ -311,7 +311,7 @@ export default async function handler(req, res) {
        Falls back to config arrays for backward compat (pre-V19.49 deployments). */
     /* V21.21.86 PERF: اقرأ المجموعات الأربعة بالتوازي (كانت 4 awaits متسلسلة).
        salesOrders → salesOrdersDays (V21.10.1)، treasury → treasuryDays (V16.74). */
-    const [allCustPayments, allChecks, allSalesOrders, allTreasury, allSalesCreditNotes] = await Promise.all([
+    const [allCustPayments, allChecks, allSalesOrders, allTreasury, allSalesCreditNotes, allOrderRequests] = await Promise.all([
       config._splitDaysV1949Done ? readSplitCollection("custPaymentsDays") : Promise.resolve(config.custPayments || []),
       config._splitDaysV1949Done ? readSplitCollection("checksDays")       : Promise.resolve(config.checks || []),
       config._splitDaysV21101Done ? readSplitCollection("salesOrdersDays") : Promise.resolve(config.salesOrders || []),
@@ -319,6 +319,8 @@ export default async function handler(req, res) {
       /* V21.27.48: إشعارات الخصم الإضافي (kind=discount) بتقلّل الرصيد في الكشف
          التشغيلي — لازم نحمّلها عشان البورتال يطابق المبيعات. (split أو config) */
       readSplitCollection("salesCreditNotesDays").then(s => (s && s.length) ? s : (config.salesCreditNotes || [])),
+      /* V21.27.50: طلبات العميل (orderRequestsDays daily-split) — لتاب «طلباتي». */
+      readSplitCollection("orderRequestsDays").then(r => Array.isArray(r) ? r : []).catch(() => []),
     ]);
 
     /* Customer payments — V18.3: keep method for cash/checks split.
@@ -570,6 +572,32 @@ export default async function handler(req, res) {
       deliveries: deliveries.slice(0, 100).map(d => { const { _sourceKey, _sourceOrderId, _isSalesOrder, ...rest } = d; return rest; }),
       returns: returns.slice(0, 50).map(r => { const { _sourceKey, _sourceOrderId, ...rest } = r; return rest; }),
       payments: payments.slice(0, 50),
+      /* V21.27.50: طلبات العميل بحالتها — لتاب «طلباتي» في البورتال. آمنة
+         (بدون حقول داخلية). الحالات: pending/confirmed(+salesOrderId)/rejected(+rejectReason). */
+      orderRequests: (allOrderRequests || [])
+        .filter(r => r && String(r.custId) === String(custId))
+        .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+        .slice(0, 100)
+        .map(r => ({
+          id: r.id,
+          date: r.date || String(r.createdAt || "").slice(0, 10),
+          createdAt: r.createdAt || "",
+          status: r.status || "pending",
+          totalQty: Number(r.totalQty) || 0,
+          totalValue: Number(r.totalValue) || 0,
+          note: r.note || "",
+          rejectReason: r.rejectReason || "",
+          salesOrderId: r.salesOrderId || null,
+          handledAt: r.handledAt || null,
+          items: (Array.isArray(r.items) ? r.items : []).map(it => ({
+            modelNo: it.modelNo || "—",
+            modelDesc: it.modelDesc || "",
+            image: it.image || "",
+            qty: Number(it.qty) || 0,
+            unitPrice: Number(it.unitPrice) || 0,
+            colors: (Array.isArray(it.colors) ? it.colors : []).map(c => ({ color: c.color || "", qty: Number(c.qty) || 0 })),
+          })),
+        })),
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {

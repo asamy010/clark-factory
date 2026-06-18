@@ -12,6 +12,26 @@
 
 ---
 
+## V21.27.50 (2026-06-17) — 📑 بورتال العميل: تاب «طلباتي» (حالة الطلبات)
+
+طلب Ahmed: تاب في بورتال العميل يعرض حالة الطلبات (موافَق/منفّذ/محوّل لأمر بيع/
+مرفوض + السبب).
+
+**`api/customer-portal.js`:** بيحمّل `orderRequestsDays` (daily-split) ويرجّع
+`orderRequests` مفلترة على `custId` بحقول آمنة (status, items, totalQty/Value,
+note, rejectReason, salesOrderId, date) — أحدث ١٠٠ طلب.
+
+**`src/components/CustomerPortalPage.jsx`:** تاب جديد «📑 طلباتي» (+ في tabLabels
+وقائمة التابات). بيعرض كل طلب ككارت: شارة حالة ملوّنة + الموديلات/الألوان/الكميات
++ الإجمالي + الملاحظة. خريطة الحالات: pending→«قيد المراجعة» · confirmed→«تمت
+الموافقة» · confirmed+salesOrderId→«تم التحويل لأمر بيع» · rejected→«مرفوض» +
+صندوق سبب الرفض.
+
+ملفات: `api/customer-portal.js` · `src/components/CustomerPortalPage.jsx`.
+node ✓ + build ✓ + 326 test ✓.
+
+---
+
 ## V21.27.49 (2026-06-17) — 🎛️ لوحة التحكم: تنظيم في ٣ تابات (طلب Ahmed)
 
 طلب Ahmed: تنظيم لوحة التحكم في تابات احترافية + شيل المعلومات غير المهمة.

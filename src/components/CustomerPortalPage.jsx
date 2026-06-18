@@ -141,12 +141,12 @@ export function CustomerPortalPage({ params }) {
 
   if (!data) return null;
 
-  const { customer, summary, activeModels, deliveries, returns: rets, payments, factory } = data;
+  const { customer, summary, activeModels, deliveries, returns: rets, payments, factory, orderRequests = [] } = data;
   /* V18.3: Flipped — positive=customer owes us=GREEN, negative=factory owes=RED */
   const balanceColor = summary.balance > 0 ? "#059669" : summary.balance < 0 ? "#DC2626" : "#6B7280";
   /* V18.4: Corrected balance labels */
   const balanceLabel = summary.balance > 0 ? "💚 مستحق للمصنع" : summary.balance < 0 ? "❤️ مستحق للعميل" : "✓ متعادل";
-  const tabLabels = { summary: "الملخص", transactions: "سجل الحركات", payments: "المدفوعات", order: "اطلب" };
+  const tabLabels = { summary: "الملخص", transactions: "سجل الحركات", payments: "المدفوعات", order: "اطلب", requests: "طلباتي" };
   /* V18.4: Filter helper — case-insensitive substring match on model number */
   const matchesModel = (modelNo) => !modelFilter.trim() || (modelNo || "").toLowerCase().includes(modelFilter.trim().toLowerCase());
   /* V18.5: Merged delivery + returns log, sorted chronologically (descending) */
@@ -306,6 +306,7 @@ export function CustomerPortalPage({ params }) {
         { id: "transactions", label: "سجل الحركات (" + transactions.length + ")", icon: "🔄" },
         { id: "payments", label: "المدفوعات (" + payments.length + ")", icon: "💰" },
         { id: "order", label: "اطلب", icon: "🛒" },
+        { id: "requests", label: "طلباتي (" + (orderRequests?.length || 0) + ")", icon: "📑" },
       ].map(t =>
         <button key={t.id} onClick={() => setTab(t.id)} style={{
           padding: "7px 12px",
@@ -335,6 +336,50 @@ export function CustomerPortalPage({ params }) {
     <div className="printable" style={{ padding: "4px 12px 40px" }}>
       {/* V21.21.73: ORDER tab — wholesale store (lazy catalog + cart) */}
       {tab === "order" && <CustomerOrderTab custId={custId} sig={sig} ts={ts} />}
+
+      {/* V21.27.50: تاب «طلباتي» — حالة كل طلب (قيد المراجعة / موافَق / محوّل لأمر بيع / مرفوض + السبب) */}
+      {tab === "requests" && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {orderRequests.length === 0
+          ? <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+              <div style={{ fontWeight: 600 }}>لا توجد طلبات بعد</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>اطلب من تاب «🛒 اطلب» وتابع حالة طلبك من هنا.</div>
+            </div>
+          : orderRequests.map(r => {
+              const meta = r.status === "rejected"
+                ? { label: "مرفوض", color: "#DC2626", bg: "#FEF2F2", icon: "✕" }
+                : r.status === "confirmed"
+                  ? (r.salesOrderId
+                      ? { label: "تم التحويل لأمر بيع", color: "#0EA5E9", bg: "#EFF6FF", icon: "🧾" }
+                      : { label: "تمت الموافقة", color: "#059669", bg: "#F0FDF4", icon: "✓" })
+                  : { label: "قيد المراجعة", color: "#D97706", bg: "#FFFBEB", icon: "⏳" };
+              return <div key={r.id} style={{ borderRadius: 14, border: "1px solid #E2E8F0", background: "#fff", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", background: meta.bg, borderBottom: "1px solid #F1F5F9" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: meta.color }}>{meta.icon} {meta.label}</div>
+                  <div style={{ fontSize: 11, color: "#64748B" }}>{r.date}</div>
+                </div>
+                <div style={{ padding: "10px 14px" }}>
+                  {r.items.map((it, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", borderBottom: i < r.items.length - 1 ? "1px solid #F8FAFC" : "none" }}>
+                    <div style={{ width: 38, height: 46, borderRadius: 6, background: "#F1F5F9", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {it.image ? <img src={it.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ opacity: 0.3 }}>📦</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1E293B" }}>{it.modelNo}</div>
+                      {it.colors.length > 0 && <div style={{ fontSize: 11, color: "#64748B" }}>{it.colors.map(c => c.color + " ×" + c.qty).join(" · ")}</div>}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#475569" }}>{fmt(it.qty)}</div>
+                  </div>)}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid #F1F5F9", fontSize: 12.5 }}>
+                    <span style={{ color: "#64748B" }}>الإجمالي: <b style={{ color: "#1E293B" }}>{fmt(r.totalQty)}</b> قطعة</span>
+                    <span style={{ fontWeight: 800, color: "#1E293B", direction: "ltr" }}>{fmt(r.totalValue)} ج.م</span>
+                  </div>
+                  {r.note && <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 6 }}>📝 {r.note}</div>}
+                  {r.status === "rejected" && r.rejectReason && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FECACA" }}>⛔ سبب الرفض: {r.rejectReason}</div>}
+                  {r.status === "confirmed" && r.salesOrderId && <div style={{ fontSize: 11.5, color: "#0EA5E9", marginTop: 8 }}>🧾 تم تحويل طلبك لأمر بيع وجاري التجهيز.</div>}
+                </div>
+              </div>;
+            })}
+      </div>}
       {/* SUMMARY */}
       {tab === "summary" && <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ background: "#fff", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
