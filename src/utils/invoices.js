@@ -918,6 +918,26 @@ export function postCreditNoteMutator(d, creditNoteId, userName){
   return true;
 }
 
+/* V21.27.63: تشخيص دقيق لسبب تعذُّر ترحيل إشعار دائن — بيرجّع نص السبب
+   (للعرض في الـ UI) أو null لو الإشعار قابل للترحيل. بيعكس نفس شروط
+   postCreditNoteMutator بالظبط من غير ما يعدّل الحالة (read-only)، عشان
+   نبطّل رسالة الفشل المبهمة (كانت بتلُمّ ٣ أسباب مختلفة في رسالة واحدة).
+   مش بيكسر أي caller — دالة جديدة منفصلة. */
+export function creditNotePostBlocker(d, creditNoteId){
+  if(!Array.isArray(d.salesCreditNotes)) return "قائمة الإشعارات الدائنة لسه ما حمّلتش — استنى ثانية وحاول تاني.";
+  const cn = d.salesCreditNotes.find(c => c.id === creditNoteId);
+  if(!cn) return "الإشعار غير موجود في البيانات المحمّلة.";
+  if(cn.status !== "draft") return "الإشعار مش مسودة (حالته الحالية: " + (cn.status || "؟") + ") — الترحيل بيشتغل على المسودات بس.";
+  /* V21.9.92 guard — السبب الأكثر شيوعاً (شوف postCreditNoteMutator) */
+  if(cn.linkedInvoiceId){
+    const inv = (d.salesInvoices||[]).find(i => i.id === cn.linkedInvoiceId);
+    if(inv && inv.status !== "posted"){
+      return "الفاتورة المرتبطة (" + (inv.invoiceNo || cn.linkedInvoiceId) + ") مش مرحّلة (حالتها: " + (inv.status || "؟") + ") — لازم ترحّل الفاتورة الأصلية الأول قبل الإشعار الدائن.";
+    }
+  }
+  return null;
+}
+
 export function voidCreditNoteMutator(d, creditNoteId, userName, reason){
   if(!Array.isArray(d.salesCreditNotes)) return false;
   const idx = d.salesCreditNotes.findIndex(c => c.id === creditNoteId);
@@ -1237,6 +1257,15 @@ export function postDebitNoteMutator(d, debitNoteId, userName){
     postedBy: userName || "",
   };
   return true;
+}
+
+/* V21.27.63: تشخيص دقيق لسبب تعذُّر ترحيل إشعار مدين (نظير creditNotePostBlocker). */
+export function debitNotePostBlocker(d, debitNoteId){
+  if(!Array.isArray(d.purchaseDebitNotes)) return "قائمة الإشعارات المدينة لسه ما حمّلتش — استنى ثانية وحاول تاني.";
+  const dn = d.purchaseDebitNotes.find(x => x.id === debitNoteId);
+  if(!dn) return "الإشعار غير موجود في البيانات المحمّلة.";
+  if(dn.status !== "draft") return "الإشعار مش مسودة (حالته الحالية: " + (dn.status || "؟") + ") — الترحيل بيشتغل على المسودات بس.";
+  return null;
 }
 
 export function voidDebitNoteMutator(d, debitNoteId, userName, reason){

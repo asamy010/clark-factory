@@ -14,7 +14,7 @@ import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
-  postCreditNoteMutator, voidCreditNoteMutator, deleteDraftCreditNoteMutator,
+  postCreditNoteMutator, creditNotePostBlocker, voidCreditNoteMutator, deleteDraftCreditNoteMutator,
   getCreditNoteStats, buildCreditNoteFromReturn, upsertCreditNoteFromReturn, findCreditNoteByReturn,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
@@ -76,13 +76,20 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
     const customer = (data.customers||[]).find(c => c.id === cn.customerId);
     const orderId = cn.returnRef && cn.returnRef.orderId;
     const order = orderId ? (data.orders||[]).find(o => o.id === orderId) : null;
+    /* V21.27.63: تشخيص دقيق قبل الترحيل — بدل رسالة الفشل المبهمة، نحدد السبب
+       بالظبط (الفاتورة المرتبطة مش مرحّلة / مش مسودة / لسه بتحمّل). أكثر سبب
+       شيوعاً هو guard V21.9.92: الإشعار مربوط بفاتورة مش مرحّلة. */
+    const blocker = creditNotePostBlocker(data, cn.id);
+    if(blocker){
+      if(!silent) showToast("⛔ تعذّر ترحيل " + cn.creditNoteNo + ": " + blocker);
+      throw new Error(blocker);
+    }
     /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
     try {
       /* V21.27.62: ما نقولش «تم الترحيل» إلا لما الحفظ يثبت فعلاً على السيرفر.
-         postCreditNoteMutator بيرجّع false لو الإشعار مش لقاه/مش مسودة/الفاتورة
-         المرتبطة مش مرحّلة. و upConfig بيرجّع {ok:false} لو الكتابة فشلت — أهمها
-         إن مستند يوم الإشعار (salesCreditNotesDays/{date}) تعدّى حد 1 ميجا.
-         قبل كده الاتنين كانوا بيتجاهلوا → رسالة نجاح كاذبة + قيد محاسبي يتيم. */
+         upConfig بيرجّع {ok:false} لو الكتابة فشلت — أهمها إن مستند يوم الإشعار
+         (salesCreditNotesDays/{date}) تعدّى حد 1 ميجا. قبل كده النتيجة كانت
+         بتتجاهل → رسالة نجاح كاذبة + قيد محاسبي يتيم. */
       let posted = false;
       const r1 = await upConfig(d => { posted = postCreditNoteMutator(d, cn.id, userName); });
       if(r1 && r1.ok === false){
@@ -92,7 +99,9 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
           : (r1.error ? " — " + r1.error : "")));
       }
       if(!posted){
-        throw new Error("الإشعار لم يُرحّل — تأكد إنه مسودة وإن الفاتورة المرتبطة (لو موجودة) مرحّلة، وإن تاريخه بصيغة YYYY-MM-DD.");
+        /* وصلنا هنا رغم اجتياز الـ blocker → حالة سباق نادرة (البيانات اتغيّرت
+           بين الفحص والكتابة). نعيد الفحص لرسالة دقيقة. */
+        throw new Error(creditNotePostBlocker(data, cn.id) || "الإشعار لم يُرحّل لسبب غير متوقّع — أعد المحاولة.");
       }
       const postedCN = {...cn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
       const res = await autoPost.creditNotePosted(data, postedCN, customer, order, userName);

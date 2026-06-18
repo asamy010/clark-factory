@@ -20,7 +20,7 @@ import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
-  postDebitNoteMutator, voidDebitNoteMutator, deleteDraftDebitNoteMutator,
+  postDebitNoteMutator, debitNotePostBlocker, voidDebitNoteMutator, deleteDraftDebitNoteMutator,
   getDebitNoteStats,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
@@ -92,11 +92,17 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
       )) return;
     }
     const supplier = (data.suppliers||[]).find(s => s.id === dn.supplierId);
+    /* V21.27.63: تشخيص دقيق قبل الترحيل (نظير الإشعارات الدائنة). */
+    const blocker = debitNotePostBlocker(data, dn.id);
+    if(blocker){
+      if(!silent) showToast("⛔ تعذّر ترحيل " + dn.debitNoteNo + ": " + blocker);
+      throw new Error(blocker);
+    }
     /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
     try {
       /* V21.27.62: نفس إصلاح الإشعارات الدائنة — ما نقولش «تم الترحيل» إلا لما
-         الحفظ يثبت على السيرفر. postDebitNoteMutator=false (مش لقاه/مش مسودة) أو
-         upConfig {ok:false} (أهمها: مستند يوم الإشعار تعدّى 1 ميجا). */
+         الحفظ يثبت على السيرفر. upConfig {ok:false} (أهمها: مستند يوم الإشعار
+         تعدّى 1 ميجا). */
       let posted = false;
       const r1 = await upConfig(d => { posted = postDebitNoteMutator(d, dn.id, userName); });
       if(r1 && r1.ok === false){
@@ -106,7 +112,7 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
           : (r1.error ? " — " + r1.error : "")));
       }
       if(!posted){
-        throw new Error("الإشعار لم يُرحّل — تأكد إنه مسودة وإن تاريخه بصيغة YYYY-MM-DD.");
+        throw new Error(debitNotePostBlocker(data, dn.id) || "الإشعار لم يُرحّل لسبب غير متوقّع — أعد المحاولة.");
       }
       const postedDN = {...dn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
       const res = await autoPost.debitNotePosted(data, postedDN, supplier, userName);

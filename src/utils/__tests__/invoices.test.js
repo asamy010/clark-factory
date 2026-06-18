@@ -16,6 +16,8 @@ import {
   voidInvoiceMutator,
   deleteDraftInvoiceMutator,
   upsertPurchaseInvoiceFromReceipt,
+  creditNotePostBlocker,
+  debitNotePostBlocker,
 } from "../invoices.js";
 
 const ORDER = { id: "o1", modelNo: "M-100", sellPrice: 200 };
@@ -188,5 +190,44 @@ describe("upsertPurchaseInvoiceFromReceipt — العملة الأجنبية", (
     expect(invoice.total).toBe(12200);       /* جنيه إجمالي صحيح */
     expect(invoice.currency).toBeUndefined(); /* عملات مختلطة → ملغي */
     expect(invoice.items.every(it => it.fcLineTotal === undefined)).toBe(true);
+  });
+});
+
+describe("creditNotePostBlocker / debitNotePostBlocker — تشخيص تعذُّر الترحيل (V21.27.63)", () => {
+  it("إشعار دائن مسودة بلا فاتورة مرتبطة → قابل للترحيل (null)", () => {
+    const d = { salesCreditNotes: [{ id: "cn1", status: "draft" }], salesInvoices: [] };
+    expect(creditNotePostBlocker(d, "cn1")).toBeNull();
+  });
+
+  it("إشعار دائن مربوط بفاتورة مسودة → يُحجب برسالة عن الفاتورة (guard V21.9.92)", () => {
+    const d = {
+      salesCreditNotes: [{ id: "cn1", status: "draft", linkedInvoiceId: "inv1" }],
+      salesInvoices: [{ id: "inv1", invoiceNo: "INV-001", status: "draft" }],
+    };
+    const r = creditNotePostBlocker(d, "cn1");
+    expect(r).toBeTruthy();
+    expect(r).toContain("INV-001");
+  });
+
+  it("إشعار دائن مربوط بفاتورة مرحّلة → قابل للترحيل", () => {
+    const d = {
+      salesCreditNotes: [{ id: "cn1", status: "draft", linkedInvoiceId: "inv1" }],
+      salesInvoices: [{ id: "inv1", invoiceNo: "INV-001", status: "posted" }],
+    };
+    expect(creditNotePostBlocker(d, "cn1")).toBeNull();
+  });
+
+  it("إشعار مش مسودة → يُحجب", () => {
+    const d = { salesCreditNotes: [{ id: "cn1", status: "posted" }], salesInvoices: [] };
+    expect(creditNotePostBlocker(d, "cn1")).toContain("مش مسودة");
+  });
+
+  it("إشعار غير موجود → يُحجب", () => {
+    expect(creditNotePostBlocker({ salesCreditNotes: [] }, "nope")).toBeTruthy();
+  });
+
+  it("إشعار مدين مسودة → قابل للترحيل؛ مش مسودة → يُحجب", () => {
+    expect(debitNotePostBlocker({ purchaseDebitNotes: [{ id: "dn1", status: "draft" }] }, "dn1")).toBeNull();
+    expect(debitNotePostBlocker({ purchaseDebitNotes: [{ id: "dn1", status: "posted" }] }, "dn1")).toContain("مش مسودة");
   });
 });

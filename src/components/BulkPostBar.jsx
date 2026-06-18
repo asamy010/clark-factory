@@ -147,6 +147,10 @@ export function BulkPostBar({selectedIds, setSelectedIds, allItems, postOne, ite
        inside upConfig and parallel writes would race. Sequential is plenty fast
        for typical N (5-50 invoices) and avoids any cross-invoice corruption. */
     let okCount = 0, failCount = 0, cancelledAt = -1;
+    /* V21.27.63: نجمّع أسباب الفشل (reason → عدد) عشان نعرضها للمستخدم في
+       الملخّص بدل «راجع الـ console» — ده كان بيخفي السبب الحقيقي (مثلاً:
+       الفاتورة المرتبطة مش مرحّلة) في الترحيل الجماعي. */
+    const failReasons = new Map();
     for(let i = 0; i < items.length; i++){
       if(cancelRef.cancelled){ cancelledAt = i; break; }
       const item = items[i];
@@ -158,8 +162,15 @@ export function BulkPostBar({selectedIds, setSelectedIds, allItems, postOne, ite
       } catch(e){
         console.error("[bulk-post] failed for", item.id || item.invoiceNo, e);
         failCount++;
+        const reason = (e && e.message) ? e.message : "سبب غير معروف";
+        failReasons.set(reason, (failReasons.get(reason) || 0) + 1);
       }
       setProgress(p => p ? ({ ...p, ok: okCount, fail: failCount, done: i + 1 }) : p);
+    }
+    /* أبرز سبب فشل (الأكثر تكراراً) لعرضه في التوست */
+    let topReason = "";
+    if(failReasons.size){
+      topReason = [...failReasons.entries()].sort((a,b) => b[1] - a[1])[0][0];
     }
 
     /* Show final state for ~700ms then close + clear selection. */
@@ -179,9 +190,9 @@ export function BulkPostBar({selectedIds, setSelectedIds, allItems, postOne, ite
     } else if(failCount === 0){
       showToast(`✓ تم ترحيل ${okCount} ${itemLabel}`);
     } else if(okCount === 0){
-      showToast(`✕ فشل ترحيل ${failCount} ${itemLabel}`);
+      showToast(`✕ فشل ترحيل ${failCount} ${itemLabel}${topReason ? " — " + topReason : ""}`);
     } else {
-      showToast(`⚠ ترحيل ${okCount} نجح، ${failCount} فشل — راجع الـ console`);
+      showToast(`⚠ ترحيل ${okCount} نجح، ${failCount} فشل${topReason ? " — السبب الأكثر: " + topReason : " — راجع الـ console"}`);
     }
   };
 
