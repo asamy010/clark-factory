@@ -233,7 +233,7 @@ export function ColorPicker({value,colorHex,onSelect}){
   </div>
 }
 
-export function FCTable({label,fabName,fabPrice,colors,setColors,accent,readOnly,pcsPerSeries,simple}){
+export function FCTable({label,fabName,fabPrice,colors,setColors,accent,readOnly,pcsPerSeries,simple,consPerLayer,consPerPiece,unit}){
   const tQ=sqty(colors),tL=slay(colors);
   const pps=pcsPerSeries||0;
   const addC=()=>setColors([...colors,simple?{color:"",colorHex:""}:{color:"",colorHex:"",layers:0,pcsPerLayer:pps||0,qty:0}]);
@@ -242,7 +242,7 @@ export function FCTable({label,fabName,fabPrice,colors,setColors,accent,readOnly
     <div style={{padding:"10px 16px",background:accent,display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"14px 14px 0 0",flexWrap:"wrap",gap:8}}>
       {/* V19.80.2: optional fabPrice prop appended to the title (e.g. "خامة A: قماش بوليفار - متر — 50 ج.م/متر") */}
       <span style={{fontSize:FS,fontWeight:700,color:"#fff"}}>{label+": "+(fabName||"")}{fabPrice?<span style={{fontWeight:800,marginInlineStart:6,padding:"2px 10px",borderRadius:8,background:"rgba(255,255,255,0.22)"}}>{fabPrice}</span>:null}</span>
-      {!simple&&<div style={{display:"flex",gap:8}}>{pps>0&&<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"سيري: "+pps}</span>}<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"راقات: "+tL}</span><span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"قطع: "+tQ}</span></div>}
+      {!simple&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{/* V21.27.57: استهلاك/راق + استهلاك/قطعة في الشريط الملوّن (لو مُمرّرين) */}{Number(consPerLayer)>0&&<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"استهلاك/راق: "+consPerLayer+(unit?" "+unit:"")}</span>}{Number(consPerPiece)>0&&<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"استهلاك/قطعة: "+consPerPiece+(unit?" "+unit:"")}</span>}{pps>0&&<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"سيري: "+pps}</span>}<span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"راقات: "+tL}</span><span style={{fontSize:FS-2,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"4px 14px",borderRadius:20,fontWeight:600}}>{"قطع: "+tQ}</span></div>}
     </div>
     <div style={{padding:12,overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:simple?180:450}}>
