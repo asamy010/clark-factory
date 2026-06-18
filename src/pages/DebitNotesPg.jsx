@@ -94,7 +94,20 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
     const supplier = (data.suppliers||[]).find(s => s.id === dn.supplierId);
     /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
     try {
-      await upConfig(d => { postDebitNoteMutator(d, dn.id, userName); });
+      /* V21.27.62: نفس إصلاح الإشعارات الدائنة — ما نقولش «تم الترحيل» إلا لما
+         الحفظ يثبت على السيرفر. postDebitNoteMutator=false (مش لقاه/مش مسودة) أو
+         upConfig {ok:false} (أهمها: مستند يوم الإشعار تعدّى 1 ميجا). */
+      let posted = false;
+      const r1 = await upConfig(d => { posted = postDebitNoteMutator(d, dn.id, userName); });
+      if(r1 && r1.ok === false){
+        const sizeHint = (r1.phase === "split-sync" || r1.phase === "fallback-sync");
+        throw new Error("فشل الحفظ على السيرفر" + (sizeHint
+          ? " — غالباً مستند يوم الإشعار (" + (dn.date || "؟") + ") تعدّى حد 1 ميجا. راجع «التشخيص ← إشعارات مدينة (يومي)»."
+          : (r1.error ? " — " + r1.error : "")));
+      }
+      if(!posted){
+        throw new Error("الإشعار لم يُرحّل — تأكد إنه مسودة وإن تاريخه بصيغة YYYY-MM-DD.");
+      }
       const postedDN = {...dn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
       const res = await autoPost.debitNotePosted(data, postedDN, supplier, userName);
       if(res && res.ok && res.entry){

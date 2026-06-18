@@ -78,7 +78,22 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
     const order = orderId ? (data.orders||[]).find(o => o.id === orderId) : null;
     /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
     try {
-      await upConfig(d => { postCreditNoteMutator(d, cn.id, userName); });
+      /* V21.27.62: ما نقولش «تم الترحيل» إلا لما الحفظ يثبت فعلاً على السيرفر.
+         postCreditNoteMutator بيرجّع false لو الإشعار مش لقاه/مش مسودة/الفاتورة
+         المرتبطة مش مرحّلة. و upConfig بيرجّع {ok:false} لو الكتابة فشلت — أهمها
+         إن مستند يوم الإشعار (salesCreditNotesDays/{date}) تعدّى حد 1 ميجا.
+         قبل كده الاتنين كانوا بيتجاهلوا → رسالة نجاح كاذبة + قيد محاسبي يتيم. */
+      let posted = false;
+      const r1 = await upConfig(d => { posted = postCreditNoteMutator(d, cn.id, userName); });
+      if(r1 && r1.ok === false){
+        const sizeHint = (r1.phase === "split-sync" || r1.phase === "fallback-sync");
+        throw new Error("فشل الحفظ على السيرفر" + (sizeHint
+          ? " — غالباً مستند يوم الإشعار (" + (cn.date || "؟") + ") تعدّى حد 1 ميجا. راجع «التشخيص ← إشعارات دائنة (يومي)»."
+          : (r1.error ? " — " + r1.error : "")));
+      }
+      if(!posted){
+        throw new Error("الإشعار لم يُرحّل — تأكد إنه مسودة وإن الفاتورة المرتبطة (لو موجودة) مرحّلة، وإن تاريخه بصيغة YYYY-MM-DD.");
+      }
       const postedCN = {...cn, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
       const res = await autoPost.creditNotePosted(data, postedCN, customer, order, userName);
       if(res && res.main && res.main.ok && res.main.entry){
