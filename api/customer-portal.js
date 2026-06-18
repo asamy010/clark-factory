@@ -196,12 +196,33 @@ export default async function handler(req, res) {
     const returns = [];
     const activeModels = new Map();
 
-    /* V21.9.193 — precedence chain for per-delivery discount (mirrors
-       src/utils/invoices.js resolveDiscountPct + src/pages/CustDeliverPg.jsx
-       pickDiscPct in the customer statement). entry.discPct → customer.discount
-       → 10. Legacy entries without discPct fall through to customer.discount
-       (back-compat unchanged). */
+    /* V21.27.48 ROOT-CAUSE FIX (كشف البورتال ≠ كشف المبيعات): خصم التوزيعة
+       المتّفق عليه (custDeliverySessions[sid].custDisc[custId]) هو مصدر الحقيقة
+       للخصم — والكشف الداخلي (statement.js _sessDisc) بيقدّمه على discPct المختوم.
+       كان البورتال (هنا + stmtData تحت) مابيحمّلش custDeliverySessions إطلاقاً →
+       بياخد fallback غلط (discPct→customer.discount→10) → رصيد مختلف. نحمّله
+       (split أو factory/sales) ونطابق نفس سلسلة الأولوية. */
+    let custDeliverySessions = await readSplitCollection("custDeliverySessionsDays");
+    if (!custDeliverySessions || !custDeliverySessions.length) {
+      try {
+        const salesSnap = await db.collection("factory").doc("sales").get();
+        const salesDoc = salesSnap.exists ? (salesSnap.data() || {}) : {};
+        custDeliverySessions = Array.isArray(salesDoc.custDeliverySessions) ? salesDoc.custDeliverySessions : [];
+      } catch (_) { custDeliverySessions = []; }
+    }
+
+    /* V21.27.48: سلسلة الخصم مطابقة لـ statement.js (الوضع التشغيلي):
+       خصم التوزيعة (custDisc[custId]) → discPct المختوم → customer.discount → 10. */
+    const _sessDisc = (entry) => {
+      const sid = entry && (entry.sessionId || entry.sessId);
+      if (!sid) return null;
+      const s = custDeliverySessions.find(x => x && x.id === sid);
+      const m = s && s.custDisc;
+      if (m && m[custId] != null && m[custId] !== "") { const n = Number(m[custId]); if (!isNaN(n)) return n; }
+      return null;
+    };
     const pickDiscPct = (entry) => {
+      const sd = _sessDisc(entry); if (sd != null) return sd;
       if (entry && entry.discPct !== undefined && entry.discPct !== null) {
         const n = Number(entry.discPct);
         if (!isNaN(n)) return n;
@@ -290,11 +311,14 @@ export default async function handler(req, res) {
        Falls back to config arrays for backward compat (pre-V19.49 deployments). */
     /* V21.21.86 PERF: اقرأ المجموعات الأربعة بالتوازي (كانت 4 awaits متسلسلة).
        salesOrders → salesOrdersDays (V21.10.1)، treasury → treasuryDays (V16.74). */
-    const [allCustPayments, allChecks, allSalesOrders, allTreasury] = await Promise.all([
+    const [allCustPayments, allChecks, allSalesOrders, allTreasury, allSalesCreditNotes] = await Promise.all([
       config._splitDaysV1949Done ? readSplitCollection("custPaymentsDays") : Promise.resolve(config.custPayments || []),
       config._splitDaysV1949Done ? readSplitCollection("checksDays")       : Promise.resolve(config.checks || []),
       config._splitDaysV21101Done ? readSplitCollection("salesOrdersDays") : Promise.resolve(config.salesOrders || []),
       config._splitDaysV1674Done ? readSplitCollection("treasuryDays")     : Promise.resolve(config.treasury || []),
+      /* V21.27.48: إشعارات الخصم الإضافي (kind=discount) بتقلّل الرصيد في الكشف
+         التشغيلي — لازم نحمّلها عشان البورتال يطابق المبيعات. (split أو config) */
+      readSplitCollection("salesCreditNotesDays").then(s => (s && s.length) ? s : (config.salesCreditNotes || [])),
     ]);
 
     /* Customer payments — V18.3: keep method for cash/checks split.
@@ -402,6 +426,10 @@ export default async function handler(req, res) {
       custPayments: allCustPayments || [],
       checks: allChecks || [],
       treasury: allTreasury || [],
+      /* V21.27.48: لازم للوضع التشغيلي — خصم التوزيعة + خصومات الإشعارات الدائنة
+         (من غيرهم الكشف بيدرِف عن كشف المبيعات الداخلي). */
+      custDeliverySessions: custDeliverySessions || [],
+      salesCreditNotes: allSalesCreditNotes || [],
     };
     const stmt = buildAccountStatement(stmtData, {
       partyId: custId, partyType: "customer", mode: "operational",

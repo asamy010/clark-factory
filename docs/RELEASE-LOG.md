@@ -12,6 +12,38 @@
 
 ---
 
+## V21.27.48 (2026-06-17) — 🛡️ كشف البورتال = كشف المبيعات (إصلاح مالي · مراجعة Ahmed)
+
+بلاغ Ahmed: كشف حساب العميل في رابط البورتال **مختلف** عن الكشف المحاسبي في
+المبيعات (الصح) — خطر.
+
+**الفحص الدقيق:** الاتنين بيستخدموا نفس الدالة `buildAccountStatement` (الوضع
+التشغيلي)، فالاختلاف كان في **البيانات الممرَّرة** مش المنطق:
+- `api/customer-portal.js` كان **مش بيحمّل** `custDeliverySessions` ولا
+  `salesCreditNotes` إطلاقاً.
+- النتيجة (مكانين بيدرِفوا):
+  1. `pickDiscPct` بتاع البورتال (للكروت + displayBalance) كان: discPct → 
+     customer.discount → 10 — **من غير** خصم التوزيعة `custDisc[custId]` اللي
+     `statement.js _sessDisc` بيقدّمه (V21.26.16). تسليمة بخصم متّفق 40% كانت
+     بتطلع 10% في البورتال.
+  2. `stmtData` (اللي بيغذّي الرصيد canonical `stmt.totals.closing`) كان ناقص
+     `custDeliverySessions` (نفس مشكلة الخصم) + `salesCreditNotes` (خصومات
+     إضافية بتقلّل الرصيد) → رصيد أعلى من المبيعات.
+
+**الإصلاح (`api/customer-portal.js`):**
+1. تحميل `custDeliverySessions` (split `custDeliverySessionsDays` أو `factory/sales`).
+2. تحميل `salesCreditNotes` (split `salesCreditNotesDays` أو config) في الـ Promise.all.
+3. `pickDiscPct` بقى يطابق `statement.js` بالظبط: خصم التوزيعة → discPct →
+   customer.discount → 10.
+4. `stmtData` بقى يشمل `custDeliverySessions` + `salesCreditNotes`.
+
+**النتيجة:** الكشفين بيستخدموا نفس الدالة بنفس البيانات → متطابقين **بالبناء**.
+الـ `displayBalance` (الكروت) كمان بقى يطابق `balance` (الكشف) → reconcile سليم.
+
+ملف واحد: `api/customer-portal.js`. node --check ✓ + build ✓ + 326 test ✓.
+
+---
+
 ## V21.27.47 (2026-06-17) — 🏷️ الفاتورة: بادج الحالة مايتراكبش مع شريط «مدفوع»
 
 بلاغ Ahmed: شريط «مدفوع» القطري راكب فوق بادج «مرحّل».
