@@ -227,12 +227,16 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       const tg = isD ? " (مدين)" : isC ? " (دائن)" : " (مُسوّى)";
       rowsHtml.push(`<tr style="background:#f1f5f9"><td>${fromDate || "البداية"}</td><td style="text-align:right">رصيد افتتاحي${tg}</td><td>${isD ? fmt(Math.abs(ob).toFixed(2)) : ""}</td><td>${isC ? fmt(Math.abs(ob).toFixed(2)) : ""}</td><td style="font-weight:700">${fmt(ob.toFixed(2))}</td></tr>`);
     }
-    result.rows.forEach(r => {
-      rowsHtml.push(`<tr${r.draft ? ' style="color:#94a3b8;font-style:italic"' : ""}><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
-      /* V21.21.56: سطر التفاصيل تحت كل حركة في وضع الحساب التفصيلي */
+    result.rows.forEach((r, i) => {
+      /* V21.27.59: سطر-لون-وسطر (zebra) — كل حركة لها لون بالتناوب (أبيض/رمادي
+         فاتح)، وسطر تفاصيلها في الوضع التفصيلي بياخد نفس اللون عشان يبان إنهم
+         بند واحد. */
+      const zebra = i % 2 === 0 ? "#ffffff" : "#f1f5f9";
+      rowsHtml.push(`<tr style="background:${zebra}${r.draft ? ';color:#94a3b8;font-style:italic' : ''}"><td>${r.date || ""}</td><td style="text-align:right">${r.desc || ""}${r.sub ? '<br><span style="font-size:10px;color:#64748b">' + r.sub + "</span>" : ""}</td><td>${r.debit ? fmt(r.debit.toFixed(2)) : ""}</td><td>${r.credit ? fmt(r.credit.toFixed(2)) : ""}</td><td style="font-weight:700">${r.draft ? "(مسودة)" : fmt((r.balance || 0).toFixed(2))}</td></tr>`);
+      /* V21.21.56: سطر التفاصيل تحت كل حركة في وضع الحساب التفصيلي — نفس لون الحركة */
       if(detailed){
         const dh = detailTableHTML(r, accent);
-        if(dh) rowsHtml.push(`<tr><td colspan="5" style="padding:4px 12px;background:#f8fafc">${dh}</td></tr>`);
+        if(dh) rowsHtml.push(`<tr><td colspan="5" style="padding:4px 12px;background:${zebra}">${dh}</td></tr>`);
       }
     });
     /* V21.21.58: بطاقات KPI مبسّطة وصغيرة أعلى الطباعة */
@@ -249,8 +253,10 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       ${_kc("دفعات شيكات", fmt(_k.check.toFixed(2)), "", "#8b5cf6")}
       ${_kc("الرصيد النهائي", fmt(_k.closing.toFixed(2)), _balTag, _balC)}
     </div>`;
+    /* V21.27.59: عنوان أدق — «كشف حساب تفصيلي» في الوضع التفصيلي */
+    const docTitle = (detailed ? "كشف حساب تفصيلي" : "كشف حساب") + " — " + party.name;
     const html = `
-      <h2 style="color:${accent};margin:0 0 4px">📊 كشف حساب — ${party.name}</h2>
+      <h2 style="color:${accent};margin:0 0 4px">📊 ${docTitle}</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">
         ${party.phone ? "تليفون: " + ltrPhone(party.phone) + " · " : ""}${party.address ? "العنوان: " + party.address + " · " : ""}الوضع: ${mode === "accounting" ? "محاسبي" : "تشغيلي"}
         ${fromDate || toDate ? "<br>الفترة: " + (fromDate || "البداية") + " ← " + (toDate || "الآن") : ""}
@@ -268,7 +274,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
       </table>
       <p style="margin-top:14px;font-weight:700">${balanceLabel(result.totals.closing, partyType).txt}</p>
       <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع ${partyType === "customer" ? "العميل" : "المورد"}: ____________</div><div>توقيع المصنع: ____________</div></div>`;
-    printPage("كشف حساب — " + party.name, html, { factoryName: data.factoryName, logo: data.logo });
+    printPage(docTitle, html, { factoryName: data.factoryName, logo: data.logo });
   };
 
   const doExcel = async () => {
@@ -517,9 +523,13 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                 ) : result.rows.map((r, i) => {
                   const di = detailed && r.detail ? docItemsForRow(r) : null;
                   const payRows = detailed && !r.detail ? paymentDetailRows(r) : null;
+                  /* V21.27.59: سطر-لون-وسطر (zebra) — كل حركة لها لون بالتناوب
+                     (أبيض/رمادي فاتح)؛ في الوضع التفصيلي سطر التفاصيل بياخد نفس
+                     اللون عشان يبان إن البند سطر واحد. */
+                  const zebra = i % 2 === 0 ? T.cardSolid : T.bg;
                   return (
                   <Fragment key={i}>
-                  <tr style={{ opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
+                  <tr style={{ background: zebra, opacity: r.draft ? 0.55 : 1, fontStyle: r.draft ? "italic" : "normal" }}>
                     <td style={{ ...td, fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.date || ""}</td>
                     <td style={{ ...td, textAlign: "right" }}>
                       {/* V21.27.52: صفوف الخصم/التحويل قابلة للضغط → بوب اب تعديل */}
@@ -541,7 +551,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                   </tr>
                   {detailed && (di || (payRows && payRows.length > 0)) && (
                     <tr>
-                      <td colSpan={6} style={{ padding: "2px 12px 14px", background: T.bg, borderBottom: "2px solid " + accent + "22" }}>
+                      <td colSpan={6} style={{ padding: "2px 12px 14px", background: zebra, borderBottom: "2px solid " + accent + "22" }}>
                         <div style={{ fontSize: FS - 2, color: accent, fontWeight: 800, margin: "6px 0 8px" }}>📄 {r.desc}{r.sub ? " · " + r.sub : ""}</div>
                         {di ? (
                           di.items.length > 0
