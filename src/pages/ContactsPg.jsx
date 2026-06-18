@@ -20,6 +20,8 @@ import { useMemo, useState } from "react";
 import { Btn, Inp, Sel, SearchSel, Card } from "../components/ui.jsx";
 import { AccountStatementView } from "../components/AccountStatementView.jsx";
 import { ImportContactsModal } from "../components/sales/ImportContactsModal.jsx";
+import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
+import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { T } from "../theme.js";
 import { FS, WS_TYPES } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -79,6 +81,37 @@ function TypeChip({ typeKey, small }){
 }
 
 /* ── Create modal ──────────────────────────────────────────────── */
+/* V21.27.58: منتقي صورة بالطول (3:4) لجهة الاتصال — يرفع على Firebase Storage
+   (أمر Ahmed «كل الصور على الستوريج») أو يختار من مساحة التخزين. الصورة تظهر
+   في القائمة + كارت التفاصيل، وتتـ propagate لكل الكيانات المرتبطة (عميل/مورد/
+   ورشة/موظف) عبر createContact/updateContact. */
+function PortraitPicker({ data, value, onChange }){
+  const pick = async (file) => {
+    if(!file) return;
+    if(!(file.type || "").startsWith("image/")){ showToast("⚠️ اختر ملف صورة صالح"); return; }
+    showToast("⏳ جاري رفع الصورة...");
+    try { const { url } = await uploadImageToStorage("contacts", "", file); onChange(url); showToast("✓ تم رفع الصورة"); }
+    catch(err){ showToast("⛔ فشل رفع الصورة" + (err?.message ? " — " + err.message : "") + " (تأكد من نشر storage.rules)"); }
+  };
+  return (
+    <div>
+      <label style={{ fontSize: FS-2, color: T.textSec, fontWeight: 600 }}>📷 صورة (اختياري — بالطول 3:4، تظهر في القائمة)</label>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+        {value ? (
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <img src={value} alt="" style={{ width: 60, height: 80, objectFit: "cover", borderRadius: 8, border: "1px solid " + T.brd }} />
+            <span onClick={() => onChange("")} title="إزالة الصورة" style={{ position: "absolute", top: -7, insetInlineEnd: -7, background: T.err, color: "#fff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, cursor: "pointer", border: "2px solid " + T.cardSolid }}>✕</span>
+          </div>
+        ) : null}
+        <ImagePickButton data={data} onFile={pick} onPickUrl={url => onChange(url)}
+          triggerStyle={{ display: "inline-block", padding: "9px 14px", borderRadius: 8, background: T.accent + "12", color: T.accent, border: "1px dashed " + T.accent + "55", fontSize: FS-2, fontWeight: 700 }}>
+          {value ? "تغيير الصورة" : "📷 اختر صورة"}
+        </ImagePickButton>
+      </div>
+    </div>
+  );
+}
+
 function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExisting }){
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -89,6 +122,7 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
   const [customerType, setCustomerType] = useState("مكتب");
   const [tags, setTags] = useState([]);
   const [notes, setNotes] = useState("");
+  const [image, setImage] = useState("");   /* V21.27.58: صورة بالطول */
   const [submitting, setSubmitting] = useState(false);
   /* V21.9.122: fuzzy dup detection — recomputes when name or phone changes.
      Returns up to 5 similar contacts/entities with a confidence score. */
@@ -146,6 +180,7 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
         customerType,  /* V21.9.131 */
         tags,
         notes: notes.trim(),
+        image,         /* V21.27.58 */
       });
     } finally {
       setSubmitting(false);
@@ -186,6 +221,11 @@ function ContactCreateModal({ data, onSave, onCancel, user, canEdit, onSelectExi
               </div>
             )}
           </div>
+        </div>
+
+        {/* V21.27.58: صورة بالطول (3:4) */}
+        <div style={{marginBottom: 12}}>
+          <PortraitPicker data={data} value={image} onChange={setImage} />
         </div>
 
         {/* V21.9.122: fuzzy similar-contacts banner. Shows up when the entered
@@ -844,6 +884,7 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
   const [phone, setPhone] = useState(contact.phone || "");
   const [tags, setTags] = useState(Array.isArray(contact.tags) ? contact.tags.slice() : []);
   const [notes, setNotes] = useState(contact.notes || "");
+  const [image, setImage] = useState(contact.image || "");   /* V21.27.58 */
   const [saving, setSaving] = useState(false);
   /* V21.9.119: settlement modal state — null = closed, true = open */
   const [showSettle, setShowSettle] = useState(false);
@@ -905,7 +946,7 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
     if(!name.trim()){ showToast("⚠️ ادخل الاسم"); return; }
     setSaving(true);
     try {
-      await onSave({ name: name.trim(), phone: phone.trim(), tags, notes: notes.trim() });
+      await onSave({ name: name.trim(), phone: phone.trim(), tags, notes: notes.trim(), image });
       setEditMode(false);
     } finally {
       setSaving(false);
@@ -931,6 +972,10 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
       }}>
         {/* Header */}
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom: 14, gap: 8}}>
+          {/* V21.27.58: صورة بالطول (3:4) في الكارت */}
+          {contact.image && (
+            <img src={contact.image} alt="" style={{ width: 66, height: 88, objectFit: "cover", borderRadius: 10, border: "1px solid " + T.brd, flexShrink: 0 }} />
+          )}
           <div style={{flex:1, minWidth: 0}}>
             <div style={{fontSize: FS+3, fontWeight: 800, color: T.text, marginBottom: 4}}>
               {contact.name}
@@ -1222,6 +1267,9 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
                   </div>
                 </div>
                 <div style={{marginBottom: 10}}>
+                  <PortraitPicker data={data} value={image} onChange={setImage} />
+                </div>
+                <div style={{marginBottom: 10}}>
                   <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>التاجز</label>
                   <TagPicker
                     entityType="customer"
@@ -1248,7 +1296,7 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
                   />
                 </div>
                 <div style={{fontSize: FS-3, color: T.warn, padding: "6px 10px", background: T.warn+"08", borderRadius: 6, lineHeight: 1.6, marginBottom: 10}}>
-                  ⚠️ الاسم + التليفون + التاجز هـ يتـ propagated على كل الجهات المرتبطة (عميل + مورد + إلخ). الملاحظات تخص الـ contact registry فقط.
+                  ⚠️ الاسم + التليفون + التاجز + الصورة هـ يتـ propagated على كل الجهات المرتبطة (عميل + مورد + إلخ). الملاحظات تخص الـ contact registry فقط.
                 </div>
                 <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
                   <Btn ghost onClick={() => setEditMode(false)} disabled={saving}>إلغاء</Btn>
@@ -1686,7 +1734,13 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                         <input type="checkbox" checked={isSel} onChange={() => toggleSelect(c.id)} style={{width: 17, height: 17, cursor: "pointer"}} />
                       </td>
                     )}
-                    <td style={{...colCell, fontWeight: 700}}>{c.name || "—"}</td>
+                    <td style={{...colCell, fontWeight: 700}}>
+                      <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                        {/* V21.27.58: صورة مصغّرة بالطول (3:4) */}
+                        {c.image ? <img src={c.image} alt="" style={{width: 30, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid "+T.brd, flexShrink: 0}} /> : null}
+                        <span>{c.name || "—"}</span>
+                      </div>
+                    </td>
                     <td style={{...colCell, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>{c.phone || "—"}</td>
                     <td style={colCell}>
                       <div style={{display:"flex", flexWrap:"wrap", gap: 4}}>

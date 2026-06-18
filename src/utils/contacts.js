@@ -110,6 +110,7 @@ export function buildMergedContacts(data){
       entityIds: { ...(c.linkedIds || {}) },
       tags: Array.isArray(c.tags) ? c.tags : [],
       notes: c.notes || "",
+      image: c.image || "",   /* V21.27.58: صورة بالطول (3:4) تظهر في القائمة */
     });
     /* Track which entity IDs are already covered by a contact, so
        we don't double-render them as standalone rows below. */
@@ -135,6 +136,8 @@ export function buildMergedContacts(data){
       entityIds: { [sourceKey]: entity.id },
       tags: Array.isArray(entity.tags) ? entity.tags : [],
       notes: entity.notes || "",
+      /* V21.27.58: صورة الكيان (workshop بيستخدم ownerPhoto من قبل) */
+      image: entity.image || entity.ownerPhoto || "",
       ...(extraFields || {}),
     });
   };
@@ -171,6 +174,7 @@ export function createContact(form, data, user){
 
   const tagsClean = Array.isArray(form.tags) ? form.tags.filter(Boolean) : [];
   const notesClean = String(form.notes || "").trim();
+  const imageClean = String(form.image || "").trim();   /* V21.27.58: صورة بالطول */
   const uid = (user && (user.uid || user.email)) || "";
   const now = Date.now();
 
@@ -204,6 +208,7 @@ export function createContact(form, data, user){
       discount: 10,
       archived: false,
       tags: tagsClean.slice(),
+      image: imageClean,
       contactId,
       createdAt: new Date(now).toISOString(),
       createdBy: uid,
@@ -218,6 +223,7 @@ export function createContact(form, data, user){
       address: "",
       notes: notesClean,
       tags: tagsClean.slice(),
+      image: imageClean,
       contactId,
       createdAt: new Date(now).toISOString(),
       createdBy: uid,
@@ -232,7 +238,8 @@ export function createContact(form, data, user){
       phone: phoneCanon,
       address: "",
       idCard: "",
-      ownerPhoto: "",
+      ownerPhoto: imageClean,
+      image: imageClean,
       rating: 7,
       type: workshopSubType,
       tags: tagsClean.slice(),
@@ -250,6 +257,7 @@ export function createContact(form, data, user){
       hireDate: new Date(now).toISOString().split("T")[0],
       active: true,
       tags: tagsClean.slice(),
+      image: imageClean,
       contactId,
       createdAt: new Date(now).toISOString(),
       createdBy: uid,
@@ -268,6 +276,7 @@ export function createContact(form, data, user){
     linkedIds,
     tags: tagsClean.slice(),
     notes: notesClean,
+    image: imageClean,
     createdAt: now,
     createdBy: uid,
   };
@@ -1094,13 +1103,17 @@ export function updateContact(contactId, updates, data){
   const newName = updates.name !== undefined ? String(updates.name).trim() : existing.name;
   if(!newName) throw new Error("CONTACT_NAME_EMPTY");
   const newPhone = updates.phone !== undefined ? normalizePhone(String(updates.phone).trim()) : existing.phone;
-  const newTags = Array.isArray(updates.tags) ? updates.tags.filter(Boolean) : existing.tags;
+  const newTags = Array.isArray(updates.tags) ? updates.tags.filter(Boolean) : (Array.isArray(existing.tags) ? existing.tags : []);
   const newNotes = updates.notes !== undefined ? String(updates.notes).trim() : (existing.notes || "");
+  /* V21.27.58: صورة بالطول — تتحدّث على السجل وتتـ propagate للكيانات المرتبطة
+     فقط لو اتبعتت صراحةً (imageProvided) عشان ما نمسحش صور الكيانات بالغلط. */
+  const imageProvided = updates.image !== undefined;
+  const newImage = imageProvided ? String(updates.image).trim() : (existing.image || "");
 
   /* 1. Updated contact registry entry */
   const nextContacts = contacts.map(c =>
     c.id === contactId
-      ? { ...c, name: newName, phone: newPhone, tags: newTags, notes: newNotes, updatedAt: Date.now() }
+      ? { ...c, name: newName, phone: newPhone, tags: newTags, notes: newNotes, image: newImage, updatedAt: Date.now() }
       : c
   );
 
@@ -1111,24 +1124,28 @@ export function updateContact(contactId, updates, data){
      because each entity (e.g., supplier) may have its own context-specific notes. */
   const linkedIds = existing.linkedIds || {};
 
-  const mapList = (arr, idField, linkedId) => {
+  const mapList = (arr, idField, linkedId, extra) => {
     if(!Array.isArray(arr) || !linkedId) return null;
     let touched = false;
     const out = arr.map(e => {
       if(!e || String(e[idField]) !== String(linkedId)) return e;
       touched = true;
-      return { ...e, name: newName, phone: newPhone, tags: newTags.slice() };
+      return { ...e, name: newName, phone: newPhone, tags: newTags.slice(), ...(extra || {}) };
     });
     return touched ? out : null;
   };
 
-  const custOut = mapList(data && data.customers, "id", linkedIds.customer);
+  /* propagate image لو اتبعت (workshop بيستخدم ownerPhoto للعرض في كارته) */
+  const imgExtra   = imageProvided ? { image: newImage } : null;
+  const wsImgExtra = imageProvided ? { image: newImage, ownerPhoto: newImage } : null;
+
+  const custOut = mapList(data && data.customers, "id", linkedIds.customer, imgExtra);
   if(custOut) patch.customers = custOut;
-  const supOut  = mapList(data && data.suppliers, "id", linkedIds.supplier);
+  const supOut  = mapList(data && data.suppliers, "id", linkedIds.supplier, imgExtra);
   if(supOut)  patch.suppliers = supOut;
-  const wsOut   = mapList(data && data.workshops, "id", linkedIds.workshop);
+  const wsOut   = mapList(data && data.workshops, "id", linkedIds.workshop, wsImgExtra);
   if(wsOut)   patch.workshops = wsOut;
-  const empOut  = mapList(data && data.employees, "id", linkedIds.employee);
+  const empOut  = mapList(data && data.employees, "id", linkedIds.employee, imgExtra);
   if(empOut)  patch.employees = empOut;
 
   return { patch, contact: nextContacts.find(c => c.id === contactId) };
