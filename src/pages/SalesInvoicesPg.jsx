@@ -539,9 +539,11 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
               <div style={{fontSize:FS-1, color:T.textSec, fontWeight:600}}>{isPurchase?"فاتورة مشتريات":"فاتورة مبيعات"}</div>
               <div style={{fontFamily:"monospace", fontSize:FS+4, fontWeight:800, color:T.accent}}>{invoice.invoiceNo}</div>
             </div>
+            {/* V21.27.47: بادج الحالة اتنقل جنب رقم الفاتورة (بدل ركن الشمال) عشان كان
+                بيتراكب مع شريط «مدفوع» القطري في الزاوية الشمال العلوية. */}
+            <span style={{padding:"6px 14px", borderRadius:8, fontSize:FS, fontWeight:800, background:meta.bg, color:meta.color, border:"2px solid "+meta.color+"40", marginInlineStart:4}}>{meta.label}</span>
           </div>
         </div>
-        <span style={{padding:"6px 14px", borderRadius:8, fontSize:FS, fontWeight:800, background:meta.bg, color:meta.color, border:"2px solid "+meta.color+"40"}}>{meta.label}</span>
       </div>
 
       {/* V21.21.21: روابط السلسلة لفاتورة المشتريات — أمر الشراء + الاستلام */}
