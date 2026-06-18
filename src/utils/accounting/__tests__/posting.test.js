@@ -112,14 +112,14 @@ describe("validateLines", () => {
 
 /* ───────────────────────── buildRefNo ───────────────────────── */
 describe("buildRefNo", () => {
-  it("يولّد JE-<سنة>-0001 ليوم فارغ", () => {
-    expect(buildRefNo("2026-06-10", [])).toBe("JE-2026-0001");
-    expect(buildRefNo("2026-06-10", null)).toBe("JE-2026-0001");
+  it("يولّد JE-<سنة>-<شهريوم>-001 ليوم فارغ", () => {
+    expect(buildRefNo("2026-06-10", [])).toBe("JE-2026-0610-001");
+    expect(buildRefNo("2026-06-10", null)).toBe("JE-2026-0610-001");
   });
 
   it("يكمل التسلسل من القيود الموجودة", () => {
     const existing = Array.from({ length: 41 }, (_, i) => ({ id: String(i) }));
-    expect(buildRefNo("2025-01-01", existing)).toBe("JE-2025-0042");
+    expect(buildRefNo("2025-01-01", existing)).toBe("JE-2025-0101-042");
   });
 });
 
@@ -138,7 +138,7 @@ describe("postEntry", () => {
     const result = await postEntry({ ...base, lines: [ar(100), rv(100)] });
     expect(result).toHaveLength(1);
     const e = result[0];
-    expect(e.refNo).toBe("JE-2026-0001");
+    expect(e.refNo).toBe("JE-2026-0610-001");
     expect(e.status).toBe("posted");
     expect(e.sourceType).toBe("sale");
     /* normalizeLines enriches with accountCode/accountName from CoA */
@@ -186,7 +186,7 @@ describe("postEntry", () => {
     await postEntry({ ...base, sourceId: "s2", lines: [ar(70), rv(70)] });
     const day = store.get(DAY);
     expect(day).toHaveLength(2);
-    expect(day[1].refNo).toBe("JE-2026-0002");
+    expect(day[1].refNo).toBe("JE-2026-0610-002");
   });
 
   it("يقرّب الأسطر لرقمين عشريين عند التخزين", async () => {

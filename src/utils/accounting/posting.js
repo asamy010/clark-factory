@@ -83,12 +83,19 @@ function normalizeLines(lines, coa){
   });
 }
 
-/* Generate a human-readable entry reference number using the year + a per-doc
-   sequential. Falls back to a gid suffix if we can't read existing entries. */
+/* Generate a human-readable entry reference number governed by year + month/day
+   + a per-day sequential: `JE-YYYY-MMDD-NNN`. Each movement gets its own number,
+   unique across the whole year (the MMDD segment disambiguates days that share
+   the same per-day sequence — pre-V21.27.55 the seq reset every day so two
+   different days both produced `JE-2026-0001`, making refNo non-unique across
+   the ledger). The seq counts only the entries already in THIS day's doc.
+   `date` is "YYYY-MM-DD" (a dayId). */
 export function buildRefNo(date, dayEntries){
-  const year = String(date).slice(0,4);
-  const seq  = ((dayEntries||[]).length + 1).toString().padStart(4,"0");
-  return `JE-${year}-${seq}`;
+  const s    = String(date);
+  const year = s.slice(0,4);
+  const mmdd = s.slice(5,7) + s.slice(8,10);
+  const seq  = ((dayEntries||[]).length + 1).toString().padStart(3,"0");
+  return `JE-${year}-${mmdd}-${seq}`;
 }
 
 /* Idempotent post: writes a new entry, OR updates an existing one matched by
