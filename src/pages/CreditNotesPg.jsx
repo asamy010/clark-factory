@@ -16,6 +16,7 @@ import { ask, showToast } from "../utils/popups.js";
 import {
   postCreditNoteMutator, creditNotePostBlocker, voidCreditNoteMutator, deleteDraftCreditNoteMutator,
   getCreditNoteStats, buildCreditNoteFromReturn, upsertCreditNoteFromReturn, findCreditNoteByReturn,
+  postInvoiceMutator,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printCreditNote } from "../utils/printInvoice.js";
@@ -67,6 +68,51 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
 
   const stats = useMemo(() => getCreditNoteStats(data, {from, to, partyId, status}), [data, from, to, partyId, status]);
 
+  /* V21.27.64: ترحيل فاتورة مبيعات مربوطة بإشعار دائن — يكرّر مسار
+     SalesInvoicesPg.handlePost بالظبط (mutator → autoPost → postedJournalRef)
+     عشان الفاتورة تترحّل بقيودها الكاملة (إيراد + COGS) مش مجرد قلب الحالة.
+     بيرمي Error واضح لو فشل الحفظ أو لو الفاتورة مش قابلة للترحيل. */
+  const postLinkedSalesInvoice = async (inv) => {
+    const invCustomer = (data.customers||[]).find(c => c.id === inv.customerId);
+    const invOrderId = inv.deliveryRef && inv.deliveryRef.orderId;
+    const invOrder = invOrderId ? (data.orders||[]).find(o => o.id === invOrderId) : null;
+    /* نقرأ الحالة من d الطازج جوّه الـ mutator (مش من prop data القديمة) عشان
+       نتعامل مع حالة الـ cascade المكرّر: إشعارين على نفس الفاتورة في ترحيل
+       جماعي — الأول يرحّلها، التاني يلاقيها «مرحّلة» فيتعامل معاها كنجاح idempotent
+       بدل ما يرمي خطأ. */
+    let invResult = "";
+    const ri = await upConfig(d => {
+      const it = (d.salesInvoices||[]).find(i => i.id === inv.id);
+      if(!it){ invResult = "not-found"; return; }
+      if(it.status === "posted"){ invResult = "already-posted"; return; }
+      invResult = postInvoiceMutator(d, inv.id, "sales", userName) ? "posted" : "blocked";
+    });
+    if(ri && ri.ok === false){
+      throw new Error("فشل حفظ ترحيل الفاتورة " + (inv.invoiceNo || "") + (ri.error ? " — " + ri.error : ""));
+    }
+    if(invResult === "already-posted") return; /* اتعملت في cascade سابق — القيود موجودة */
+    if(invResult !== "posted"){
+      throw new Error("تعذّر ترحيل الفاتورة المرتبطة " + (inv.invoiceNo || "") + " — تأكد إنها مسودة وبعميل صالح.");
+    }
+    const postedInv = {...inv, status:"posted", postedAt: new Date().toISOString(), postedBy: userName};
+    const res = await autoPost.salesInvoicePosted(data, postedInv, invCustomer, invOrder, userName);
+    if(res && res.main && res.main.ok && res.main.entry){
+      await upConfig(d => {
+        const idx = (d.salesInvoices||[]).findIndex(i => i.id === inv.id);
+        if(idx >= 0){
+          d.salesInvoices[idx].postedJournalRef = {
+            date: res.main.entry.date,
+            entryId: res.main.entry.id,
+            refNo: res.main.entry.refNo,
+            cogsDate: res.cogs && res.cogs.entry ? res.cogs.entry.date : null,
+            cogsEntryId: res.cogs && res.cogs.entry ? res.cogs.entry.id : null,
+            cogsRefNo: res.cogs && res.cogs.entry ? res.cogs.entry.refNo : null,
+          };
+        }
+      });
+    }
+  };
+
   const handlePost = async (cn, opts = {}) => {
     /* V19.39: silent mode used by bulk-post bar */
     const silent = opts.silent === true;
@@ -79,10 +125,37 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
     /* V21.27.63: تشخيص دقيق قبل الترحيل — بدل رسالة الفشل المبهمة، نحدد السبب
        بالظبط (الفاتورة المرتبطة مش مرحّلة / مش مسودة / لسه بتحمّل). أكثر سبب
        شيوعاً هو guard V21.9.92: الإشعار مربوط بفاتورة مش مرحّلة. */
+    let cascadedInvoiceNo = null; /* V21.27.64: لو رحّلنا الفاتورة المرتبطة كمان */
     const blocker = creditNotePostBlocker(data, cn.id);
     if(blocker){
-      if(!silent) showToast("⛔ تعذّر ترحيل " + cn.creditNoteNo + ": " + blocker);
-      throw new Error(blocker);
+      /* V21.27.64: لو السبب الوحيد إن الفاتورة المرتبطة لسه مسودة (الإشعار نفسه
+         مسودة)، نعرض «رحّل الفاتورة + الإشعار معاً» بدل ما نرفض. ده اختيار Ahmed —
+         بيحافظ على حماية V21.9.92 (الفاتورة بتترحّل فعلاً الأول بقيودها الكاملة)
+         ويوفّر خطوتين. الفردي بيسأل تأكيد؛ الجماعي بيعمل cascade تلقائي. */
+      const linkedInv = cn.linkedInvoiceId ? (data.salesInvoices||[]).find(i => i.id === cn.linkedInvoiceId) : null;
+      const cascadeable = cn.status === "draft" && linkedInv && linkedInv.status === "draft";
+      if(cascadeable){
+        let cascade = silent; /* الجماعي = موافقة ضمنية على الـ cascade */
+        if(!silent){
+          cascade = await ask(
+            "الفاتورة المرتبطة لسه مسودة",
+            "الإشعار الدائن " + cn.creditNoteNo + " مربوط بالفاتورة " + (linkedInv.invoiceNo || cn.linkedInvoiceId) + " وهي لسه مسودة.\n\nأرحّل الفاتورة الأصلية أولاً (بقيودها المحاسبية) ثم الإشعار الدائن؟",
+            {confirmText:"رحّل الاتنين"}
+          );
+        }
+        if(!cascade){
+          if(!silent) showToast("اتلغى — لازم ترحّل الفاتورة الأصلية الأول.");
+          throw new Error(blocker);
+        }
+        /* رحّل الفاتورة المرتبطة بنفس مسار SalesInvoicesPg.handlePost الكامل.
+           بعد الترحيل ما نعيدش الفحص ضد `data` (إنها prop قديمة لسه ما اتحدّثتش)؛
+           postCreditNoteMutator التالي بيقرأ d الطازج فبيشوف الفاتورة «مرحّلة». */
+        await postLinkedSalesInvoice(linkedInv);
+        cascadedInvoiceNo = linkedInv.invoiceNo || cn.linkedInvoiceId;
+      } else {
+        if(!silent) showToast("⛔ تعذّر ترحيل " + cn.creditNoteNo + ": " + blocker);
+        throw new Error(blocker);
+      }
     }
     /* V19.56: AWAIT every write — see SalesInvoicesPg.handlePost for reasoning. */
     try {
@@ -118,7 +191,7 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
         });
       }
       if(!silent){
-        showToast("✓ تم الترحيل");
+        showToast(cascadedInvoiceNo ? "✓ تم ترحيل الفاتورة " + cascadedInvoiceNo + " + الإشعار الدائن" : "✓ تم الترحيل");
         setActiveCN(null);
       }
     } catch(e){
