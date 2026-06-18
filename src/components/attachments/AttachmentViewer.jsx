@@ -20,7 +20,7 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { getFileMimeKind, formatFileSize } from "../../utils/universalAttachments.js";
 
-export function AttachmentViewer({ attachments, startIndex, onClose, onDelete, onEditCaption }){
+export function AttachmentViewer({ attachments, startIndex, onClose, onDelete, onEditCaption, onScan }){
   const [idx, setIdx] = useState(typeof startIndex === "number" ? startIndex : 0);
   /* V21.27.60: تكبير/تحريك الصورة (zoom + pan) — للديسكتوب بالأزرار والعجلة،
      واللمس بالـ pinch الأصلي. */
@@ -104,6 +104,9 @@ export function AttachmentViewer({ attachments, startIndex, onClose, onDelete, o
               <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={btnStyle} title="حجم أصلي">{Math.round(zoom * 100)}%</button>
               <button onClick={() => zoomBy(1.25)} style={btnStyle} title="تكبير">🔍+</button>
             </>
+          )}
+          {kind === "image" && onScan && (
+            <button onClick={() => onScan(current)} style={{...btnStyle, background: "#2E7BED44", borderColor: "#2E7BED88"}} title="مسح ضوئي وتحسين الصورة (قصّ الزوايا + توضيح)">🪄 مسح/تحسين</button>
           )}
           {onEditCaption && (
             <button onClick={() => onEditCaption(current)} style={btnStyle} title="تعديل العنوان">✏️ تعديل</button>

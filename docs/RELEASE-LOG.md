@@ -12,6 +12,32 @@
 
 ---
 
+## V21.27.61 (2026-06-18) — 🪄 سكانر مستندات للمرفقات (قصّ + تصحيح منظور + تحسين)
+
+الجزء الثالث من طلب Ahmed: «أسحب صورة المرفق وأسكنها وأعدّلها وأخليها واضحة —
+وأقصّ الزوايد زي كاميرا سكانر بشكل احترافي».
+
+**`src/utils/imageScan.js` (جديد — pure، قابل للاختبار):**
+- `solveHomography(dst,src)` — حل 8×8 (Gaussian + pivoting) للإسقاط الإسقاطي.
+- `dewarp(srcCanvas, quad, w, h)` — تصحيح منظور (inverse mapping + bilinear).
+- `otsuThreshold` + `applyDocFilter` — تلقائي (auto-levels) / رمادي / أبيض-أسود
+  (Otsu) + سطوع/تباين. `suggestOutputSize` لأبعاد الخرج من أطوال الأضلاع.
+
+**`src/components/attachments/DocScannerModal.jsx` (جديد):** سكانر بخطوتين —
+(1) قصّ بأربع زوايا تتسحب على حواف الورقة فوق الصورة، تدوير 90°، الكل؛
+(2) معاينة النتيجة المستوية + أزرار الفلاتر + سلايدر سطوع/تباين (معاينة فورية
+على الـ dewarp المخزّن) → «حفظ كمرفق». الصورة بتتحمّل عبر `/api/img-proxy`
+عشان canvas مايتلوّثش (CORS).
+
+**التوصيل:** `AttachmentViewer` فيه زر «🪄 مسح/تحسين» لأي صورة (لما `onScan`
+ممرّر + canEdit). `AttachmentList` بيفتح السكانر ويحفظ الناتج كـ **مرفق جديد**
+عبر `uploadAttachment` (الأصل بيفضل) ويـ prepend للقائمة.
+
+ملفات: `imageScan.js` + `DocScannerModal.jsx` (جديدان) · `AttachmentList.jsx` ·
+`AttachmentViewer.jsx` + 5 اختبارات `imageScan.test.js`. بناء ✓ + 346 test ✓.
+
+---
+
 ## V21.27.60 (2026-06-18) — 🧾 فاتورة: خط Cairo + مرفقات بعد الترحيل + تكبير الصورة
 
 طلب Ahmed (على شاشة الفاتورة): (1) خط رقم الفاتورة يبقى زي خط التطبيق (Cairo)

@@ -26,11 +26,13 @@ import {
   listAttachments,
   softDeleteAttachment,
   updateAttachmentCaption,
+  uploadAttachment,
   getFileMimeKind,
   formatFileSize,
 } from "../../utils/universalAttachments.js";
 import { AttachmentUploader } from "./AttachmentUploader.jsx";
 import { AttachmentViewer } from "./AttachmentViewer.jsx";
+import { DocScannerModal } from "./DocScannerModal.jsx";
 
 function fmtDate(ts){
   if(!ts) return "—";
@@ -45,6 +47,7 @@ export function AttachmentList({ entityType, entityId, user, canEdit, label, com
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [viewerIdx, setViewerIdx] = useState(null);  /* null = closed */
+  const [scanning, setScanning] = useState(null);    /* V21.27.61: المرفق اللي بيتمسح ضوئياً */
 
   const reload = useCallback(async () => {
     if(!entityType || !entityId){
@@ -92,6 +95,22 @@ export function AttachmentList({ entityType, entityId, user, canEdit, label, com
     } catch(e){
       console.error("[AttachmentList] delete failed:", e);
       await tell("فشل الحذف", e && e.message ? e.message : "حاول مرة تانية", { type: "error" });
+    }
+  };
+
+  /* V21.27.61: حفظ نتيجة السكانر كمرفق جديد (الأصل بيفضل). */
+  const handleScanSave = async (blob) => {
+    const baseName = (scanning && (scanning.caption || scanning.fileName) || "scan").replace(/\.[^.]+$/, "");
+    const file = new File([blob], baseName + " — ممسوح.jpg", { type: "image/jpeg" });
+    try {
+      const att = await uploadAttachment(entityType, entityId, file, user, "ممسوح ضوئياً");
+      setAttachments(prev => [att, ...prev]);
+      setScanning(null);
+      setViewerIdx(null);
+      showToast("✓ تم حفظ النسخة الممسوحة كمرفق جديد");
+    } catch(e){
+      console.error("[AttachmentList] scan save failed:", e);
+      await tell("فشل الحفظ", e && e.message ? e.message : "حاول مرة تانية", { type: "error" });
     }
   };
 
@@ -212,6 +231,17 @@ export function AttachmentList({ entityType, entityId, user, canEdit, label, com
           onClose={() => setViewerIdx(null)}
           onDelete={canEdit ? handleDelete : null}
           onEditCaption={canEdit ? handleEditCaption : null}
+          onScan={canEdit ? (att) => setScanning(att) : null}
+        />
+      )}
+
+      {/* V21.27.61: سكانر/معالجة الصورة → حفظ نسخة محسّنة كمرفق جديد */}
+      {scanning && (
+        <DocScannerModal
+          src={scanning.downloadURL}
+          fileName={scanning.fileName}
+          onClose={() => setScanning(null)}
+          onSave={handleScanSave}
         />
       )}
     </div>
