@@ -15,16 +15,64 @@
 
 import { _esc } from "./format.js";
 
+/* V21.27.65 — رموز رسائل الخطأ/الفشل (أمر Ahmed): الرسائل اللي بتبدأ بأي رمز
+   من دول بتتعرض كـ«بوب اب خطأ» ثابت أسفل الشاشة (مايختفيش غير بزر «إغلاق»)
+   بدل التوست الأخضر اللي بيختفي في ثواني. باقي الرسائل (نجاح ✓✅ / معلومة ℹ⏳)
+   بتفضل توست عادي زي ما هي. */
+const ERROR_TOAST_PREFIXES = ["⛔","❌","✕","✗","🛑","⚠"];
+function _isErrorToast(msg){
+  if(typeof msg!=="string") return false;
+  const s=msg.trimStart();
+  return ERROR_TOAST_PREFIXES.some(p=>s.startsWith(p));
+}
+function _ensureToastAnim(){
+  if(document.getElementById("__clark_toast_css"))return;
+  const s=document.createElement("style");s.id="__clark_toast_css";
+  s.textContent="@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}@keyframes errIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}";
+  document.head.appendChild(s);
+}
+function _ensureErrStack(){
+  let c=document.getElementById("__clark_err_stack");
+  if(!c){
+    c=document.createElement("div");c.id="__clark_err_stack";
+    /* عمود يتراكم لأعلى من أسفل الشاشة — كل خطأ تحت سابقه */
+    c.style.cssText="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:100001;display:flex;flex-direction:column;gap:8px;align-items:stretch;width:min(94vw,440px);font-family:'Cairo',sans-serif;direction:rtl;pointer-events:none";
+    document.body.appendChild(c);
+  }
+  return c;
+}
+/* بوب اب خطأ ثابت أسفل الشاشة — لا يختفي إلا بزر «إغلاق» (V21.27.65) */
+function _showErrorPopup(msg){
+  _ensureToastAnim();
+  const stack=_ensureErrStack();
+  const el=document.createElement("div");
+  el.style.cssText="pointer-events:auto;background:#FEF2F2;border:1.5px solid #EF4444;color:#991B1B;border-radius:12px;padding:12px 14px;box-shadow:0 10px 32px rgba(0,0,0,0.22);display:flex;gap:10px;align-items:flex-start;box-sizing:border-box;animation:errIn 0.22s ease";
+  const txt=document.createElement("div");
+  txt.textContent=msg;
+  txt.style.cssText="flex:1;font-size:13px;font-weight:700;line-height:1.7;white-space:pre-line;text-align:right;word-break:break-word";
+  const btn=document.createElement("button");
+  btn.textContent="إغلاق";
+  btn.style.cssText="flex-shrink:0;align-self:center;padding:6px 12px;border-radius:8px;border:none;background:#EF4444;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:'Cairo',sans-serif;line-height:1.2";
+  const dismiss=()=>{el.style.opacity="0";el.style.transition="opacity 0.18s";setTimeout(()=>{el.remove();if(!stack.children.length)stack.remove();},180);};
+  btn.addEventListener("click",dismiss);
+  el.appendChild(txt);/* RTL: النص يمين، الزر شمال */
+  el.appendChild(btn);
+  stack.appendChild(el);
+}
+
 /* Toast notification - no hooks */
-export function showToast(msg){const el=document.createElement("div");
+export function showToast(msg){
+  /* V21.27.65: رسائل الخطأ → بوب اب ثابت بزر إغلاق (مش توست عابر) */
+  if(_isErrorToast(msg)){_showErrorPopup(msg);return;}
+  _ensureToastAnim();
+  const el=document.createElement("div");
   /* V15.41: Support multi-line messages — auto-adjust width/duration for long diagnostics */
   const isLong=typeof msg==="string"&&(msg.length>80||msg.includes("\n"));
   el.textContent=msg;
   el.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#10B981;color:#fff;padding:10px 28px;border-radius:10px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.2);direction:rtl;animation:toastIn 0.3s ease"+(isLong?";max-width:min(92vw,480px);white-space:pre-line;text-align:right;line-height:1.7;padding:12px 18px":"");
   document.body.appendChild(el);
-  const style=document.createElement("style");style.textContent="@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}";document.head.appendChild(style);
   const duration=isLong?5000:2000;
-  setTimeout(()=>{el.style.opacity="0";el.style.transition="opacity 0.3s";setTimeout(()=>{el.remove();style.remove()},300)},duration);
+  setTimeout(()=>{el.style.opacity="0";el.style.transition="opacity 0.3s";setTimeout(()=>{el.remove()},300)},duration);
 }
 
 export function highlightRow(id){setTimeout(()=>{const el=document.querySelector("[data-oid='"+id+"']");if(!el)return;el.style.transition="background 0.3s";el.style.background="#FEF3C7";setTimeout(()=>{el.style.background="";setTimeout(()=>el.style.transition="",500)},2000)},200)}
