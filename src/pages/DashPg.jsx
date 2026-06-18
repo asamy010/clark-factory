@@ -26,6 +26,7 @@ import { DashboardKpis } from "../components/DashboardKpis.jsx";
 export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,setCardPopup,setWsAccPopup}){
   const orders=data.orders;
   const[showPartnerPortal,setShowPartnerPortal]=useState(false);/* V21.21.69: بورتال الشريك */
+  const[dashTab,setDashTab]=useState("overview");/* V21.27.49: تابات اللوحة — overview/production/financial */
 
   /* ═══ MEMOIZED COMPUTATIONS ═══ */
   const stats=useMemo(()=>{
@@ -200,123 +201,9 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
       <button onClick={()=>setShowPartnerPortal(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:10,border:"1px solid #6366F130",background:"#6366F112",color:"#6366F1",fontSize:FS-1,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📊 لينك لوحة التحكم</button>
     </div>
     {showPartnerPortal&&<PartnerPortalLinkModal T={T} FS={FS} isMob={isMob} showToast={showToast} onClose={()=>setShowPartnerPortal(false)}/>}
-    {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) أعلى لوحة التحكم */}
-    <DashboardKpis data={data} isMob={isMob} upConfig={upConfig}/>
-    {/* Custom styles for hero section */}
-    <style>{`
-      .hero-kpi{transition:all 0.25s cubic-bezier(0.4,0,0.2,1);cursor:default}
-      .hero-kpi:hover{transform:translateY(-4px)}
-      .quick-action{transition:all 0.2s ease}
-      .quick-action:hover{transform:translateY(-2px);box-shadow:0 8px 16px -6px rgba(0,0,0,0.15)}
-      .minimal-stat{transition:all 0.15s ease;cursor:pointer}
-      .minimal-stat:hover{background:${T.bg};border-color:${T.accent}30}
-      .section-title{font-size:${FS-1}px;font-weight:800;color:${T.textSec};margin:0 0 12px;padding:0 4px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.6px}
-      .section-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
-    `}</style>
 
-    {/* V16.12: SmartAlertsSection removed — see comment at top of file.
-        The alerts bell in App.jsx (aiAlerts) covers the same ground using
-        the actual schema and works correctly. */}
-
-    {/* ═══════════════════════════════════════════════════════════════
-        V15.5 ALERTS SECTION — Low stock + Stuck orders
-        Only shown when alerts exist. Zero-configuration.
-       ═══════════════════════════════════════════════════════════════ */}
-    {alerts.totalAlerts>0&&<div style={{marginBottom:18,background:"linear-gradient(135deg, #FEF2F2, #FEF3C7)",borderRadius:16,padding:isMob?14:20,border:"1px solid #FED7AA",boxShadow:"0 4px 12px -4px rgba(239,68,68,0.15)"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-        <div style={{width:40,height:40,borderRadius:10,background:"#EF4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
-        <div>
-          <div style={{fontSize:FS+2,fontWeight:800,color:"#991B1B"}}>تنبيهات تحتاج اهتمام</div>
-          <div style={{fontSize:FS-2,color:"#7C2D12"}}>{alerts.totalAlerts} تنبيه يلزم مراجعته</div>
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
-        {/* Low stock */}
-        {alerts.lowStock.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FECACA"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#991B1B"}}>📦 مخزون منخفض <span style={{background:"#FEE2E2",color:"#991B1B",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.lowStock.length}</span></div>
-          <div style={{maxHeight:180,overflow:"auto"}}>
-            {alerts.lowStock.slice(0,6).map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9"}}>
-              <span style={{fontWeight:600,color:"#1E293B"}}>{s.type} · {s.name}</span>
-              <span style={{fontWeight:700,color:"#EF4444"}}>{s.stock} {s.unit}</span>
-            </div>)}
-            {alerts.lowStock.length>6&&<div style={{fontSize:FS-3,color:"#64748B",textAlign:"center",paddingTop:6}}>+{alerts.lowStock.length-6} أخرى</div>}
-          </div>
-        </div>}
-        {/* Stuck in workshops */}
-        {alerts.stuckInWs.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FED7AA"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#92400E"}}>⏰ عالقة في الورش <span style={{background:"#FEF3C7",color:"#92400E",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.stuckInWs.length}</span></div>
-          <div style={{maxHeight:180,overflow:"auto"}}>
-            {alerts.stuckInWs.map((s,i)=><div key={i} onClick={()=>goD&&goD(s.orderId)} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9",cursor:"pointer"}}>
-              <span style={{fontWeight:600,color:"#1E293B"}}>{s.modelNo}{s.garmentType?" - "+s.garmentType:""} · {s.wsName}</span>
-              <span style={{fontWeight:700,color:"#F59E0B"}}>{s.days} يوم</span>
-            </div>)}
-          </div>
-        </div>}
-        {/* Cut but no workshop */}
-        {alerts.stuckCut.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FDE68A"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#78350F"}}>✂️ مقصوصة ولسه ما اتسلمتش لورشة <span style={{background:"#FEF3C7",color:"#78350F",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.stuckCut.length}</span></div>
-          <div style={{maxHeight:180,overflow:"auto"}}>
-            {alerts.stuckCut.map((s,i)=><div key={i} onClick={()=>goD&&goD(s.orderId)} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9",cursor:"pointer"}}>
-              <span style={{fontWeight:600,color:"#1E293B"}}>{s.modelNo} ({s.cutQty} قطعة)</span>
-              <span style={{fontWeight:700,color:"#F59E0B"}}>{s.days} يوم</span>
-            </div>)}
-          </div>
-        </div>}
-      </div>
-    </div>}
-
-    {/* ═══════════════════════════════════════════════════════════════
-        V15.5 PROFITABILITY SECTION — Revenue vs Cost based on sellPrice
-        Only shown when at least one order has sellPrice set.
-       ═══════════════════════════════════════════════════════════════ */}
-    {profitability.count>0&&<div style={{marginBottom:18,background:"linear-gradient(135deg, #F0FDF4, #ECFEFF)",borderRadius:16,padding:isMob?14:20,border:"1px solid #BBF7D0",boxShadow:"0 4px 12px -4px rgba(16,185,129,0.12)"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-        <div style={{width:40,height:40,borderRadius:10,background:"#10B981",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>💰</div>
-        <div style={{flex:1,minWidth:180}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:"#064E3B"}}>تحليل الربحية الحقيقية</div>
-          <div style={{fontSize:FS-2,color:"#065F46"}}>{profitability.count} موديل · متوسط الهامش {profitability.avgMargin}%</div>
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:14}}>
-        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #D1FAE5"}}>
-          <div style={{fontSize:FS-3,color:"#065F46",fontWeight:600}}>الإيرادات</div>
-          <div style={{fontSize:16,fontWeight:800,color:"#10B981"}}>{fmt(r2(profitability.totalRevenue))} ج</div>
-        </div>
-        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #FECACA"}}>
-          <div style={{fontSize:FS-3,color:"#991B1B",fontWeight:600}}>التكاليف</div>
-          <div style={{fontSize:16,fontWeight:800,color:"#EF4444"}}>{fmt(r2(profitability.totalCost))} ج</div>
-        </div>
-        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #BBF7D0"}}>
-          <div style={{fontSize:FS-3,color:"#064E3B",fontWeight:600}}>صافي الربح</div>
-          <div style={{fontSize:16,fontWeight:800,color:profitability.totalProfit>=0?"#10B981":"#EF4444"}}>{fmt(r2(profitability.totalProfit))} ج</div>
-        </div>
-        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #DBEAFE"}}>
-          <div style={{fontSize:FS-3,color:"#1E40AF",fontWeight:600}}>متوسط الهامش</div>
-          <div style={{fontSize:16,fontWeight:800,color:profitability.avgMargin>=20?"#10B981":profitability.avgMargin>=10?"#F59E0B":"#EF4444"}}>{profitability.avgMargin}%</div>
-        </div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12}}>
-        {profitability.topProfitable.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #D1FAE5"}}>
-          <div style={{fontSize:FS,fontWeight:800,color:"#064E3B",marginBottom:8}}>🏆 أعلى هامش ربح</div>
-          <div>{profitability.topProfitable.map((r,i)=><div key={i} onClick={()=>goD&&goD(r.orderId)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",fontSize:FS-1,borderBottom:i<profitability.topProfitable.length-1?"1px solid #F1F5F9":"none",cursor:"pointer"}}>
-            <span style={{fontWeight:600,color:"#1E293B"}}>{r.modelNo}</span>
-            <span style={{fontWeight:800,color:"#10B981"}}>{r.profitPct}%</span>
-          </div>)}</div>
-        </div>}
-        {profitability.losing.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FED7AA"}}>
-          <div style={{fontSize:FS,fontWeight:800,color:"#78350F",marginBottom:8}}>⚠️ هامش منخفض (&lt;15%)</div>
-          <div>{profitability.losing.map((r,i)=><div key={i} onClick={()=>goD&&goD(r.orderId)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",fontSize:FS-1,borderBottom:i<profitability.losing.length-1?"1px solid #F1F5F9":"none",cursor:"pointer"}}>
-            <span style={{fontWeight:600,color:"#1E293B"}}>{r.modelNo}</span>
-            <span style={{fontWeight:800,color:r.profitPct<0?"#EF4444":"#F59E0B"}}>{r.profitPct}%</span>
-          </div>)}</div>
-        </div>}
-      </div>
-    </div>}
-
-    {/* ═══════════════════════════════════════════════════════════════
-        1. HERO SECTION — Greeting + 4 Primary KPIs + Quick Actions
-       ═══════════════════════════════════════════════════════════════ */}
-    <div style={{background:"linear-gradient(135deg, "+T.accent+" 0%, #0284C7 50%, #0369A1 100%)",borderRadius:20,padding:isMob?18:26,marginBottom:18,color:"#fff",position:"relative",overflow:"hidden",boxShadow:"0 10px 30px -10px "+T.accent+"80"}}>
+    {/* V21.27.49: HERO (الترحيب + المؤشرات + الأزرار السريعة) — هيدر ثابت فوق التابات */}
+    <div style={{background:"linear-gradient(135deg, "+T.accent+" 0%, #0284C7 50%, #0369A1 100%)",borderRadius:20,padding:isMob?18:26,marginBottom:14,color:"#fff",position:"relative",overflow:"hidden",boxShadow:"0 10px 30px -10px "+T.accent+"80"}}>
       {/* Decorative circles */}
       <div style={{position:"absolute",top:-80,right:-80,width:240,height:240,borderRadius:"50%",background:"rgba(255,255,255,0.08)",pointerEvents:"none"}}/>
       <div style={{position:"absolute",bottom:-100,left:-60,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.05)",pointerEvents:"none"}}/>
@@ -391,10 +278,130 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
       </div>
     </div>
 
+    {/* V21.27.49: تابات لوحة التحكم */}
+    <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+      {[{k:"overview",label:"📊 نظرة عامة"},{k:"production",label:"🏭 الإنتاج والورش"},{k:"financial",label:"💰 المالية والربحية"}].map(t=>(
+        <div key={t.k} onClick={()=>setDashTab(t.k)} style={{padding:isMob?"8px 14px":"9px 18px",borderRadius:12,cursor:"pointer",fontSize:FS-1,fontWeight:800,background:dashTab===t.k?T.accent:T.cardSolid,color:dashTab===t.k?"#fff":T.text,border:"1px solid "+(dashTab===t.k?T.accent:T.brd)}}>{t.label}</div>
+      ))}
+    </div>
+
+    {/* V21.21.18: مؤشرات KPI الشاملة (مبيعات/مشتريات/مخزون/ربح) */}
+    {dashTab==="overview"&&<DashboardKpis data={data} isMob={isMob} upConfig={upConfig}/>}
+    {/* Custom styles for hero section */}
+    <style>{`
+      .hero-kpi{transition:all 0.25s cubic-bezier(0.4,0,0.2,1);cursor:default}
+      .hero-kpi:hover{transform:translateY(-4px)}
+      .quick-action{transition:all 0.2s ease}
+      .quick-action:hover{transform:translateY(-2px);box-shadow:0 8px 16px -6px rgba(0,0,0,0.15)}
+      .minimal-stat{transition:all 0.15s ease;cursor:pointer}
+      .minimal-stat:hover{background:${T.bg};border-color:${T.accent}30}
+      .section-title{font-size:${FS-1}px;font-weight:800;color:${T.textSec};margin:0 0 12px;padding:0 4px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.6px}
+      .section-title::after{content:"";flex:1;height:1px;background:linear-gradient(to left,${T.brd},transparent);margin-right:4px}
+    `}</style>
+
+    {/* V16.12: SmartAlertsSection removed — see comment at top of file.
+        The alerts bell in App.jsx (aiAlerts) covers the same ground using
+        the actual schema and works correctly. */}
+
+    {/* ═══════════════════════════════════════════════════════════════
+        V15.5 ALERTS SECTION — Low stock + Stuck orders
+        Only shown when alerts exist. Zero-configuration.
+       ═══════════════════════════════════════════════════════════════ */}
+    {dashTab==="overview"&&alerts.totalAlerts>0&&<div style={{marginBottom:18,background:"linear-gradient(135deg, #FEF2F2, #FEF3C7)",borderRadius:16,padding:isMob?14:20,border:"1px solid #FED7AA",boxShadow:"0 4px 12px -4px rgba(239,68,68,0.15)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <div style={{width:40,height:40,borderRadius:10,background:"#EF4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
+        <div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#991B1B"}}>تنبيهات تحتاج اهتمام</div>
+          <div style={{fontSize:FS-2,color:"#7C2D12"}}>{alerts.totalAlerts} تنبيه يلزم مراجعته</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+        {/* Low stock */}
+        {alerts.lowStock.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FECACA"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#991B1B"}}>📦 مخزون منخفض <span style={{background:"#FEE2E2",color:"#991B1B",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.lowStock.length}</span></div>
+          <div style={{maxHeight:180,overflow:"auto"}}>
+            {alerts.lowStock.slice(0,6).map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9"}}>
+              <span style={{fontWeight:600,color:"#1E293B"}}>{s.type} · {s.name}</span>
+              <span style={{fontWeight:700,color:"#EF4444"}}>{s.stock} {s.unit}</span>
+            </div>)}
+            {alerts.lowStock.length>6&&<div style={{fontSize:FS-3,color:"#64748B",textAlign:"center",paddingTop:6}}>+{alerts.lowStock.length-6} أخرى</div>}
+          </div>
+        </div>}
+        {/* Stuck in workshops */}
+        {alerts.stuckInWs.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FED7AA"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#92400E"}}>⏰ عالقة في الورش <span style={{background:"#FEF3C7",color:"#92400E",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.stuckInWs.length}</span></div>
+          <div style={{maxHeight:180,overflow:"auto"}}>
+            {alerts.stuckInWs.map((s,i)=><div key={i} onClick={()=>goD&&goD(s.orderId)} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9",cursor:"pointer"}}>
+              <span style={{fontWeight:600,color:"#1E293B"}}>{s.modelNo}{s.garmentType?" - "+s.garmentType:""} · {s.wsName}</span>
+              <span style={{fontWeight:700,color:"#F59E0B"}}>{s.days} يوم</span>
+            </div>)}
+          </div>
+        </div>}
+        {/* Cut but no workshop */}
+        {alerts.stuckCut.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FDE68A"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,fontSize:FS,fontWeight:800,color:"#78350F"}}>✂️ مقصوصة ولسه ما اتسلمتش لورشة <span style={{background:"#FEF3C7",color:"#78350F",padding:"2px 10px",borderRadius:10,fontSize:FS-3,fontWeight:700,marginRight:4}}>{alerts.stuckCut.length}</span></div>
+          <div style={{maxHeight:180,overflow:"auto"}}>
+            {alerts.stuckCut.map((s,i)=><div key={i} onClick={()=>goD&&goD(s.orderId)} style={{display:"flex",justifyContent:"space-between",padding:"6px 8px",fontSize:FS-1,borderBottom:"1px solid #F1F5F9",cursor:"pointer"}}>
+              <span style={{fontWeight:600,color:"#1E293B"}}>{s.modelNo} ({s.cutQty} قطعة)</span>
+              <span style={{fontWeight:700,color:"#F59E0B"}}>{s.days} يوم</span>
+            </div>)}
+          </div>
+        </div>}
+      </div>
+    </div>}
+
+    {/* ═══════════════════════════════════════════════════════════════
+        V15.5 PROFITABILITY SECTION — Revenue vs Cost based on sellPrice
+        Only shown when at least one order has sellPrice set.
+       ═══════════════════════════════════════════════════════════════ */}
+    {dashTab==="financial"&&profitability.count>0&&<div style={{marginBottom:18,background:"linear-gradient(135deg, #F0FDF4, #ECFEFF)",borderRadius:16,padding:isMob?14:20,border:"1px solid #BBF7D0",boxShadow:"0 4px 12px -4px rgba(16,185,129,0.12)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        <div style={{width:40,height:40,borderRadius:10,background:"#10B981",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>💰</div>
+        <div style={{flex:1,minWidth:180}}>
+          <div style={{fontSize:FS+2,fontWeight:800,color:"#064E3B"}}>تحليل الربحية الحقيقية</div>
+          <div style={{fontSize:FS-2,color:"#065F46"}}>{profitability.count} موديل · متوسط الهامش {profitability.avgMargin}%</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:10,marginBottom:14}}>
+        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #D1FAE5"}}>
+          <div style={{fontSize:FS-3,color:"#065F46",fontWeight:600}}>الإيرادات</div>
+          <div style={{fontSize:16,fontWeight:800,color:"#10B981"}}>{fmt(r2(profitability.totalRevenue))} ج</div>
+        </div>
+        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #FECACA"}}>
+          <div style={{fontSize:FS-3,color:"#991B1B",fontWeight:600}}>التكاليف</div>
+          <div style={{fontSize:16,fontWeight:800,color:"#EF4444"}}>{fmt(r2(profitability.totalCost))} ج</div>
+        </div>
+        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #BBF7D0"}}>
+          <div style={{fontSize:FS-3,color:"#064E3B",fontWeight:600}}>صافي الربح</div>
+          <div style={{fontSize:16,fontWeight:800,color:profitability.totalProfit>=0?"#10B981":"#EF4444"}}>{fmt(r2(profitability.totalProfit))} ج</div>
+        </div>
+        <div style={{background:"#fff",padding:"10px 14px",borderRadius:10,border:"1px solid #DBEAFE"}}>
+          <div style={{fontSize:FS-3,color:"#1E40AF",fontWeight:600}}>متوسط الهامش</div>
+          <div style={{fontSize:16,fontWeight:800,color:profitability.avgMargin>=20?"#10B981":profitability.avgMargin>=10?"#F59E0B":"#EF4444"}}>{profitability.avgMargin}%</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(2,1fr)",gap:12}}>
+        {profitability.topProfitable.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #D1FAE5"}}>
+          <div style={{fontSize:FS,fontWeight:800,color:"#064E3B",marginBottom:8}}>🏆 أعلى هامش ربح</div>
+          <div>{profitability.topProfitable.map((r,i)=><div key={i} onClick={()=>goD&&goD(r.orderId)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",fontSize:FS-1,borderBottom:i<profitability.topProfitable.length-1?"1px solid #F1F5F9":"none",cursor:"pointer"}}>
+            <span style={{fontWeight:600,color:"#1E293B"}}>{r.modelNo}</span>
+            <span style={{fontWeight:800,color:"#10B981"}}>{r.profitPct}%</span>
+          </div>)}</div>
+        </div>}
+        {profitability.losing.length>0&&<div style={{background:"#fff",borderRadius:12,padding:14,border:"1px solid #FED7AA"}}>
+          <div style={{fontSize:FS,fontWeight:800,color:"#78350F",marginBottom:8}}>⚠️ هامش منخفض (&lt;15%)</div>
+          <div>{profitability.losing.map((r,i)=><div key={i} onClick={()=>goD&&goD(r.orderId)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",fontSize:FS-1,borderBottom:i<profitability.losing.length-1?"1px solid #F1F5F9":"none",cursor:"pointer"}}>
+            <span style={{fontWeight:600,color:"#1E293B"}}>{r.modelNo}</span>
+            <span style={{fontWeight:800,color:r.profitPct<0?"#EF4444":"#F59E0B"}}>{r.profitPct}%</span>
+          </div>)}</div>
+        </div>}
+      </div>
+    </div>}
+
     {/* ═══════════════════════════════════════════════════════════════
         2. TODAY'S ACTIVITY (minimal card with 4 small stats)
        ═══════════════════════════════════════════════════════════════ */}
-    {(()=>{const{today,todayCut,todayWsDel,todayWsRcv,todayStock,todayOrders,todayWsNames}=todayStats;
+    {dashTab==="overview"&&(()=>{const{today,todayCut,todayWsDel,todayWsRcv,todayStock,todayOrders,todayWsNames}=todayStats;
       const hasActivity=todayCut||todayWsDel||todayWsRcv||todayStock;
       return<div style={{marginBottom:18}}>
         <div className="section-title"><Icon path={II.clock} size={14}/> ملخص اليوم — {today}</div>
@@ -432,7 +439,7 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
     {/* ═══════════════════════════════════════════════════════════════
         3. PRODUCTION OVERVIEW (season stats — 6 KPI minimal tiles)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="overview"&&<div style={{marginBottom:18}}>
       <div className="section-title"><Icon path={II.chart} size={14}/> نظرة الإنتاج — الموسم ({orders.length} موديل)</div>
       <Card style={{marginBottom:0}}>
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":isTab?"repeat(3,1fr)":"repeat(6,1fr)",gap:10}}>
@@ -468,12 +475,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
           </div>
         </div>
       </Card>
-    </div>
+    </div>}
 
     {/* ═══════════════════════════════════════════════════════════════
         4. FINANCIAL OVERVIEW (workshop accounts)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="financial"&&<div style={{marginBottom:18}}>
       <div className="section-title">💰 نظرة مالية — حسابات الورش</div>
       <Card style={{marginBottom:0}}>
         <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)",gap:12}}>
@@ -500,12 +507,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
           </div>
         </div>
       </Card>
-    </div>
+    </div>}
 
     {/* ═══════════════════════════════════════════════════════════════
         5. VISUAL ANALYTICS (pie chart + bar chart)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="production"&&<div style={{marginBottom:18}}>
       <div className="section-title"><Icon path={II.chart} size={14}/> التحليلات البصرية</div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14}}>
         <Card title="توزيع الحالات" style={{marginBottom:0}}>{pieData.length>0?<div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -530,12 +537,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
           </div>}
         </div>:<p style={{color:T.textSec,textAlign:"center",padding:20}}>لا توجد بيانات ورش</p>}</Card>
       </div>
-    </div>
+    </div>}
 
     {/* ═══════════════════════════════════════════════════════════════
         6. PERFORMANCE & METRICS (heatmap + speedometer)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="production"&&<div style={{marginBottom:18}}>
       <div className="section-title"><Icon path={II.zap} size={14}/> أداء الموسم</div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"2fr 1fr",gap:14}}>
         <Card title="📅 خريطة اسبوعية للانتاج" style={{marginBottom:0}}>
@@ -563,12 +570,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
             </div>})()}
         </Card>
       </div>
-    </div>
+    </div>}
 
     {/* ═══════════════════════════════════════════════════════════════
         7. WORKSHOP PERFORMANCE (pressure + timer + race)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="production"&&<div style={{marginBottom:18}}>
       <div className="section-title"><Icon path={II.factory} size={14}/> أداء الورش</div>
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:14,marginBottom:14}}>
         <Card title="📊 مقياس الضغط على الورش" style={{marginBottom:0}}>
@@ -629,12 +636,12 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
             </div>)}
           </div>
         </Card>})()}
-    </div>
+    </div>}
 
     {/* ═══════════════════════════════════════════════════════════════
         8. ATTENTION NEEDED (delays + waste)
        ═══════════════════════════════════════════════════════════════ */}
-    {(()=>{
+    {dashTab==="overview"&&(()=>{
       const now=new Date();
       const delayed=orders.filter(o=>{if(o.status==="تم التسليم لمخزن الجاهز")return false;let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return Math.floor((now-new Date(ld))/(1000*60*60*24))>7}).map(o=>{let ld=o.date;(o.workshopDeliveries||[]).forEach(wd=>{if(wd.date>ld)ld=wd.date;(wd.receives||[]).forEach(r=>{if(r.date>ld)ld=r.date})});(o.deliveries||[]).forEach(d=>{if(d.date>ld)ld=d.date});return{...o,ageDays:Math.floor((now-new Date(ld))/(1000*60*60*24))}}).sort((a,b)=>b.ageDays-a.ageDays);
 
@@ -671,7 +678,7 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
     {/* ═══════════════════════════════════════════════════════════════
         9. WORKSHOP COMPARISON (detailed table)
        ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:18}}>
+    {dashTab==="production"&&<div style={{marginBottom:18}}>
       <div className="section-title"><Icon path={II.chart} size={14}/> تقرير مقارنة الورش</div>
       <Card style={{marginBottom:0}}>
         {(()=>{const wsList=(data.workshops||[]).filter(w=>!wsIsInternal(w.type));
@@ -690,46 +697,10 @@ export function DashPg({data,goD,isMob,isTab,season,statusCards,upConfig,user,se
           <tr style={{background:T.accent+"06"}}><td colSpan={2} style={{...TD,fontWeight:800}}>الاجمالي</td><td style={TDB}>{fmt(tDel)}</td><td style={{...TDB,color:T.ok}}>{fmt(tRcv)}</td><td style={{...TDB,color:T.err}}>{fmt(tWaste)}</td><td style={{...TDB,color:T.err}}>{(tDel?Math.round((tWaste/tDel)*100):0)+"%"}</td><td style={{...TDB,color:T.accent}}>{fmt(r2(tAmt))}</td><td style={{...TDB,color:tBal>0?T.err:T.ok}}>{fmt(r2(tBal))}</td></tr>
           </tbody></table></div></div>:<div style={{textAlign:"center",color:T.textMut,padding:20}}>لا توجد ورش</div>})()}
       </Card>
-    </div>
+    </div>}
 
-    {/* ═══════════════════════════════════════════════════════════════
-        10. SYSTEM INFO (database size)
-       ═══════════════════════════════════════════════════════════════ */}
-    <div style={{marginBottom:8}}>
-      <div className="section-title"><Icon path={II.database} size={14}/> معلومات النظام</div>
-      <Card style={{marginBottom:0}}>
-        {(()=>{
-          const _cfg={...data};delete _cfg.custDeliverySessions;delete _cfg.packages;delete _cfg.tasks;delete _cfg.stickyNotes;delete _cfg.inventoryAudits;delete _cfg.orders;
-          const _sal={custDeliverySessions:data.custDeliverySessions||[],packages:data.packages||[]};
-          const _tsk={tasks:data.tasks||[],stickyNotes:data.stickyNotes||[],inventoryAudits:data.inventoryAudits||[]};
-          const cSize=new Blob([JSON.stringify(_cfg)]).size;
-          const sSize=new Blob([JSON.stringify(_sal)]).size;
-          const tSize=new Blob([JSON.stringify(_tsk)]).size;
-          const oSize=new Blob([JSON.stringify(data.orders||[])]).size;
-          const total=cSize+sSize+tSize+oSize;
-          const fmtSize=(b)=>b<1024?b+" B":b<1024*1024?(b/1024).toFixed(1)+" KB":(b/(1024*1024)).toFixed(2)+" MB";
-          const docs=[
-            {name:"⚙️ Config",size:cSize,items:[(data.workshops||[]).length+" ورشة",(data.customers||[]).length+" عميل",(data.fabrics||[]).length+" خامة"],color:T.accent},
-            {name:"📦 Orders",size:oSize,items:[orders.length+" أمر قص"],color:"#8B5CF6"},
-            {name:"💰 Sales",size:sSize,items:[(data.custDeliverySessions||[]).length+" توزيعة",(data.packages||[]).length+" كرتونة"],color:"#10B981"},
-            {name:"📋 Tasks",size:tSize,items:[(data.tasks||[]).length+" مهمة",(data.stickyNotes||[]).length+" ملاحظة"],color:"#F59E0B"}
-          ];
-          return<div>
-            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:10}}>
-              {docs.map(d=><div key={d.name} style={{padding:12,borderRadius:10,background:d.color+"06",border:"1px solid "+d.color+"15"}}>
-                <div style={{fontSize:FS-1,fontWeight:700,color:d.color,marginBottom:4}}>{d.name}</div>
-                <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>{fmtSize(d.size)}</div>
-                <div style={{fontSize:FS-3,color:T.textMut,marginTop:2}}>{d.items.join(" • ")}</div>
-              </div>)}
-            </div>
-            <div style={{padding:"10px 14px",borderRadius:10,background:T.bg,border:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>📊 إجمالي حجم البيانات</span>
-              <span style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>{fmtSize(total)}</span>
-            </div>
-          </div>;
-        })()}
-      </Card>
-    </div>
+    {/* V21.27.49: قسم «معلومات النظام» (حجم قاعدة البيانات) اتشال من اللوحة —
+        معلومة تقنية موجودة في لوحة التشخيص، مالهاش لازمة في لوحة التحكم. */}
   </div>
 }
 
