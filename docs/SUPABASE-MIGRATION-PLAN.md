@@ -338,7 +338,10 @@ create index on treasury (date);
 
 ### قرارات لـ Ahmed (قبل ما نبدأ كود)
 1. **هجين ولا relational كامل؟** (موصى به: هجين — §0).
-2. **هجرة المستخدمين:** استيراد password hashes ولا reset للكل؟
+2. ~~**هجرة المستخدمين:** استيراد password hashes ولا reset للكل؟~~
+   ✅ **محسوم (Ahmed — 2026-06-18): Reset للكل** — كل مستخدم ياخد كلمة سر
+   مؤقتة ويعمل reset عند أول دخول. ده اللي `scripts/migrate-auth-users.mjs`
+   بيعمله افتراضياً (مفيش حاجة نغيّرها).
 3. **Offline:** CLARK online-only أصلاً (V19.48) — نأكّد إننا مكملين online-only؟ (أسهل).
 4. **الـ Realtime granularity:** نشترك على كل day_docs ولا بس الإعدادات + lazy-load الباقي؟
 
