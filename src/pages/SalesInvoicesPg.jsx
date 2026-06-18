@@ -537,7 +537,8 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             <span style={{fontSize:24}}>{isPurchase?"📥":"📤"}</span>
             <div>
               <div style={{fontSize:FS-1, color:T.textSec, fontWeight:600}}>{isPurchase?"فاتورة مشتريات":"فاتورة مبيعات"}</div>
-              <div style={{fontFamily:"monospace", fontSize:FS+4, fontWeight:800, color:T.accent}}>{invoice.invoiceNo}</div>
+              {/* V21.27.60: رقم الفاتورة بخط التطبيق (Cairo) بدل monospace — طلب Ahmed */}
+              <div style={{fontSize:FS+4, fontWeight:800, color:T.accent}}>{invoice.invoiceNo}</div>
             </div>
             {/* V21.27.47: بادج الحالة اتنقل جنب رقم الفاتورة (بدل ركن الشمال) عشان كان
                 بيتراكب مع شريط «مدفوع» القطري في الزاوية الشمال العلوية. */}
@@ -673,7 +674,10 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
             entityType={isPurchase ? "purchaseInvoices" : "salesInvoices"}
             entityId={invoice.id}
             user={user}
-            canEdit={isDraft}
+            /* V21.27.60: المرفقات تتضاف قبل وبعد الترحيل (مش مسودة بس) — طلب Ahmed.
+               المرفقات مستقلة عن مستند الفاتورة (collection منفصل) فمفيش أثر مالي.
+               ممنوع بس على الملغاة (void). */
+            canEdit={!!upConfig && invoice.status !== "void"}
             label={isPurchase ? "مرفقات الفاتورة (فاتورة المورد، الإيصال)" : "مرفقات الفاتورة (ختم العميل، صورة)"}
             compact
           />
