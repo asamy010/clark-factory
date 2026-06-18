@@ -338,6 +338,56 @@ export function buildAccountStatement(data, args = {}){
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   V21.27.56 — ربط حركة الكشف بقيدها اليومي.
+   ───────────────────────────────────────────────────────────────────────
+   بترجّع locator { sourceType, sourceId, date } للحركة اللي **ليها قيد يومي
+   مستقل بـ 1:1** (نفس الـ sourceType/sourceId اللي بيرحّل بيهم autoPost في
+   postingRules.js) — أو null لو الحركة مالهاش قيد منفرد.
+
+   الحركات اللي ليها قيد 1:1:
+     • فواتير المبيعات/المشتريات المرحّلة، الإشعارات الدائنة/المدينة، الخصم
+       الإضافي → القيد بـ id المستند نفسه.
+     • الدفعات النقدية للعميل (customerPay)، شيكات القبض (customerCheck)،
+       حركات الخزنة (treasury) → القيد بـ id الحركة.
+     • دفعة مورد مرتبطة بحركة خزنة → القيد treasury بـ treasuryTxId.
+
+   الحركات **التشغيلية المجمّعة** (تسليم/أمر بيع/استلام = type delivery/return/
+   receipt) مالهاش قيد منفرد: الترحيل بيحصل على مستوى الفاتورة (V18.50) أو
+   per-delivery بمفاتيح مركّبة — فبترجّع null (مفيش لينك، زي ما المستخدم متفق).
+
+   pure — صفر I/O. الـ resolution الفعلي لـ entryId بيحصل عند الضغط (async من
+   day-docs) في AccountingPg عبر findEntryBySource. */
+export function journalLocatorForRow(row, partyType){
+  if(!row || row.draft) return null;            /* المسودات مالهاش قيد مرحّل */
+  const raw = row.raw || {};
+  const id  = raw.id;
+  const d   = row.date || raw.date || "";
+  switch(row.type){
+    case "sales_invoice":    return id ? { sourceType: "salesInvoice",   sourceId: id, date: raw.date || d } : null;
+    case "purchase_invoice": return id ? { sourceType: "purchaseInvoice", sourceId: id, date: raw.date || d } : null;
+    case "credit_note":      return id ? { sourceType: "creditNote",     sourceId: id, date: raw.date || d } : null;
+    case "debit_note":       return id ? { sourceType: "debitNote",      sourceId: id, date: raw.date || d } : null;
+    case "discount":         return id ? { sourceType: "salesDiscount",  sourceId: id, date: raw.date || d } : null;
+    case "treasury":         return id ? { sourceType: "treasury",       sourceId: id, date: raw.date || d } : null;
+    case "check":
+      /* شيك قبض من عميل له قيد customerCheck بـ id الشيك. شيكات الموردين
+         (payable) بتترحّل عبر حركة خزنة check_pay مش بقيد مستقل → null. */
+      if(partyType === "customer" && raw.type === "receivable")
+        return id ? { sourceType: "customerCheck", sourceId: id, date: raw.date || raw.dueDate || d } : null;
+      return null;
+    case "payment":
+      if(partyType === "customer")
+        return id ? { sourceType: "customerPay", sourceId: id, date: raw.date || d } : null;
+      /* دفعة مورد: مفيش autoPost.supplierPay — بتترحّل عبر حركة الخزنة المرتبطة. */
+      if(raw.treasuryTxId)
+        return { sourceType: "treasury", sourceId: raw.treasuryTxId, date: raw.date || d };
+      return null;
+    default:
+      return null;  /* delivery / return / receipt / receipt_paid — تشغيلي مجمّع */
+  }
+}
+
 /* صف الإكسيل (للتصدير في Slice 4) */
 export function statementToAOA(result, party){
   const head = ["التاريخ", "البيان", "المرجع", "مدين", "دائن", "الرصيد"];

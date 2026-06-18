@@ -10,7 +10,7 @@ import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt, r2, ltrPhone } from "../utils/format.js";
 import { showToast } from "../utils/popups.js";
-import { buildAccountStatement, statementToAOA } from "../utils/accounting/statement.js";
+import { buildAccountStatement, statementToAOA, journalLocatorForRow } from "../utils/accounting/statement.js";
 import { DocItemsTable } from "./DocItemsTable.jsx";
 import { DiscountModal } from "./sales/DiscountModal.jsx";
 import { DiscountsManager } from "./sales/DiscountsManager.jsx";
@@ -311,6 +311,18 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     setDrill(null);
   };
 
+  /* V21.27.56: لينك «القيد اليومية» لحركة الكشف. بنبعت الـ locator (sourceType/
+     sourceId/date) لتاب المحاسبة اللي بيحلّ الـ entryId الفعلي من day-docs
+     async (القيود مش محمّلة في data). نفس آلية goto-tab + clark-open-journal-entry
+     المستخدمة في الفاتورة ودفتر الأستاذ. */
+  const openJournalEntry = (loc) => {
+    if(!loc) return;
+    try { window.__clarkOpenJournalEntry = { ...loc }; } catch(_){}
+    window.dispatchEvent(new CustomEvent("goto-tab", { detail: "accounting" }));
+    setTimeout(() => window.dispatchEvent(new CustomEvent("clark-open-journal-entry", { detail: { ...loc } })), 250);
+    setDrill(null);
+  };
+
   /* جمّد التمرير في الخلفية طول ما الـ popup مفتوح */
   useEffect(() => {
     if(!drill) return;
@@ -518,7 +530,11 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                     </td>
                     <td style={td}>{r.detail ? (
                       <span onClick={() => setDrill(r)} title="عرض التفاصيل" style={{ color: accent, fontWeight: 700, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}>{r.ref || "🔍"}</span>
-                    ) : <span style={{ color: accent, fontWeight: 700 }}>{r.ref || ""}</span>}</td>
+                    ) : <span style={{ color: accent, fontWeight: 700 }}>{r.ref || ""}</span>}
+                      {/* V21.27.56: لينك القيد اليومية للحركة (لو ليها قيد 1:1) */}
+                      {(() => { const loc = journalLocatorForRow(r, partyType); return loc ? (
+                        <div onClick={() => openJournalEntry(loc)} title="افتح قيد اليومية لهذه الحركة" style={{ marginTop: 3, fontSize: FS - 4, color: T.textSec, cursor: "pointer", fontWeight: 700 }}>📔 القيد ↗</div>
+                      ) : null; })()}</td>
                     <td style={{ ...td, color: r.debit ? T.text : T.textMut }}>{r.debit ? fmt(r.debit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, color: r.credit ? T.ok : T.textMut }}>{r.credit ? fmt(r.credit.toFixed(2)) : "—"}</td>
                     <td style={{ ...td, fontWeight: 800 }}>{r.draft ? "—" : fmt((r.balance || 0).toFixed(2))}</td>

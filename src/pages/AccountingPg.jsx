@@ -8,7 +8,7 @@
      4. الإعدادات (Settings + Backfill)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { useWin } from "../components/ui.jsx";
@@ -23,7 +23,7 @@ import { AgingReportTab } from "../components/accounting/AgingReportTab.jsx";
 import { AccountingSettingsTab } from "../components/accounting/AccountingSettingsTab.jsx";
 /* V21.9.187: Odoo-style accounting dashboard (read-only overview with charts). */
 import { DashboardTab } from "../components/accounting/DashboardTab.jsx";
-import { readDayRange } from "../utils/accounting/dayDoc.js";
+import { readDayRange, findEntryBySource } from "../utils/accounting/dayDoc.js";
 
 const TAB_DEFS = [
   /* V21.9.187: dashboard tab as the default landing — Odoo-style cards
@@ -47,10 +47,12 @@ const TAB_DEFS = [
 /* Toast helper local to this page (avoid coupling with global toast). */
 function useToast(){
   const [msg, setMsg] = useState("");
-  const show = (m) => {
+  /* V21.27.56: مستقر (useCallback) عشان الـ deep-link useEffect ما يعيدش
+     التسجيل كل render لما يعتمد عليه. */
+  const show = useCallback((m) => {
     setMsg(m);
     setTimeout(() => setMsg(""), 2200);
-  };
+  }, []);
   const node = msg ? <div style={{
     position:"fixed", bottom:24, insetInlineStart:"50%", transform:"translateX(-50%)",
     background:T.text, color:T.cardSolid, padding:"10px 18px", borderRadius:8,
@@ -65,16 +67,46 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
      is read-only and lightweight — gives the user a financial overview on
      entry rather than dropping them into the Chart of Accounts editor. */
   const [active, setActive] = useState("dashboard");
-  /* V21.18.0: deep-link لفتح قيد يومية معيّن (من لينك الفاتورة أو دفتر الأستاذ) */
+  const [showToast, ToastNode] = useToast();
+  /* V21.18.0: deep-link لفتح قيد يومية معيّن (من لينك الفاتورة أو دفتر الأستاذ).
+     V21.27.56: يدعم كمان locator بـ {date, sourceType, sourceId} (من لينك حركة
+     كشف الحساب) — بنحلّ الـ entryId الفعلي async من day-docs لأن القيود مش
+     محمّلة في data. fallback: مسح ±3 أيام لو القيد اترحّل بتاريخ مختلف بسيط. */
   const [journalTarget, setJournalTarget] = useState(null);
   useEffect(() => {
-    const open = (t) => { if(t && t.entryId){ setJournalTarget({ date: t.date, entryId: t.entryId, ts: Date.now() }); setActive("journal"); } };
-    try { const p = window.__clarkOpenJournalEntry; if(p && p.entryId){ open(p); delete window.__clarkOpenJournalEntry; } } catch(_){}
-    const h = (e) => { if(e?.detail?.entryId) open(e.detail); };
+    let cancelled = false;
+    const resolveBySource = async (date, sourceType, sourceId) => {
+      try { const f = await findEntryBySource(date, sourceType, sourceId); if(f) return { date: f.date, entryId: f.entry.id }; } catch(_){}
+      try {
+        const base = new Date(date);
+        if(!isNaN(base.getTime())){
+          const from = new Date(base); from.setDate(from.getDate() - 3);
+          const to   = new Date(base); to.setDate(to.getDate() + 3);
+          const days = await readDayRange(from, to);
+          for(const d of (days || [])){
+            const e = (d.entries || []).find(x => x.sourceType === sourceType && x.sourceId === sourceId && x.status !== "void");
+            if(e) return { date: d.date, entryId: e.id };
+          }
+        }
+      } catch(_){}
+      return null;
+    };
+    const open = async (t) => {
+      if(!t) return;
+      let date = t.date, entryId = t.entryId;
+      if(!entryId && t.sourceType && t.sourceId){
+        const r = await resolveBySource(date, t.sourceType, t.sourceId);
+        if(r){ date = r.date; entryId = r.entryId; }
+      }
+      if(cancelled) return;
+      if(entryId){ setJournalTarget({ date, entryId, ts: Date.now() }); setActive("journal"); }
+      else { showToast("⚠️ لا يوجد قيد مرحّل لهذه الحركة بعد"); }
+    };
+    try { const p = window.__clarkOpenJournalEntry; if(p && (p.entryId || (p.sourceType && p.sourceId))){ open(p); delete window.__clarkOpenJournalEntry; } } catch(_){}
+    const h = (e) => { const dt = e?.detail; if(dt && (dt.entryId || (dt.sourceType && dt.sourceId))) open(dt); };
     window.addEventListener("clark-open-journal-entry", h);
-    return () => window.removeEventListener("clark-open-journal-entry", h);
-  }, []);
-  const [showToast, ToastNode] = useToast();
+    return () => { cancelled = true; window.removeEventListener("clark-open-journal-entry", h); };
+  }, [showToast]);
   const winW = useWin();
   const isPhone = winW < 720;
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";

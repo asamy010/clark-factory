@@ -12,6 +12,39 @@
 
 ---
 
+## V21.27.56 (2026-06-18) — 🔗 لينك القيد اليومية من كل حركة في كشف الحساب
+
+طلب Ahmed: «من أي حركة في كشف الحساب التشغيلي أو المحاسبي يكون فيه لينك للقيد
+اليومية للحركة». (المقدمة — ترقيم القيود — اتعملت في V21.27.55.)
+
+**`src/utils/accounting/statement.js` — `journalLocatorForRow(row, partyType)`
+(دالة pure جديدة):** بترجّع `{ sourceType, sourceId, date }` للحركة اللي ليها
+قيد يومي 1:1 (بنفس الـ sourceType/sourceId اللي بيرحّل بيهم `autoPost` في
+postingRules.js)، أو `null` للحركات المجمّعة:
+- `sales_invoice→salesInvoice` · `purchase_invoice→purchaseInvoice` ·
+  `credit_note→creditNote` · `debit_note→debitNote` · `discount→salesDiscount`
+- `payment(عميل)→customerPay` · `check(عميل receivable)→customerCheck` ·
+  `treasury→treasury` · `payment(مورد)→treasury` بـ `treasuryTxId`
+- المسودات + `delivery/return/receipt` التشغيلية المجمّعة → `null` (الترحيل
+  على مستوى الفاتورة V18.50 أو per-delivery بمفاتيح مركّبة — مفيش قيد منفرد؛
+  متفق مع Ahmed).
+
+**`src/components/AccountStatementView.jsx`:** كل صف ليه locator بيعرض لينك
+صغير «📔 القيد ↗» تحت المرجع. الضغط → `openJournalEntry(loc)` يبعت
+`goto-tab=accounting` + `clark-open-journal-entry` بالـ locator (نفس آلية لينك
+الفاتورة/دفتر الأستاذ).
+
+**`src/pages/AccountingPg.jsx`:** الـ deep-link listener اتوسّع: لو الحدث جه بـ
+`{sourceType, sourceId}` بدل `entryId`، بيحلّ الـ `entryId` الفعلي async من
+day-docs عبر `findEntryBySource` (القيود مش محمّلة في `data`)، مع fallback يمسح
+`±3` أيام. لو مفيش قيد → toast «لا يوجد قيد مرحّل لهذه الحركة بعد». `useToast.show`
+اتعمله `useCallback` عشان الـ effect ما يعيدش التسجيل كل render.
+
+ملفات: `statement.js` · `AccountStatementView.jsx` · `AccountingPg.jsx` +
+9 اختبارات locator جديدة. بناء ✓ + 335 test ✓.
+
+---
+
 ## V21.27.55 (2026-06-18) — 🔢 ترقيم قيود اليومية: رقم فريد لكل حركة
 
 طلب Ahmed (كمقدمة لربط حركات كشف الحساب بالقيد اليومية): «نظّم قيود اليومية —

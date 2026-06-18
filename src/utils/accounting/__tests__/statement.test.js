@@ -181,3 +181,51 @@ describe("فلاتر الكشف", () => {
     expect(stmt.rows[0].refId).toBe("so1");
   });
 });
+
+/* ───────────── V21.27.56 — locator القيد اليومية للحركة ───────────── */
+import { journalLocatorForRow } from "../statement.js";
+
+describe("journalLocatorForRow — ربط الحركة بقيدها اليومي", () => {
+  it("فاتورة مبيعات → salesInvoice بـ id المستند", () => {
+    const loc = journalLocatorForRow({ type: "sales_invoice", date: "2026-06-10", raw: { id: "inv1", date: "2026-06-10" } }, "customer");
+    expect(loc).toEqual({ sourceType: "salesInvoice", sourceId: "inv1", date: "2026-06-10" });
+  });
+
+  it("خصم إضافي → salesDiscount", () => {
+    const loc = journalLocatorForRow({ type: "discount", date: "2026-06-11", raw: { id: "cn5", date: "2026-06-11", kind: "discount" } }, "customer");
+    expect(loc).toMatchObject({ sourceType: "salesDiscount", sourceId: "cn5" });
+  });
+
+  it("دفعة عميل → customerPay", () => {
+    const loc = journalLocatorForRow({ type: "payment", date: "2026-06-12", raw: { id: "p1", date: "2026-06-12" } }, "customer");
+    expect(loc).toMatchObject({ sourceType: "customerPay", sourceId: "p1" });
+  });
+
+  it("شيك قبض من عميل → customerCheck", () => {
+    const loc = journalLocatorForRow({ type: "check", date: "2026-06-13", raw: { id: "c1", type: "receivable", date: "2026-06-13" } }, "customer");
+    expect(loc).toMatchObject({ sourceType: "customerCheck", sourceId: "c1" });
+  });
+
+  it("حركة خزنة → treasury", () => {
+    const loc = journalLocatorForRow({ type: "treasury", date: "2026-06-14", raw: { id: "t1", date: "2026-06-14" } }, "customer");
+    expect(loc).toMatchObject({ sourceType: "treasury", sourceId: "t1" });
+  });
+
+  it("فاتورة مشتريات → purchaseInvoice", () => {
+    const loc = journalLocatorForRow({ type: "purchase_invoice", date: "2026-06-15", raw: { id: "pinv1", date: "2026-06-15" } }, "supplier");
+    expect(loc).toMatchObject({ sourceType: "purchaseInvoice", sourceId: "pinv1" });
+  });
+
+  it("دفعة مورد مرتبطة بخزنة → treasury بـ treasuryTxId", () => {
+    const loc = journalLocatorForRow({ type: "payment", date: "2026-06-16", raw: { id: "sp1", treasuryTxId: "tx9", date: "2026-06-16" } }, "supplier");
+    expect(loc).toMatchObject({ sourceType: "treasury", sourceId: "tx9" });
+  });
+
+  it("تسليم تشغيلي مجمّع → null (مفيش قيد منفرد)", () => {
+    expect(journalLocatorForRow({ type: "delivery", date: "2026-06-10", detail: { kind: "session" }, raw: {} }, "customer")).toBeNull();
+  });
+
+  it("مسودة → null (مش مرحّلة)", () => {
+    expect(journalLocatorForRow({ type: "sales_invoice", draft: true, raw: { id: "inv2", date: "2026-06-10" } }, "customer")).toBeNull();
+  });
+});
