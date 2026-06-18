@@ -12,6 +12,23 @@
 
 ---
 
+## V21.27.54 (2026-06-17) — ⚡ تاب الموظفين: تسريع الفتح
+
+بلاغ Ahmed: تاب الموظفين بطيء في الفتح (زي ما كان العملاء).
+
+**`src/pages/HRPg.jsx` (view==="employees"):**
+- السبب: كان بيرندر **كل** صفوف الموظفين + بيستدعي `empActiveDebts(e.id)`
+  (filter+reduce) **لكل موظف داخل حلقة الرندر** → O(موظفين×مديونيات) (§15
+  anti-pattern: حساب غالي per-row).
+- الإصلاح: `empDebtsMap` (useMemo، single-pass على `debts` → `{empId:{count,
+  totalRemaining}}`) + **pagination** (`empLimit` يبدأ 60 + «عرض المزيد»، يتصفّر
+  مع البحث). الرندر بقى `filteredEmps.slice(0,empLimit)` + lookup O(1) للمديونيات.
+
+(نفس نهج تحسين العملاء/الموردين — pagination + precompute بدل virtualization
+لجدول التعديل-inline المعقّد.) بناء ✓ + 326 test ✓.
+
+---
+
 ## V21.27.53 (2026-06-17) — 🩹 إصلاح سجل التحديثات (JSON تالف + بطء)
 
 بلاغ Ahmed: سجل التحديثات مش بيظهر («The string did not match the expected

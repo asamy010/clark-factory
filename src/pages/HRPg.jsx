@@ -360,6 +360,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
   const[inlineDraft,setInlineDraft]=useState({});
   /* Employee search filter */
   const[empSearch,setEmpSearch]=useState("");
+  const[empLimit,setEmpLimit]=useState(60);/* V21.27.54: pagination لقائمة الموظفين (أداء) */
   /* Edit employee popup — holds full employee data for editing */
   const[editPopup,setEditPopup]=useState(null);/* {id, name, code, job, weeklySalary, weeklyBonus, baseHours, phone, noBiometric, salaryType, hireDate} */
   /* Bulk import popup */
@@ -3082,6 +3083,19 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
 
   /* ── Debts (installments) ── */
   const empActiveDebts=(empId)=>debts.filter(d=>d.empId===empId&&d.status==="active");
+  /* V21.27.54: خريطة المديونيات النشطة (مرة واحدة) — بدل filter+reduce لكل موظف
+     في حلقة رندر قائمة الموظفين (كان O(موظفين×مديونيات) → بطء على القوائم الكبيرة). */
+  const empDebtsMap=useMemo(()=>{
+    const m={};
+    (debts||[]).forEach(d=>{
+      if(!d||d.status!=="active"||d.empId==null)return;
+      const e=m[d.empId]||(m[d.empId]={count:0,totalRemaining:0});
+      e.count++;
+      const paid=(d.paidWeekIds||[]).length;
+      e.totalRemaining+=((Number(d.total)||0)-paid*(Number(d.perWeek)||0));
+    });
+    return m;
+  },[debts]);
   const empAllDebts=(empId)=>debts.filter(d=>d.empId===empId).sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
   /* Installment due this week for an employee */
   const empDebtInstallment=(empId,week)=>{
@@ -7456,7 +7470,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
           <div style={{flex:1,position:"relative"}}>
             <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:T.textMut,pointerEvents:"none"}}>🔍</span>
-            <input value={empSearch} onChange={e=>setEmpSearch(e.target.value)} placeholder="ابحث بالاسم، الكود، الوظيفة، التليفون، نوع المرتب..." style={{width:"100%",padding:"8px 34px 8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
+            <input value={empSearch} onChange={e=>{setEmpSearch(e.target.value);setEmpLimit(60)}} placeholder="ابحث بالاسم، الكود، الوظيفة، التليفون، نوع المرتب..." style={{width:"100%",padding:"8px 34px 8px 12px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.inputBg,color:T.text,boxSizing:"border-box"}}/>
           </div>
           {empSearch&&<Btn small onClick={()=>setEmpSearch("")} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",whiteSpace:"nowrap"}}>✕ مسح</Btn>}
           {/* V14.57: Bulk print QR cards */}
@@ -7465,7 +7479,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
         {filteredEmps.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>
           {["#","الاسم","الكود","الوظيفة","مرتب","حافز","ساعات","تليفون","رصيد","مديونيات","حالة",""].map(h=><th key={h} style={{padding:"7px 6px",textAlign:"center",fontSize:FS-2,color:T.textSec,borderBottom:"2px solid "+T.brd,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>)}
         </tr></thead><tbody>
-          {filteredEmps.map((e,i)=>{const activeD=empActiveDebts(e.id);const totalRemaining=activeD.reduce((s,d)=>{const paid=(d.paidWeekIds||[]).length;return s+(d.total-paid*d.perWeek)},0);
+          {filteredEmps.slice(0,empLimit).map((e,i)=>{const _dm=empDebtsMap[e.id]||{count:0,totalRemaining:0};const activeCount=_dm.count;const totalRemaining=_dm.totalRemaining;
             const isEditing=inlineEditId===e.id;const d_=inlineDraft;
             const inpStyle={width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid "+T.accent+"40",fontSize:FS-2,fontFamily:"inherit",textAlign:"center",background:T.inputBg,color:T.text};
             return<tr key={e.id} style={{borderBottom:"1px solid "+T.brd,opacity:e.inactive?0.4:1,background:isEditing?T.accent+"06":""}}>
@@ -7486,7 +7500,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                 {isEditing?<input value={d_.phone} onChange={ev=>setInlineDraft(p=>({...p,phone:ev.target.value}))} style={{...inpStyle,width:90,direction:"ltr"}}/>:e.phone||"—"}</td>
               <td style={{padding:"5px 6px",fontSize:FS-1,fontWeight:800,color:(e.prevBalance||0)>=0?T.ok:T.err,textAlign:"center"}}>{fmt0(e.prevBalance||0)}</td>
               <td style={{padding:"5px 6px",textAlign:"center"}}>
-                {activeD.length>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeD.length} | {fmt0(totalRemaining)}</span>
+                {activeCount>0?<span onClick={()=>setShowEmpDebts(e.id)} style={{cursor:"pointer",padding:"3px 10px",borderRadius:6,fontSize:FS-2,fontWeight:700,background:"#F9731612",color:"#F97316",border:"1px solid #F9731630",display:"inline-flex",alignItems:"center",gap:4}} title="عرض المديونيات">🧾 {activeCount} | {fmt0(totalRemaining)}</span>
                 :<span onClick={()=>{if(canEdit){setShowDebtForm({empId:e.id});resetDebtForm();setDebtStart(today)}}} style={{cursor:canEdit?"pointer":"default",padding:"2px 8px",borderRadius:6,fontSize:FS-2,color:T.textMut,border:"1px dashed "+T.brd}}>—</span>}
               </td>
               <td style={{padding:"5px 6px"}}><span style={{padding:"2px 6px",borderRadius:5,fontSize:FS-3,fontWeight:700,background:e.inactive?T.err+"12":T.ok+"12",color:e.inactive?T.err:T.ok}}>{e.inactive?"متوقف":"نشط"}</span></td>
@@ -7517,6 +7531,11 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
               </div>}</td>
             </tr>})}
         </tbody></table></div>:<div style={{textAlign:"center",padding:30,color:T.textMut}}>{q?"لا يوجد نتائج للبحث عن \""+empSearch+"\"":"أضف موظفين"}</div>}
+        {/* V21.27.54: pagination — يعرض 60 ثم «عرض المزيد» (أداء على القوائم الكبيرة) */}
+        {filteredEmps.length>empLimit&&<div style={{textAlign:"center",marginTop:12,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+          <div style={{fontSize:FS-2,color:T.textSec}}>{"يعرض "+Math.min(empLimit,filteredEmps.length)+" من "+filteredEmps.length}</div>
+          <Btn small onClick={()=>setEmpLimit(l=>l+60)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>⬇ عرض المزيد ({Math.min(60,filteredEmps.length-empLimit)})</Btn>
+        </div>}
       </Card>})()}
     </div>}
 
