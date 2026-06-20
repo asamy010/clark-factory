@@ -590,6 +590,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
      V21.21.7: الكمية الافتراضية = المتبقي لكل بند (مش الكمية الكاملة)، مع
      ربط كل سطر بسطر أمر الشراء (_poLineId) عشان تتبّع الاستلام الجزئي. */
   const convertPoToReceipt=(p)=>{
+    /* V21.27.71: حارس — منع الاستلام المكرر بعد الاستلام الكامل أو الإلغاء
+       (طلب Ahmed). الأزرار مخفية أصلاً، وده دفاع إضافي لأي مسار. */
+    const _st=computePoStatus(p,purchaseReceipts);
+    if(_st==="completed"){showToast("⛔ تم استلام كل الكمية لهذا الأمر بالفعل — لا يمكن الاستلام مرة أخرى");return;}
+    if(_st==="cancelled"){showToast("⛔ هذا الأمر ملغي — لا يمكن تحويله لاستلام");return;}
     const prog=poLineProgress(p,purchaseReceipts);
     const _foreign=p.currency&&p.currency!=="EGP";/* V21.21.83: عملة أجنبية */
     setRcpt({
@@ -1659,7 +1664,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                   <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r2(p.totalAmount))}</td>
                   <td style={{...TD,textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                     {canEdit&&<div style={{display:"flex",gap:4,justifyContent:"center"}}>
-                      <Btn small onClick={()=>convertPoToReceipt(p)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 8px",fontSize:FS-3}} title="تحويل لاستلام">📥</Btn>
+                      {/* V21.27.71: زر التحويل يختفي بعد الاستلام الكامل/الإلغاء (منع استلام مكرر) */}
+                      {!["completed","cancelled"].includes(computePoStatus(p,purchaseReceipts))&&<Btn small onClick={()=>convertPoToReceipt(p)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 8px",fontSize:FS-3}} title="تحويل لاستلام">📥</Btn>}
                       <Btn small onClick={()=>editPo(p)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",padding:"3px 8px",fontSize:FS-3}} title="تعديل">✏️</Btn>
                       <Btn small onClick={()=>deletePo(p)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 8px",fontSize:FS-3}} title="حذف">🗑</Btn>
                     </div>}
@@ -2585,7 +2591,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",padding:"14px 20px",borderTop:"1px solid "+T.brd}}>
           <Btn ghost onClick={()=>setPreviewPo(null)}>إغلاق</Btn>
-          <Btn primary onClick={()=>{const po=previewPo;setPreviewPo(null);convertPoToReceipt(po)}} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام هذا الأمر</Btn>
+          {/* V21.27.71: يختفي بعد الاستلام الكامل/الإلغاء */}
+          {!["completed","cancelled"].includes(st)&&<Btn primary onClick={()=>{const po=previewPo;setPreviewPo(null);convertPoToReceipt(po)}} style={{background:T.ok,color:"#fff",border:"none"}}>📥 استلام هذا الأمر</Btn>}
         </div>
       </div>
     </div>);})()}
@@ -2918,7 +2925,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     
     {/* ════ VIEW PO POPUP ════ */}
     {viewPo&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setViewPo(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:900,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:0,width:"100%",maxWidth:isMob?900:1260,maxHeight:"92vh",display:"flex",flexDirection:isMob?"column":"row",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{flex:1,minWidth:0,overflowY:"auto",padding:24}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <div style={{fontSize:FS+4,fontWeight:800,color:"#8B5CF6",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>📋 {viewPo.poNo}
@@ -2933,7 +2941,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           </div>
           <div style={{display:"flex",gap:6}}>
             {canEdit&&<>
-              <Btn small onClick={()=>convertPoToReceipt(viewPo)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📥 تحويل لاستلام</Btn>
+              {/* V21.27.71: زر التحويل يختفي بعد الاستلام الكامل/الإلغاء (منع استلام مكرر) */}
+              {!["completed","cancelled"].includes(computePoStatus(viewPo,purchaseReceipts))&&<Btn small onClick={()=>convertPoToReceipt(viewPo)} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📥 تحويل لاستلام</Btn>}
               <Btn small onClick={()=>editPo(viewPo)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️</Btn>
             </>}
             <Btn small ghost onClick={()=>printPo(viewPo)}>🖨️</Btn>
@@ -2941,6 +2950,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           </div>
         </div>
         
+        {/* V21.27.71: بانر حالة الاستلام بارز فوق الأمر (طلب Ahmed) */}
+        {(()=>{const st=computePoStatus(viewPo,purchaseReceipts);const m=PO_STATUS_META[st];const icon=st==="completed"?"✅":st==="partial"?"📦":st==="cancelled"?"🚫":"⏳";return<div style={{padding:"10px 14px",borderRadius:10,marginBottom:14,background:m.bg,border:"1px solid "+m.color+"40",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontWeight:800,color:m.color,fontSize:FS}}>{icon} حالة الاستلام: {m.label}{st==="completed"&&<span style={{fontWeight:600,fontSize:FS-2,color:T.textSec,marginInlineStart:"auto"}}>تم استلام كل الكمية — لا يمكن التحويل لاستلام مرة أخرى</span>}</div>;})()}
+
         <div style={{padding:12,background:T.bg,borderRadius:10,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:FS-3,color:T.textSec}}>إجمالي قيمة الأمر</div>
@@ -2976,6 +2988,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             : <Btn small onClick={async()=>{if(!await ask("إلغاء أمر الشراء","تعليم الأمر كملغي؟ (مايتأثرش المخزون)",{danger:true,confirmText:"إلغاء الأمر"}))return;upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="cancelled";});setViewPo(v=>({...v,status:"cancelled"}));showToast("✓ تم إلغاء الأمر");}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🚫 إلغاء الأمر</Btn>
           )}
           <Btn ghost onClick={()=>setViewPo(null)}>إغلاق</Btn>
+        </div>
+        </div>{/* /left column */}
+        {/* V21.27.71: لوحة المرفقات الجانبية في معاينة الأمر (نفس مرفقات أمر الشراء) */}
+        <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
+          <AttachmentList entityType="purchaseOrders" entityId={viewPo.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact/>
         </div>
       </div>
     </div>}

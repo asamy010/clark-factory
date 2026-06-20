@@ -7,10 +7,10 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 export const PO_STATUS_META = {
-  open:      { label: "مفتوح",       color: "#0EA5E9", bg: "#0EA5E915" },
-  partial:   { label: "مستلم جزئي",  color: "#F59E0B", bg: "#F59E0B15" },
-  completed: { label: "مكتمل",       color: "#10B981", bg: "#10B98115" },
-  cancelled: { label: "ملغي",        color: "#EF4444", bg: "#EF444415" },
+  open:      { label: "لم يتم الاستلام", color: "#0EA5E9", bg: "#0EA5E915" },
+  partial:   { label: "مستلم جزئياً",    color: "#F59E0B", bg: "#F59E0B15" },
+  completed: { label: "مستلم بالكامل",   color: "#10B981", bg: "#10B98115" },
+  cancelled: { label: "ملغي",            color: "#EF4444", bg: "#EF444415" },
 };
 
 export function poLinkedReceipts(po, receipts){
