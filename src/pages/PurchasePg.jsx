@@ -517,7 +517,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       const obj={
         id:poId,poNo,supplierId:po.supplierId,supplierName:supplier?.name||"",
         date:po.date||today,
-        items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
+        items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({id:it.id||gid(),/* V21.27.66: حافظ على id ثابت لكل بند — ضروري لربط الاستلام الجزئي (_poLineId) وعرض «المطلوب» */itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
         subtotal:afterLineDisc,discountPct:poPct,headerDiscount:poHeaderDisc,totalAmount:r2(totalAmount),notes:po.notes||"",
         createdBy:userName,createdAt:po.createdAt||new Date().toISOString()
       };
@@ -2318,14 +2318,18 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                         <span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:badgeColor+"15",color:badgeColor,whiteSpace:"nowrap"}}>{(cat?.emoji||"📦")+" "+(cat?.name||it.itemType)}</span>
                       </td>
                       <td style={{...TD,padding:"4px 6px"}}>
-                        <SearchSel value={it.itemId} onChange={v=>updateRcptItem(idx,"itemId",v)} options={options} placeholder="اختر..."/>
+                        {/* V21.27.66: للصفوف الجاية من أمر شراء أعرض اسم الصنف كنص (مش منسدلة فاضية) —
+                            الصنف محدد سلفاً ومتطلبش تغيير عند الاستلام. السطور اليدوية تفضل منسدلة. */}
+                        {it._fromPo
+                          ? <div style={{fontWeight:600,color:T.text}}>{it.itemName||"—"}{it.code?<span style={{color:T.textMut,fontWeight:400,fontSize:FS-3}}>{" · "+it.code}</span>:null}</div>
+                          : <SearchSel value={it.itemId} onChange={v=>updateRcptItem(idx,"itemId",v)} options={options} placeholder="اختر..."/>}
                       </td>
-                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textSec,fontWeight:700}}>{it._poLineId?fmt(Number(it._orderedQty)||0):"—"}</td>}
-                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut}}>{it._poLineId?fmt(Number(it._receivedBefore)||0):"—"}</td>}
-                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{it._poLineId?fmt(Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))):"—"}</td>}
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textSec,fontWeight:700}}>{it._fromPo?fmt(Number(it._orderedQty)||0):"—"}</td>}
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut}}>{it._fromPo?fmt(Number(it._receivedBefore)||0):"—"}</td>}
+                      {rcpt._poId&&<td style={{...TD,padding:"4px 6px",textAlign:"center",fontWeight:700,color:"#F59E0B"}}>{it._fromPo?fmt(Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))):"—"}</td>}
                       <td style={{...TD,padding:"4px 6px"}}>
                         <Inp type="number" value={it.qty||""} onChange={v=>updateRcptItem(idx,"qty",v)} style={{textAlign:"center",padding:"5px 6px"}}/>
-                        {it._poLineId&&(Number(it.qty)||0)>Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))&&<div style={{fontSize:FS-4,color:T.err,fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>⚠️ تجاوز المتبقي</div>}
+                        {it._fromPo&&(Number(it.qty)||0)>Math.max(0,(Number(it._orderedQty)||0)-(Number(it._receivedBefore)||0))&&<div style={{fontSize:FS-4,color:T.err,fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>⚠️ تجاوز المتبقي</div>}
                       </td>
                       <td style={{...TD,padding:"4px 6px",textAlign:"center",color:T.textMut,fontSize:FS-2}}>{it.unit||"—"}</td>
                       <td style={{...TD,padding:"4px 6px"}}>
