@@ -766,6 +766,47 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const removeRcptItem=(idx)=>{
     setRcpt(p=>{const items=[...(p.items||[])];items.splice(idx,1);return{...p,items}});
   };
+
+  /* V21.27.70: تصحيح رصيد المخزن من الحركات — يصلّح الأصناف اللي استلامها القديم
+     ماحدّثش الرصيد (bug V21.27.68: numeric id mismatch). بيحسب الرصيد زمنياً من
+     stockMovements (in/opening موجب، out سالب، adjust بيضبط القيمة المطلقة)،
+     بيستثني حركات الجاهز (itemType:"order"). معاينة + تأكيد قبل التطبيق (§10). */
+  const computeItemStockFromMoves=(itemId)=>{
+    const moves=(data.stockMovements||[])
+      .filter(m=>String(m.itemId)===String(itemId)&&m.itemType!=="order")
+      .slice().sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    let bal=0;
+    for(const m of moves){
+      const q=Math.abs(Number(m.qty)||0);
+      if(m.type==="adjust")bal=q;
+      else if(m.type==="out")bal-=q;
+      else bal+=q; /* in | opening */
+    }
+    return r2(bal);
+  };
+  const syncStockFromMovements=async()=>{
+    if(!canEdit){await denyAction("تصحيح أرصدة المخزن");return;}
+    const diffs=[];
+    const scan=(arr,kind)=>(arr||[]).forEach(it=>{
+      const computed=computeItemStockFromMoves(it.id);
+      const cur=Number(it.stock)||0;
+      if(Math.abs(computed-cur)>0.0001)diffs.push({id:it.id,name:it.name,kind,cur,computed});
+    });
+    scan(data.fabrics,"fabric");scan(data.accessories,"accessory");scan(data.inventoryItems,"inv");
+    if(diffs.length===0){await tell("الأرصدة مطابقة","كل أرصدة المخزن مطابقة لمجموع حركاتها — مفيش تصحيح مطلوب ✓",{type:"success"});return;}
+    const preview=diffs.slice(0,15).map(d=>"• "+d.name+": "+fmt(d.cur)+" ← "+fmt(d.computed)).join("\n");
+    const more=diffs.length>15?"\n… و"+(diffs.length-15)+" صنف آخر":"";
+    const ok=await ask("مطابقة الأرصدة مع الحركات","هيتم تصحيح رصيد "+diffs.length+" صنف ليساوي مجموع حركاته:\n\n"+preview+more+"\n\n⚠️ راجع القائمة كويس — أي صنف رصيده اتسجّل يدوياً من غير حركة هيرجع لمجموع حركاته.",{confirmText:"تصحيح "+diffs.length+" صنف"});
+    if(!ok)return;
+    upConfig(d=>{
+      diffs.forEach(df=>{
+        const arr=df.kind==="fabric"?d.fabrics:df.kind==="accessory"?d.accessories:d.inventoryItems;
+        const it=(arr||[]).find(x=>String(x.id)===String(df.id));
+        if(it)it.stock=df.computed;
+      });
+    });
+    showToast("✓ تم تصحيح "+diffs.length+" رصيد من الحركات");
+  };
   
   /* ──────── WEIGHTED AVERAGE COST ──────── */
   const calcNewAvgCost=(item,addQty,addPrice)=>{
@@ -1187,6 +1228,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             <input type="checkbox" checked={hideZero} onChange={e=>setHideZero(e.target.checked)}/>
             <span>إخفاء الأصناف الصفرية</span>
           </label>
+          {canEdit&&<Btn small onClick={syncStockFromMovements} style={{whiteSpace:"nowrap",background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}} title="إعادة حساب رصيد كل صنف ليساوي مجموع حركاته — يصلّح أرصدة الاستلامات القديمة">🔄 مطابقة الأرصدة</Btn>}
         </div>
 
         {/* V21.9.107: Item tag filter — hidden if no item-applicable tags. */}
