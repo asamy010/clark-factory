@@ -57,6 +57,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[activateDate,setActivateDate]=useState(today);
   const[hideZero,setHideZero]=useState(false);
   const[sortBy,setSortBy]=useState("name");/* name|stock|value */
+  const[movLimit,setMovLimit]=useState(50);/* V21.27.68: pagination لسجل حركات المخزن */
   /* ── Receipt form state ── */
   const[showReceiptForm,setShowReceiptForm]=useState(false);
   const[rcpt,setRcpt]=useState(null);/* {supplierId, supplierName, date, items[], paymentMethod, treasuryAccount, paidAmount, notes, checkBank, checkNo, checkDueDate} */
@@ -861,7 +862,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           let catId=it.itemType;
           if(catId==="fabric")catId="core_fabric";
           else if(catId==="accessory")catId="core_accessory";
-          applyStockDelta(d,catId,it.itemId,qty,price);
+          const _stockOk=applyStockDelta(d,catId,it.itemId,qty,price);
+          /* V21.27.68: surface silent stock-apply failures (item not found by id). */
+          if(!_stockOk)console.warn("[saveReceipt] applyStockDelta لم يجد الصنف في المخزون — لن يُحدَّث الرصيد:",{catId,itemId:it.itemId,name:it.itemName});
           /* Update lastReceiveDate on the item directly (not handled by applyStockDelta) */
           const cat=getCategoryById(d,catId);
           if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f)f.lastReceiveDate=receipt.date}
@@ -1323,36 +1326,51 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         })()}
       </Card>
 
-      {/* Recent movements (read-only for now) */}
-      {stockEnabled&&stockMovements.length>0&&<Card title="📊 آخر حركات المخزن" style={{marginTop:12}}>
-        <div style={{maxHeight:320,overflowY:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-            <thead><tr>
-              <th style={TH}>التاريخ</th>
-              <th style={TH}>النوع</th>
-              <th style={TH}>الصنف</th>
-              <th style={{...TH,textAlign:"center"}}>الكمية</th>
-              <th style={{...TH,textAlign:"center"}}>السعر</th>
-              <th style={TH}>المرجع</th>
-              <th style={TH}>بواسطة</th>
-            </tr></thead>
-            <tbody>
-              {stockMovements.slice().sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||"")).slice(0,50).map(m=>{
-                const typeInfo=m.type==="in"?{icon:"↓",color:T.ok,label:"دخول"}:m.type==="out"?{icon:"↑",color:T.err,label:"خروج"}:m.type==="opening"?{icon:"◉",color:T.accent,label:"رصيد ابتدائي"}:{icon:"⟲",color:T.warn,label:"تسوية"};
-                return<tr key={m.id} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.date}</td>
-                  <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:typeInfo.color+"15",color:typeInfo.color}}>{typeInfo.icon+" "+typeInfo.label}</span></td>
-                  <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:700,color:typeInfo.color}}>{(m.type==="out"?"-":"+")+fmt(m.qty)+" "+(m.unit||"")}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{m.price?fmt(r2(m.price)):"—"}</td>
-                  <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
-                  <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>}
+      {/* Recent movements — V21.27.68: مفلترة بالصنف المُبحوث + pagination 50/عرض المزيد */}
+      {stockEnabled&&stockMovements.length>0&&(()=>{
+        /* لو في بحث على الأصناف، اعرض حركات الأصناف الظاهرة فقط (طلب Ahmed).
+           بدون بحث: كل الحركات. الفلترة بالـ id (String) عشان تطابق نوع الـ id. */
+        const _q=stockFilter.trim();
+        const _visibleIds=_q?new Set(filteredStock.map(i=>String(i.id))):null;
+        let _moves=stockMovements.slice().sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+        if(_visibleIds)_moves=_moves.filter(m=>_visibleIds.has(String(m.itemId)));
+        const _shown=_moves.slice(0,movLimit);
+        return<Card title={"📊 آخر حركات المخزن"+(_q?" — مفلتر ("+filteredStock.length+" صنف)":"")} style={{marginTop:12}}>
+          {_moves.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد حركات للأصناف المُفلترة</div>:<>
+          <div style={{maxHeight:420,overflowY:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead><tr>
+                <th style={TH}>التاريخ</th>
+                <th style={TH}>النوع</th>
+                <th style={TH}>الصنف</th>
+                <th style={{...TH,textAlign:"center"}}>الكمية</th>
+                <th style={{...TH,textAlign:"center"}}>السعر</th>
+                <th style={TH}>المرجع</th>
+                <th style={TH}>بواسطة</th>
+              </tr></thead>
+              <tbody>
+                {_shown.map(m=>{
+                  const typeInfo=m.type==="in"?{icon:"↓",color:T.ok,label:"دخول"}:m.type==="out"?{icon:"↑",color:T.err,label:"خروج"}:m.type==="opening"?{icon:"◉",color:T.accent,label:"رصيد ابتدائي"}:{icon:"⟲",color:T.warn,label:"تسوية"};
+                  return<tr key={m.id} style={{borderBottom:"1px solid "+T.brd}}>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.date}</td>
+                    <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:typeInfo.color+"15",color:typeInfo.color}}>{typeInfo.icon+" "+typeInfo.label}</span></td>
+                    <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:typeInfo.color}}>{(m.type==="out"?"-":"+")+fmt(m.qty)+" "+(m.unit||"")}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec}}>{m.price?fmt(r2(m.price)):"—"}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          {_moves.length>movLimit&&<div style={{textAlign:"center",marginTop:10}}>
+            <Btn small onClick={()=>setMovLimit(l=>l+50)}>⬇️ عرض المزيد ({fmt(_moves.length-movLimit)} متبقّي)</Btn>
+          </div>}
+          <div style={{textAlign:"center",marginTop:6,fontSize:FS-3,color:T.textMut}}>عرض {fmt(Math.min(movLimit,_moves.length))} من {fmt(_moves.length)} حركة</div>
+          </>}
+        </Card>;
+      })()}
     </>}
 
     {/* ════ SUB-TAB: RECEIPTS ════ */}

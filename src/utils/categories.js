@@ -181,12 +181,19 @@ export function deleteInventoryItem(d,itemId){
 }
 
 /* ────────── Stock movement integration ────────── */
-/* Used by receipts to apply stock changes uniformly across legacy + new */
+/* Used by receipts to apply stock changes uniformly across legacy + new.
+   V21.27.68 (ROOT-CAUSE fix): id matching MUST be String()-based. Legacy
+   fabrics/accessories created via the inventory item editor get a NUMERIC id
+   (Date.now()+rand — see PurchasePg saveItemEdit), while receipt line items
+   carry the id as a STRING. The old strict `x.id===itemId` silently failed to
+   find such items → a stockMovement was logged but item.stock never updated
+   (الرصيد فضل صفر رغم الاستلام). Every other id comparison in the stock code
+   already uses String() — this was the lone outlier. */
 export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
   const cat=getCategoryById(d,categoryId);
   if(!cat)return false;
   if(cat.legacy==="fabric"){
-    const f=(d.fabrics||[]).find(x=>x.id===itemId);
+    const f=(d.fabrics||[]).find(x=>String(x.id)===String(itemId));
     if(!f)return false;
     const oldStock=Number(f.stock)||0;
     const oldAvg=Number(f.avgCost)||Number(f.price)||0;
@@ -208,7 +215,7 @@ export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
     return true;
   }
   if(cat.legacy==="accessory"){
-    const a=(d.accessories||[]).find(x=>x.id===itemId);
+    const a=(d.accessories||[]).find(x=>String(x.id)===String(itemId));
     if(!a)return false;
     const oldStock=Number(a.stock)||0;
     const oldAvg=Number(a.avgCost)||Number(a.price)||0;
@@ -224,7 +231,7 @@ export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
     a.stock=newStock;
     return true;
   }
-  const it=(d.inventoryItems||[]).find(x=>x.id===itemId);
+  const it=(d.inventoryItems||[]).find(x=>String(x.id)===String(itemId));
   if(!it)return false;
   const oldStock=Number(it.stock)||0;
   const oldAvg=Number(it.avgCost)||0;
