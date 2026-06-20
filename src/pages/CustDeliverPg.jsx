@@ -3680,7 +3680,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* V21.22.11: قائمة العملاء بقت VIEW ملء الشاشة بدل بوب اب (مبدأ:
         الكبير = صفحة، الصغير = popup). فورم «+ عميل جديد» يفضل popup صغير. */}
     {showCustList&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflowY:"auto",overflowX:"hidden"}}>
-      <div style={{maxWidth:"100%",margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>{/* V21.27.75: عرض متوسّط متوسّط بالشاشة — الأعمدة تتقارب وشكل أفضل (طلب Ahmed) */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap",position:"sticky",top:0,background:T.bg,paddingTop:4,paddingBottom:10,zIndex:2}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <Btn small onClick={()=>setShowCustList(false)} style={{background:T.cardSolid,border:"1px solid "+T.brd,fontWeight:700}}>← رجوع</Btn>
