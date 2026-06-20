@@ -520,10 +520,12 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
 
   return <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} style={{
-      background:T.cardSolid, borderRadius:14, padding:isMob?16:24,
-      width:"100%", maxWidth:920, maxHeight:"90vh", overflowY:"auto", overflowX:"hidden", position:"relative",
+      background:T.cardSolid, borderRadius:14, padding:0,
+      width:"100%", maxWidth:isMob?920:1280, maxHeight:"90vh", display:"flex", flexDirection:isMob?"column":"row", overflow:"hidden",
       border:"1px solid "+T.brd, boxShadow:"0 25px 70px rgba(0,0,0,0.4)"
     }}>
+      {/* V21.27.73: المرفقات اتنقلت لعمود جانبي (يمين) زي أمر الشراء — مش تحت (طلب Ahmed) */}
+      <div style={{flex:1, minWidth:0, overflowY:"auto", overflowX:"hidden", position:"relative", padding:isMob?16:24}}>
       {/* V21.27.40: شريط حالة الدفع القطري (زي أودو) — أخضر «مدفوع كلياً»،
           رمادي «مدفوعة جزئياً». بيظهر للمبيعات والمشتريات حسب paidAmount/total. */}
       {(() => {
@@ -677,25 +679,6 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         </div>
       </div>
 
-      {/* V21.9.128: Attachments — shared by sales + purchase invoices via this modal.
-          entityType derived from invoice type. ID is invoice.id (always exists in this modal). */}
-      {invoice.id && (
-        <div style={{marginBottom: 14}}>
-          <AttachmentList
-            /* V21.27.67: فاتورة الشراء المرتبطة بأمر شراء تعرض مرفقات الأمر المشتركة
-               (نفس لينك الأمر) — طلب Ahmed. غير المرتبطة (أو البيع) تحتفظ بمرفقاتها. */
-            entityType={isPurchase ? (_srcPoId ? "purchaseOrders" : "purchaseInvoices") : "salesInvoices"}
-            entityId={isPurchase && _srcPoId ? _srcPoId : invoice.id}
-            user={user}
-            /* V21.27.60: المرفقات تتضاف قبل وبعد الترحيل (مش مسودة بس) — طلب Ahmed.
-               المرفقات مستقلة عن مستند الفاتورة (collection منفصل) فمفيش أثر مالي.
-               ممنوع بس على الملغاة (void). */
-            canEdit={!!upConfig && invoice.status !== "void"}
-            label={isPurchase ? (_srcPoId ? "مرفقات أمر الشراء (مشتركة مع الاستلام والفاتورة)" : "مرفقات الفاتورة (فاتورة المورد، الإيصال)") : "مرفقات الفاتورة (ختم العميل، صورة)"}
-            compact
-          />
-        </div>
-      )}
 
       {/* Action buttons */}
       <div style={{display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap"}}>
@@ -727,6 +710,18 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
         {canPay && <Btn onClick={() => setShowPay(true)} style={{background:"#10B98115", color:"#10B981", border:"1px solid #10B98140", fontWeight:700}}>💵 ادفع</Btn>}
         {invoice.status === "posted" && <Btn onClick={() => onVoid(invoice)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>❌ إلغاء</Btn>}
       </div>
+      </div>{/* /left content column */}
+      {/* V21.27.73: عمود المرفقات الجانبي (يمين) */}
+      {invoice.id && <div style={{width:isMob?"100%":340, flexShrink:0, borderInlineStart:isMob?"none":"1px solid "+T.brd, borderTop:isMob?"1px solid "+T.brd:"none", background:T.bg, overflowY:"auto", padding:16, maxHeight:isMob?"42vh":"90vh"}}>
+        <AttachmentList
+          entityType={isPurchase ? (_srcPoId ? "purchaseOrders" : "purchaseInvoices") : "salesInvoices"}
+          entityId={isPurchase && _srcPoId ? _srcPoId : invoice.id}
+          user={user}
+          canEdit={!!upConfig && invoice.status !== "void"}
+          label={isPurchase ? (_srcPoId ? "مرفقات أمر الشراء (مشتركة)" : "مرفقات الفاتورة (فاتورة المورد، الإيصال)") : "مرفقات الفاتورة (ختم العميل، صورة)"}
+          compact
+        />
+      </div>}
     </div>
     {/* V21.10.4: Payment-from-invoice modal */}
     {showPay && <PaymentFromInvoiceModal

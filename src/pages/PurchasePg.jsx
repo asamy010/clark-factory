@@ -2540,9 +2540,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>{/* /left column */}
         {/* V21.27.67: لوحة المرفقات — مشتركة مع أمر الشراء المرتبط (نفس entityId)؛ الاستلام اليدوي له مرفقاته */}
         <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
-          {rcpt._poId
-            ? <AttachmentList entityType="purchaseOrders" entityId={rcpt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>
-            : <AttachmentList entityType="purchaseReceipts" entityId={rcpt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>}
+          {/* V21.27.73: أمر الشراء (مشتركة) + مرفقات خاصة بالاستلام (تتضاف بعد الحفظ) */}
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {rcpt._poId&&<AttachmentList entityType="purchaseOrders" entityId={rcpt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>}
+            <AttachmentList entityType="purchaseReceipts" entityId={rcpt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>
+          </div>
         </div>
       </div>
     </div>}
@@ -2603,7 +2605,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
 
     {/* ════ VIEW RECEIPT DETAIL POPUP ════ */}
     {viewReceipt&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setViewReceipt(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:700,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:0,width:"100%",maxWidth:isMob?700:1060,maxHeight:"92vh",display:"flex",flexDirection:isMob?"column":"row",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{flex:1,minWidth:0,overflowY:"auto",padding:24}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <div style={{fontSize:FS+4,fontWeight:800,color:T.accent}}>📥 {viewReceipt.receiptNo}</div>
@@ -2708,6 +2711,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
           {canEdit&&<Btn onClick={()=>openReceiptReturn(viewReceipt)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↪️ مرتجع مشتريات</Btn>}
           <Btn ghost onClick={()=>setViewReceipt(null)}>إغلاق</Btn>
+        </div>
+        </div>{/* /left column */}
+        {/* V21.27.73: لوحة مرفقات الاستلام — أمر الشراء (مشتركة، عرض) + مرفقات خاصة بالاستلام (إضافة) */}
+        <div style={{width:isMob?"100%":340,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"42vh":"92vh",display:"flex",flexDirection:"column",gap:12}}>
+          {viewReceipt._poId&&<AttachmentList entityType="purchaseOrders" entityId={viewReceipt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>}
+          <AttachmentList entityType="purchaseReceipts" entityId={viewReceipt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>
         </div>
       </div>
     </div>}
