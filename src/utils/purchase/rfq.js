@@ -32,7 +32,8 @@ const RFQ_PREFIX = "طلب"; /* عربي حسب نمط عروض الأسعار *
 export const RFQ_STATUSES = ["draft", "sent", "received", "converted", "rejected", "expired"];
 
 /* V21.21.82: عملات الشراء المدعومة (الجنيه = العملة الوظيفية). */
-export const PURCHASE_CURRENCIES = ["EGP", "USD", "EUR", "SAR", "AED", "CNY", "TRY"];
+/* V21.27.76: عرض السعر بالجنيه المصري فقط (طلب Ahmed — امسح باقي العملات) */
+export const PURCHASE_CURRENCIES = ["EGP"];
 export const CURRENCY_LABELS = { EGP: "ج.م", USD: "$ دولار", EUR: "€ يورو", SAR: "ريال سعودي", AED: "درهم", CNY: "¥ يوان", TRY: "ليرة تركية" };
 
 /* ── Counter ── */

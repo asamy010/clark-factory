@@ -86,7 +86,7 @@ export function ReviewRequestModal({
     onClose();
   };
 
-  return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget)onClose()}}>
+  return <div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:100005,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget)onClose()}}>{/* V21.27.76: z-index عالي عشان يطلع فوق بوب ابات المستندات (zIndex 99998-100001) */}
     <div style={{background:T.bg,borderRadius:14,maxWidth:480,width:"100%",border:"2px solid #8B5CF640",boxShadow:"0 25px 70px rgba(0,0,0,0.4)",overflow:"hidden"}}>
       {/* Header */}
       <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.brd,background:"#8B5CF608"}}>
