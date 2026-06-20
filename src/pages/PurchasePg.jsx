@@ -24,6 +24,7 @@ import { TagFilter } from "../components/TagFilter.jsx";
 import { filterByTags } from "../utils/tags.js";
 /* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
+import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";/* V21.27.74: طلب مراجعة لأمر الشراء/الاستلام */
 import { DocLineEditor } from "../components/sales/DocLineEditor.jsx";
 import { DocItemsTable, DocTotals } from "../components/DocItemsTable.jsx";
 import { docColumnsHTML } from "../utils/docColumns.js";
@@ -66,6 +67,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[rcptDateTo,setRcptDateTo]=useState("");
   const[rcptSupplierF,setRcptSupplierF]=useState("");
   const[viewReceipt,setViewReceipt]=useState(null);/* view a receipt detail */
+  const[showReview,setShowReview]=useState(null);/* V21.27.74: {link, defaultMsg} لطلب مراجعة أمر شراء/استلام */
   /* V21.21.20: مرتجع مشتريات من الاستلام (إشعار مدين + خصم من المخزن) */
   const[returnRcpt,setReturnRcpt]=useState(null);/* الاستلام اللي بنعمل له مرتجع */
   const[retQty,setRetQty]=useState({});/* itemKey → كمية المرتجع */
@@ -2709,6 +2711,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
           })()}
           <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
+          {/* V21.27.74: طلب مراجعة الاستلام */}
+          <Btn onClick={()=>setShowReview({link:{type:"receipt",id:viewReceipt.id,label:"استلام "+viewReceipt.receiptNo},defaultMsg:"راجع الاستلام "+viewReceipt.receiptNo+" من فضلك"})} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640"}}>📌 طلب مراجعة</Btn>
           {canEdit&&<Btn onClick={()=>openReceiptReturn(viewReceipt)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↪️ مرتجع مشتريات</Btn>}
           <Btn ghost onClick={()=>setViewReceipt(null)}>إغلاق</Btn>
         </div>
@@ -3003,6 +3007,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
               ? <Btn small onClick={()=>showToast("⛔ لا يمكن إلغاء أمر تم الاستلام عليه — اعمل مرتجع مشتريات بدلاً من ذلك")} style={{background:T.err+"08",color:T.err,border:"1px solid "+T.err+"15",opacity:0.45,cursor:"not-allowed"}} title="تم الاستلام على هذا الأمر — لا يمكن إلغاؤه">🚫 إلغاء الأمر</Btn>
               : <Btn small onClick={async()=>{if(!await ask("إلغاء أمر الشراء","تعليم الأمر كملغي؟ (مايتأثرش المخزون)",{danger:true,confirmText:"إلغاء الأمر"}))return;upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="cancelled";});setViewPo(v=>({...v,status:"cancelled"}));showToast("✓ تم إلغاء الأمر");}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🚫 إلغاء الأمر</Btn>
           )}
+          {/* V21.27.74: طلب مراجعة أمر الشراء */}
+          <Btn small onClick={()=>setShowReview({link:{type:"po",id:viewPo.id,label:"أمر شراء "+viewPo.poNo},defaultMsg:"راجع أمر الشراء "+viewPo.poNo+" من فضلك"})} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640"}}>📌 طلب مراجعة</Btn>
           <Btn ghost onClick={()=>setViewPo(null)}>إغلاق</Btn>
         </div>
         </div>{/* /left column */}
@@ -3012,6 +3018,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>
       </div>
     </div>}
+
+    {/* V21.27.74: مودال طلب المراجعة لأمر الشراء/الاستلام */}
+    {showReview&&<ReviewRequestModal
+      link={showReview.link}
+      defaultMsg={showReview.defaultMsg}
+      data={data} upConfig={upConfig} user={user} userRole={userRole}
+      onClose={()=>setShowReview(null)}
+    />}
 
     {/* ════ PAY SUPPLIER FORM POPUP ════ */}
     {showPayForm&&payForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowPayForm(false)}>

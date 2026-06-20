@@ -12,6 +12,7 @@ import { playBeep } from "./utils/audio.js";
 import { compressImage, compressImg43 } from "./utils/image.js";
 import { loadXLSX, loadQR, loadJsQR, scanQR, compressFile } from "./utils/qr.js";
 import { addAudit } from "./utils/audit.js";
+import { openPurchaseDoc } from "./utils/purchase/navDoc.js";/* V21.27.74: deep-link مراجعة أمر شراء/استلام */
 import { computeCheckAlertActions } from "./utils/checkAlerts.js";
 import { computeReminderActions } from "./utils/reminders.js";
 import { describeRecurrence as describeReminderRecurrence, getNextDueDate as getReminderNextDue } from "./utils/recurring.js";
@@ -6206,6 +6207,10 @@ export default function App(){
     }else if(type==="supplier"){
       /* V21.9.146: notification-attached supplier → open PurchasePg + scroll to row */
       navigate("purchase",{supplierId:id});
+    }else if(type==="po"||type==="receipt"){
+      /* V21.27.74: مراجعة أمر شراء/استلام → افتح هَب المشتريات ثم المستند */
+      setTab("purchase");
+      setTimeout(()=>{ try{ openPurchaseDoc(type,id); }catch(_){} },200);
     }else if(type==="portalRequest"){
       /* V21.21.80: طلب بيع من البورتال → تاب «طلبات بورتال» في هَب المبيعات */
       setTab("salesPortalRequests");
