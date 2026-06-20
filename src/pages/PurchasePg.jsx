@@ -653,13 +653,31 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   },[purchaseReceipts,suppliers,fabrics,accessories]);
   
   /* ──────── STOCK STATISTICS ──────── */
+  /* V21.27.77: رصيد كل صنف = صافي حركاته (استلام/افتتاحي + ، صرف/مرتجع − ،
+     تسوية = تعيين القيمة)، باستثناء حركات الجاهز (itemType:"order"). ده «الصافي
+     الفعلي» اللي طلبه Ahmed — يظهر تلقائياً من غير زر مطابقة. الأصناف اللي مالهاش
+     أي حركة بترجع لـ item.stock (رصيد مخزّن مباشر/قديم). single-pass O(n log n). */
+  const stockNetMap=useMemo(()=>{
+    const m=new Map();
+    const moves=(data.stockMovements||[]).filter(mv=>mv&&mv.itemType!=="order"&&mv.itemId!=null)
+      .slice().sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
+    for(const mv of moves){
+      const k=String(mv.itemId);const q=Math.abs(Number(mv.qty)||0);const cur=m.get(k)||0;
+      if(mv.type==="adjust")m.set(k,q);
+      else if(mv.type==="out")m.set(k,cur-q);
+      else m.set(k,cur+q);/* in | opening */
+    }
+    return m;
+  },[data.stockMovements]);
+  const netStockOf=(it)=>stockNetMap.has(String(it.id))?stockNetMap.get(String(it.id)):(Number(it.stock)||0);
+
   const stockStats=useMemo(()=>{
     const fStats={count:fabrics.length,totalValue:0,lowStock:0,zeroStock:0};
-    fabrics.forEach(f=>{const s=Number(f.stock)||0;const c=Number(f.avgCost)||Number(f.price)||0;fStats.totalValue+=s*c;if(s===0)fStats.zeroStock++;else if(f.minStock&&s<=f.minStock)fStats.lowStock++});
+    fabrics.forEach(f=>{const s=netStockOf(f);const c=Number(f.avgCost)||Number(f.price)||0;fStats.totalValue+=s*c;if(s===0)fStats.zeroStock++;else if(f.minStock&&s<=f.minStock)fStats.lowStock++});
     const aStats={count:accessories.length,totalValue:0,lowStock:0,zeroStock:0};
-    accessories.forEach(a=>{const s=Number(a.stock)||0;const c=Number(a.avgCost)||Number(a.price)||0;aStats.totalValue+=s*c;if(s===0)aStats.zeroStock++;else if(a.minStock&&s<=a.minStock)aStats.lowStock++});
+    accessories.forEach(a=>{const s=netStockOf(a);const c=Number(a.avgCost)||Number(a.price)||0;aStats.totalValue+=s*c;if(s===0)aStats.zeroStock++;else if(a.minStock&&s<=a.minStock)aStats.lowStock++});
     return{fabric:fStats,accessory:aStats};
-  },[fabrics,accessories]);
+  },[fabrics,accessories,stockNetMap]);
   
   /* ──────── ACTIVATE STOCK MODULE ──────── */
   const activateStockModule=async()=>{
@@ -1105,7 +1123,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     if(catId==="fabric")catId="core_fabric";
     else if(catId==="accessory")catId="core_accessory";
     const items=getItemsForCategory(data,catId);
-    let f=items.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
+    /* V21.27.77: الرصيد = صافي الحركات (مش item.stock المخزّن اللي ممكن يكون درِف) */
+    let f=items.map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
     f=f.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)f=f.filter(x=>x._stock>0);
     const q=stockFilterDeb.trim().toLowerCase();
