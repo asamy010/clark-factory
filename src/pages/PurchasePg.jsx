@@ -2214,7 +2214,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
 
     {/* ════ NEW RECEIPT FORM POPUP ════ */}
     {showReceiptForm&&rcpt&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowReceiptForm(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:900,maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:0,width:"100%",maxWidth:isMob?900:1260,maxHeight:"92vh",display:"flex",flexDirection:isMob?"column":"row",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+        <div style={{flex:1,minWidth:0,minHeight:0,display:"flex",flexDirection:"column",padding:20}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:T.accent}}>📥 استلام جديد</div>
           <Btn ghost small onClick={()=>setShowReceiptForm(false)}>✕</Btn>
@@ -2411,6 +2412,13 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,paddingTop:12,borderTop:"1px solid "+T.brd}}>
           <Btn ghost onClick={()=>setShowReceiptForm(false)}>إلغاء</Btn>
           <Btn primary onClick={saveReceipt}>💾 حفظ الاستلام</Btn>
+        </div>
+        </div>{/* /left column */}
+        {/* V21.27.67: لوحة المرفقات — مشتركة مع أمر الشراء المرتبط (نفس entityId)؛ الاستلام اليدوي له مرفقاته */}
+        <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
+          {rcpt._poId
+            ? <AttachmentList entityType="purchaseOrders" entityId={rcpt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>
+            : <AttachmentList entityType="purchaseReceipts" entityId={rcpt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>}
         </div>
       </div>
     </div>}
@@ -2716,7 +2724,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     
     {/* ════ NEW/EDIT PO FORM POPUP ════ */}
     {showPoForm&&po&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowPoForm(false)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:900,maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:0,width:"100%",maxWidth:isMob?900:1260,maxHeight:"92vh",display:"flex",flexDirection:isMob?"column":"row",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+        <div style={{flex:1,minWidth:0,minHeight:0,display:"flex",flexDirection:"column",padding:20}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6"}}>📋 {po.id?"تعديل أمر الشراء "+po.poNo:"أمر شراء جديد"}</div>
           <Btn ghost small onClick={()=>setShowPoForm(false)}>✕</Btn>
@@ -2784,6 +2793,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,paddingTop:12,borderTop:"1px solid "+T.brd}}>
           <Btn ghost onClick={()=>setShowPoForm(false)}>إلغاء</Btn>
           <Btn primary onClick={savePo} style={{background:"#8B5CF6",color:"#fff",border:"none"}}>💾 {po.id?"حفظ التعديل":"إنشاء"}</Btn>
+        </div>
+        </div>{/* /left column */}
+        {/* V21.27.67: لوحة المرفقات الجانبية لأمر الشراء (مشتركة مع الاستلام/الفاتورة عبر نفس entityId) */}
+        <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
+          <AttachmentList entityType="purchaseOrders" entityId={po.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact/>
         </div>
       </div>
     </div>}

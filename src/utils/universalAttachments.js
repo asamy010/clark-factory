@@ -52,6 +52,7 @@ export const ALLOWED_MIME_PREFIXES = ["image/", "application/pdf"];
 export const ATTACHMENT_ENTITY_TYPES = [
   "checks",
   "salesInvoices", "creditNotes",
+  "purchaseOrders", "purchaseReceipts",  /* V21.27.67: دورة المشتريات — المرفقات مشتركة عبر نفس entityId */
   "purchaseInvoices", "debitNotes",
   "treasury",
   "customers", "suppliers", "workshops", "employees",

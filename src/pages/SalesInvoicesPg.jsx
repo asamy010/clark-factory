@@ -416,6 +416,17 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
   const meta = STATUS_META[invoice.status] || STATUS_META.draft;
   const isDraft = invoice.status === "draft";
   const isPurchase = type === "purchase";
+  /* V21.27.67: فاتورة الشراء تشارك مرفقات أمر الشراء المصدر (نفس entityId) — يربط
+     دورة المشتريات كلها (أمر/استلام/فاتورة) في مخزن مرفقات واحد. نحلّ الأمر من أول
+     استلام مرتبط بالفاتورة وله _poId. */
+  const _srcPoId = isPurchase ? (()=>{
+    const refs = (invoice.receiptRefs && invoice.receiptRefs.length) ? invoice.receiptRefs : (invoice.receiptRef ? [invoice.receiptRef] : []);
+    for(const rf of refs){
+      const rc = (data?.purchaseReceipts||[]).find(r=>String(r.id)===String(rf?.receiptId));
+      if(rc && rc._poId) return rc._poId;
+    }
+    return null;
+  })() : null;
   /* V18.90: Review request modal toggle */
   const [showReview, setShowReview] = useState(false);
   /* V19.41: Purchase return picker toggle (only relevant for posted purchase invoices) */
@@ -671,14 +682,16 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       {invoice.id && (
         <div style={{marginBottom: 14}}>
           <AttachmentList
-            entityType={isPurchase ? "purchaseInvoices" : "salesInvoices"}
-            entityId={invoice.id}
+            /* V21.27.67: فاتورة الشراء المرتبطة بأمر شراء تعرض مرفقات الأمر المشتركة
+               (نفس لينك الأمر) — طلب Ahmed. غير المرتبطة (أو البيع) تحتفظ بمرفقاتها. */
+            entityType={isPurchase ? (_srcPoId ? "purchaseOrders" : "purchaseInvoices") : "salesInvoices"}
+            entityId={isPurchase && _srcPoId ? _srcPoId : invoice.id}
             user={user}
             /* V21.27.60: المرفقات تتضاف قبل وبعد الترحيل (مش مسودة بس) — طلب Ahmed.
                المرفقات مستقلة عن مستند الفاتورة (collection منفصل) فمفيش أثر مالي.
                ممنوع بس على الملغاة (void). */
             canEdit={!!upConfig && invoice.status !== "void"}
-            label={isPurchase ? "مرفقات الفاتورة (فاتورة المورد، الإيصال)" : "مرفقات الفاتورة (ختم العميل، صورة)"}
+            label={isPurchase ? (_srcPoId ? "مرفقات أمر الشراء (مشتركة مع الاستلام والفاتورة)" : "مرفقات الفاتورة (فاتورة المورد، الإيصال)") : "مرفقات الفاتورة (ختم العميل، صورة)"}
             compact
           />
         </div>
