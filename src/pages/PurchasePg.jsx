@@ -1571,7 +1571,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                     <td style={{...TD,textAlign:"center",color:remaining>0?T.err:T.textMut,fontWeight:600}}>{remaining>0?fmt(r2(remaining)):"—"}</td>
                     <td style={{...TD,textAlign:"center",fontSize:FS-2}}>{methodLabel}</td>
                     <td style={{...TD,textAlign:"center"}}>
-                      <span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30"}}>{statusLabel}</span>
+                      <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
+                        <span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:statusColor+"15",color:statusColor,border:"1px solid "+statusColor+"30"}}>{statusLabel}</span>
+                        {/* V21.27.72: بادج «مفوتر» جنب حالة الدفع لو الاستلام له فاتورة */}
+                        {findInvoiceByReceipt(data,r.id)&&<span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:"#10B98115",color:"#10B981",border:"1px solid #10B98140"}}>🧾 مفوتر</span>}
+                      </div>
                     </td>
                     <td style={{...TD,textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                       {canEdit&&userRole==="admin"&&<Btn small onClick={()=>deleteReceipt(r)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 8px",fontSize:FS-3}}>🗑</Btn>}
@@ -2669,7 +2673,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           <div style={{fontSize:FS-1}}>
             <div>طريقة الدفع: <strong>{viewReceipt.paymentMethod==="cash"?"💵 كاش":viewReceipt.paymentMethod==="check"?"📄 شيك":"⏳ آجل"}</strong></div>
             {viewReceipt.treasuryAccount&&<div>الخزنة: <strong>{viewReceipt.treasuryAccount}</strong></div>}
-            <div>الحالة: <strong style={{color:viewReceipt.paymentStatus==="paid"?T.ok:viewReceipt.paymentStatus==="partial"?T.warn:T.err}}>{viewReceipt.paymentStatus==="paid"?"مدفوع كلياً":viewReceipt.paymentStatus==="partial"?"مدفوع جزئياً":"غير مدفوع"}</strong></div>
+            <div>الحالة: <strong style={{color:viewReceipt.paymentStatus==="paid"?T.ok:viewReceipt.paymentStatus==="partial"?T.warn:T.err}}>{viewReceipt.paymentStatus==="paid"?"مدفوع كلياً":viewReceipt.paymentStatus==="partial"?"مدفوع جزئياً":"غير مدفوع"}</strong>{/* V21.27.72: مفوتر */}{findInvoiceByReceipt(data,viewReceipt.id)&&<span style={{marginInlineStart:8,padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:"#10B98115",color:"#10B981",border:"1px solid #10B98140"}}>🧾 مفوتر</span>}</div>
           </div>
         </div>
         
@@ -2951,7 +2955,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>
         
         {/* V21.27.71: بانر حالة الاستلام بارز فوق الأمر (طلب Ahmed) */}
-        {(()=>{const st=computePoStatus(viewPo,purchaseReceipts);const m=PO_STATUS_META[st];const icon=st==="completed"?"✅":st==="partial"?"📦":st==="cancelled"?"🚫":"⏳";return<div style={{padding:"10px 14px",borderRadius:10,marginBottom:14,background:m.bg,border:"1px solid "+m.color+"40",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontWeight:800,color:m.color,fontSize:FS}}>{icon} حالة الاستلام: {m.label}{st==="completed"&&<span style={{fontWeight:600,fontSize:FS-2,color:T.textSec,marginInlineStart:"auto"}}>تم استلام كل الكمية — لا يمكن التحويل لاستلام مرة أخرى</span>}</div>;})()}
+        {(()=>{const st=computePoStatus(viewPo,purchaseReceipts);const m=PO_STATUS_META[st];const icon=st==="completed"?"✅":st==="partial"?"📦":st==="cancelled"?"🚫":"⏳";return<div style={{padding:"10px 14px",borderRadius:10,marginBottom:14,background:m.bg,border:"1px solid "+m.color+"40",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontWeight:800,color:m.color,fontSize:FS}}>{icon} حالة الاستلام: {m.label}</div>;})()}
 
         <div style={{padding:12,background:T.bg,borderRadius:10,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
@@ -2985,7 +2989,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:12,borderTop:"1px solid "+T.brd}}>
           {canEdit&&(viewPo.status==="cancelled"
             ? <Btn small onClick={()=>{upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="";});setViewPo(v=>({...v,status:""}));showToast("✓ تم إعادة تنشيط الأمر");}} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>↩️ إعادة تنشيط</Btn>
-            : <Btn small onClick={async()=>{if(!await ask("إلغاء أمر الشراء","تعليم الأمر كملغي؟ (مايتأثرش المخزون)",{danger:true,confirmText:"إلغاء الأمر"}))return;upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="cancelled";});setViewPo(v=>({...v,status:"cancelled"}));showToast("✓ تم إلغاء الأمر");}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🚫 إلغاء الأمر</Btn>
+            : poLinkedReceipts(viewPo,purchaseReceipts).length>0
+              /* V21.27.72: ماينفعش إلغاء أمر اتعمل عليه استلام — الزر باهت وغير فعّال (طلب Ahmed) */
+              ? <Btn small onClick={()=>showToast("⛔ لا يمكن إلغاء أمر تم الاستلام عليه — اعمل مرتجع مشتريات بدلاً من ذلك")} style={{background:T.err+"08",color:T.err,border:"1px solid "+T.err+"15",opacity:0.45,cursor:"not-allowed"}} title="تم الاستلام على هذا الأمر — لا يمكن إلغاؤه">🚫 إلغاء الأمر</Btn>
+              : <Btn small onClick={async()=>{if(!await ask("إلغاء أمر الشراء","تعليم الأمر كملغي؟ (مايتأثرش المخزون)",{danger:true,confirmText:"إلغاء الأمر"}))return;upConfig(d=>{const p=(d.purchaseOrders||[]).find(x=>x.id===viewPo.id);if(p)p.status="cancelled";});setViewPo(v=>({...v,status:"cancelled"}));showToast("✓ تم إلغاء الأمر");}} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🚫 إلغاء الأمر</Btn>
           )}
           <Btn ghost onClick={()=>setViewPo(null)}>إغلاق</Btn>
         </div>
