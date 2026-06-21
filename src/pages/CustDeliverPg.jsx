@@ -1119,6 +1119,22 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const q=Number(r.qty)||0;totalRet+=q;const cn=r.custName||"—";
         if(!custMap[cn])custMap[cn]={del:0,ret:0,val:0,models:{}};custMap[cn].ret+=q;custMap[cn].val-=q*sp;if(!custMap[cn].models[mn])custMap[cn].models[mn]={del:0,ret:0,price:sp};custMap[cn].models[mn].ret+=q;
         if(!modelMap[mn])modelMap[mn]={del:0,ret:0,price:sp};modelMap[mn].ret+=q})});
+    /* V21.27.97: أوامر البيع المباشرة (+ مرتجعاتها so.returns) — كانت مش بتتعد
+       في التقرير زي ما هي مش بتظهر في سجل البيع. المرايا (توزيعة) بنتخطّاها. */
+    (data.salesOrders||[]).forEach(so=>{
+      if(!so||so.status==="cancelled"||so.sourceDistributionId||so.isDistributionMirror)return;
+      if(type==="customer"&&rptCust&&so.customerId!==rptCust)return;
+      const cn=so.customerName||so.customerNameAdHoc||"—";
+      (so.items||[]).forEach(it=>{if(!(it&&it.sourceType==="order"&&it.sourceId))return;
+        if(type==="model"&&rptModel&&it.sourceId!==rptModel)return;if(from&&so.date<from)return;if(to&&so.date>to)return;
+        const q=Number(it.qty)||0;if(q<=0)return;const mn=it.modelNo||it.description||"—";const price=Number(it.unitPrice)||0;totalDel+=q;
+        if(!custMap[cn])custMap[cn]={del:0,ret:0,val:0,models:{}};custMap[cn].del+=q;custMap[cn].val+=q*price;if(!custMap[cn].models[mn])custMap[cn].models[mn]={del:0,ret:0,price};custMap[cn].models[mn].del+=q;
+        if(!modelMap[mn])modelMap[mn]={del:0,ret:0,price};modelMap[mn].del+=q});
+      (so.returns||[]).forEach(r=>{if(!r||!r.sourceId)return;
+        if(type==="model"&&rptModel&&r.sourceId!==rptModel)return;if(from&&r.date<from)return;if(to&&r.date>to)return;
+        const q=Number(r.qty)||0;if(q<=0)return;const mn=r.modelNo||"—";const price=Number(r.unitPrice)||0;totalRet+=q;
+        if(!custMap[cn])custMap[cn]={del:0,ret:0,val:0,models:{}};custMap[cn].ret+=q;custMap[cn].val-=(Number(r.net)||q*price);if(!custMap[cn].models[mn])custMap[cn].models[mn]={del:0,ret:0,price};custMap[cn].models[mn].ret+=q;
+        if(!modelMap[mn])modelMap[mn]={del:0,ret:0,price};modelMap[mn].ret+=q})});
     const totalNet=totalDel-totalRet;Object.values(modelMap).forEach(m=>{const net=m.del-m.ret;totalVal+=net*m.price});
     if(totalDel===0&&totalRet===0){showToast("⚠️ لا توجد بيانات");return}
     const titleParts=["📊 تقرير المبيعات"];
@@ -6324,14 +6340,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const moves=[];orders.forEach(o=>{
         (o.customerDeliveries||[]).filter(d=>isAll||d.custId===custSalesLog).forEach((d,di)=>{moves.push({type:"sale",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(d.qty)||0,date:d.date,sessId:d.sessionId,by:d.createdBy||"",idx:di,rackSize:Number(o.rackSize)||1,custName:d.custName||"",price:Number(d.price)||0,isDiscounted:d.isDiscounted===true,originalPrice:Number(d.originalPrice)||Number(o.sellPrice)||0,isOverride:d.isOverride===true})});
         (o.customerReturns||[]).filter(r=>isAll||r.custId===custSalesLog).forEach((r,ri)=>{moves.push({type:"return",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,qty:Number(r.qty)||0,date:r.date,note:r.note||"",by:r.createdBy||"",idx:ri,custName:r.custName||""})})});
+      /* V21.27.97: مبيعات/مرتجعات «أمر البيع المباشر» — مستندات منفصلة، read-only
+         في السجل (التعديل/الحذف من «أوامر البيع» / المرتجع). كانت مش بتظهر. */
+      (data.salesOrders||[]).forEach(so=>{
+        if(!so||so.status==="cancelled"||so.sourceDistributionId||so.isDistributionMirror)return;
+        if(!(isAll||so.customerId===custSalesLog))return;
+        (so.items||[]).forEach((it,ii)=>{if(!(it&&it.sourceType==="order"&&it.sourceId))return;const q=Number(it.qty)||0;if(q<=0)return;
+          moves.push({type:"sale",source:"so",readonly:true,orderId:it.sourceId,modelNo:it.modelNo||it.description||"",modelDesc:it.description||"",qty:q,date:so.date,by:so.salesPerson||so.createdBy||"",custName:so.customerName||so.customerNameAdHoc||"",price:Number(it.unitPrice)||0,soNo:so.orderNo||"",idx:ii})});
+        (so.returns||[]).forEach((r,ri)=>{if(!r)return;
+          moves.push({type:"return",source:"so",readonly:true,orderId:r.sourceId,modelNo:r.modelNo||"",modelDesc:r.modelDesc||"",qty:Number(r.qty)||0,date:r.date,note:r.note||"",by:r.by||"",custName:r.custName||so.customerName||"",cnNo:r.creditNoteNo||"",soNo:so.orderNo||"",idx:ri})})});
       moves.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const totalDel=moves.filter(m=>m.type==="sale").reduce((s,m)=>s+m.qty,0);
       const totalRet=moves.filter(m=>m.type==="return").reduce((s,m)=>s+m.qty,0);
-      const saveEdit=(m)=>{const newQty=Math.max(0,editSaleQty);
+      const saveEdit=(m)=>{if(m.readonly)return;const newQty=Math.max(0,editSaleQty);
         if(m.type==="sale"){updOrder(m.orderId,o=>{if(o.customerDeliveries&&o.customerDeliveries[m.idx]){o.customerDeliveries[m.idx].qty=newQty}})}
         else{updOrder(m.orderId,o=>{if(o.customerReturns&&o.customerReturns[m.idx]){o.customerReturns[m.idx].qty=newQty}})}
         setEditSaleIdx(null);showToast("✓ تم تعديل الكمية — المخزن محدّث")};
-      const delMove=(m)=>{if(m.type==="sale"){updOrder(m.orderId,o=>{if(o.customerDeliveries)o.customerDeliveries.splice(m.idx,1)})}
+      const delMove=(m)=>{if(m.readonly)return;if(m.type==="sale"){updOrder(m.orderId,o=>{if(o.customerDeliveries)o.customerDeliveries.splice(m.idx,1)})}
         else{updOrder(m.orderId,o=>{if(o.customerReturns)o.customerReturns.splice(m.idx,1)})}showToast("✓ تم الحذف")};
       const printLog=()=>{let h="<h2 style='text-align:center'>📋 سجل مبيعات — "+cust.name+"</h2>";
         h+="<table style='margin:0 auto 12px'><tr><th>اجمالي البيع</th><td style='font-weight:800;color:#0EA5E9'>"+totalDel+"</td><th>المرتجع</th><td style='font-weight:800;color:#EF4444'>"+totalRet+"</td><th>الصافي</th><td style='font-weight:800;color:#10B981'>"+(totalDel-totalRet)+"</td></tr></table>";
@@ -6361,16 +6386,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             return fMoves.length>0?<div>
               {(logCustF||logModelF||logDateF||logTypeFilter)&&<div style={{fontSize:FS-2,color:T.textMut,marginBottom:6}}>{"نتائج الفلتر: "+fMoves.length+" حركة | بيع: "+fDel+" | مرتجع: "+fRet+" | صافي: "+(fDel-fRet)}</div>}
               <div style={{border:"1px solid "+T.brd,borderRadius:12,overflow:"hidden"}}><table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr>{[...(isAll?["العميل"]:[]),"التاريخ","النوع","الموديل","الوصف","الكمية","بواسطة",""].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
-            {shown.map((m,i)=>{const isRet=m.type==="return";const isEditing=editSaleIdx===m.type+"_"+m.orderId+"_"+m.idx;const key=m.type+"_"+m.orderId+"_"+m.idx;
+            {shown.map((m,i)=>{const isRet=m.type==="return";const key=(m.source||"d")+"_"+m.type+"_"+m.orderId+"_"+m.idx;const isEditing=editSaleIdx===key;
               return<tr key={key} style={{background:isRet?"#FEF2F2":i%2===0?"transparent":T.bg+"80"}}>
                 {isAll&&<td style={{...TD,fontWeight:600,fontSize:FS-2,color:T.text}}>{m.custName||"—"}</td>}
                 <td style={{...TD,fontSize:FS-2}}>{m.date}</td>
-                <td style={{...TD,fontWeight:800,color:isRet?"#EF4444":"#10B981",fontSize:FS-1}}>{isRet?"↩️ مرتجع":"💰 بيع"}</td>
+                <td style={{...TD,fontWeight:800,color:isRet?"#EF4444":"#10B981",fontSize:FS-1}}>{isRet?"↩️ مرتجع":"💰 بيع"}{m.source==="so"&&<span style={{marginInlineStart:5,fontSize:FS-4,fontWeight:700,color:"#8B5CF6",background:"#8B5CF612",padding:"1px 6px",borderRadius:20}} title={"أمر بيع مباشر "+(m.soNo||"")+(m.cnNo?" · إشعار "+m.cnNo:"")}>🧾 {m.soNo||"أمر"}</span>}</td>
                 <td style={{...TD,fontWeight:700,color:T.accent}}>{m.modelNo}{m.isDiscounted&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:8,background:"#F59E0B18",color:"#B45309",fontSize:FS-3,fontWeight:700}} title={"سعر مخفض: "+fmt(m.price)+(m.originalPrice?" (الأصلي: "+fmt(m.originalPrice)+")":"")}>💰 خصم</span>}{m.isOverride&&<span style={{marginInlineStart:4,padding:"1px 5px",borderRadius:8,background:"#EF444418",color:"#DC2626",fontSize:FS-3,fontWeight:700}} title="بيع طوارئ خارج الخطة">🚨</span>}</td>
                 <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</td>
                 <td style={{...TD,textAlign:"center"}}>{isEditing?<input type="number" value={editSaleQty} onChange={e=>setEditSaleQty(Number(e.target.value)||0)} style={{width:55,textAlign:"center",border:"2px solid "+T.accent,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}} autoFocus/>:<span style={{fontWeight:800,color:isRet?"#EF4444":"#0EA5E9"}}>{(isRet?"-":"")+m.qty}</span>}</td>
                 <td style={{...TD,fontSize:FS-3,color:T.textMut}}>{m.by||"—"}</td>
-                <td style={{...TD,textAlign:"center"}}>{canEdit&&<div style={{display:"flex",gap:2}}>
+                <td style={{...TD,textAlign:"center"}}>{m.readonly?<span style={{fontSize:FS-3,color:T.textMut}} title="مستند منفصل — التعديل من «أوامر البيع» / المرتجع">🔗</span>:canEdit&&<div style={{display:"flex",gap:2}}>
                   {isEditing?<><span onClick={()=>saveEdit(m)} style={{cursor:"pointer",fontSize:14}}>💾</span><span onClick={()=>setEditSaleIdx(null)} style={{cursor:"pointer",fontSize:14}}>✕</span></>
                   :<><span onClick={()=>{setEditSaleIdx(key);setEditSaleQty(m.qty)}} style={{cursor:"pointer",fontSize:12}}>✏️</span><DelBtn small onConfirm={()=>delMove(m)}/></>}
                 </div>}</td>
