@@ -4555,84 +4555,43 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           if(!linkedSess){const grid={};Object.entries(byOrder).forEach(([oid,qty])=>{grid[oid+"_"+qrSale.custId]=qty});
             upSales(d=>{if(!d.custDeliverySessions)d.custDeliverySessions=[];d.custDeliverySessions.push({id:sessId,date:cairoDateStr(),modelIds,custIds:[qrSale.custId],grid,createdBy:userName,createdAt:nowISO(),status:"تم التسليم",freeSale:true,saleConfirmed:true})})}
           else{upSales(d=>{const si=(d.custDeliverySessions||[]).findIndex(s=>s.id===sessId);if(si>=0){d.custDeliverySessions[si].actualSales=byOrder;d.custDeliverySessions[si].actualSaleDate=cairoDateStr();d.custDeliverySessions[si].actualSaleBy=userName;d.custDeliverySessions[si].saleConfirmed=true}})}
-          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];
-            /* V15.45: Record custom price for free/discounted sales — enables accurate revenue reporting */
-            /* V19.63: clamp negative input — `-50` would store negative price → negative AR debit */
-            /* V21.9.85 (CustDeliver audit Bug #1 + #6): ALWAYS snapshot the
-               effective price on the delivery. Pre-V21.9.85, full-price
-               deliveries left `entry.price` undefined → downstream balance
-               calcs fell back to the order's CURRENT sellPrice. When the
-               admin corrected order.sellPrice later, historical customer
-               balances changed retroactively. The snapshot freezes the
-               price at delivery time so the audit trail is permanent. */
+          /* V21.27.90 — قرار Ahmed: البيع السريع بقى «تسليم + أمر بيع تلقائي» بس،
+             من غير ما يعمل أو يرحّل أي فاتورة. كان قبل كده (في وضع
+             autoPostFromInvoice + autoPostOnCreate) بيعمل فاتورة ويرحّلها فورًا
+             («فاتورة بيع مرحلة») مباشرة من التوزيعة — وده كان بيكسر الدورة
+             (توزيعة → أمر بيع → ترحيل فاتورة) وبيخاطر بازدواج الفاتورة لو المستخدم
+             رحّل تاني من «أمر البيع». دلوقتي: نسجّل التسليم، نلتقط البنود، ونولّد
+             «أمر البيع» (المرآة) تلقائيًا. الإيراد + COGS بيتسجلوا وقت «ترحيل
+             فاتورة» من أمر البيع — مش هنا. */
+          const _qsNewDeliveries={};
+          Object.entries(byOrder).forEach(([oid,qty])=>{
+            const ord=orders.find(x=>x.id===oid)||{};
+            /* V15.45/V19.63/V21.9.85: snapshot السعر الفعّال على بند التسليم
+               (يتجمّد وقت البيع — تعديل sellPrice بعدين مايغيّرش السجل المالي). */
             const cp=Math.max(0,Number(qrSale.customPrice)||0);
-            const snapshotPrice=cp>0?cp:(Number(o.sellPrice)||0);
+            const snapshotPrice=cp>0?cp:(Number(ord.sellPrice)||0);
             const entry={id:_instantSale_deliveryIds[oid],custId:qrSale.custId,custName:cust.name,qty,price:snapshotPrice,date:cairoDateStr(),sessionId:sessId,createdBy:userName,createdAt:nowISO()};
             if(qrSale.override===true){entry.isOverride=true;entry.overrideReason="بيع طوارئ خارج الخطة"}
-            if(cp>0){entry.isDiscounted=true;entry.originalPrice=Number(o.sellPrice)||0}
-            /* V21.9.190 — Phase 2: snapshot the per-customer-per-session
-               discount on the delivery entry. The invoice generator
-               (`buildSalesInvoiceFromDelivery`) reads `entry.discPct` first,
-               so this stamp lets a single customer take different discounts
-               on different sessions without rewriting customer.discount.
-               Frozen at sale time (same rationale as `price` above) so an
-               admin editing the session's custDisc later doesn't mutate
-               historical financial records. */
+            if(cp>0){entry.isDiscounted=true;entry.originalPrice=Number(ord.sellPrice)||0}
+            /* V21.9.190: snapshot خصم العميل/الجلسة على البند (مجمّد وقت البيع). */
             entry.discPct=getEffectiveDiscount(cust, activeSess);
-            /* V19.66: include timestamp so legitimate re-sales (same cust/session/order/day)
-               don't collide on the journal idempotency key. Pre-V19.66 a 2nd sale with
-               identical key was silently de-duped by autoPost — the qty appeared in
-               customerDeliveries but never made it to the journal = silent over-sale. */
+            /* V19.66: timestamp في المفتاح عشان البيع المتكرّر الشرعي مايتـ dedupـش. */
             entry._key=oid+":saleDelivery:"+sessId+":"+qrSale.custId+":"+entry.date+":"+Date.now();
-            o.customerDeliveries.push(entry);
-            /* V18.50: Invoice-based posting mode toggle.
-               If autoPostFromInvoice=true, skip direct journal posting (the
-               invoice handles it when posted by user) and create a draft
-               invoice automatically. Otherwise legacy direct posting. */
-            const invoiceMode=(data.invoiceSettings||{}).autoPostFromInvoice===true;
-            if(!invoiceMode){
-              /* V18.35: auto-post sale journal entry */
-              autoPost.sale(data, entry, cust, o, userName).catch(()=>{});
-              /* V18.40: COGS companion entry (Dr COGS / Cr finished inventory) */
-              autoPost.saleCogs(data, entry, o, userName).catch(()=>{});
-            } else {
-              /* V18.65: upsert — consolidates same-day same-customer drafts */
-              const autoPostOnCreate = (data.invoiceSettings||{}).autoPostOnCreate === true;
-              let createdInv = null;
-              let isNewInvoice = false;
-              upConfig(d=>{
-                const res = upsertSalesInvoiceFromDelivery(d, entry, o, cust, userName);
-                createdInv = res.invoice;
-                isNewInvoice = res.isNew;
-                /* V18.65: Only auto-post BRAND NEW invoices. Merged drafts stay draft. */
-                if(autoPostOnCreate && createdInv && isNewInvoice){
-                  const idx = (d.salesInvoices||[]).findIndex(i => i.id === createdInv.id);
-                  if(idx >= 0){
-                    d.salesInvoices[idx].status = "posted";
-                    d.salesInvoices[idx].postedAt = nowISO();
-                    d.salesInvoices[idx].postedBy = userName;
-                  }
-                }
-              });
-              /* V18.51: if auto-post on create, also fire the journal entry (new only) */
-              if(autoPostOnCreate && createdInv && isNewInvoice){
-                autoPost.salesInvoicePosted(data, createdInv, cust, o, userName).then(res => {
-                  if(res && res.main && res.main.ok && res.main.entry){
-                    upConfig(d => {
-                      const idx = (d.salesInvoices||[]).findIndex(i => i.id === createdInv.id);
-                      if(idx >= 0){
-                        d.salesInvoices[idx].postedJournalRef = {
-                          date: res.main.entry.date,
-                          entryId: res.main.entry.id,
-                          refNo: res.main.entry.refNo,
-                        };
-                      }
-                    });
-                  }
-                }).catch(()=>{});
-              }
-            }
-          })});
+            _qsNewDeliveries[oid]=entry;
+            updOrder(oid,o=>{if(!o.customerDeliveries)o.customerDeliveries=[];o.customerDeliveries.push(entry)});
+          });
+          /* V21.27.90: ولّد «أمر البيع» (المرآة) فورًا من التسليمات اللي اتسجّلت.
+             بنبني snapshot للأوامر بالتسليم الجديد لأن الـ component orders لسه
+             ماتحدّثش في نفس الـ tick، فالـ mutator يقرا منه. idempotent — إعادة
+             البيع أو زر «تأكيد البيع» بيزامن نفس الأمر من غير تكرار (المفتاح
+             sourceDistributionId = sessionId:custId). */
+          (()=>{
+            try{
+              const ordersSnap=(orders||[]).map(o=>{const e=_qsNewDeliveries[o.id];return e?{...o,customerDeliveries:[...(o.customerDeliveries||[]),e]}:o});
+              const sessSnap={id:sessId,date:cairoDateStr(),custIds:[qrSale.custId]};
+              upConfig(d=>{generateSalesOrdersFromSessionMutator(d,sessId,userName,{orders:ordersSnap,customers,session:sessSnap})});
+            }catch(err){console.warn("[V21.27.90] auto-gen SO from quick-sale failed:",err)}
+          })();
           playBeep("done");showToast((qrSale.override===true?"⚠️ بيع طوارئ ":"✓ تم تسجيل بيع ")+total+" قطعة لـ "+cust.name);
           /* V19.70.4: instant saleCompleted fire (one event per order delivery).
              Same fire-and-forget pattern as TreasuryPg V19.70.3. The cron remains
