@@ -30,13 +30,14 @@ const emptyProduct = () => ({ sourceType: "service", sourceId: "", modelNo: "", 
 const emptySection = () => ({ isSection: true, title: "" });
 
 export function DocLineEditor({ items, setItems, productOptions = [], resolveProduct, isMob, accent = "#0EA5E9", stockInfo }){
-  /* V21.27.79: شارة الكمية المتاحة بالمخزن تحت الصنف (باهتة). stockInfo(it) → {qty,unit}|null */
+  /* V21.27.79: شارة الكمية المتاحة بالمخزن تحت الصنف (باهتة). stockInfo(it) → {qty,unit,label?}|null */
   const stockBadge = (it) => {
     if(!stockInfo) return null;
     const s = stockInfo(it);
     if(!s) return null;
     const q = Number(s.qty) || 0;
-    return <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📦 المتاح بالمخزن: <b style={{ color: q > 0 ? T.ok : T.err }}>{fmt(q)}</b> {s.unit || ""}</div>;
+    const lbl = s.label || "المتاح بالمخزن";
+    return <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📦 {lbl}: <b style={{ color: q > 0 ? T.ok : T.err }}>{fmt(q)}</b> {s.unit || ""}</div>;
   };
   const setItem = (idx, patch) => setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
   const addProduct = () => setItems(prev => [...prev, emptyProduct()]);

@@ -170,7 +170,7 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
     </div>
 
     {showAddReturn && <FreeSupplierReturnModal
-      data={data} upConfig={upConfig} user={user}
+      data={data} upConfig={upConfig} user={user} isMob={isMob}
       onClose={()=>setShowAddReturn(false)}
       onCreated={()=>setShowAddReturn(false)}
     />}
