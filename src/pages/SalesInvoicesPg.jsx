@@ -25,7 +25,6 @@ import { recordInvoicePaymentMutator, invoiceBalance } from "../utils/sales/invo
 import { PaymentFromInvoiceModal } from "../components/sales/PaymentFromInvoiceModal.jsx";
 import { openSalesDoc } from "../utils/sales/navDoc.js";
 import { openPurchaseDoc } from "../utils/purchase/navDoc.js";
-import { ServiceInvoiceModal } from "../components/ServiceInvoiceModal.jsx";
 /* V21.26.17: أداة صيانة — مزامنة خصومات الفواتير من التوزيعات */
 import { SyncInvoiceDiscountsModal } from "../components/sales/SyncInvoiceDiscountsModal.jsx";
 /* V21.9.128: Universal Attachments — InvoiceDetailModal is shared by sales + purchase invoice pages.
@@ -55,7 +54,6 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
   const [search, setSearch]   = useState("");
   const [activeInvoice, setActiveInvoice] = useState(null);
   /* V18.85: Service invoice modal */
-  const [showServiceModal, setShowServiceModal] = useState(false);
   /* V21.26.17: Sync invoice discounts from distributions modal */
   const [showSyncModal, setShowSyncModal] = useState(false);
   /* V19.39: Multi-select for bulk posting */
@@ -254,10 +252,8 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
       <Btn onClick={()=>setShowSyncModal(true)} style={{background:"#10B98115",color:"#10B981",border:"1px solid #10B98140",fontWeight:700}} title="تطابق خصم الفواتير المسودة مع خصم التوزيعة">
         🔄 مزامنة خصومات التوزيعات
       </Btn>
-      {/* V18.85: Direct service invoice */}
-      <Btn onClick={()=>setShowServiceModal(true)} style={{background:T.accent+"15",color:T.accent,border:"1px solid "+T.accent+"40",fontWeight:700}}>
-        🛠 فاتورة خدمات
-      </Btn>
+      {/* V21.27.93: زر «فاتورة خدمات» اتشال (طلب Ahmed) — الفوترة بتتم من
+          التسليمات/أوامر البيع. */}
       {uninvoicedDeliveries.length > 0 && <Btn primary onClick={handleBulkCreate} style={{background:"#10B981",color:"#fff",border:"none",fontWeight:800}}>
         ➕ إنشاء فواتير من {uninvoicedDeliveries.length} تسليم
       </Btn>}
@@ -386,11 +382,6 @@ export function SalesInvoicesPg({data, upConfig, isMob, user}){
       onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
       isMob={isMob}
       user={user}
-    />}
-    {/* V18.85: Service invoice modal */}
-    {showServiceModal && <ServiceInvoiceModal
-      mode="sales" data={data} upConfig={upConfig} user={user} isMob={isMob}
-      onClose={()=>setShowServiceModal(false)}
     />}
     {/* V21.26.17: Sync invoice discounts from distributions */}
     {showSyncModal && <SyncInvoiceDiscountsModal

@@ -1435,7 +1435,10 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
            بدون بحث: كل الحركات. الفلترة بالـ id (String) عشان تطابق نوع الـ id. */
         const _q=stockFilter.trim();
         const _visibleIds=_q?new Set(filteredStock.map(i=>String(i.id))):null;
-        let _moves=stockMovements.slice().sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+        /* V21.27.93: المشتريات = قماش/إكسسوار/عام بس — استبعد حركات الجاهز
+           (itemType:"order"؛ حجز/تسليم أوامر البيع) من سجل حركات المخزن.
+           سجل الجاهز مكانه «المخزن والجرد» و«المبيعات» (FinishedStockLog). */
+        let _moves=stockMovements.filter(m=>m&&m.itemType!=="order").sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
         if(_visibleIds)_moves=_moves.filter(m=>_visibleIds.has(String(m.itemId)));
         const _shown=_moves.slice(0,movLimit);
         return<Card title={"📊 آخر حركات المخزن"+(_q?" — مفلتر ("+filteredStock.length+" صنف)":"")} style={{marginTop:12}}>
@@ -1722,7 +1725,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginBottom:12}}>
           {/* Top fabrics */}
-          <Card title="🧵 أعلى الخامات استهلاكاً">
+          <Card title="🧵 أعلى الخامات شراءً">
             {purchaseReports.topFabrics.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut}}>لا توجد بيانات</div>:<table style={{width:"100%",fontSize:FS-1,borderCollapse:"collapse"}}>
               <thead><tr><th style={TH}>الخامة</th><th style={{...TH,textAlign:"center"}}>الكمية</th><th style={{...TH,textAlign:"center"}}>القيمة</th></tr></thead>
               <tbody>{purchaseReports.topFabrics.map((f,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
@@ -1734,7 +1737,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           </Card>
           
           {/* Top accessories */}
-          <Card title="🪡 أعلى الإكسسوار استهلاكاً">
+          <Card title="🪡 أعلى الإكسسوار شراءً">
             {purchaseReports.topAccessories.length===0?<div style={{padding:20,textAlign:"center",color:T.textMut}}>لا توجد بيانات</div>:<table style={{width:"100%",fontSize:FS-1,borderCollapse:"collapse"}}>
               <thead><tr><th style={TH}>الإكسسوار</th><th style={{...TH,textAlign:"center"}}>الكمية</th><th style={{...TH,textAlign:"center"}}>القيمة</th></tr></thead>
               <tbody>{purchaseReports.topAccessories.map((a,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
