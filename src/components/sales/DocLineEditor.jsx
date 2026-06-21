@@ -29,7 +29,15 @@ function lineTotalPreview(it){
 const emptyProduct = () => ({ sourceType: "service", sourceId: "", modelNo: "", description: "", unit: "", qty: 1, unitPrice: 0, discountType: "pct", discountValue: 0 });
 const emptySection = () => ({ isSection: true, title: "" });
 
-export function DocLineEditor({ items, setItems, productOptions = [], resolveProduct, isMob, accent = "#0EA5E9" }){
+export function DocLineEditor({ items, setItems, productOptions = [], resolveProduct, isMob, accent = "#0EA5E9", stockInfo }){
+  /* V21.27.79: شارة الكمية المتاحة بالمخزن تحت الصنف (باهتة). stockInfo(it) → {qty,unit}|null */
+  const stockBadge = (it) => {
+    if(!stockInfo) return null;
+    const s = stockInfo(it);
+    if(!s) return null;
+    const q = Number(s.qty) || 0;
+    return <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📦 المتاح بالمخزن: <b style={{ color: q > 0 ? T.ok : T.err }}>{fmt(q)}</b> {s.unit || ""}</div>;
+  };
   const setItem = (idx, patch) => setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
   const addProduct = () => setItems(prev => [...prev, emptyProduct()]);
   const addSection = () => setItems(prev => [...prev, emptySection()]);
@@ -60,7 +68,7 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   /* ── Desktop: كل بند صف واحد ── */
   const productRowDesktop = (it, idx) => (
     <div key={idx} style={{ display: "grid", gridTemplateColumns: COLS, gap: 6, alignItems: "center", padding: "6px 8px", borderTop: "1px solid " + T.brd }}>
-      <ProductPicker it={it} idx={idx} />
+      <div style={{ minWidth: 0 }}><ProductPicker it={it} idx={idx} />{stockBadge(it)}</div>
       <Inp value={it.unit || ""} onChange={v => setItem(idx, { unit: v })} placeholder="قطعة" />
       <Inp type="number" value={it.qty} onChange={v => setItem(idx, { qty: v })} />
       <Inp type="number" value={it.unitPrice} onChange={v => setItem(idx, { unitPrice: v })} />
@@ -86,7 +94,7 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   ) : (
     <div key={idx} style={{ border: "1px solid " + T.brd, borderRadius: 10, padding: 10, background: T.bg }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <div style={{ flex: 1 }}><ProductPicker it={it} idx={idx} /></div>
+        <div style={{ flex: 1 }}><ProductPicker it={it} idx={idx} />{stockBadge(it)}</div>
         <Btn ghost small onClick={() => removeItem(idx)} style={{ color: T.err }}>🗑</Btn>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8, alignItems: "end" }}>

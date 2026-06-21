@@ -487,6 +487,20 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const found=getItemsForCategory(data,catId).find(x=>String(x.id)===String(sourceId));
     return { sourceType, sourceId, modelNo:found?.name||"", description:"", code:found?.code||"",/* V21.21.55 */ unit:found?.unit||cur?.unit||"", unitPrice:Number(found?.price??found?.avgCost??0)||cur?.unitPrice };
   };
+  /* V21.27.79: الكمية المتاحة بالمخزن تحت كل صنف في أمر الشراء (صافي الحركات،
+     نفس منطق V21.27.77؛ fallback لرصيد الصنف المخزّن لو مفيش حركات). */
+  const poLineStockInfo=(it)=>{
+    if(!it||it.isSection||!it.sourceId)return null;
+    const id=String(it.sourceId);
+    let qty;
+    if(stockNetMap.has(id))qty=stockNetMap.get(id);
+    else{
+      let catId=it.sourceType;if(catId==="fabric")catId="core_fabric";else if(catId==="accessory")catId="core_accessory";
+      const found=getItemsForCategory(data,catId).find(x=>String(x.id)===id);
+      qty=found?(Number(found.stock)||0):0;
+    }
+    return{qty,unit:it.unit||""};
+  };
   const poEditorItems=(po?.items||[]).map(poToEditor);
   const setPoEditorItems=(updater)=>setPo(p=>{ if(!p)return p; const cur=(p.items||[]).map(poToEditor); const next=typeof updater==="function"?updater(cur):updater; return {...p,items:next.map(editorToPo)}; });
 
@@ -2913,7 +2927,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           {/* Items — محرّر Odoo-style (DocLineEditor) مع الحفاظ على الربط بالمخزون */}
           <div style={{marginBottom:14}}>
             <label style={{fontSize:FS,color:T.text,fontWeight:700,display:"block",marginBottom:8}}>البنود المطلوبة <span style={{color:T.err}}>*</span></label>
-            <DocLineEditor items={poEditorItems} setItems={setPoEditorItems} productOptions={poProductOptions} resolveProduct={resolveProductPO} isMob={isMob} accent="#8B5CF6" />
+            <DocLineEditor items={poEditorItems} setItems={setPoEditorItems} productOptions={poProductOptions} resolveProduct={resolveProductPO} isMob={isMob} accent="#8B5CF6" stockInfo={poLineStockInfo} />
             {/* V21.21.43: ملخص + خصم كلي */}
             {(()=>{
               const afterLine=r2((po.items||[]).reduce((s,it)=>s+(it.isSection?0:(Number(it.amount)||0)),0));
