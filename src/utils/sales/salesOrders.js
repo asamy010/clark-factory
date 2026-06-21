@@ -505,6 +505,8 @@ export function cancelSalesOrderMutator(d, soId, userName, reason){
   if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
   const so = d.salesOrders.find(x => x && x.id === soId);
   if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  /* V21.27.95: مرآة التوزيعة مقفولة — الإلغاء/الحذف من «سجل التسليمات» مش من هنا. */
+  if(so.sourceDistributionId || so.isDistributionMirror) return { ok: false, error: "أمر متولّد من توزيعة — احذف البيع من «سجل التسليمات» بدل الإلغاء" };
   if(so.status === "cancelled") return { ok: false, error: "أمر البيع ملغي بالفعل" };
   if(so.status === "invoiced") return { ok: false, error: "أمر البيع مفوتر — لا يمكن إلغاؤه (الغِ الفاتورة أولاً)" };
 
@@ -571,6 +573,11 @@ export function deleteSalesOrderMutator(d, soId, userName){
   if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
   const so = d.salesOrders.find(x => x && x.id === soId);
   if(!so) return { ok: false, error: "أمر البيع غير موجود" };
+  /* V21.27.95: ممنوع حذف مرآة توزيعة من «أوامر البيع» — التوزيعة = مصدر الحقيقة.
+     حذف المرآة لوحدها كان بيسيب customerDeliveries معلّقة (البيع الفعلي) →
+     حساب العميل والمخزن يفضلوا متأثرين رغم اختفاء الأمر. الحذف لازم يتم من
+     «سجل التسليمات» (delSession cascade) اللي بيشيل المرآة + التسليمات معاً. */
+  if(so.sourceDistributionId || so.isDistributionMirror) return { ok: false, error: "أمر متولّد من توزيعة (" + (so.distributionNo || "") + ") — احذف البيع من «سجل التسليمات»، وأمر البيع هيتحذف معاه تلقائياً" };
   /* (1) ممنوع لو ليه فاتورة */
   if(so.salesInvoiceId){
     const inv = (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void");
@@ -609,4 +616,62 @@ export function deleteSalesOrderMutator(d, soId, userName){
   }
   d.salesOrders = d.salesOrders.filter(x => x && x.id !== soId);
   return { ok: true };
+}
+
+/* ── V21.27.95: تخطيط حذف بيع توزيعة/جلسة بالكامل (cascade) ──
+   التوزيعة = مصدر الحقيقة (§14.1). حذف بيعها لازم يشيل في حركة واحدة:
+     • customerDeliveries بالـ sessionId (من الأوردرات) → الرصيد والمخزن يرجعوا
+     • أوامر البيع المرآة (sourceSessionId === sessionId)
+     • فواتيرها المسودة المرتبطة (مباشرة بالمرآة، أو deliveryRefs كلها لنفس الجلسة)
+   لو فيه فاتورة مرحّلة (posted) مرتبطة → بنرفض ونوجّه لإلغائها الأول (قيد عكسي).
+
+   pure تماماً — بياخد snapshot (orders/salesOrders/salesInvoices) ويرجّع الخطة؛
+   التطبيق الفعلي في الكومبوننت عبر updOrder (التسليمات) + upConfig (الأوامر
+   والفواتير) + upSales (الجلسة). بيرجّع:
+     { ok:true,  plan:{ affectedOrderIds[], deliveryCount, mirrorSOIds[], draftInvoiceIds[] } }
+     { ok:false, blockedReason:"posted_invoice", postedInvoiceNos[] }
+     { ok:false, blockedReason:"no_session" } */
+export function planSessionSaleDeletion(sessionId, ctx = {}){
+  if(!sessionId) return { ok: false, blockedReason: "no_session" };
+  const orders = Array.isArray(ctx.orders) ? ctx.orders : [];
+  const salesOrders = Array.isArray(ctx.salesOrders) ? ctx.salesOrders : [];
+  const salesInvoices = Array.isArray(ctx.salesInvoices) ? ctx.salesInvoices : [];
+
+  const affectedOrderIds = [];
+  let deliveryCount = 0;
+  orders.forEach(o => {
+    if(!o) return;
+    const n = (o.customerDeliveries || []).filter(d => d && d.sessionId === sessionId).length;
+    if(n > 0){ affectedOrderIds.push(o.id); deliveryCount += n; }
+  });
+
+  const mirrorSOs = salesOrders.filter(so => so && so.sourceSessionId === sessionId);
+  const mirrorSOIds = mirrorSOs.map(so => so.id);
+
+  /* الفواتير المرشّحة: المرتبطة مباشرة بأوامر المرآة (salesInvoiceId) + أي فاتورة
+     deliveryRefs بتشير للجلسة (مسار قديم/مدموج). */
+  const candIds = new Set();
+  mirrorSOs.forEach(so => { if(so.salesInvoiceId) candIds.add(so.salesInvoiceId); });
+  salesInvoices.forEach(inv => {
+    if(inv && inv.status !== "void" && Array.isArray(inv.deliveryRefs) && inv.deliveryRefs.some(r => r && r.sessionId === sessionId)) candIds.add(inv.id);
+  });
+  const candInvoices = [...candIds].map(id => salesInvoices.find(i => i && i.id === id)).filter(Boolean);
+
+  /* أي فاتورة مرحّلة مرتبطة → رفض (لازم تتلغي بقيد عكسي الأول) */
+  const posted = candInvoices.filter(i => i.status === "posted");
+  if(posted.length > 0) return { ok: false, blockedReason: "posted_invoice", postedInvoiceNos: posted.map(i => i.invoiceNo || i.id) };
+
+  /* الفواتير المسودة اللي تتحذف: المرتبطة مباشرة بأمر مرآة، أو deliveryRefs كلها
+     لنفس الجلسة (مش مدموجة مع توزيعات تانية). المدموجة بنسيبها (مسودة، مفيش أثر
+     محاسبي — المستخدم يقدر يحذفها يدويًا). */
+  const linkedInvIds = new Set(mirrorSOs.map(so => so.salesInvoiceId).filter(Boolean));
+  const draftInvoiceIds = [];
+  candInvoices.forEach(inv => {
+    if(inv.status !== "draft") return;
+    if(linkedInvIds.has(inv.id)){ draftInvoiceIds.push(inv.id); return; }
+    const refs = Array.isArray(inv.deliveryRefs) ? inv.deliveryRefs : [];
+    if(refs.length > 0 && refs.every(r => r && r.sessionId === sessionId)) draftInvoiceIds.push(inv.id);
+  });
+
+  return { ok: true, plan: { affectedOrderIds, deliveryCount, mirrorSOIds, draftInvoiceIds: [...new Set(draftInvoiceIds)] } };
 }

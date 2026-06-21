@@ -31,7 +31,7 @@ import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
-import { generateSalesOrdersFromSessionMutator } from "../utils/sales/salesOrders.js";
+import { generateSalesOrdersFromSessionMutator, planSessionSaleDeletion } from "../utils/sales/salesOrders.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { VirtualList } from "../components/VirtualList.jsx";
 import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
@@ -774,17 +774,40 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     showToast("✓ تم حفظ الجرد");
   };
 
-  const delSession=(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
-    /* Check ACTUAL sales data - not just flags */
-    const hasSales=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===sessId));
-    if(hasSales){playBeep("error");showToast("⛔ لا يمكن حذف توزيعة بها حركات بيع فعلية — احذف حركات البيع أولاً");return}
-    const affectedOrders=new Set();
-    Object.entries(sess.grid||{}).forEach(([k])=>{const[orderId]=k.split("_");affectedOrders.add(orderId)});
-    sess.modelIds.forEach(id=>affectedOrders.add(id));
-    affectedOrders.forEach(orderId=>{updOrder(orderId,o=>{
-      o.customerDeliveries=(o.customerDeliveries||[]).filter(d=>d.sessionId!==sessId)})});
+  /* V21.27.95: حذف بيع التوزيعة بالكامل (cascade) — التوزيعة = مصدر الحقيقة.
+     بيشيل في حركة واحدة: التسليمات (customerDeliveries) + أوامر البيع المرآة +
+     فواتيرها المسودة → الرصيد والمخزن وحساب العميل يرجعوا. لو فيه فاتورة مرحّلة
+     مرتبطة بنرفض ونوجّه لإلغائها الأول (قيد عكسي). (قبل كده كان بيمنع الحذف لو
+     فيه بيع، فالمستخدم كان بيحذف المرآة لوحدها → تسليمات معلّقة.) */
+  const delSession=async(sessId)=>{const sess=sessions.find(s=>s.id===sessId);if(!sess)return;
+    const res=planSessionSaleDeletion(sessId,{orders,salesOrders:data.salesOrders,salesInvoices:data.salesInvoices});
+    if(!res.ok){
+      if(res.blockedReason==="posted_invoice"){playBeep("error");await tell("مش هينفع الحذف","في فاتورة مرحّلة ("+(res.postedInvoiceNos||[]).join("، ")+") مربوطة بالبيع ده.\n\nالغِها الأول من «فواتير المبيعات» (هيتعمل قيد محاسبي عكسي)، وبعدين احذف التوزيعة.",{type:"warning"})}
+      return;
+    }
+    const p=res.plan;
+    const hasCascade=p.deliveryCount>0||p.mirrorSOIds.length>0||p.draftInvoiceIds.length>0;
+    const msg=hasCascade
+      ?("هيتحذف البيع ده بالكامل ويرجّع المخزن وحساب العميل:\n"
+        +(p.deliveryCount>0?"• "+p.deliveryCount+" حركة بيع\n":"")
+        +(p.mirrorSOIds.length>0?"• "+p.mirrorSOIds.length+" أمر بيع (متولّد من التوزيعة)\n":"")
+        +(p.draftInvoiceIds.length>0?"• "+p.draftInvoiceIds.length+" فاتورة مسودة\n":"")
+        +"\nمتأكد؟")
+      :"حذف التوزيعة؟";
+    if(!await ask("حذف بيع التوزيعة",msg,{danger:true,confirmText:"حذف الكل"}))return;
+    /* 1) شيل التسليمات (الرصيد/المخزن يرجعوا تلقائياً) */
+    p.affectedOrderIds.forEach(oid=>updOrder(oid,o=>{o.customerDeliveries=(o.customerDeliveries||[]).filter(d=>d.sessionId!==sessId)}));
+    /* 2) شيل أوامر المرآة + الفواتير المسودة (config) */
+    if(p.mirrorSOIds.length>0||p.draftInvoiceIds.length>0){
+      upConfig(d=>{
+        if(p.mirrorSOIds.length>0&&Array.isArray(d.salesOrders))d.salesOrders=d.salesOrders.filter(so=>!(so&&p.mirrorSOIds.includes(so.id)));
+        if(p.draftInvoiceIds.length>0&&Array.isArray(d.salesInvoices))d.salesInvoices=d.salesInvoices.filter(i=>!(i&&p.draftInvoiceIds.includes(i.id)));
+      });
+    }
+    /* 3) شيل الجلسة */
     upSales(d=>{d.custDeliverySessions=(d.custDeliverySessions||[]).filter(s=>s.id!==sessId)});
-    if(activeSession===sessId)setActiveSession(null);showToast("✓ تم الحذف")};
+    if(activeSession===sessId)setActiveSession(null);
+    showToast("✓ تم حذف بيع التوزيعة"+(p.deliveryCount>0?" — رجع المخزن وحساب العميل":""))};
 
   /* V15.32: Group models by modelNo (same logic as aMods in the matrix popup).
      Returns array of groups: [{modelNo, modelDesc, orderIds:[], stockQty, isGrouped}] */
@@ -3835,7 +3858,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <select value={st} onChange={e=>updateSessStatus(s.id,e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS-2,fontFamily:"inherit",fontWeight:700,background:T.bg,color:stColor,cursor:"pointer"}}>{SESS_STATUSES.map(ss=><option key={ss} value={ss}>{ss}</option>)}</select>
                 {(()=>{const hasSales=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===s.id));return hasSales?<Btn small onClick={()=>confirmSessionSalesOrders(s.id)} style={{background:"#10B98115",color:"#059669",border:"1px solid #10B98140"}} title="تأكيد البيع — توليد أوامر بيع من التوزيعة">🧾</Btn>:null})()}
                 <Btn small onClick={()=>printSession(s.id)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
-                {canEdit&&<DelBtn onConfirm={()=>delSession(s.id)} blocked={(()=>{const hs=orders.some(o=>(o.customerDeliveries||[]).some(d=>d.sessionId===s.id));return hs?"بها حركات بيع":null})()}/>}
+                {/* V21.27.95: حذف بيع التوزيعة بالكامل (cascade) — مابقاش متمنوع لو فيه
+                    بيع؛ delSession بيشيل التسليمات + المرآة + الفواتير المسودة بتأكيد مفصّل. */}
+                {canEdit&&<Btn danger small onClick={()=>delSession(s.id)} title="حذف بيع التوزيعة بالكامل (يرجّع المخزن وحساب العميل)">🗑️</Btn>}
               </div>
             </div>
           </div>})}

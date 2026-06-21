@@ -12,6 +12,51 @@
 
 ---
 
+## V21.27.95 (2026-06-21) — 🧾 حذف بيع التوزيعة من مكان واحد (cascade) — يرجّع المخزن وحساب العميل
+
+بلاغ Ahmed (مشكلة ١ من مراجعة دورة المبيعات): بعد توزيعة + بيع سريع، حذف
+الفاتورة + أمر البيع مابيرجّعش كل حاجة — حساب العميل والمخزن يفضلوا متأثرين،
+ولازم تمسح أمر البيع **و** البيع السريع يدويًا عشان المخزن يرجع.
+
+**Root cause:** البيع من توزيعة/بيع سريع بيكتب `customerDeliveries` (مصدر
+الحقيقة للرصيد/حساب العميل) + أمر بيع **مرآة** (مقفول، `stockDeducted:false`).
+`deleteSalesOrderMutator` كان **مايمنعش** المرآة و**مايلمسش** `customerDeliveries`
+→ بيشيل ورقة المرآة بس والبيع الفعلي يفضل. وحذف الجلسة (`delSession`) كان
+**يمنع** لو فيه بيع.
+
+**القرار (Ahmed عبر AskUserQuestion):** امنع حذف المرآة من «أوامر البيع»،
+والحذف يتم من «سجل التسليمات» (التوزيعة = مصدر الحقيقة §14.1) ويمسح كل حاجة.
+
+**الإصلاح:**
+- `src/utils/sales/salesOrders.js`:
+  * `deleteSalesOrderMutator` + `cancelSalesOrderMutator`: بيرفضوا أي أمر له
+    `sourceDistributionId/isDistributionMirror` برسالة توجّه للتوزيعة.
+  * `planSessionSaleDeletion(sessionId, ctx)` (جديد، pure): بيخطّط الـ cascade —
+    `affectedOrderIds`/`deliveryCount` (customerDeliveries بالـ sessionId) +
+    `mirrorSOIds` (sourceSessionId) + `draftInvoiceIds` (مرتبطة بالمرآة أو
+    deliveryRefs كلها لنفس الجلسة). لو فيه فاتورة **مرحّلة** مرتبطة → يرفض
+    (`blockedReason:"posted_invoice"`). الفواتير المسودة المدموجة مع توزيعات
+    تانية بتتساب. **9 unit tests**.
+- `src/pages/CustDeliverPg.jsx`: `delSession` بقى async cascade — يطبّق الخطة:
+  `updOrder` يشيل التسليمات + `upConfig` يشيل المرآة والفواتير المسودة +
+  `upSales` يشيل الجلسة. تأكيد مفصّل (بيوري هيتحذف إيه)؛ لو فيه فاتورة مرحّلة
+  بيوجّه لإلغائها الأول. زر الحذف في «سجل التسليمات» مابقاش متمنوع لو فيه بيع.
+- `src/pages/sales/SalesOrdersPg.jsx`: بادج المرآة بقى «🔗 من توزيعة #X» + tooltip
+  بيقول احذف من «سجل التسليمات».
+
+**Blast radius:** حذف فقط (cascade) — الفواتير المرحّلة محميّة (لازم تتلغي
+بقيدها العكسي الأول). الإضافة pure + متغطّية بـ tests. مفيش migrations/rules.
+ملاحظة: حذف بيع فردي من «سجل البيع» (`delMove`) لسه بيشيل التسليمة بس (مسار
+منفصل) — الإصلاح ده للحذف الكامل من التوزيعة.
+
+ملفات: `src/utils/sales/salesOrders.js` ·
+`src/utils/sales/__tests__/distributionSaleDeletion.test.js` (جديد) ·
+`src/pages/CustDeliverPg.jsx` · `src/pages/sales/SalesOrdersPg.jsx` ·
+`package.json` · `src/constants/index.js` · `public/changelog.json` ·
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.94 (2026-06-21) — 🧮 توحيد أرصدة المخزن (الجاهز + الخامات) — صح ومتّسق
 
 طلب Ahmed: «راجع جزء المبيعات بالكامل + الـ data flow + ترتيب الإدخال +
