@@ -12,6 +12,56 @@
 
 ---
 
+## V21.27.97 (2026-06-21) — 🧾 تصحيح مرتجع أمر البيع: المستند يفضل كامل + إشعار دائن منفصل
+
+اعتراض Ahmed (صحيح ١٠٠٪) على V21.27.96: «المرتجع يقلّل أمر البيع؟ يعني يعدّل
+مباشر في أمر البيع؟ ده غلط محاسبيًا ومستنديًا. أمر البيع لازم يفضل كامل،
+والمرتجع كامل — كل حركة تكون كاملة.»
+
+**Root cause (في V21.27.96):** `returnFromDirectSalesOrderMutator` كان بيعدّل
+`so.items` (يقلّل الكمية) ويلغي الأمر لو فضي — كسر مبدأ المستند الثابت (§14.2).
+
+**التصحيح (مبدأ متماثل مع التوزيعة: البيع يفضل + مرتجع منفصل + الصافي = الاتنين):**
+- **أمر البيع immutable** — `so.items` مابتتلمسش أبدًا (يفضل كامل).
+- **المرتجع = مستند منفصل:** `so.returns[]` على الأمر + **إشعار دائن مسودة**
+  (`buildCreditNoteFromSalesOrderReturn` — جديد، بسعر/خصم بند الأمر الفعلي،
+  `returnRef.orderId` للـ COGS + `fromSalesOrderId`).
+- **المخزون** يرجع عبر `computeSoReserved` (= البنود − `so.returns`) من غير لمس
+  البنود. **الرصيد** عبر `accountSummary`/`statement` (بيطرحوا قيمة المرتجع).
+- بيشتغل **قبل وبعد** الفاتورة. المتفوتر المرحّل مسموح (الإشعار بيعكسه). إشعار
+  من أمر **غير متفوتر** مايترحّلش (حارس في `creditNotePostBlocker`) عشان مايعملش
+  قيد عكسي لبيع ماترحّلش.
+
+**المواضع المشتقّة اللي اتظبطت (عشان مايحصلش اختلال/حساب مزدوج):**
+- `stockCatalog.computeSoReserved` (المخزون) — يطرح `so.returns`.
+- `dashboardKpis` + `InventoryValuationReport` (تقييم المخزون) — يطرحوا `so.returns`.
+- `accountSummary.salesOrdersNet` (رصيد العميل) — `so.total − قيمة المرتجع`
+  (مش متكرر مع `returnsNet`/الإشعارات لأنهم من مصادر تانية).
+- `statement.js` التشغيلي — الأمر مدين كامل + صفوف مرتجع دائنة منفصلة.
+- `buildDailyReport` — مرتجعات اليوم تقلّل مبيعاته.
+- `SalesOrderDetailModal` — قسم «المرتجعات» منفصل + الصافي.
+
+**Helpers:** `salesOrderReturnedValue` / `salesOrderNetTotal`. **10 unit tests**
+(immutable items, so.returns، إشعار دائن، reserved، FIFO، over-return block،
+posted-link، non-invoiced-not-postable، خصم البند، mirror/other ignore).
+
+**ملاحظة:** V21.27.97 بيحلّ محل منطق V21.27.96. لو كنت استخدمت مرتجع V96 فعليًا
+(عدّل أمر بيع)، بلّغني أكتب repair — غالبًا لسه متستخدمش (كان نقاش).
+
+**Blast radius:** مالي/مشتق متعدد — كله pure + متغطّي بـ tests؛ مفيش
+migrations/rules. build ✓ · 380 tests ✓ · lint نظيف.
+
+ملفات: `src/utils/invoices.js` · `src/utils/sales/salesOrders.js` ·
+`src/utils/stockCatalog.js` · `src/utils/dashboardKpis.js` ·
+`src/utils/accountSummary.js` · `src/utils/accounting/statement.js` ·
+`src/utils/automation/buildDailyReport.js` ·
+`src/components/reports/InventoryValuationReport.jsx` ·
+`src/components/sales/SalesOrderDetailModal.jsx` · `src/pages/CustDeliverPg.jsx` ·
+`src/utils/sales/__tests__/returnFromDirectSO.test.js` · `package.json` ·
+`src/constants/index.js` · `public/changelog.json` · `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.96 (2026-06-21) — ↩️ مرتجع من «أمر بيع مباشر» (يقلّل الأمر ويرجّع المخزون صح)
 
 بلاغ Ahmed (مشكلة ٢): «المفروض أقدر أرجع أي بيع من توزيعة أو أمر بيع. حاولت

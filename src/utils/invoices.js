@@ -786,6 +786,57 @@ export function buildCreditNoteFromReturn(d, returnEntry, order, customer, userN
   };
 }
 
+/* V21.27.97: إشعار دائن من مرتجع «أمر بيع مباشر». بيستخدم سعر/خصم بند الأمر
+   الفعلي (أدقّ من resolveReturnUnitPrice اللي بيعتمد على الفاتورة — مهم لأن
+   المرتجع ممكن يتعمل قبل الفوترة). الـ schema مطابق لـ buildCreditNoteFromReturn
+   (returnRef.orderId عشان الترحيل يلاقي الأوردر للـ COGS) + fromSalesOrderId. */
+export function buildCreditNoteFromSalesOrderReturn(d, params){
+  const so = params.so || {};
+  const item = params.item || {};
+  const qty = Number(params.qty) || 0;
+  const customer = params.customer || null;
+  const date = params.date || new Date().toISOString().split("T")[0];
+  const orderId = item.sourceId || "";
+  const unitPrice = Number(item.unitPrice) || 0;
+  const gross = r2(unitPrice * qty);
+  /* خصم البند (per-line) مقسّم على نسبة الكمية المرتجعة (الأمر يفضل كامل) */
+  const fullQty = Number(item.qty) || 0;
+  let discount;
+  if(item.discountType === "amount"){
+    discount = r2(fullQty > 0 ? (Number(item.discountValue) || 0) * (qty / fullQty) : 0);
+  } else {
+    const pct = Math.min(Math.max(Number(item.discountValue) || 0, 0), 100);
+    discount = r2(gross * (pct / 100));
+  }
+  if(discount > gross) discount = gross;
+  const total = r2(gross - discount);
+  const discountPct = gross > 0 ? r2(discount / gross * 100) : 0;
+  const linkedInv = so.salesInvoiceId ? (d.salesInvoices || []).find(i => i && i.id === so.salesInvoiceId && i.status !== "void") : null;
+  const ref = { orderId, custId: customer?.id || so.customerId || "", _key: params._key || null, fromSalesOrderId: so.id || "" };
+  return {
+    id: "cn_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
+    creditNoteNo: reserveCreditNoteNo(d),
+    customerId: customer?.id || so.customerId || "",
+    customerName: customer?.name || so.customerName || "",
+    date,
+    linkedInvoiceId: linkedInv ? linkedInv.id : null,
+    linkedInvoiceNo: linkedInv ? linkedInv.invoiceNo : null,
+    returnRef: ref,
+    returnRefs: [ref],
+    fromSalesOrderId: so.id || "",
+    fromSalesOrderNo: so.orderNo || "",
+    items: [{ orderId, modelNo: item.modelNo || "", modelDesc: item.description || "", qty, unitPrice, lineTotal: gross }],
+    subtotal: gross,
+    discountPct,
+    discount,
+    total,
+    status: "draft",
+    notes: params.note || "",
+    createdAt: new Date().toISOString(),
+    createdBy: params.userName || "",
+  };
+}
+
 /* V18.65: Smart upsert — consolidates same-day same-customer DRAFT credit
    notes. Mirrors upsertSalesInvoiceFromDelivery semantics. Returns
    { creditNote, isNew }. */
@@ -934,6 +985,12 @@ export function creditNotePostBlocker(d, creditNoteId){
     if(inv && inv.status !== "posted"){
       return "الفاتورة المرتبطة (" + (inv.invoiceNo || cn.linkedInvoiceId) + ") مش مرحّلة (حالتها: " + (inv.status || "؟") + ") — لازم ترحّل الفاتورة الأصلية الأول قبل الإشعار الدائن.";
     }
+  }
+  /* V21.27.97: إشعار مرتجع «أمر بيع مباشر» من غير فاتورة مرتبطة — مايترحّلش
+     (الأمر لوحده مش قيد محاسبي؛ البيع بيترحّل بترحيل فاتورته). الترحيل هيعمل
+     قيد عكسي لبيع ماترحّلش = اختلال. رحّل فاتورة الأمر الأول. */
+  if(cn.fromSalesOrderId && !cn.linkedInvoiceId){
+    return "مرتجع أمر بيع مباشر غير متفوتر — رحّل فاتورة أمر البيع الأول، وبعدين رحّل الإشعار الدائن.";
   }
   return null;
 }

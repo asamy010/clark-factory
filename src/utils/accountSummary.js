@@ -170,7 +170,11 @@ export function buildCustomerSummary(custId, data) {
     if(!so || so.status === "cancelled") return;
     if(so.sourceDistributionId) return; /* V21.21.1: مرآة توزيعة — التوزيعة محتسبة بالفعل */
     if(String(so.customerId) !== String(custId)) return;
-    salesOrdersNet += Number(so.total) || 0;
+    /* V21.27.97: الأمر يفضل كامل؛ نطرح قيمة مرتجعاته (so.returns) من الصافي.
+       (مش متكرر مع returnsNet — اللي بييجي من customerReturns بس، ولا مع
+       الإشعارات الدائنة — اللي kind!=="discount" مش متحسبة في الرصيد التشغيلي.) */
+    const retVal = (so.returns || []).reduce((s, rr) => s + (Number(rr && rr.net) || 0), 0);
+    salesOrdersNet += (Number(so.total) || 0) - retVal;
   });
 
   /* V21.21.59: خصومات إضافية (إشعارات خصم مرحّلة) — تقلّل رصيد العميل.

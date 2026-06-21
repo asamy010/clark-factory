@@ -862,17 +862,19 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
      بيتقل خطّياً مع عدد العملاء (1500+). الخريطة فيها العملاء النشطين فقط؛
      getCustTotal بيرجّع 0 للي مش فيها (مفيش تسليمات = إجمالي 0). */
   const custTotalsMap=useMemo(()=>{const m=new Map();(orders||[]).forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId!=null)m.set(d.custId,(m.get(d.custId)||0)+(Number(d.qty)||0))});(o.customerReturns||[]).forEach(r=>{if(r.custId!=null)m.set(r.custId,(m.get(r.custId)||0)-(Number(r.qty)||0))})});return m},[orders]);
-  /* V21.27.96: موديلات «أمر البيع المباشر» القابلة للمرتجع لكل عميل. مبيعات
-     الأمر المباشر بتتحسب عبر reserved (مش customerDeliveries)، فالمرتجع بيقلّل
-     الأمر نفسه. nonPosted = قابل للمرتجع، posted = ممنوع (الغِ الفاتورة الأول). */
-  const directSoRet=useMemo(()=>{const out={};const invById={};(data.salesInvoices||[]).forEach(i=>{if(i&&i.id)invById[i.id]=i});
+  /* V21.27.97: موديلات «أمر البيع المباشر» القابلة للمرتجع لكل عميل = المُباع −
+     اللي اترجّع (so.returns). الأمر يفضل كامل؛ المرتجع مستند منفصل (إشعار دائن). */
+  const directSoRet=useMemo(()=>{const out={};
+    const M0=(cid)=>{if(!out[cid])out[cid]={models:{},total:0};return out[cid].models};
+    const ensure=(M,id,modelNo,modelDesc)=>{if(!M[id])M[id]={sourceId:id,modelNo:modelNo||"",modelDesc:modelDesc||"",sold:0,returned:0};return M[id]};
     (data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled"||so.sourceDistributionId||so.isDistributionMirror)return;
-      const cid=so.customerId;if(!cid)return;const inv=so.salesInvoiceId?invById[so.salesInvoiceId]:null;const posted=!!(inv&&inv.status==="posted");
+      const cid=so.customerId;if(!cid)return;
       (so.items||[]).forEach(it=>{if(!(it&&it.sourceType==="order"&&it.sourceId))return;const q=Number(it.qty)||0;if(q<=0)return;
-        if(!out[cid])out[cid]={models:{},total:0};const M=out[cid].models;
-        if(!M[it.sourceId])M[it.sourceId]={sourceId:it.sourceId,modelNo:it.modelNo||it.description||"",modelDesc:it.description||"",nonPosted:0,posted:0};
-        if(posted)M[it.sourceId].posted+=q;else{M[it.sourceId].nonPosted+=q;out[cid].total+=q}})});
-    return out},[data.salesOrders,data.salesInvoices]);
+        ensure(M0(cid),it.sourceId,it.modelNo||it.description,it.description).sold+=q});
+      (so.returns||[]).forEach(rr=>{if(!(rr&&rr.sourceId))return;
+        ensure(M0(cid),rr.sourceId,rr.modelNo,rr.modelDesc).returned+=(Number(rr.qty)||0)})});
+    Object.values(out).forEach(o=>{o.total=Object.values(o.models).reduce((s,m)=>s+Math.max(0,m.sold-m.returned),0)});
+    return out},[data.salesOrders]);
   const getCustSoRetTotal=(custId)=>(directSoRet[custId]?.total)||0;
   /* V18.7: Per-customer delivered/returned breakdown — used for rating in customer picker */
   const custDelRetMap=useMemo(()=>{const m=new Map();const g=(id)=>{let e=m.get(id);if(!e){e={del:0,ret:0};m.set(id,e)}return e};(orders||[]).forEach(o=>{(o.customerDeliveries||[]).forEach(d=>{if(d.custId!=null)g(d.custId).del+=(Number(d.qty)||0)});(o.customerReturns||[]).forEach(r=>{if(r.custId!=null)g(r.custId).ret+=(Number(r.qty)||0)})});return m},[orders]);
@@ -4370,8 +4372,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          على أوامر العميل FIFO (الأقدم أولاً) عند الحفظ (كل قطعة ترجع لأوردرها). */
       const _retG={};_retPerOrder.forEach(r=>{const k=r.modelNo||r.id;if(!_retG[k])_retG[k]={id:"RET:"+k,modelNo:r.modelNo,modelDesc:r.modelDesc,delivered:0,returned:0,net:0,lots:[]};const g=_retG[k];g.delivered+=r.delivered;g.returned+=r.returned;g.net+=r.net;g.lots.push({id:r.id,net:r.net,createdAt:r.createdAt})});
       const custModels=Object.values(_retG).map(g=>{g.lots.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));return g});
-      /* V21.27.96: صفوف مرتجع «أمر البيع المباشر» — net = nonPosted (المرحّل ممنوع). */
-      const soModels=Object.values(directSoRet[freeReturn]?.models||{}).filter(m=>m.nonPosted>0).map(m=>({id:"SORET:"+m.sourceId,kind:"so",sourceId:m.sourceId,modelNo:m.modelNo,modelDesc:m.modelDesc,delivered:m.nonPosted,returned:0,net:m.nonPosted,posted:m.posted}));
+      /* V21.27.97: صفوف مرتجع «أمر البيع المباشر» — net = المُباع − اللي اترجّع. */
+      const soModels=Object.values(directSoRet[freeReturn]?.models||{}).map(m=>({...m,net:Math.max(0,(m.sold||0)-(m.returned||0))})).filter(m=>m.net>0).map(m=>({id:"SORET:"+m.sourceId,kind:"so",sourceId:m.sourceId,modelNo:m.modelNo,modelDesc:m.modelDesc,delivered:m.sold,returned:m.returned,net:m.net}));
       const allModels=[...custModels.map(m=>({...m,kind:"dist"})),...soModels];
       const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
       const saveFreeReturn=async()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
@@ -4388,14 +4390,16 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             });
             remaining-=take;totalDone+=take;
           }});
-        /* (ب) مرتجع «أمر بيع مباشر» → تقليل الأمر نفسه (يرجّع reserved/المخزون) */
-        const soReturns=[];soModels.forEach(m=>{const q=Math.min(Number(freeRetItems[m.id])||0,m.net);if(q>0)soReturns.push({sourceId:m.sourceId,qty:q})});
-        let soBlocked=[];
+        /* (ب) مرتجع «أمر بيع مباشر» → مستند منفصل: so.returns + إشعار دائن (الأمر
+           يفضل كامل؛ المخزون يرجع عبر computeSoReserved). */
+        const soReturns=[];soModels.forEach(m=>{const q=Math.min(Number(freeRetItems[m.id])||0,m.net);if(q>0)soReturns.push({sourceId:m.sourceId,qty:q,note:freeRetNote||"مرتجع حر"})});
+        let soBlocked=[],soCNs=0;
         if(soReturns.length>0){let res=null;upConfig(d=>{res=returnFromDirectSalesOrderMutator(d,{customerId:freeReturn,returns:soReturns},userName)});
-          if(res&&res.ok){(res.reduced||[]).forEach(x=>totalDone+=(Number(x.qty)||0));soBlocked=res.blocked||[]}}
+          if(res&&res.ok){(res.reduced||[]).forEach(x=>totalDone+=(Number(x.qty)||0));soBlocked=res.blocked||[];soCNs=(res.creditNotes||[]).length}}
         setFreeReturn(null);
-        if(soBlocked.length>0){const tot=soBlocked.reduce((s,b)=>s+((Number(b.requested)||0)-(Number(b.available)||0)),0);await tell("اتسجّل المرتجع جزئيًا","تم تسجيل مرتجع "+totalDone+" قطعة.\n\n⚠️ "+tot+" قطعة في أوامر متفوترة ومرحّلة — مينفعش ترجع من هنا. الغِ الفاتورة الأول من «فواتير المبيعات» (قيد عكسي) وبعدين رجّع.",{type:"warning"})}
-        else showToast("✓ تم تسجيل مرتجع "+totalDone+" قطعة من "+cust.name)};
+        const cnMsg=soCNs>0?(" + "+soCNs+" إشعار دائن"):"";
+        if(soBlocked.length>0){const tot=soBlocked.reduce((s,b)=>s+((Number(b.requested)||0)-(Number(b.available)||0)),0);await tell("اتسجّل المرتجع جزئيًا","تم تسجيل مرتجع "+totalDone+" قطعة"+cnMsg+".\n\n⚠️ "+tot+" قطعة أكتر من المتاح للمرتجع (اترجّعت قبل كده) — اتجاهلت.",{type:"warning"})}
+        else showToast("✓ تم تسجيل مرتجع "+totalDone+" قطعة من "+cust.name+cnMsg)};
       return<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setFreeReturn(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:20,padding:24,width:"100%",maxWidth:isMob?420:550,maxHeight:"85vh",overflowY:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -4405,7 +4409,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{fontSize:FS-2,color:T.textMut,marginBottom:12}}>{"استلم "+(getCustTotal(freeReturn)+getCustSoRetTotal(freeReturn))+" قطعة خلال الموسم"}{getCustSoRetTotal(freeReturn)>0&&<span style={{color:"#8B5CF6",marginInlineStart:6}}>{"(منها 🧾 "+getCustSoRetTotal(freeReturn)+" بأوامر مباشرة)"}</span>}</div>
           <table style={{width:"100%",borderCollapse:"collapse",marginBottom:12}}><thead><tr>{["الموديل","تسليم","مرتجع سابق","صافي","كمية المرتجع"].map(h=><th key={h} style={{...TH,fontSize:FS-2}}>{h}</th>)}</tr></thead><tbody>
             {allModels.map((m,i)=>{const retQ=Number(freeRetItems[m.id])||0;return<tr key={m.id} style={{background:i%2===0?"transparent":T.bg+"80"}}>
-              <td style={{...TD,fontWeight:700}}><div style={{color:T.accent}}>{m.modelNo}{m.kind==="so"&&<span style={{marginInlineStart:5,fontSize:FS-4,fontWeight:700,color:"#8B5CF6",background:"#8B5CF612",padding:"1px 6px",borderRadius:20}} title="مرتجع من أمر بيع مباشر — بيقلّل الأمر">🧾 أمر مباشر</span>}{m.kind==="so"&&m.posted>0&&<span style={{marginInlineStart:4,fontSize:FS-4,color:T.textMut}} title="كمية متفوترة ومرحّلة — الغِ الفاتورة الأول">🔒{m.posted}</span>}{m.lots&&m.lots.length>1&&<span style={{marginInlineStart:5,fontSize:FS-3,color:"#8B5CF6"}} title={m.lots.length+" تشغيلات (FIFO)"}>⧉{m.lots.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
+              <td style={{...TD,fontWeight:700}}><div style={{color:T.accent}}>{m.modelNo}{m.kind==="so"&&<span style={{marginInlineStart:5,fontSize:FS-4,fontWeight:700,color:"#8B5CF6",background:"#8B5CF612",padding:"1px 6px",borderRadius:20}} title="مرتجع من أمر بيع مباشر — مستند منفصل (إشعار دائن)؛ الأمر يفضل كامل">🧾 أمر مباشر</span>}{m.lots&&m.lots.length>1&&<span style={{marginInlineStart:5,fontSize:FS-3,color:"#8B5CF6"}} title={m.lots.length+" تشغيلات (FIFO)"}>⧉{m.lots.length}</span>}</div><div style={{fontSize:FS-3,color:T.textMut}}>{m.modelDesc}</div></td>
               <td style={{...TD,textAlign:"center"}}>{m.delivered}</td>
               <td style={{...TD,textAlign:"center",color:m.returned>0?T.err:T.textMut}}>{m.returned||"—"}</td>
               <td style={{...TD,textAlign:"center",fontWeight:700}}>{m.net}</td>

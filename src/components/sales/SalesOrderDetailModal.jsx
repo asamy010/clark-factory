@@ -66,6 +66,27 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
           <DocItemsTable items={so.items} headerDiscountPct={so.discountPct} accent="#0EA5E9" />
           <DocTotals items={so.items} headerDiscountPct={so.discountPct} accent="#0EA5E9" />
 
+          {/* V21.27.97: المرتجعات — مستندات منفصلة (الأمر يفضل كامل فوق). كل
+              مرتجع له إشعار دائن. الصافي = الأمر − المرتجعات. */}
+          {Array.isArray(so.returns) && so.returns.length > 0 && (() => {
+            const retVal = so.returns.reduce((s, r) => s + (Number(r && r.net) || 0), 0);
+            const retQty = so.returns.reduce((s, r) => s + (Number(r && r.qty) || 0), 0);
+            return (
+              <div style={{ background: "#EF444408", border: "1px solid #EF444425", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+                <div style={{ fontWeight: 800, color: T.err, fontSize: FS - 1, marginBottom: 6 }}>↩️ مرتجعات ({retQty} قطعة · {fmt(retVal)})</div>
+                {so.returns.map((r, i) => (
+                  <div key={r.id || i} style={{ display: "flex", justifyContent: "space-between", fontSize: FS - 2, color: T.text, padding: "3px 0", borderTop: i ? "1px solid " + T.brd : "none" }}>
+                    <span>{r.date} · {r.modelNo || ""} × {r.qty}{r.creditNoteNo ? <span style={{ color: "#8B5CF6", marginInlineStart: 6 }}>🧾 {r.creditNoteNo}</span> : null}</span>
+                    <span style={{ fontWeight: 700, color: T.err }}>-{fmt(Number(r.net) || 0)}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: FS, color: "#047857", borderTop: "2px solid " + T.brd, marginTop: 6, paddingTop: 6 }}>
+                  <span>الصافي بعد المرتجع</span><span>{fmt((Number(so.total) || 0) - retVal)}</span>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* cross-links */}
           <div style={{ background: "#8B5CF608", border: "1px dashed #8B5CF630", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: FS - 2 }}>
             <div style={{ fontWeight: 700, color: "#8B5CF6", marginBottom: 4 }}>🔗 المستندات المرتبطة</div>

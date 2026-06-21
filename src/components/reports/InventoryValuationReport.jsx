@@ -32,7 +32,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
     if(kind !== "finished") return { rows: [] };
     /* V21.20.5: كميات أوامر البيع المحجوزة («أمر البيع = بيع») تُطرح من المتاح */
     const soReserved = {};
-    (data.salesOrders || []).forEach(so => { if(!so || so.status === "cancelled") return; if(so.sourceDistributionId) return; /* V21.21.1: مرآة توزيعة لا تُحتسب */ (so.items || []).forEach(it => { if(it && it.sourceType === "order" && it.sourceId) soReserved[it.sourceId] = (soReserved[it.sourceId] || 0) + (Number(it.qty) || 0); }); });
+    (data.salesOrders || []).forEach(so => { if(!so || so.status === "cancelled") return; if(so.sourceDistributionId) return; /* V21.21.1: مرآة توزيعة لا تُحتسب */ (so.items || []).forEach(it => { if(it && it.sourceType === "order" && it.sourceId) soReserved[it.sourceId] = (soReserved[it.sourceId] || 0) + (Number(it.qty) || 0); }); /* V21.27.97: مرتجعات الأمر المباشر تُطرح */ (so.returns || []).forEach(rr => { if(rr && rr.sourceId) soReserved[rr.sourceId] = (soReserved[rr.sourceId] || 0) - (Number(rr.qty) || 0); }); });
     const rows = [];
     (data.orders || []).forEach(o => {
       /* الرصيد الفعلي للمخزن الجاهز — مطابق لـ «الموديلات المتاحة» (CustDeliverPg

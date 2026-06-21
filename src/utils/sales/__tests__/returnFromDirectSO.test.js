@@ -1,140 +1,142 @@
 import { describe, it, expect } from "vitest";
-import { returnFromDirectSalesOrderMutator } from "../salesOrders.js";
+import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal } from "../salesOrders.js";
 import { computeSoReserved } from "../../stockCatalog.js";
+import { creditNotePostBlocker } from "../../invoices.js";
 
-/* بنّاء أمر بيع مباشر بسيط (بند موديل واحد، خصم per-line 0). */
+/* أمر بيع مباشر: بند موديل واحد. */
 const directSO = (id, custId, sourceId, qty, unitPrice, extra = {}) => ({
-  id, orderNo: id, customerId: custId, status: "delivered",
+  id, orderNo: id, customerId: custId, customerName: extra.customerName || "عميل", status: "delivered",
   date: extra.date || "2026-06-01", createdAt: extra.createdAt || id,
-  items: [{ sourceType: "order", sourceId, modelNo: "M-" + sourceId, description: "موديل " + sourceId, qty, unitPrice, discountType: "pct", discountValue: 0, lineTotal: qty * unitPrice }],
+  items: [{ sourceType: "order", sourceId, modelNo: "M-" + sourceId, description: "موديل " + sourceId, qty, unitPrice, discountType: "pct", discountValue: extra.discountValue || 0, lineTotal: qty * unitPrice }],
   subtotal: qty * unitPrice, discountPct: 0, totalDiscount: 0, total: qty * unitPrice,
   salesInvoiceId: extra.salesInvoiceId || "", salesInvoiceNo: extra.salesInvoiceNo || "",
   sourceDistributionId: extra.sourceDistributionId, isDistributionMirror: extra.isDistributionMirror,
 });
 
-describe("returnFromDirectSalesOrderMutator", () => {
-  it("reduces the SO item qty (partial) → reserved drops by the returned amount", () => {
-    const d = { salesOrders: [directSO("so1", "c1", "o1", 10, 100)], salesInvoices: [] };
-    const before = computeSoReserved(d.salesOrders)["o1"];
-    expect(before).toBe(10);
+describe("returnFromDirectSalesOrderMutator (separate-document, immutable SO)", () => {
+  it("does NOT mutate SO items; records so.returns + a draft credit note", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 10, 100)], salesInvoices: [], salesCreditNotes: [] };
     const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 3 }] }, "tester");
     expect(r.ok).toBe(true);
     expect(r.reduced).toEqual([{ sourceId: "o1", qty: 3 }]);
-    expect(r.blocked).toEqual([]);
     const so = d.salesOrders[0];
-    expect(so.items[0].qty).toBe(7);
-    expect(so.total).toBe(700); // 7 × 100
-    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(7);
+    /* SO items untouched (الأمر يفضل كامل) */
+    expect(so.items[0].qty).toBe(10);
+    expect(so.total).toBe(1000);
+    expect(so.status).toBe("delivered");
+    /* return recorded separately */
+    expect(so.returns.length).toBe(1);
+    expect(so.returns[0]).toMatchObject({ sourceId: "o1", qty: 3, net: 300 });
+    /* credit note created (draft, references the model order) */
+    expect(d.salesCreditNotes.length).toBe(1);
+    const cn = d.salesCreditNotes[0];
+    expect(cn.status).toBe("draft");
+    expect(cn.total).toBe(300);
+    expect(cn.returnRef.orderId).toBe("o1");
+    expect(cn.fromSalesOrderId).toBe("so1");
+    expect(so.returns[0].creditNoteId).toBe(cn.id);
   });
 
-  it("full return cancels the SO", () => {
-    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [] };
+  it("stock recovers via computeSoReserved (items − returns) without editing items", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 10, 100)], salesInvoices: [], salesCreditNotes: [] };
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(10);
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(6); // 10 sold − 4 returned
+    expect(d.salesOrders[0].items[0].qty).toBe(10); // still full
+  });
+
+  it("full return leaves the SO complete (not cancelled), reserved → 0", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [], salesCreditNotes: [] };
     const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 5 }] }, "t");
     expect(r.ok).toBe(true);
-    expect(d.salesOrders[0].status).toBe("cancelled");
-    expect(computeSoReserved(d.salesOrders)["o1"] || 0).toBe(0); // cancelled excluded
+    expect(d.salesOrders[0].status).toBe("delivered"); // SO stays
+    expect(d.salesOrders[0].items[0].qty).toBe(5);     // items full
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(0);
+    expect(salesOrderReturnedValue(d.salesOrders[0])).toBe(500);
+    expect(salesOrderNetTotal(d.salesOrders[0])).toBe(0);
   });
 
-  it("BLOCKS the posted-invoiced portion; only non-posted is reduced", () => {
+  it("posted-invoiced SO is returnable too; credit note links the posted invoice", () => {
     const d = {
-      salesOrders: [
-        directSO("soPosted", "c1", "o1", 4, 100, { salesInvoiceId: "inv1" }),
-        directSO("soOpen", "c1", "o1", 6, 100, { createdAt: "so2" }),
-      ],
+      salesOrders: [directSO("so1", "c1", "o1", 4, 100, { salesInvoiceId: "inv1", salesInvoiceNo: "INV-1" })],
       salesInvoices: [{ id: "inv1", status: "posted", invoiceNo: "INV-1" }],
+      salesCreditNotes: [],
     };
-    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 8 }] }, "t");
+    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 2 }] }, "t");
     expect(r.ok).toBe(true);
-    // only 6 (non-posted) reducible; 2 blocked
-    expect(r.reduced).toEqual([{ sourceId: "o1", qty: 6 }]);
-    expect(r.blocked.length).toBe(1);
-    expect(r.blocked[0]).toMatchObject({ sourceId: "o1", requested: 8, available: 6, postedBlocked: 4 });
-    // posted SO untouched, open SO emptied → cancelled
-    expect(d.salesOrders.find(s => s.id === "soPosted").items[0].qty).toBe(4);
-    expect(d.salesOrders.find(s => s.id === "soOpen").status).toBe("cancelled");
+    const cn = d.salesCreditNotes[0];
+    expect(cn.linkedInvoiceId).toBe("inv1");
+    expect(cn.total).toBe(200);
+    /* postable because linked invoice is posted */
+    expect(creditNotePostBlocker(d, cn.id)).toBeNull();
   });
 
-  it("FIFO: reduces the oldest SO first", () => {
+  it("credit note for a NON-invoiced SO return is NOT postable (would reverse an unposted sale)", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [], salesCreditNotes: [] };
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 2 }] }, "t");
+    const cn = d.salesCreditNotes[0];
+    expect(cn.linkedInvoiceId).toBeNull();
+    expect(creditNotePostBlocker(d, cn.id)).toMatch(/غير متفوتر/);
+  });
+
+  it("blocks the over-returned portion (more than sold − already returned)", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [], salesCreditNotes: [] };
+    /* first return 3 */
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 3 }] }, "t");
+    /* try to return 4 more → only 2 available */
+    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
+    expect(r.reduced).toEqual([{ sourceId: "o1", qty: 2 }]);
+    expect(r.blocked[0]).toMatchObject({ sourceId: "o1", requested: 4, available: 2 });
+    expect(d.salesOrders[0].returns.reduce((s, x) => s + x.qty, 0)).toBe(5); // 3 + 2
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(0);
+  });
+
+  it("FIFO: returns the oldest SO first", () => {
     const d = {
       salesOrders: [
         directSO("soNew", "c1", "o1", 5, 100, { date: "2026-06-10", createdAt: "soNew" }),
         directSO("soOld", "c1", "o1", 5, 100, { date: "2026-06-01", createdAt: "soOld" }),
       ],
-      salesInvoices: [],
+      salesInvoices: [], salesCreditNotes: [],
     };
-    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
-    expect(r.ok).toBe(true);
-    expect(d.salesOrders.find(s => s.id === "soOld").items[0].qty).toBe(1); // oldest reduced first
-    expect(d.salesOrders.find(s => s.id === "soNew").items[0].qty).toBe(5);
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
+    const old = d.salesOrders.find(s => s.id === "soOld");
+    const neu = d.salesOrders.find(s => s.id === "soNew");
+    expect(old.returns.reduce((s, x) => s + x.qty, 0)).toBe(4); // oldest fully tapped first
+    expect((neu.returns || []).length).toBe(0); // newest untouched
   });
 
-  it("syncs the linked DRAFT invoice when reducing", () => {
-    const d = {
-      salesOrders: [directSO("so1", "c1", "o1", 10, 100, { salesInvoiceId: "inv1", salesInvoiceNo: "INV-1" })],
-      salesInvoices: [{ id: "inv1", status: "draft", invoiceNo: "INV-1", items: [{ orderId: "o1", modelNo: "M-o1", qty: 10, unitPrice: 100, lineTotal: 1000 }], subtotal: 1000, discount: 0, total: 1000 }],
-    };
-    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
-    expect(r.ok).toBe(true);
-    const inv = d.salesInvoices.find(i => i.id === "inv1");
-    expect(inv.items[0].qty).toBe(6);
-    expect(inv.total).toBe(600);
+  it("uses the SO line's discount when valuing the credit note", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 10, 100, { discountValue: 20 })], salesInvoices: [], salesCreditNotes: [] };
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 5 }] }, "t");
+    const cn = d.salesCreditNotes[0];
+    expect(cn.subtotal).toBe(500);   // 5 × 100
+    expect(cn.discount).toBe(100);   // 20%
+    expect(cn.total).toBe(400);
+    expect(d.salesOrders[0].returns[0].net).toBe(400);
   });
 
-  it("full return on a DRAFT-invoiced SO removes the draft invoice + cancels SO", () => {
-    const d = {
-      salesOrders: [directSO("so1", "c1", "o1", 3, 100, { salesInvoiceId: "inv1", salesInvoiceNo: "INV-1" })],
-      salesInvoices: [{ id: "inv1", status: "draft", invoiceNo: "INV-1", items: [{ orderId: "o1", qty: 3, unitPrice: 100, lineTotal: 300 }], subtotal: 300, total: 300 }],
-    };
-    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 3 }] }, "t");
-    expect(r.ok).toBe(true);
-    expect(d.salesInvoices.find(i => i.id === "inv1")).toBeUndefined(); // draft removed
-    expect(d.salesOrders[0].status).toBe("cancelled");
-    expect(d.salesOrders[0].salesInvoiceId).toBe("");
-  });
-
-  it("ignores distribution mirrors and other customers", () => {
+  it("ignores mirrors and other customers", () => {
     const d = {
       salesOrders: [
         directSO("mir", "c1", "o1", 5, 100, { isDistributionMirror: true, sourceDistributionId: "S:c1" }),
         directSO("other", "c2", "o1", 5, 100),
       ],
-      salesInvoices: [],
+      salesInvoices: [], salesCreditNotes: [],
     };
     const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 5 }] }, "t");
-    expect(r.ok).toBe(true);
-    expect(r.reduced).toEqual([{ sourceId: "o1", qty: 0 }]); // nothing reducible for c1
-    expect(r.blocked[0]).toMatchObject({ available: 0 });
-    expect(d.salesOrders.find(s => s.id === "mir").items[0].qty).toBe(5); // untouched
-    expect(d.salesOrders.find(s => s.id === "other").items[0].qty).toBe(5);
-  });
-
-  it("returns one model without touching others in a multi-line SO", () => {
-    const d = {
-      salesOrders: [{
-        id: "so1", customerId: "c1", status: "delivered", date: "2026-06-01", createdAt: "so1",
-        items: [
-          { sourceType: "order", sourceId: "o1", modelNo: "M1", description: "m1", qty: 4, unitPrice: 100, discountType: "pct", discountValue: 0, lineTotal: 400 },
-          { sourceType: "order", sourceId: "o2", modelNo: "M2", description: "m2", qty: 6, unitPrice: 50, discountType: "pct", discountValue: 0, lineTotal: 300 },
-        ],
-        subtotal: 700, discountPct: 0, totalDiscount: 0, total: 700, salesInvoiceId: "",
-      }],
-      salesInvoices: [],
-    };
-    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
-    expect(r.ok).toBe(true);
-    const so = d.salesOrders[0];
-    expect(so.status).toBe("delivered"); // o2 still live → not cancelled
-    expect(so.items.find(it => it.sourceId === "o1")).toBeUndefined(); // o1 removed
-    expect(so.items.find(it => it.sourceId === "o2").qty).toBe(6);
-    expect(so.total).toBe(300);
+    expect(r.reduced).toEqual([{ sourceId: "o1", qty: 0 }]);
+    expect(d.salesOrders.find(s => s.id === "mir").returns).toBeUndefined();
+    expect(d.salesCreditNotes.length).toBe(0);
   });
 
   it("guards: no customer / no qty", () => {
     expect(returnFromDirectSalesOrderMutator({ salesOrders: [] }, { returns: [] }).ok).toBe(false);
-    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [] };
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [], salesCreditNotes: [] };
     const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 0 }] }, "t");
     expect(r.ok).toBe(true);
     expect(r.reduced).toEqual([]);
-    expect(d.salesOrders[0].items[0].qty).toBe(5);
+    expect(d.salesOrders[0].returns).toBeUndefined();
+    expect(d.salesCreditNotes.length).toBe(0);
   });
 });

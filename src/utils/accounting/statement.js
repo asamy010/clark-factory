@@ -174,6 +174,15 @@ function gatherCustomerEntries(data, custId, mode){
         desc: "أمر بيع — " + (so.orderNo || ""),
         sub: fmt(qty) + " قطعة · الإجمالي " + fmt(r2(so.total || 0)),
         debit: r2(so.total || 0), credit: 0, detail: { kind: "session", lines }, raw: so });
+      /* V21.27.97: مرتجعات الأمر = مستندات منفصلة (الأمر يفضل كامل فوق) — صف
+         دائن لكل مرتجع (يقلّل الرصيد التشغيلي). */
+      (so.returns || []).forEach(rr => {
+        if(!rr) return;
+        entries.push({ date: rr.date || so.date, createdAt: rr.createdAt, type: "return", ref: rr.creditNoteNo || so.orderNo, refId: so.id + ":" + rr.id,
+          desc: "مرتجع أمر بيع — " + (so.orderNo || ""),
+          sub: fmt(Number(rr.qty) || 0) + " قطعة" + (rr.modelNo ? " · " + rr.modelNo : ""),
+          debit: 0, credit: r2(Number(rr.net) || 0), raw: rr });
+      });
     });
     /* V21.21.59: إشعارات الخصم الإضافي تظهر في الوضع التشغيلي كمان (تقلّل الرصيد) */
     (data.salesCreditNotes || []).forEach(cn => {

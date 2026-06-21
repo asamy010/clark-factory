@@ -61,6 +61,8 @@ export function computeDashboardKpis(data){
   (d.salesOrders || []).forEach(so => {
     if(!so || so.status === "cancelled" || so.sourceDistributionId) return;
     (so.items || []).forEach(it => { if(it && it.sourceType === "order" && it.sourceId) soReserved[it.sourceId] = (soReserved[it.sourceId] || 0) + (Number(it.qty) || 0); });
+    /* V21.27.97: مرتجعات الأمر المباشر (so.returns) تطرح من المحجوز */
+    (so.returns || []).forEach(rr => { if(rr && rr.sourceId) soReserved[rr.sourceId] = (soReserved[rr.sourceId] || 0) - (Number(rr.qty) || 0); });
   });
   let finishedVal = 0; const finishedDetail = [];
   (d.orders || []).forEach(o => {

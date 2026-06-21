@@ -33,6 +33,13 @@ export function computeSoReserved(salesOrders){
         m[it.sourceId] = (m[it.sourceId] || 0) + (Number(it.qty) || 0);
       }
     });
+    /* V21.27.97: مرتجعات الأمر المباشر = مستند منفصل (so.returns) — تُطرح من
+       المحجوز من غير لمس البنود (الأمر يفضل كامل). */
+    (so.returns || []).forEach(rr => {
+      if(rr && rr.sourceId){
+        m[rr.sourceId] = (m[rr.sourceId] || 0) - (Number(rr.qty) || 0);
+      }
+    });
   });
   return m;
 }

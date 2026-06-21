@@ -71,6 +71,21 @@ function _salesSection(data, date) {
     byCustomer[cName].qty += qty;
     byCustomer[cName].value += value;
   });
+  /* V21.27.97: مرتجعات أوامر البيع المباشرة في يوم التقرير — تقلّل المبيعات.
+     (الأمر يفضل كامل في يومه؛ المرتجع حركة منفصلة في يومه = so.returns.) */
+  (data.salesOrders || []).forEach(so => {
+    if (!so || so.sourceDistributionId) return;
+    (so.returns || []).forEach(rr => {
+      if (!rr || String(rr.date || "").slice(0, 10) !== date) return;
+      const qty = Number(rr.qty) || 0, value = Number(rr.net) || 0;
+      salesQty -= qty;
+      salesValue -= value;
+      const cName = rr.custName || so.customerName || so.customerNameAdHoc || "—";
+      if (!byCustomer[cName]) byCustomer[cName] = { qty: 0, value: 0 };
+      byCustomer[cName].qty -= qty;
+      byCustomer[cName].value -= value;
+    });
+  });
   /* Sales invoices count for the day (preferred) */
   const todayInvs = _dayItems(data.salesInvoices, date)
     .filter(i => i.status === "posted" || i.status === "draft");

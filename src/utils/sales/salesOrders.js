@@ -34,7 +34,8 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { applyStockDelta } from "../categories.js";
-import { reserveInvoiceNo } from "../invoices.js";
+import { r2 } from "../format.js";
+import { reserveInvoiceNo, buildCreditNoteFromSalesOrderReturn } from "../invoices.js";
 import { recalcQuotationTotals } from "./quotations.js";
 import { previewDocNo, reserveDocNo } from "../docNumbering.js";
 
@@ -676,93 +677,85 @@ export function planSessionSaleDeletion(sessionId, ctx = {}){
   return { ok: true, plan: { affectedOrderIds, deliveryCount, mirrorSOIds, draftInvoiceIds: [...new Set(draftInvoiceIds)] } };
 }
 
-/* ── V21.27.96: مرتجع بيع من «أمر بيع مباشر» (يقلّل الأمر نفسه) ──
-   مبيعات الأمر المباشر بتتحسب عبر reserved (computeSoReserved = مجموع item.qty
-   للبنود sourceType "order")، مش عبر customerDeliveries زي التوزيعة. فالمرتجع
-   الصح = تقليل بند الأمر → reserved يقل → المخزون والرصيد التشغيلي يرجعوا.
-   (إضافة customerReturn هنا كانت هتعدّ المخزون مرتين — الأمر لسه حاجز الكمية.)
+/* ── V21.27.97: مرتجع بيع من «أمر بيع مباشر» (مستند منفصل — الأمر يفضل كامل) ──
+   تصحيح V21.27.96 (اللي كانت بتعدّل بنود الأمر = غلط محاسبي/مستندي — بلاغ
+   Ahmed). المبدأ الصح (متماثل مع التوزيعة: البيع يفضل، المرتجع مستند منفصل،
+   الصافي = الاتنين):
+     • أمر البيع immutable — items مابتتلمسش (يفضل كامل).
+     • المرتجع بيتسجّل في so.returns[] → المخزون يرجع عبر computeSoReserved
+       (بيطرح so.returns)، والرصيد عبر accountSummary/statement (بيطرحوا قيمته).
+     • وبيتعمل «إشعار دائن» مسودة (buildCreditNoteFromSalesOrderReturn) = المستند
+       المحاسبي الرسمي؛ بيعكس البيع لما يترحّل. الترحيل مقفول لو الأمر مش متفوتر
+       مرحّل (creditNotePostBlocker) عشان مايعملش قيد عكسي لبيع ماترحّلش.
+   بيشتغل قبل وبعد الفاتورة. مفيش منع للمتفوتر (الإشعار الدائن بيعكسه صح).
 
-   القاعدة (قرار Ahmed): لو الأمر متفوتر ومرحّل (فاتورة posted) → ممنوع تقليله
-   (الغِ الفاتورة الأول — قيد عكسي)؛ بيرجع في blocked[]. draft أو غير متفوتر →
-   بيتقلّل، والفاتورة المسودة (1:1) بتتزامن، أو تتشال لو الأمر بقى فاضي (يتلغى).
-   مفيش إشعار دائن هنا لأن مفيش revenue مرحّل (المرحّل ممنوع أصلاً).
-
-   pure. payload = { customerId, returns:[{ sourceId, qty }] } (sourceId = id
-   الأوردر/الموديل). يرجّع { ok, reduced:[{sourceId,qty}], blocked:[{sourceId,
-   requested, available, postedBlocked }] }. */
+   pure على d (salesOrders + salesCreditNotes [+ customers للاسم]). payload =
+   { customerId, returns:[{ sourceId, qty, note? }] }. يرجّع { ok,
+   reduced:[{sourceId,qty}], blocked:[{sourceId, requested, available}] }
+   (blocked = طلب أكتر من المتاح للمرتجع). */
 export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
   const customerId = payload && payload.customerId;
   const returns = Array.isArray(payload && payload.returns) ? payload.returns : [];
   if(!customerId) return { ok: false, error: "عميل غير محدد" };
   if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
-  const invoices = Array.isArray(d.salesInvoices) ? d.salesInvoices : [];
-  const nowIso = new Date().toISOString();
-  const invIdsToDelete = new Set();
-  const isPosted = so => {
-    if(!so.salesInvoiceId) return false;
-    const inv = invoices.find(i => i && i.id === so.salesInvoiceId);
-    return !!(inv && inv.status === "posted");
-  };
+  if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
+  const customer = (d.customers || []).find(c => c && c.id === customerId) || null;
   /* أوامر مباشرة للعميل (مش مرآة توزيعة، مش ملغية) */
   const custSOs = d.salesOrders.filter(so => so && so.customerId === customerId && so.status !== "cancelled" && !so.sourceDistributionId && !so.isDistributionMirror);
-  const reduced = [], blocked = [];
+  const reduced = [], blocked = [], creditNotes = [];
 
   for(const r of returns){
     const sourceId = r && (r.sourceId || r.modelId);
+    const note = (r && r.note) || "";
     let qty = Math.floor(Number(r && r.qty) || 0);
     if(!sourceId || qty <= 0) continue;
+    /* أوامر العميل اللي فيها الموديل، بالمتاح للمرتجع (المُباع − اللي اترجّع) — FIFO */
     const list = custSOs
-      .filter(so => (so.items || []).some(it => it && it.sourceType === "order" && it.sourceId === sourceId && (Number(it.qty) || 0) > 0))
-      .sort((a, b) => String(a.date || a.createdAt || a.id).localeCompare(String(b.date || b.createdAt || b.id))); /* FIFO */
+      .map(so => {
+        const sold = (so.items || []).filter(it => it && it.sourceType === "order" && it.sourceId === sourceId).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+        const ret = (so.returns || []).filter(x => x && x.sourceId === sourceId).reduce((s, x) => s + (Number(x.qty) || 0), 0);
+        return { so, avail: sold - ret };
+      })
+      .filter(x => x.avail > 0)
+      .sort((a, b) => String(a.so.date || a.so.createdAt || a.so.id).localeCompare(String(b.so.date || b.so.createdAt || b.so.id)));
 
-    let nonPosted = 0, postedQ = 0;
-    list.forEach(so => {
-      const itQty = (so.items || []).filter(it => it && it.sourceType === "order" && it.sourceId === sourceId).reduce((s, it) => s + (Number(it.qty) || 0), 0);
-      if(isPosted(so)) postedQ += itQty; else nonPosted += itQty;
-    });
-    if(qty > nonPosted){ blocked.push({ sourceId, requested: qty, available: nonPosted, postedBlocked: postedQ }); qty = nonPosted; }
+    const totalAvail = list.reduce((s, x) => s + x.avail, 0);
+    if(qty > totalAvail){ blocked.push({ sourceId, requested: qty, available: totalAvail }); qty = totalAvail; }
 
     let remaining = qty;
-    for(const so of list){
+    for(const { so, avail } of list){
       if(remaining <= 0) break;
-      if(isPosted(so)) continue; /* المرحّل ممنوع */
-      let changed = false;
-      (so.items || []).forEach(it => {
-        if(remaining <= 0) return;
-        if(!(it && it.sourceType === "order" && it.sourceId === sourceId)) return;
-        const take = Math.min(remaining, Number(it.qty) || 0);
-        if(take <= 0) return;
-        it.qty = (Number(it.qty) || 0) - take; remaining -= take; changed = true;
+      const take = Math.min(remaining, avail);
+      if(take <= 0) continue;
+      const item = (so.items || []).find(it => it && it.sourceType === "order" && it.sourceId === sourceId) || {};
+      const date = new Date().toISOString().split("T")[0];
+      const retId = "soret_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+      /* إشعار دائن مسودة بسعر/خصم بند الأمر الفعلي (المستند المحاسبي) */
+      const cn = buildCreditNoteFromSalesOrderReturn(d, { so, item, qty: take, customer, userName, note, date, _key: retId });
+      d.salesCreditNotes.unshift(cn);
+      creditNotes.push({ id: cn.id, creditNoteNo: cn.creditNoteNo });
+      /* سجل المرتجع على الأمر — البنود مابتتلمسش (الأمر يفضل كامل) */
+      if(!Array.isArray(so.returns)) so.returns = [];
+      so.returns.push({
+        id: retId, sourceId, modelNo: item.modelNo || "", modelDesc: item.description || "",
+        qty: take, unitPrice: Number(item.unitPrice) || 0,
+        gross: cn.subtotal, discount: cn.discount, net: cn.total,
+        custId: customerId, custName: customer?.name || so.customerName || "",
+        date, note, by: userName || "", createdAt: new Date().toISOString(),
+        creditNoteId: cn.id, creditNoteNo: cn.creditNoteNo,
       });
-      if(!changed) continue;
-      /* شيل بنود الموديل اللي وصلت صفر، وأعد حساب الإجماليات (الخصومات per-line محفوظة) */
-      so.items = (so.items || []).filter(it => !(it && it.sourceType === "order" && it.sourceId === sourceId && (Number(it.qty) || 0) <= 0));
-      const t = recalcQuotationTotals({ items: so.items, discountPct: Number(so.discountPct) || 0 });
-      so.items = t.items; so.subtotal = t.subtotal; so.totalDiscount = t.totalDiscount; so.total = t.total;
-      so.updatedAt = nowIso; so.updatedBy = userName || "";
-
-      const liveItems = (so.items || []).filter(it => it && !it.isSection && (Number(it.qty) || 0) > 0);
-      const draftInv = so.salesInvoiceId ? invoices.find(i => i && i.id === so.salesInvoiceId && i.status === "draft") : null;
-      if(!Array.isArray(so.statusHistory)) so.statusHistory = [];
-      if(liveItems.length === 0){
-        /* مرتجع كامل → الأمر يتلغى + الفاتورة المسودة تتشال */
-        if(draftInv){ invIdsToDelete.add(draftInv.id); so.salesInvoiceId = ""; so.salesInvoiceNo = ""; }
-        so.status = "cancelled"; so.cancelReason = "مرتجع كامل (مرتجع حر)"; so.cancelledAt = nowIso; so.cancelledBy = userName || "";
-        so.statusHistory.push({ from: "", to: "cancelled", at: nowIso, by: userName || "", note: "مرتجع كامل عبر المرتجع الحر" });
-      } else {
-        if(draftInv){
-          draftInv.items = (so.items || []).filter(it => it && !it.isSection).map(it => ({
-            orderId: it.sourceType === "order" ? (it.sourceId || "") : "",
-            modelNo: it.modelNo || it.description || "", modelDesc: it.description || "",
-            qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0, lineTotal: Number(it.lineTotal) || 0,
-          }));
-          draftInv.subtotal = so.subtotal; draftInv.discount = so.totalDiscount; draftInv.total = so.total;
-        }
-        so.statusHistory.push({ from: so.status, to: so.status, at: nowIso, by: userName || "", note: "مرتجع جزئي عبر المرتجع الحر" });
-      }
+      remaining -= take;
     }
     reduced.push({ sourceId, qty: qty - remaining });
   }
-  if(invIdsToDelete.size > 0) d.salesInvoices = invoices.filter(i => !(i && invIdsToDelete.has(i.id)));
-  return { ok: true, reduced, blocked };
+  return { ok: true, reduced, blocked, creditNotes };
+}
+
+/* مجموع قيمة مرتجعات أمر البيع المباشر (للرصيد/الكشف). الأمر نفسه يفضل كامل. */
+export function salesOrderReturnedValue(so){
+  return (so && Array.isArray(so.returns)) ? so.returns.reduce((s, r) => s + (Number(r && r.net) || 0), 0) : 0;
+}
+/* صافي قيمة أمر البيع بعد المرتجعات (so.total − قيمة المرتجعات). */
+export function salesOrderNetTotal(so){
+  return r2((Number(so && so.total) || 0) - salesOrderReturnedValue(so));
 }
