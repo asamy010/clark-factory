@@ -25,6 +25,7 @@ import {
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printDebitNote } from "../utils/printInvoice.js";
+import { FreeSupplierReturnModal } from "../components/purchase/FreeSupplierReturnModal.jsx";/* V21.27.81: مرتجع مورد حر */
 /* V19.39: Bulk-post toolbar shared with the other invoice pages */
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 
@@ -43,6 +44,7 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
   const [partyId, setPartyId] = useState("");
   const [search, setSearch]   = useState("");
   const [activeDN, setActiveDN] = useState(null);
+  const [showAddReturn, setShowAddReturn] = useState(false);/* V21.27.81: مودال المرتجع الحر */
   /* V19.39 — multi-select for bulk posting */
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -163,7 +165,15 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
         <div style={{fontSize:isMob?18:22, fontWeight:800, color:T.text}}>إشعارات مدينة (مرتجعات المشتريات)</div>
         <div style={{fontSize:FS-2, color:T.textSec}}>عرض وإدارة مرتجعات المشتريات للموردين (مسودة / مرحّل / ملغية)</div>
       </div>
+      {/* V21.27.81: مرتجع مورد حر — مش مربوط باستلام واحد */}
+      <Btn primary onClick={()=>setShowAddReturn(true)} style={{background:"#3B82F6",color:"#fff",border:"none",fontWeight:800,whiteSpace:"nowrap"}}>➕ إضافة مرتجع</Btn>
     </div>
+
+    {showAddReturn && <FreeSupplierReturnModal
+      data={data} upConfig={upConfig} user={user}
+      onClose={()=>setShowAddReturn(false)}
+      onCreated={()=>setShowAddReturn(false)}
+    />}
 
     <div style={{display:"grid", gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginBottom:14}}>
       <div style={{padding:10, background:T.cardSolid, borderRadius:8, border:"1px solid "+T.brd, textAlign:"center"}}>
