@@ -10,8 +10,9 @@ import { Btn, Card, Inp, Sel, useDebounced } from "../components/ui.jsx";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
-import { calcOrder, getConfirmedStock } from "../utils/orders.js";
-import { computeSoReserved } from "../utils/stockCatalog.js";
+import { calcOrder } from "../utils/orders.js";
+import { computeSoReserved, computeOrderAvail } from "../utils/stockCatalog.js";
+import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
@@ -76,20 +77,28 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const soReservedByOrder=useMemo(()=>computeSoReserved(data.salesOrders),[data.salesOrders]);
   const purchaseSettings=data.purchaseSettings||{};
   const stockEnabled=!!purchaseSettings.stockEnabled;
-  
+  /* V21.27.94: صافي رصيد الخامات/الإكسسوار/العام من الـ ledger (helper مشترك مع
+     PurchasePg — مصدر حقيقة واحد). قبل كده WarehousePg كان بيستخدم item.stock
+     المخزّن اللي ممكن يدرِف عن الحركات → رصيد مختلف عن «المشتريات ← المخزن». */
+  const stockNetMap=useMemo(()=>computeStockNetMap(data.stockMovements),[data.stockMovements]);
+  const netStockOf=(it)=>netStockOfLedger(stockNetMap,it);
+
   /* ──────── COMPREHENSIVE WAREHOUSE STATS ──────── */
   const wStats=useMemo(()=>{
     const f={count:fabrics.length,value:0,low:0,zero:0};
-    fabrics.forEach(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;f.value+=s*c;if(s===0)f.zero++;else if(x.minStock&&s<=x.minStock)f.low++});
+    fabrics.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;f.value+=s*c;if(s===0)f.zero++;else if(x.minStock&&s<=x.minStock)f.low++});
     const a={count:accessories.length,value:0,low:0,zero:0};
-    accessories.forEach(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;a.value+=s*c;if(s===0)a.zero++;else if(x.minStock&&s<=x.minStock)a.low++});
+    accessories.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;a.value+=s*c;if(s===0)a.zero++;else if(x.minStock&&s<=x.minStock)a.low++});
     const g={count:generalProducts.length,value:0,low:0,zero:0};
-    generalProducts.forEach(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
-    /* Finished goods: count orders with balance */
+    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
+    /* V21.27.94: الجاهز = «المتاح الفعلي» (المستلم من الورشة − صافي المبيعات −
+       المحجوز) عبر computeOrderAvail — نفس مصدر الحقيقة في هَب المبيعات/كارت
+       صنف. قبل كده كان cutQty − getConfirmedStock − reserved (= شغل تحت التشغيل،
+       غلط — كان بيخفي الموديلات الجاهزة فعلاً ويعرض اللي لسه بتتصنّع). */
     let finishedQty=0,finishedModels=0;
-    orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;const bal=(t.cutQty||0)-del-reserved;if(bal>0){finishedQty+=bal;finishedModels++}});
+    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){finishedQty+=avail;finishedModels++}});
     return{fabric:f,accessory:a,general:g,finished:{count:finishedModels,qty:finishedQty}};
-  },[fabrics,accessories,generalProducts,orders,soReservedByOrder]);
+  },[fabrics,accessories,generalProducts,orders,soReservedByOrder,stockNetMap]);
   
   /* ──────── OPEN PRODUCT FROM QR SCAN ──────── */
   useEffect(()=>{
@@ -250,7 +259,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   
   /* ──────── FILTERED LISTS ──────── */
   const filteredFab=useMemo(()=>{
-    let list=fabrics.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
+    let list=fabrics.map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
     list=list.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)list=list.filter(x=>x._stock>0);
     const q=fabFilterDeb.trim().toLowerCase();
@@ -260,10 +269,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     else if(sortBy==="value")list.sort((a,b)=>b._value-a._value);
     else if(sortBy==="low")list.sort((a,b)=>{const aL=a.minStock&&a._stock<=a.minStock?0:1;const bL=b.minStock&&b._stock<=b.minStock?0:1;return aL-bL});
     return list;
-  },[fabrics,hideZero,fabFilterDeb,sortBy]);
-  
+  },[fabrics,hideZero,fabFilterDeb,sortBy,stockNetMap]);
+
   const filteredAcc=useMemo(()=>{
-    let list=accessories.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
+    let list=accessories.map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
     list=list.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)list=list.filter(x=>x._stock>0);
     const q=accFilterDeb.trim().toLowerCase();
@@ -273,10 +282,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     else if(sortBy==="value")list.sort((a,b)=>b._value-a._value);
     else if(sortBy==="low")list.sort((a,b)=>{const aL=a.minStock&&a._stock<=a.minStock?0:1;const bL=b.minStock&&b._stock<=b.minStock?0:1;return aL-bL});
     return list;
-  },[accessories,hideZero,accFilterDeb,sortBy]);
-  
+  },[accessories,hideZero,accFilterDeb,sortBy,stockNetMap]);
+
   const filteredProd=useMemo(()=>{
-    let list=generalProducts.map(x=>({...x,_stock:Number(x.stock)||0,_cost:Number(x.avgCost)||Number(x.price)||0}));
+    let list=generalProducts.map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
     list=list.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)list=list.filter(x=>x._stock>0);
     const q=prodFilterDeb.trim().toLowerCase();
@@ -286,8 +295,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     else if(sortBy==="stock")list.sort((a,b)=>b._stock-a._stock);
     else if(sortBy==="value")list.sort((a,b)=>b._value-a._value);
     return list;
-  },[generalProducts,hideZero,prodFilterDeb,prodCategoryF,sortBy]);
-  
+  },[generalProducts,hideZero,prodFilterDeb,prodCategoryF,sortBy,stockNetMap]);
+
   /* ──────── GENERAL PRODUCT CRUD ──────── */
   const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{}});setShowProdForm(true)};
   const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:p.costPrice??"",sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices)});setShowProdForm(true)};
@@ -706,18 +715,18 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const exportStockSnapshotCSV=()=>{
     const headers=["نوع الصنف","الفئة","الاسم","الرصيد","الوحدة","الحد الأدنى","متوسط التكلفة","القيمة","الحالة","آخر حركة"];
     const rows=[];
-    fabrics.forEach(f=>{const s=Number(f.stock)||0;const c=Number(f.avgCost)||Number(f.price)||0;const status=s===0?"نافذ":f.minStock&&s<=f.minStock?"ناقص":"متاح";rows.push(["خامة","",f.name||"",s,f.unit||"",f.minStock||"",r2(c),r2(s*c),status,f.lastReceiveDate||""])});
-    accessories.forEach(a=>{const s=Number(a.stock)||0;const c=Number(a.avgCost)||Number(a.price)||0;const status=s===0?"نافذ":a.minStock&&s<=a.minStock?"ناقص":"متاح";rows.push(["إكسسوار","",a.name||"",s,a.unit||"",a.minStock||"",r2(c),r2(s*c),status,a.lastReceiveDate||""])});
-    generalProducts.forEach(p=>{const s=Number(p.stock)||0;const c=Number(p.avgCost)||Number(p.price)||0;const status=s===0?"نافذ":p.minStock&&s<=p.minStock?"ناقص":"متاح";rows.push(["منتج عام",p.category||"",p.name||"",s,p.unit||"",p.minStock||"",r2(c),r2(s*c),status,p.lastMovementDate||""])});
+    fabrics.forEach(f=>{const s=netStockOf(f);const c=Number(f.avgCost)||Number(f.price)||0;const status=s===0?"نافذ":f.minStock&&s<=f.minStock?"ناقص":"متاح";rows.push(["خامة","",f.name||"",s,f.unit||"",f.minStock||"",r2(c),r2(s*c),status,f.lastReceiveDate||""])});
+    accessories.forEach(a=>{const s=netStockOf(a);const c=Number(a.avgCost)||Number(a.price)||0;const status=s===0?"نافذ":a.minStock&&s<=a.minStock?"ناقص":"متاح";rows.push(["إكسسوار","",a.name||"",s,a.unit||"",a.minStock||"",r2(c),r2(s*c),status,a.lastReceiveDate||""])});
+    generalProducts.forEach(p=>{const s=netStockOf(p);const c=Number(p.avgCost)||Number(p.price)||0;const status=s===0?"نافذ":p.minStock&&s<=p.minStock?"ناقص":"متاح";rows.push(["منتج عام",p.category||"",p.name||"",s,p.unit||"",p.minStock||"",r2(c),r2(s*c),status,p.lastMovementDate||""])});
     downloadCSV("stock-snapshot-"+today+".csv",headers,rows);
   };
   
   /* ──────── PRINT STOCK SNAPSHOT (current balances) ──────── */
   const printStockSnapshot=()=>{
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
-    const buildRows=(list,typeLabel,typeColor)=>list.map(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;const status=s===0?"نافذ":x.minStock&&s<=x.minStock?"ناقص":"متاح";const statusClass=s===0?"err":x.minStock&&s<=x.minStock?"warn":"ok";return "<tr><td><span style='background:"+typeColor+"20;color:"+typeColor+";padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700'>"+typeLabel+"</span></td>"+(x.category?"<td>"+x.category+"</td>":"<td>—</td>")+"<td><b>"+(x.name||"")+"</b></td><td class='center'>"+fmt(s)+" "+(x.unit||"")+"</td><td class='center'>"+(x.minStock?fmt(x.minStock):"—")+"</td><td class='center'>"+fmt(r2(c))+"</td><td class='center'><b>"+fmt(r2(s*c))+"</b></td><td class='center "+statusClass+"'>"+status+"</td></tr>"}).join("");
+    const buildRows=(list,typeLabel,typeColor)=>list.map(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;const status=s===0?"نافذ":x.minStock&&s<=x.minStock?"ناقص":"متاح";const statusClass=s===0?"err":x.minStock&&s<=x.minStock?"warn":"ok";return "<tr><td><span style='background:"+typeColor+"20;color:"+typeColor+";padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700'>"+typeLabel+"</span></td>"+(x.category?"<td>"+x.category+"</td>":"<td>—</td>")+"<td><b>"+(x.name||"")+"</b></td><td class='center'>"+fmt(s)+" "+(x.unit||"")+"</td><td class='center'>"+(x.minStock?fmt(x.minStock):"—")+"</td><td class='center'>"+fmt(r2(c))+"</td><td class='center'><b>"+fmt(r2(s*c))+"</b></td><td class='center "+statusClass+"'>"+status+"</td></tr>"}).join("");
     const allRows=buildRows(fabrics,"🧵 خامة","#0EA5E9")+buildRows(accessories,"🪡 إكسسوار","#8B5CF6")+buildRows(generalProducts,"➕ منتج","#EC4899");
-    const totalValue=fabrics.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+(Number(x.stock)||0)*(Number(x.avgCost)||Number(x.price)||0),0);
+    const totalValue=fabrics.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0);
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>جرد المخزن</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📦 جرد المخزن الشامل</div><div class='hdr-info'><div>تاريخ الجرد: "+today+"</div><div>إجمالي القيمة: <b style='color:#0284C7'>"+fmt(r2(totalValue))+" ج.م</b></div></div></div><h3>أرصدة الأصناف</h3><table><thead><tr><th>النوع</th><th>الفئة</th><th>الاسم</th><th>الرصيد</th><th>الحد الأدنى</th><th>متوسط التكلفة</th><th>القيمة</th><th>الحالة</th></tr></thead><tbody>"+(allRows||"<tr><td colspan='8' class='center' style='padding:20px;color:#94A3B8'>لا توجد أصناف</td></tr>")+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='6' style='text-align:left'>الإجمالي الكلي لقيمة المخزن</td><td class='center info' style='font-size:14px'>"+fmt(r2(totalValue))+" ج.م</td><td></td></tr></tbody></table><div class='sig'><div class='sig-box'>مسؤول المخزن</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — جرد المخزن بتاريخ "+today+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -1036,25 +1045,30 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       
       {/* Finished goods summary table */}
       {wStats.finished.count>0&&<div style={{marginTop:16}}>
-        <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 موديلات لها رصيد جاهز</div>
+        <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 موديلات لها رصيد جاهز متاح</div>
         <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
             <thead><tr>
               <th style={TH}>الموديل</th>
-              <th style={{...TH,textAlign:"center"}}>عدد القطع المقصوصة</th>
-              <th style={{...TH,textAlign:"center"}}>المسلم للعميل</th>
+              <th style={{...TH,textAlign:"center"}}>المقصوص</th>
+              <th style={{...TH,textAlign:"center"}} title="المستلم من الورشة في مخزن الجاهز">المستلم في المخزن</th>
+              <th style={{...TH,textAlign:"center"}} title="المباع للعميل (صافي بعد المرتجعات)">المباع للعميل</th>
               <th style={{...TH,textAlign:"center"}}>محجوز بأوامر البيع</th>
-              <th style={{...TH,textAlign:"center"}}>الرصيد الجاهز</th>
+              <th style={{...TH,textAlign:"center"}} title="المتاح = المستلم − المباع − المحجوز">الرصيد المتاح</th>
               <th style={{...TH,textAlign:"center"}}>الحالة</th>
             </tr></thead>
             <tbody>
-              {/* V21.27.88: الرصيد الجاهز = المقصوص − المُسلَّم − المحجوز بأوامر البيع.
-                  قبل كده كان بيتجاهل أوامر البيع تمامًا. */}
-              {orders.filter(o=>{if(o.closed)return false;const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;return((t.cutQty||0)-del-reserved)>0}).map(o=>{const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;return{o,t,del,reserved,bal:(t.cutQty||0)-del-reserved}}).sort((a,b)=>b.bal-a.bal).map(({o,t,del,reserved,bal})=>{
+              {/* V21.27.94: الرصيد المتاح = المستلم في المخزن (getConfirmedStock) −
+                  صافي المباع (customerDeliveries − customerReturns) − المحجوز،
+                  عبر computeOrderAvail (نفس مصدر الحقيقة في المبيعات/كارت صنف).
+                  قبل V21.27.94 كان cutQty − getConfirmedStock − reserved = غلط
+                  (بيحسب شغل تحت التشغيل ويعكس الحقيقة). */}
+              {orders.filter(o=>{if(o.closed)return false;return computeOrderAvail(o,soReservedByOrder).avail>0}).map(o=>{const t=calcOrder(o);const{stockQty,avail,delivered,returned,reserved}=computeOrderAvail(o,soReservedByOrder);return{o,cut:t.cutQty||0,rcv:stockQty,sold:delivered-returned,reserved,bal:avail}}).sort((a,b)=>b.bal-a.bal).map(({o,cut,rcv,sold,reserved,bal})=>{
                 return<tr key={o.id} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{...TD,fontWeight:700}}>{o.modelNo||"—"}</td>
-                  <td style={{...TD,textAlign:"center"}}>{fmt(t.cutQty||0)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(del)}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(cut)}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(rcv)}</td>
+                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(sold)}</td>
                   <td style={{...TD,textAlign:"center",color:reserved>0?"#8B5CF6":T.textMut,fontWeight:reserved>0?700:400}}>{reserved>0?fmt(reserved):"—"}</td>
                   <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(bal)}</td>
                   <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{o.status||"—"}</td>

@@ -12,6 +12,50 @@
 
 ---
 
+## V21.27.94 (2026-06-21) — 🧮 توحيد أرصدة المخزن (الجاهز + الخامات) — صح ومتّسق
+
+طلب Ahmed: «راجع جزء المبيعات بالكامل + الـ data flow + ترتيب الإدخال +
+الأرصدة للمخزن بتظهر صح؟ (المستلم − الخارج: مبيعات ومشتريات)».
+
+**نتيجة المراجعة (audit):** المبيعات + الـ data flow + السلسلة المستندية (عرض
+سعر → أمر بيع → فاتورة) سليمة ومتسقة. «المتاح» متعرّف مرة واحدة في
+`computeOrderAvail` ومستخدم صح في هَب المبيعات/كارت صنف/لوحة التحكم/البورتال.
+لكن اتلقى **تباينين في «المخزن والجرد» (WarehousePg)**:
+
+**Finding #1 (خطير) — رصيد الجاهز غلط:**
+- `WarehousePg.jsx:90` + جدول «موديلات لها رصيد جاهز»: كان `bal = cutQty −
+  getConfirmedStock − reserved` = «مقصوص − مستلم» = شغل تحت التشغيل. والعمود
+  كان مكتوب عليه «المسلم للعميل» وبيعرض `getConfirmedStock` (= `o.deliveries`
+  = المستلم من الورشة، مش `customerDeliveries`). مثال: مقصوص 100/مستلم 100/مباع
+  30 → الصح = 70 متاح، لكن WarehousePg = 100−100 = 0 (بيخفي الموديل!).
+- **الإصلاح:** الاتنين (`wStats.finished` + الجدول) بيستخدموا
+  `computeOrderAvail(o, soReservedByOrder)` → الرصيد المتاح = المستلم في المخزن
+  − صافي المباع − المحجوز. أعمدة الجدول: المقصوص · المستلم في المخزن · المباع
+  للعميل · محجوز · الرصيد المتاح. متّسق مع باقي التطبيق.
+
+**Finding #2 (متوسط) — رصيد الخامات بمصدرين:**
+- «المشتريات ← المخزن» بيستخدم صافي حركات الـ ledger (`stockNetMap`، V21.27.77)،
+  بينما «المخزن والجرد» كان بيستخدم `item.stock` المخزّن (ممكن يدرِف) → نفس
+  الصنف ممكن يبان برصيدين مختلفين.
+- **الإصلاح:** WarehousePg بقى يستخدم نفس الـ ledger-net في كل الأماكن: بطاقات
+  `wStats` (خامة/إكسسوار/عام) · جداول `filteredFab/Acc/Prod` · تصدير CSV ·
+  طباعة الجرد.
+
+**Refactor (DRY):** المنطق اتنقل لـ `src/utils/stockLedger.js` (جديد) —
+`computeStockNetMap(stockMovements)` + `netStockOf(netMap, item)` — helper مشترك
+يستخدمه `PurchasePg` و `WarehousePg` (مصدر حقيقة واحد بدل نسختين). `PurchasePg`
+اتحوّل للـ helper، و`getConfirmedStock` اتشال من imports `WarehousePg` (مابقاش
+مستخدم).
+
+**Blast radius:** عرض/قراءة فقط — مفيش mutations/migrations/rules ولا تغيير في
+تخزين. الأرصدة المعروضة بقت موحّدة وصحيحة عبر كل الشاشات.
+
+ملفات: `src/utils/stockLedger.js` (جديد) · `src/pages/WarehousePg.jsx` ·
+`src/pages/PurchasePg.jsx` · `package.json` · `src/constants/index.js` ·
+`public/changelog.json` · `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.93 (2026-06-21) — 🧹 حذف «فاتورة خدمات» · المشتريات قماش/إكسسوار بس · تسمية تقارير الشراء
 
 ٣ طلبات من Ahmed (بالصور):

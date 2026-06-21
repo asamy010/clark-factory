@@ -32,6 +32,7 @@ import { docColumnsHTML } from "../utils/docColumns.js";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
 import { getUnits } from "../utils/units.js";
+import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt, upsertDebitNoteFromReturn } from "../utils/invoices.js";
 import { buildSupplierSummary } from "../utils/accountSummary.js";
@@ -672,20 +673,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   /* V21.27.77: رصيد كل صنف = صافي حركاته (استلام/افتتاحي + ، صرف/مرتجع − ،
      تسوية = تعيين القيمة)، باستثناء حركات الجاهز (itemType:"order"). ده «الصافي
      الفعلي» اللي طلبه Ahmed — يظهر تلقائياً من غير زر مطابقة. الأصناف اللي مالهاش
-     أي حركة بترجع لـ item.stock (رصيد مخزّن مباشر/قديم). single-pass O(n log n). */
-  const stockNetMap=useMemo(()=>{
-    const m=new Map();
-    const moves=(data.stockMovements||[]).filter(mv=>mv&&mv.itemType!=="order"&&mv.itemId!=null)
-      .slice().sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""));
-    for(const mv of moves){
-      const k=String(mv.itemId);const q=Math.abs(Number(mv.qty)||0);const cur=m.get(k)||0;
-      if(mv.type==="adjust")m.set(k,q);
-      else if(mv.type==="out")m.set(k,cur-q);
-      else m.set(k,cur+q);/* in | opening */
-    }
-    return m;
-  },[data.stockMovements]);
-  const netStockOf=(it)=>stockNetMap.has(String(it.id))?stockNetMap.get(String(it.id)):(Number(it.stock)||0);
+     أي حركة بترجع لـ item.stock (رصيد مخزّن مباشر/قديم).
+     V21.27.94: اتنقل المنطق لـ stockLedger.js (helper مشترك مع WarehousePg
+     عشان مصدر حقيقة واحد — كانوا بيدرِفوا). */
+  const stockNetMap=useMemo(()=>computeStockNetMap(data.stockMovements),[data.stockMovements]);
+  const netStockOf=(it)=>netStockOfLedger(stockNetMap,it);
 
   const stockStats=useMemo(()=>{
     const fStats={count:fabrics.length,totalValue:0,lowStock:0,zeroStock:0};
