@@ -5,20 +5,20 @@
    Contains: OrdForm
    ═══════════════════════════════════════════════════════════════ */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { AccPicker, Badge, Btn, Card, FCTable, Inp, Sel, SearchSel } from "../components/ui.jsx";
 /* V21.9.108: Universal Tagging — Slice 7 Order integration. TagPicker
    on the order edit form; the order list filter/chips live in DetPg. */
 import { TagPicker } from "../components/TagPicker.jsx";
 import { DEFAULT_STATUSES, FCOL, FKEYS, FS } from "../constants/index.js";
 import { T, TD, TDL } from "../theme.js";
-import { gIcon, setF, sqty, gid } from "../utils/format.js";
+import { gIcon, setF, sqty, gid, fmt } from "../utils/format.js";
 /* V19.36: Model images now upload to Firebase Storage at 1280px @ 85% quality
    (was: 250px @ 40% inline base64). The order doc only stores the download URL. */
 import { uploadOrderImageFile, deleteOrderImage } from "../utils/orderImages.js";
 /* V21.25.9: صورة الموديل الأساسية تفتح قايمة (كمبيوتر/مساحة التخزين) زي تاب اللون */
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
-import { sortOrders, validateOrder } from "../utils/orders.js";
+import { sortOrders, validateOrder, checkStockAvailability } from "../utils/orders.js";
 import { askInput, showToast, tell } from "../utils/popups.js";
 /* V19.37: removed compressFile import — file attachments inside OrdForm were retired */
 import { getUnits } from "../utils/units.js";
@@ -38,6 +38,9 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   /* V19.36: track upload progress so the user sees feedback while Storage processes the file */
   const[uploadingImg,setUploadingImg]=useState(false);
   const fabObj=id=>data.fabrics.find(x=>x.id===Number(id));
+  /* V21.27.86: لو المخزن مفعّل، نعرض بادج توافر للخامة المختارة + نمنع تسجيل
+     أوردر القص لو الاستهلاك أكبر من المتاح بالمخزن (نفس منطق App.jsx). */
+  const stockEnabled=!!((data.purchaseSettings||{}).stockEnabled);
   /* V19.36: handleImg now uploads to Storage instead of base64-encoding inline.
      If the user is replacing an existing Storage-backed image, the old object
      is deleted first (best-effort, fire-and-forget). */
@@ -131,6 +134,14 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       return;
     }
     const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);
+    /* V21.27.86: امنع تسجيل أوردر القص لو المخزن غير كافٍ للخامة المطلوبة.
+       checkStockAvailability بترجّع ok:true لو المخزن متعطّل (stockEnabled/
+       autoDeductOnCut)، فالقيد ده آمن في كل الحالات — ومتسق مع بلوك App.jsx. */
+    const sc=checkStockAvailability(form,data);
+    if(!sc.ok){
+      setErrs(["⛔ المخزن غير كافٍ — لا يمكن تسجيل الأوردر للقص:",...sc.shortages.map(s=>"• "+s.itemName+": المطلوب "+fmt(s.needed)+" "+(s.unit||"")+"، المتاح "+fmt(s.available)+"، الفرق "+fmt(s.shortage)+" "+(s.unit||""))]);
+      return;
+    }
     /* Auto-generate PO if empty */
     let finalForm={...form};
     if(!finalForm.poNumber)finalForm.poNumber=genPO();
@@ -261,6 +272,10 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
           .ord-fab-search{flex:1;min-width:140px}
           .ord-fab-inputs-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed ${T.brd};border-bottom:1px dashed ${T.brd}}
           .ord-fab-mini-label{font-size:${FS-2}px;color:${T.textSec};white-space:nowrap;flex-shrink:0;font-weight:600}
+          /* V21.27.86: بادج توافر المخزن للخامة المختارة */
+          .ord-fab-stock-badge{font-size:${FS-2}px;font-weight:700;padding:5px 9px;border-radius:8px;line-height:1.4}
+          .ofsb-err{background:${T.err}12;color:${T.err};border:1px solid ${T.err}40}
+          .ofsb-ok{background:${T.textMut}10;color:${T.textMut};border:1px solid ${T.brd}}
           .ord-fab-card .fctable-wrap{margin-bottom:0 !important}
           /* V19.80.7: extras blocks (accessories + instructions) live inside the
              same grid as fabrics so they fluidly fill empty cells. When the
@@ -307,6 +322,18 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
                 <span className="ord-fab-mini-label">تاريخ القص</span>
                 <Inp type="date" value={form["cutDate"+k]||""} onChange={v=>updF("cutDate"+k,v)} style={{width:135,padding:"4px 6px",fontSize:FS-1}}/>
               </div>}
+              {/* ─ V21.27.86: بادج توافر المخزن — أحمر لو الرصيد صفر أو الاستهلاك
+                   أكبر من المتاح (مع توضيح الفرق)، باهت لو المخزن كافٍ. ─ */}
+              {stockEnabled&&fid&&fb&&(()=>{
+                const avail=Number(fb.stock)||0;
+                const consVal=Number(form["cons"+k])||0;
+                const layers=(form["colors"+k]||[]).reduce((s,c)=>s+(Number(c.layers)||0),0);
+                const needed=Math.round(consVal*layers*100)/100;
+                const u=fb.unit||"";
+                if(avail<=0)return<div className="ord-fab-stock-badge ofsb-err">{"⛔ الصنف غير متاح بالمخزن (الرصيد صفر)"}</div>;
+                if(needed>avail)return<div className="ord-fab-stock-badge ofsb-err">{"⚠️ المطلوب "+fmt(needed)+" "+u+" أكبر من المتاح "+fmt(avail)+" "+u+" — الفرق "+fmt(Math.round((needed-avail)*100)/100)+" "+u+". لا يمكن التسجيل."}</div>;
+                return<div className="ord-fab-stock-badge ofsb-ok">{"📦 المتاح بالمخزن: "+fmt(avail)+" "+u+(needed>0?" · المطلوب "+fmt(needed)+" "+u:"")}</div>;
+              })()}
               {/* ─ FCTable: shown only when a fabric is selected ─ */}
               {fid&&<div className="fctable-wrap"><FCTable label={"خامة "+k} fabName={fb?fb.name:""} fabPrice={fb?(fb.price+" ج.م/"+fb.unit):""} accent={FCOL[idx]} colors={form["colors"+k]||[]} setColors={c=>updF("colors"+k,c)} pcsPerSeries={effectivePpl}/></div>}
               {/* ─ Pieces chips: shown only when a fabric is selected + pieces exist ─ */}
