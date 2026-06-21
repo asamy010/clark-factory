@@ -21,13 +21,15 @@ import { useState, useMemo } from "react";
 import { Btn, Card, Inp } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { fmt } from "../utils/format.js";
+import { fmt, gid } from "../utils/format.js";
 import { ask, showToast, tell } from "../utils/popups.js";
 import { upsertDebitNoteFromReturn } from "../utils/invoices.js";
+import { applyStockDelta, getCategoryById } from "../utils/categories.js";/* V21.27.82: عكس المخزون عند المرتجع من الفاتورة */
 
 export function PurchaseReturnPickerModal({invoice, supplier, data, upConfig, onClose, onCreated, isMob, user}){
   const today = new Date().toISOString().split("T")[0];
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
+  const stockEnabled = !!(data && data.purchaseSettings && data.purchaseSettings.stockEnabled);
 
   /* Per-line state: { selected: bool, qty: number, max: number } keyed by line index */
   const initialLines = useMemo(() => {
@@ -100,6 +102,21 @@ export function PurchaseReturnPickerModal({invoice, supplier, data, upConfig, on
     try {
       let result = { isNew: true, debitNote: null };
       upConfig(d => {
+        const supplierId = invoice.supplierId;
+        /* V21.27.82: عكس المخزون + حركة مرتجع (كان ناقص — المرتجع من الفاتورة
+           كان بيعمل الإشعار المدين بس من غير ما يخصم المخزن أو يسجّل حركة). */
+        if(stockEnabled){
+          if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+          picked.forEach(p => {
+            let catId = p.itemType; if(catId==="fabric") catId="core_fabric"; else if(catId==="accessory") catId="core_accessory";
+            applyStockDelta(d, catId, p.itemId, -p.qty, null);
+            const cat = getCategoryById(d, catId);
+            if(cat?.legacy==="fabric"){ const f=(d.fabrics||[]).find(x=>String(x.id)===String(p.itemId)); if(f&&f.stock<0) f.stock=0; }
+            else if(cat?.legacy==="accessory"){ const a=(d.accessories||[]).find(x=>String(x.id)===String(p.itemId)); if(a&&a.stock<0) a.stock=0; }
+            else { const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(p.itemId)); if(x&&x.stock<0) x.stock=0; }
+            d.stockMovements.push({ id: gid(), type:"out", itemType:p.itemType, itemId:p.itemId, itemName:p.name||"", qty:-p.qty, unit:"", price:Number(p.unitPrice)||0, date, sourceType:"purchase_return", sourceId:invoice.id, notes:"مرتجع مشتريات — فاتورة "+(invoice.invoiceNo||""), createdBy:userName, createdAt:new Date().toISOString() });
+          });
+        }
         const returnEntry = {
           supplierId: invoice.supplierId,
           supplierName: invoice.supplierName,
@@ -115,6 +132,25 @@ export function PurchaseReturnPickerModal({invoice, supplier, data, upConfig, on
           notes: notes.trim() || `مرتجع من فاتورة ${invoice.invoiceNo}`,
         };
         result = upsertDebitNoteFromReturn(d, returnEntry, supplier, userName);
+        const dnId = result && result.debitNote ? result.debitNote.id : "";
+        /* V21.27.82: وزّع الكمية المرتجعة على استلامات المورد (FIFO) → receipt._returns
+           عشان حساب «المتبقي» يفضل متّسق مع المرتجع من الاستلام والمرتجع الحر. */
+        picked.forEach(p => {
+          let left = p.qty;
+          const recIds = (d.purchaseReceipts||[])
+            .filter(r => String(r.supplierId)===String(supplierId) && (r.items||[]).some(x => String(x.itemType)===String(p.itemType) && String(x.itemId)===String(p.itemId)))
+            .sort((a,b)=>(a.date||"").localeCompare(b.date||""))
+            .map(r => r.id);
+          for(const rid of recIds){
+            if(left<=0) break;
+            const ri=(d.purchaseReceipts||[]).findIndex(x=>x.id===rid); if(ri<0) continue;
+            const rr=d.purchaseReceipts[ri]; if(!Array.isArray(rr._returns)) rr._returns=[];
+            const recd=(rr.items||[]).filter(x=>String(x.itemType)===String(p.itemType)&&String(x.itemId)===String(p.itemId)).reduce((s,x)=>s+(Number(x.qty)||0),0);
+            const done=rr._returns.filter(x=>String(x.itemType)===String(p.itemType)&&String(x.itemId)===String(p.itemId)).reduce((s,x)=>s+(Number(x.qty)||0),0);
+            const take=Math.min(left,Math.max(0,recd-done));
+            if(take>0){ rr._returns.push({ itemType:p.itemType, itemId:p.itemId, itemName:p.name, qty:take, price:Number(p.unitPrice)||0, date, debitNoteId:dnId, by:userName, at:new Date().toISOString(), _fromInvoice:invoice.id }); left-=take; }
+          }
+        });
       });
       showToast(
         result.isNew

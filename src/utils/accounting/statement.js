@@ -206,7 +206,8 @@ function gatherSupplierEntries(data, supId, mode){
       entries.push({ date: dn.date, createdAt: dn.createdAt, type: "debit_note", ref: dn.debitNoteNo, refId: dn.id,
         desc: "مرتجع مشتريات — إشعار مدين " + (dn.debitNoteNo || ""),
         sub: dn.linkedInvoiceNo ? "فاتورة " + dn.linkedInvoiceNo : "",
-        debit: 0, credit: r2(Number(dn.total) || 0), draft: dn.status !== "posted", raw: dn });
+        /* V21.27.82: detail عشان المرجع يبقى clickable ويفتح بنود المرتجع زي المشتريات */
+        debit: 0, credit: r2(Number(dn.total) || 0), draft: dn.status !== "posted", detail: { kind: "invoice", items: dn.items || [] }, raw: dn });
     });
     /* كل دفعات المورد (في المحاسبي الفواتير ماتحملش paidAmount) */
     (data.supplierPayments || []).forEach(p => {
@@ -237,7 +238,8 @@ function gatherSupplierEntries(data, supId, mode){
       entries.push({ date: dn.date, createdAt: dn.createdAt, type: "debit_note", ref: dn.debitNoteNo, refId: dn.id,
         desc: "مرتجع مشتريات — إشعار مدين " + (dn.debitNoteNo || ""),
         sub: dn.linkedInvoiceNo ? "فاتورة " + dn.linkedInvoiceNo : "",
-        debit: 0, credit: r2(Number(dn.total) || 0), raw: dn });
+        /* V21.27.82: detail عشان المرجع clickable ويفتح بنود المرتجع */
+        debit: 0, credit: r2(Number(dn.total) || 0), detail: { kind: "invoice", items: dn.items || [] }, raw: dn });
     });
   }
   /* V21.21.14: شيكات الدفع للمورد (دفعة مورد) — تظهر في الوضعين زي شيكات العميل،

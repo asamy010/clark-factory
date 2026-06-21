@@ -12,6 +12,36 @@
 
 ---
 
+## V21.27.82 (2026-06-21) — 🔧 المرتجع من الفاتورة يخصم المخزن + مرجع المرتجع clickable
+
+بلاغ Ahmed (بالصورة): عمل مرتجع للصنف TEST، لكن الرصيد ماتخصمش وحركة المرتجع
+ماظهرتش في السجل بالأحمر. + في كشف حساب المورد عايز مرجع المرتجع clickable زي
+المشتريات.
+
+**السبب الجذري (Issue 1):** الإشعار المدين DN-2026-0002 كان مربوط بفاتورة شراء
+→ اتعمل من زر «ارتجاع للمورد» على الفاتورة (`PurchaseReturnPickerModal`).
+`handleConfirm` كان بينادي `upsertDebitNoteFromReturn` **بس** — من غير
+`applyStockDelta` ولا حركة مخزن (عكس `saveReceiptReturn` والمرتجع الحر).
+
+**الإصلاح:**
+- `src/components/PurchaseReturnPickerModal.jsx`: داخل `upConfig` ضفت — لو المخزن
+  مفعّل: `applyStockDelta` سالب لكل بند + clamp + حركة `purchase_return`
+  (خروج، حمراء في السجل، sourceId=الفاتورة) + توزيع الكمية على استلامات المورد
+  (FIFO) في `receipt._returns` للحفاظ على اتساق `returnedByLine`. imports:
+  `applyStockDelta`, `getCategoryById`, `gid`.
+- `src/utils/accounting/statement.js`: صفوف الإشعار المدين (`type:"debit_note"`)
+  في الوضعين بقت تحمل `detail:{kind:"invoice",items:dn.items}` →
+  `AccountStatementView` بيعرض المرجع كرابط clickable يفتح بنود المرتجع (drill)
+  زي الاستلامات/الفواتير.
+
+ملفات: `PurchaseReturnPickerModal.jsx` · `statement.js`. بناء ✓ (`✓ built in 12.63s`).
+
+**⚠️ ملاحظة بيانات:** الإصلاح للمرتجعات **الجديدة**. المرتجع القديم DN-2026-0002
+اتعمل من غير حركة مخزن — لتصحيح رصيد TEST: الغِ/احذف DN-2026-0002 وأعد عمل
+المرتجع (هيتسجّل الخصم صح)، أو سوِّ الرصيد يدويًا.
+
+---
+
 ## V21.27.81 (2026-06-21) — ↪️ مرتجع مورد حر (في الإشعارات المدينة)
 
 طلب Ahmed: «في الإشعارات المدينة والمرتجعات للموردين عاوز أضيف مرتجع حر. زر
