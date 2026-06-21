@@ -12,6 +12,48 @@
 
 ---
 
+## V21.27.96 (2026-06-21) — ↩️ مرتجع من «أمر بيع مباشر» (يقلّل الأمر ويرجّع المخزون صح)
+
+بلاغ Ahmed (مشكلة ٢): «المفروض أقدر أرجع أي بيع من توزيعة أو أمر بيع. حاولت
+أعمل إشعار دائن على العميل بعد أمر بيع + فاتورة — مفيش موديلات ظاهرة.»
+
+**Root cause:** بيكر «المرتجع الحر» بيقرأ من `customerDeliveries` بس
+(`getCustTotal` + `_retPerOrder`) → عملاء «أمر البيع المباشر» مابيظهروش.
+والأخطر: مبيعات الأمر المباشر بتتحسب عبر **`reserved`** (`computeSoReserved` =
+مجموع `item.qty` للبنود `sourceType:"order"`)، مش `customerDeliveries`. فلو
+رجّعنا بإضافة `customerReturn` (زي التوزيعة) → المخزون يتعدّ **مرتين** (الأمر
+لسه حاجز الكمية + الـ return يزوّد الـ avail).
+
+**القرار (Ahmed عبر AskUserQuestion):** المرتجع لأمر مباشر **يقلّل الأمر نفسه**؛
+ولو الأمر متفوتر ومرحّل (posted) → **يتمنع** ويوجّه لإلغاء الفاتورة الأول.
+
+**الإصلاح:**
+- `src/utils/sales/salesOrders.js`: `returnFromDirectSalesOrderMutator(d,
+  {customerId, returns:[{sourceId,qty}]}, user)` (جديد، pure):
+  * بيقلّل بنود `sourceType:"order"` للموديل عبر أوامر العميل (FIFO الأقدم أولاً)،
+    يعيد حساب الإجماليات بـ `recalcQuotationTotals` (الخصومات per-line محفوظة).
+  * بيزامن الفاتورة المسودة 1:1، أو يشيلها لو الأمر بقى فاضي (يتلغى الأمر).
+  * أي كمية في أمر **posted** → بترجع في `blocked[]` (ممنوعة)؛ مفيش إشعار دائن
+    لأن مفيش revenue مرحّل أصلاً. **9 unit tests** (FIFO، posted-block، draft-sync،
+    full-return-cancel، multi-line، mirror/other-cust ignore).
+- `src/pages/CustDeliverPg.jsx`:
+  * `directSoRet` useMemo: موديلات الأمر المباشر القابلة للمرتجع لكل عميل
+    (nonPosted vs posted) من `data.salesOrders`/`salesInvoices`.
+  * بيكر المرتجع: العملاء أصحاب البيع المباشر بيظهروا (بادج 🧾) + الإجمالي مدموج.
+  * شاشة المرتجع: صفوف SO مع `custModels` (بادج «🧾 أمر مباشر» + 🔒 للمتفوتر)؛
+    الحفظ بيوزّع — التوزيعة → `customerReturns`، الأمر المباشر →
+    `returnFromDirectSalesOrderMutator` عبر `upConfig`؛ تنبيه لو في كمية متفوترة.
+
+**Blast radius:** المنطق المالي pure + متغطّي بـ tests؛ المرحّل محميّ (يتعكس
+بإلغاء فاتورته). التوزيعة مسارها القديم متغيّرش. مفيش migrations/rules.
+
+ملفات: `src/utils/sales/salesOrders.js` ·
+`src/utils/sales/__tests__/returnFromDirectSO.test.js` (جديد) ·
+`src/pages/CustDeliverPg.jsx` · `package.json` · `src/constants/index.js` ·
+`public/changelog.json` · `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.95 (2026-06-21) — 🧾 حذف بيع التوزيعة من مكان واحد (cascade) — يرجّع المخزن وحساب العميل
 
 بلاغ Ahmed (مشكلة ١ من مراجعة دورة المبيعات): بعد توزيعة + بيع سريع، حذف
