@@ -34,6 +34,7 @@ import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesIn
 import { generateSalesOrdersFromSessionMutator } from "../utils/sales/salesOrders.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { VirtualList } from "../components/VirtualList.jsx";
+import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
 /* V21.9.105: Universal Tagging — Slice 4b Customer integration. TagPicker
    for edit form, TagFilter + TagChips for list view. Manager+Admin only
    create inline tags (per data-safety §0.1 decision). */
@@ -112,6 +113,8 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V18.19: Item card (كارت صنف) — full movement history per model */
   const[itemCard,setItemCard]=useState(null);/* null | "pick" | {orderId} */
   const[itemCardFilter,setItemCardFilter]=useState("");
+  /* V21.27.92: سجل حركات مخزن الجاهز (بوب اب ملء الشاشة) */
+  const[showFinLog,setShowFinLog]=useState(false);
   const[showNewSession,setShowNewSession]=useState(false);
   const[selModels,setSelModels]=useState({});const[selCusts,setSelCusts]=useState({});
   /* V19.76.6: filter inputs in the "تسليم جديد" popup — quick search across many models/customers. */
@@ -1444,6 +1447,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 {secBtn(I.inbox,"تأكيد استلام","#10B981",()=>setPendingRcv({items:{}}),pendingRcvCount||null)}
                 {secBtn(I.fileText,"سجل الاستلامات","#059669",()=>setShowReceiptLog(true))}
                 {secBtn(I.activity,"كارت صنف","#0EA5E9",()=>{setItemCard("pick");setItemCardFilter("")})}
+                {secBtn(I.history,"سجل حركات الجاهز","#059669",()=>setShowFinLog(true))}
               </div>
             </div>}
             {/* V21.21.49: كارت «أدوات أخرى» (GROUP 4) اتشال — أزراره (ليبل QR /
@@ -5629,7 +5633,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         const hasRet=(o.customerReturns||[]).length>0;
         if(!hasRcv&&!hasSale&&!hasRet)return;
         const key=o.modelNo||o.id;/* fallback to id if no modelNo */
-        if(!modelMap[key])modelMap[key]={key,modelNo:o.modelNo||"—",modelDesc:o.modelDesc||"",orderIds:[],totalSeries:0,totalBroken:0,totalRcv:0,totalSold:0,totalRet:0};
+        if(!modelMap[key])modelMap[key]={key,modelNo:o.modelNo||"—",modelDesc:o.modelDesc||"",orderIds:[],totalSeries:0,totalBroken:0,totalRcv:0,totalSold:0,totalRet:0,totalReserved:0};
         modelMap[key].orderIds.push(o.id);
         if(!modelMap[key].modelDesc&&o.modelDesc)modelMap[key].modelDesc=o.modelDesc;
         modelMap[key].totalSeries+=getConfirmedSeriesStock(o);
@@ -5637,8 +5641,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         modelMap[key].totalRcv+=getConfirmedStock(o);
         modelMap[key].totalSold+=(o.customerDeliveries||[]).reduce((s,d)=>s+(Number(d.qty)||0),0);
         modelMap[key].totalRet+=(o.customerReturns||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);
+        /* V21.27.92: المحجوز بأوامر البيع المباشرة (نفس مصدر الحقيقة
+           computeSoReserved — المرايا مستبعدة) → الكارت يطابق «المتاح». */
+        modelMap[key].totalReserved+=(soReservedByOrder[o.id]||0);
       });
-      Object.values(modelMap).forEach(m=>{m.currentBal=m.totalRcv-(m.totalSold-m.totalRet);m.currentSeries=m.totalSeries-(m.totalSold-m.totalRet)/* assume sales come from series */});
+      Object.values(modelMap).forEach(m=>{m.currentBal=m.totalRcv-(m.totalSold-m.totalRet)-m.totalReserved;m.currentSeries=m.totalSeries-(m.totalSold-m.totalRet)-m.totalReserved/* assume sales + reservations come from series */});
       const allModels=Object.values(modelMap).sort((a,b)=>(a.modelNo||"").localeCompare(b.modelNo||""));
       /* Picker view */
       if(itemCard==="pick"){
@@ -5691,28 +5698,44 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         (o.customerDeliveries||[]).forEach(d=>movements.push({date:d.date||"",type:"بيع",qty:Number(d.qty)||0,sign:-1,note:d.note||(d.isAdjustment?"تسوية جرد":""),by:d.createdBy||"",party:d.custName||"",order:o.modelNo+(ordsList.length>1?" #"+(o.id||"").slice(-4):"")}));
         (o.customerReturns||[]).forEach(r=>movements.push({date:r.date||"",type:"مرتجع",qty:Number(r.qty)||0,sign:1,note:r.note||"",by:r.createdBy||"",party:r.custName||"",order:o.modelNo+(ordsList.length>1?" #"+(o.id||"").slice(-4):"")}));
       });
+      /* V21.27.92: حركات «حجز — أمر بيع مباشر» — نفس فلتر computeSoReserved
+         بالظبط (مش مرايا توزيعات، مش ملغية، بند sourceType==="order" بيشير
+         لموديل في الكارت) عشان مجموع الحجوزات = m.totalReserved والرصيد
+         التراكمي يطابق «المتاح». */
+      const _ordIdSet=new Set(ordsList.map(o=>o.id));
+      (data.salesOrders||[]).forEach(so=>{
+        if(!so||so.status==="cancelled"||so.sourceDistributionId)return;
+        (so.items||[]).forEach(it=>{
+          if(!it||it.sourceType!=="order"||!_ordIdSet.has(it.sourceId))return;
+          const q=Number(it.qty)||0;if(q<=0)return;
+          movements.push({date:so.date||"",type:"حجز",qty:q,sign:-1,note:"أمر بيع "+(so.orderNo||""),by:so.salesPerson||so.createdBy||"",party:so.customerName||so.customerNameAdHoc||"",order:m.modelNo});
+        });
+      });
       movements.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
       let running=0;movements.forEach(mv=>{running+=mv.sign*mv.qty;mv.balance=running});
-      const totalRcv=m.totalRcv,totalSold=m.totalSold,totalRet=m.totalRet,currentBal=m.currentBal,totalSeries=m.totalSeries,totalBroken=m.totalBroken;
+      /* V21.27.92: الأحدث فوق — الرصيد متحسب زمنيًا (أقدم→أحدث) والعرض معكوس */
+      const movDisplay=movements.slice().reverse();
+      const totalRcv=m.totalRcv,totalSold=m.totalSold,totalRet=m.totalRet,currentBal=m.currentBal,totalSeries=m.totalSeries,totalBroken=m.totalBroken,totalReserved=m.totalReserved;
       const printItemCard=()=>{
         let h="<h2 style='text-align:center;margin:0 0 6px'>📇 كارت صنف</h2>";
         h+="<div style='text-align:center;font-size:14px;font-weight:700;color:#0EA5E9;margin-bottom:14px'>"+(m.modelNo||"—")+(m.orderIds.length>1?" (مدموج من "+m.orderIds.length+" تشغيلات)":"")+"</div>";
         h+="<table style='margin:0 auto 14px;font-size:12px'><tr><th style='padding:4px 12px;text-align:right'>الوصف</th><td style='padding:4px 12px'>"+(m.modelDesc||"—")+"</td></tr></table>";
         h+="<table style='margin:0 auto 16px'><thead><tr>";
-        h+="<th>📦 سيري</th><th>🧩 كسر</th><th>إجمالي وارد</th><th>إجمالي مبيعات</th><th>إجمالي مرتجعات</th><th>الرصيد الحالي</th>";
+        h+="<th>📦 سيري</th><th>🧩 كسر</th><th>إجمالي وارد</th><th>إجمالي مبيعات</th><th>إجمالي مرتجعات</th><th>🔒 محجوز</th><th>الرصيد الحالي</th>";
         h+="</tr></thead><tbody><tr style='font-weight:800;font-size:14px;text-align:center'>";
         h+="<td style='color:#0EA5E9'>"+totalSeries+"</td>";
         h+="<td style='color:#8B5CF6'>"+totalBroken+"</td>";
         h+="<td style='color:#0EA5E9'>"+totalRcv+"</td>";
         h+="<td style='color:#EF4444'>"+totalSold+"</td>";
         h+="<td style='color:#10B981'>"+totalRet+"</td>";
+        h+="<td style='color:#8B5CF6'>"+totalReserved+"</td>";
         h+="<td style='color:"+(currentBal>0?"#0EA5E9":"#94A3B8")+";background:#FEF3C7'>"+currentBal+"</td>";
         h+="</tr></tbody></table>";
-        h+="<h3 style='margin:16px 0 6px'>📋 سجل الحركات ("+movements.length+")</h3>";
+        h+="<h3 style='margin:16px 0 6px'>📋 سجل الحركات ("+movements.length+") — الأحدث أولاً</h3>";
         h+="<table><thead><tr><th>التاريخ</th><th>النوع</th><th>الجهة</th><th>الكمية</th><th>الرصيد</th><th>ملاحظة</th></tr></thead><tbody>";
-        movements.forEach((mv,i)=>{
-          const typeColor=mv.type==="رصيد"?"#0EA5E9":mv.type==="كسر"?"#8B5CF6":mv.type==="بيع"?"#EF4444":"#10B981";
-          const typeIcon=mv.type==="رصيد"?"📥":mv.type==="كسر"?"🧩":mv.type==="بيع"?"📤":"↩";
+        movDisplay.forEach((mv,i)=>{
+          const typeColor=mv.type==="رصيد"?"#0EA5E9":mv.type==="كسر"?"#8B5CF6":mv.type==="بيع"?"#EF4444":mv.type==="حجز"?"#8B5CF6":"#10B981";
+          const typeIcon=mv.type==="رصيد"?"📥":mv.type==="كسر"?"🧩":mv.type==="بيع"?"📤":mv.type==="حجز"?"🔒":"↩";
           h+="<tr style='background:"+(i%2===0?"transparent":"#f8f8f8")+"'>";
           h+="<td style='text-align:center;direction:ltr'>"+(mv.date||"—")+"</td>";
           h+="<td style='text-align:center;color:"+typeColor+";font-weight:700'>"+typeIcon+" "+mv.type+"</td>";
@@ -5746,17 +5769,18 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <Btn ghost small onClick={()=>setItemCard(null)}>✕</Btn>
             </div>
           </div>
-          {/* Summary cards: 6 cards now (added series + broken) */}
-          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(6,1fr)",gap:8,marginBottom:14}}>
+          {/* Summary cards: 7 cards (سيري + كسر + وارد + مبيعات + مرتجعات + محجوز + الرصيد) */}
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(7,1fr)",gap:8,marginBottom:14}}>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E920",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>📦 سيري</div><div style={{fontSize:FS+3,fontWeight:800,color:"#0EA5E9"}}>{totalSeries}</div></div>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>🧩 كسر</div><div style={{fontSize:FS+3,fontWeight:800,color:"#8B5CF6"}}>{totalBroken}</div></div>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#0EA5E908",border:"1px solid #0EA5E920",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>📥 إجمالي وارد</div><div style={{fontSize:FS+3,fontWeight:800,color:"#0EA5E9"}}>{totalRcv}</div></div>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#EF444408",border:"1px solid #EF444420",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>📤 مبيعات</div><div style={{fontSize:FS+3,fontWeight:800,color:"#EF4444"}}>{totalSold}</div></div>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#10B98108",border:"1px solid #10B98120",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec}}>↩ مرتجعات</div><div style={{fontSize:FS+3,fontWeight:800,color:"#10B981"}}>{totalRet}</div></div>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620",textAlign:"center"}} title="محجوز بأوامر البيع المباشرة (مخصوم من الرصيد المتاح)"><div style={{fontSize:FS-3,color:T.textSec}}>🔒 محجوز</div><div style={{fontSize:FS+3,fontWeight:800,color:"#8B5CF6"}}>{totalReserved}</div></div>
             <div style={{padding:"10px 12px",borderRadius:10,background:"#FEF3C7",border:"1px solid #F59E0B40",textAlign:"center"}}><div style={{fontSize:FS-3,color:T.textSec,fontWeight:700}}>📦 الرصيد</div><div style={{fontSize:FS+3,fontWeight:900,color:currentBal>0?"#0EA5E9":currentBal<0?"#EF4444":T.textMut}}>{currentBal}</div></div>
           </div>
-          {/* Movements log */}
-          <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,paddingTop:8,borderTop:"1px solid "+T.brd}}>📋 سجل الحركات ({movements.length})</div>
+          {/* Movements log — الأحدث أولاً (V21.27.92) */}
+          <div style={{fontSize:FS-1,fontWeight:800,color:T.text,marginBottom:8,paddingTop:8,borderTop:"1px solid "+T.brd}}>📋 سجل الحركات ({movements.length}) — الأحدث أولاً</div>
           {movements.length===0?<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد حركات</div>:
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
@@ -5764,9 +5788,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                   {["التاريخ","النوع","الجهة","الكمية","الرصيد","ملاحظة"].map(h=><th key={h} style={{...TH,fontSize:FS-2,padding:"6px 8px"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {movements.map((mv,i)=>{
-                    const typeColor=mv.type==="رصيد"?"#0EA5E9":mv.type==="كسر"?"#8B5CF6":mv.type==="بيع"?"#EF4444":"#10B981";
-                    const typeIcon=mv.type==="رصيد"?"📥":mv.type==="كسر"?"🧩":mv.type==="بيع"?"📤":"↩";
+                  {movDisplay.map((mv,i)=>{
+                    const typeColor=mv.type==="رصيد"?"#0EA5E9":mv.type==="كسر"?"#8B5CF6":mv.type==="بيع"?"#EF4444":mv.type==="حجز"?"#8B5CF6":"#10B981";
+                    const typeIcon=mv.type==="رصيد"?"📥":mv.type==="كسر"?"🧩":mv.type==="بيع"?"📤":mv.type==="حجز"?"🔒":"↩";
                     return<tr key={i} style={{background:i%2===0?"transparent":T.bg+"60"}}>
                       <td style={{...TD,fontSize:FS-2,direction:"ltr",textAlign:"center"}}>{mv.date||"—"}</td>
                       <td style={{...TD,textAlign:"center",fontWeight:700,color:typeColor}}>{typeIcon} {mv.type}</td>
@@ -5782,6 +5806,23 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
       </div>;
     })()}
+
+    {/* ══ V21.27.92: سجل حركات مخزن الجاهز — بوب اب ملء الشاشة (هَب المبيعات) ══
+        نفس المكوّن المشترك المستخدم في «المخزن والجرد والتقارير» (WarehousePg). */}
+    {showFinLog&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:isMob?8:24,overflowY:"auto"}} onClick={e=>{if(e.target===e.currentTarget)setShowFinLog(false)}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,width:"100%",maxWidth:960,margin:"auto",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{position:"sticky",top:0,background:T.cardSolid,padding:"14px 18px",borderBottom:"1px solid "+T.brd,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:2,borderRadius:"16px 16px 0 0"}}>
+          <div>
+            <div style={{fontSize:FS+2,fontWeight:800,color:"#059669",display:"flex",alignItems:"center",gap:8}}>📊 <span>سجل حركات مخزن الجاهز</span></div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:2}}>كل حركات الموديلات (حجز/تسليم/إلغاء أوامر البيع) — الأحدث أولاً</div>
+          </div>
+          <Btn ghost small onClick={()=>setShowFinLog(false)}>✕</Btn>
+        </div>
+        <div style={{padding:isMob?12:18}}>
+          <FinishedStockLog stockMovements={data.stockMovements||[]} orders={orders} isMob={isMob} factoryName={data.factoryName} logo={data.logo}/>
+        </div>
+      </div>
+    </div>}
 
     {/* ══ V21.19.0: PRODUCTS + SELL-PRICE EDITOR ══
         كل المنتج الجاهز بالكمية المتاحة + سعر البيع (قابل للتعديل). الحفظ
