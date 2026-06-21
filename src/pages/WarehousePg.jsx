@@ -49,6 +49,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[movDateFrom,setMovDateFrom]=useState("");
   const[movDateTo,setMovDateTo]=useState("");
   const[movSearch,setMovSearch]=useState("");const movSearchDeb=useDebounced(movSearch,200);
+  /* V21.27.89: سجل حركات مخزن الجاهز (itemType:"order") — بحث بالموديل + pagination */
+  const[finSearch,setFinSearch]=useState("");const finSearchDeb=useDebounced(finSearch,200);
+  const[finLimit,setFinLimit]=useState(50);
   /* Product details popup (from QR scan) */
   const[viewProd,setViewProd]=useState(null);
   /* CSV import */
@@ -1061,8 +1064,60 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </table>
         </div>
       </div>}
+
+      {/* V21.27.89: سجل حركات مخزن الجاهز الكامل — كل الحركات على الموديلات
+          (itemType:"order") مع بحث بالموديل (الاسم/الرقم) + «عرض المزيد».
+          نفس نظام سجل المشتريات؛ اتنقل هنا واتشال من المشتريات (قماش/إكسسوار بس). */}
+      {(()=>{
+        const _q=finSearchDeb.trim().toLowerCase();
+        let _fm=(stockMovements||[]).filter(m=>m.itemType==="order");
+        if(_q)_fm=_fm.filter(m=>(m.itemName||"").toLowerCase().includes(_q)||(m.notes||"").toLowerCase().includes(_q));
+        _fm.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+        const _shown=_fm.slice(0,finLimit);
+        return<Card title="📊 سجل حركات مخزن الجاهز" style={{marginTop:12}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
+            <div style={{flex:1,minWidth:160}}>
+              <label style={{fontSize:FS-3,color:T.textSec,fontWeight:600}}>بحث بالموديل (الاسم/الرقم)</label>
+              <Inp value={finSearch} onChange={setFinSearch} placeholder="🔍 رقم/اسم الموديل..."/>
+            </div>
+            {finSearch&&<Btn small ghost onClick={()=>setFinSearch("")} style={{marginBottom:2}}>✕ مسح</Btn>}
+            <div style={{padding:"8px 12px",borderRadius:8,background:T.ok+"12",color:T.ok,fontWeight:700,fontSize:FS-1,whiteSpace:"nowrap"}}>👕 {fmt(_fm.length)} حركة</div>
+          </div>
+          {_fm.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد حركات على الجاهز{_q?" مطابقة للبحث":""}.<br/>حركات الجاهز بتتولّد تلقائياً من أوامر البيع (حجز/تسليم الموديلات).</div>:<>
+          <div style={{overflowX:"auto",maxHeight:480,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
+                <th style={TH}>التاريخ</th>
+                <th style={TH}>الحركة</th>
+                <th style={TH}>الموديل</th>
+                <th style={{...TH,textAlign:"center"}}>الكمية</th>
+                <th style={TH}>المرجع</th>
+                <th style={TH}>بواسطة</th>
+              </tr></thead>
+              <tbody>
+                {_shown.map(m=>{
+                  const ti=m.type==="in"?{icon:"↓",color:T.ok,label:"دخول"}:m.type==="out"?{icon:"↑",color:T.err,label:"خروج"}:{icon:"⟲",color:T.warn,label:"تسوية"};
+                  return<tr key={m.id} style={{borderBottom:"1px solid "+T.brd}}>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{m.date}</td>
+                    <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:ti.color+"15",color:ti.color}}>{ti.icon+" "+ti.label}</span></td>
+                    <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:ti.color}}>{(m.type==="out"?"-":"+")+fmt(Math.abs(Number(m.qty)||0))+" قطعة"}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
+                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          {_fm.length>finLimit&&<div style={{textAlign:"center",marginTop:10}}>
+            <Btn small onClick={()=>setFinLimit(l=>l+50)}>⬇️ عرض المزيد ({fmt(_fm.length-finLimit)} متبقّي)</Btn>
+          </div>}
+          <div style={{textAlign:"center",marginTop:6,fontSize:FS-3,color:T.textMut}}>عرض {fmt(Math.min(finLimit,_fm.length))} من {fmt(_fm.length)} حركة</div>
+          </>}
+        </Card>;
+      })()}
     </Card>}
-    
+
     {/* ════ GENERAL PRODUCTS SUB-TAB ════ */}
     {subTab==="general"&&<>
       <Card>

@@ -1256,11 +1256,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
             tags:[]
           })}>{label}</Btn>;
         })()}
-        {/* V21.27.69: تاب «الجاهز» في آخر التابات — يعرض حركات الموديلات (itemType:"order") */}
-        {(()=>{const fc=(data.stockMovements||[]).filter(m=>m.itemType==="order").length;const isActive=stockTypeTab==="__finished";return(
-          <div onClick={()=>setStockTypeTab("__finished")} style={{padding:"8px 16px",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:FS-1,background:isActive?"#10B981":T.bg,color:isActive?"#fff":T.text,border:"1px solid "+(isActive?"#10B981":T.brd)}}>
-            👕 الجاهز ({fc})
-          </div>);})()}
+        {/* V21.27.89: تاب «الجاهز» اتشال من المشتريات (قماش/إكسسوار بس) — سجل
+            حركات الجاهز اتنقل لـ «المخزن والجرد ← الجاهز» (نفس النظام + بحث). */}
       </div>
 
       {/* Filters — V21.27.69: جدول الأصناف يختفي على تاب الجاهز (ليه عرضه الخاص) */}
@@ -1429,56 +1426,11 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       </Card>}
 
       {/* V21.27.69: عرض «الجاهز» — حركات الموديلات (حجز/تسليم أوامر البيع، itemType:"order") */}
-      {stockTypeTab==="__finished"&&(()=>{
-        const _q=stockFilter.trim().toLowerCase();
-        let _fm=(stockMovements||[]).filter(m=>m.itemType==="order");
-        if(_q)_fm=_fm.filter(m=>(m.itemName||"").toLowerCase().includes(_q)||(m.notes||"").toLowerCase().includes(_q));
-        _fm.sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
-        const _shown=_fm.slice(0,movLimit);
-        return<Card>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
-            <div style={{flex:1,minWidth:160}}>
-              <label style={{fontSize:FS-3,color:T.textSec,fontWeight:600}}>بحث بالموديل</label>
-              <Inp value={stockFilter} onChange={setStockFilter} placeholder="🔍 رقم/اسم الموديل..."/>
-            </div>
-            <div style={{padding:"8px 12px",borderRadius:8,background:"#10B98112",color:"#10B981",fontWeight:700,fontSize:FS-1,whiteSpace:"nowrap"}}>👕 {fmt(_fm.length)} حركة على الجاهز</div>
-          </div>
-          {_fm.length===0?<div style={{padding:30,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد حركات على الجاهز{_q?" مطابقة للبحث":""}.<br/>حركات الجاهز بتتولّد تلقائياً من أوامر البيع (حجز/تسليم الموديلات).</div>:<>
-          <div style={{overflowX:"auto",maxHeight:480,overflowY:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-              <thead><tr>
-                <th style={TH}>التاريخ</th>
-                <th style={TH}>الحركة</th>
-                <th style={TH}>الموديل</th>
-                <th style={{...TH,textAlign:"center"}}>الكمية</th>
-                <th style={TH}>المرجع</th>
-                <th style={TH}>بواسطة</th>
-              </tr></thead>
-              <tbody>
-                {_shown.map(m=>{
-                  const ti=m.type==="in"?{icon:"↓",color:T.ok,label:"دخول"}:m.type==="out"?{icon:"↑",color:T.err,label:"خروج"}:{icon:"⟲",color:T.warn,label:"تسوية"};
-                  return<tr key={m.id} style={{borderBottom:"1px solid "+T.brd}}>
-                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.date}</td>
-                    <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:ti.color+"15",color:ti.color}}>{ti.icon+" "+ti.label}</span></td>
-                    <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
-                    <td style={{...TD,textAlign:"center",fontWeight:700,color:ti.color}}>{(m.type==="out"?"-":"+")+fmt(Math.abs(Number(m.qty)||0))+" قطعة"}</td>
-                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
-                    <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
-                  </tr>;
-                })}
-              </tbody>
-            </table>
-          </div>
-          {_fm.length>movLimit&&<div style={{textAlign:"center",marginTop:10}}>
-            <Btn small onClick={()=>setMovLimit(l=>l+50)}>⬇️ عرض المزيد ({fmt(_fm.length-movLimit)} متبقّي)</Btn>
-          </div>}
-          <div style={{textAlign:"center",marginTop:6,fontSize:FS-3,color:T.textMut}}>عرض {fmt(Math.min(movLimit,_fm.length))} من {fmt(_fm.length)} حركة</div>
-          </>}
-        </Card>;
-      })()}
+      {/* V21.27.89: بلوك «الجاهز» اتشال من المشتريات — اتنقل لـ WarehousePg
+          (المخزن والجرد ← الجاهز). المشتريات بقت قماش/إكسسوار بس. */}
 
       {/* Recent movements — V21.27.68: مفلترة بالصنف المُبحوث + pagination 50/عرض المزيد */}
-      {stockTypeTab!=="__finished"&&stockEnabled&&stockMovements.length>0&&(()=>{
+      {stockEnabled&&stockMovements.length>0&&(()=>{
         /* لو في بحث على الأصناف، اعرض حركات الأصناف الظاهرة فقط (طلب Ahmed).
            بدون بحث: كل الحركات. الفلترة بالـ id (String) عشان تطابق نوع الـ id. */
         const _q=stockFilter.trim();
