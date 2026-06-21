@@ -1,5 +1,14 @@
 [
  {
+  "version": "V21.27.91",
+  "date": "2026-06-21",
+  "types": ["doc"],
+  "title": "📖 Phase 91 — ملف بداية الـ session (بروتوكولات العمل + التفويضات)",
+  "changes": [
+   { "type": "doc", "text": "أضيف docs/NEW-SESSION-START.md — ملف «اقرأ ده أول حاجة» لأي session جديد: نظرة على المشروع + التفويضات الدائمة (دفع تلقائي على main، زيب لكل نسخة، الاعتراض على الغلط) + الـ AUTO-WORKFLOW الكامل (build → bump 3 أماكن → RELEASE-LOG → commit ملفات محددة → push تطوير+main → zip وإرسال) + مزامنة git + الحالة الحالية (V21.27.90)." }
+  ]
+ },
+ {
   "version": "V21.27.90",
   "date": "2026-06-21",
   "types": ["fix"],
