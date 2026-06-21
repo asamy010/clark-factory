@@ -13,6 +13,7 @@ import { showToast } from "../../utils/popups.js";
 import { recalcQuotationTotals, validateQuotation, nextQuotationNo } from "../../utils/sales/quotations.js";
 import { salePriceForCustomer } from "../../utils/pricing.js";
 import { DocLineEditor } from "./DocLineEditor.jsx";
+import { computeSoReserved, computeOrderAvail } from "../../utils/stockCatalog.js";
 
 const SOURCE_LABELS = {
   order: "📋 أوردر",
@@ -89,6 +90,32 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
     return { sourceType, sourceId, ...resolveSource(sourceType, sourceId, cur) };
   };
 
+  /* V21.27.87: الرصيد المتاح جنب الصنف بمجرد اختياره (أوامر البيع/العروض):
+     - أوردر (جاهز) → المتاح الفعلي = المخزون − (المُسلَّم − المرتجع) − المحجوز
+       بأوامر البيع (computeOrderAvail) — يستبعد مرايا التوزيعات تلقائيًا.
+     - صنف مخزون / منتج عام → رصيد المخزن المباشر (.stock). */
+  const soReserved = useMemo(() => computeSoReserved(data.salesOrders), [data.salesOrders]);
+  const stockInfo = (it) => {
+    if(!it || it.isSection || !it.sourceId) return null;
+    if(it.sourceType === "order"){
+      const o = orders.find(x => x.id === it.sourceId);
+      if(!o) return null;
+      const { avail } = computeOrderAvail(o, soReserved);
+      return { qty: avail, unit: it.unit || "قطعة", label: "المتاح للبيع" };
+    }
+    if(it.sourceType === "inventoryItem"){
+      const inv = inventoryItems.find(x => x.id === it.sourceId);
+      if(!inv) return null;
+      return { qty: Number(inv.stock) || 0, unit: inv.unit || it.unit || "", label: "المتاح بالمخزن" };
+    }
+    if(it.sourceType === "generalProduct"){
+      const p = generalProducts.find(x => x.id === it.sourceId);
+      if(!p) return null;
+      return { qty: Number(p.stock) || 0, unit: p.unit || it.unit || "", label: "المتاح بالمخزن" };
+    }
+    return null;
+  };
+
   const sourceOptions = (sourceType) => {
     if(sourceType === "order") return orders.map(o => ({ value: o.id, label: (o.modelNo || "") + (o.modelDesc ? " — " + o.modelDesc : "") }));
     if(sourceType === "inventoryItem") return inventoryItems.map(i => ({ value: i.id, label: i.name + (i.unit ? " (" + i.unit + ")" : "") }));
@@ -141,7 +168,7 @@ export function QuotationFormModal({ data, editQuote, defaultValidityDays = 14, 
 
           {/* البنود — محرّر Odoo-style (DocLineEditor) */}
           <div style={{ fontWeight: 700, fontSize: FS, color: T.text, marginBottom: 8 }}>📦 البنود</div>
-          <DocLineEditor items={items} setItems={setItems} productOptions={productOptions} resolveProduct={resolveProduct} isMob={isMob} accent="#0EA5E9" />
+          <DocLineEditor items={items} setItems={setItems} productOptions={productOptions} resolveProduct={resolveProduct} isMob={isMob} accent="#0EA5E9" stockInfo={stockInfo} />
 
           {/* خصم الرأس + ملاحظات + إجماليات */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>

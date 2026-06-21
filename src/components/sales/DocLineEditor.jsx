@@ -30,14 +30,17 @@ const emptyProduct = () => ({ sourceType: "service", sourceId: "", modelNo: "", 
 const emptySection = () => ({ isSection: true, title: "" });
 
 export function DocLineEditor({ items, setItems, productOptions = [], resolveProduct, isMob, accent = "#0EA5E9", stockInfo }){
-  /* V21.27.79: شارة الكمية المتاحة بالمخزن تحت الصنف (باهتة). stockInfo(it) → {qty,unit,label?}|null */
+  /* V21.27.87: شارة الكمية المتاحة بقت **جنب** خانة المنتج (inline) بدل ما
+     كانت سطر تحتها — السطر التحتاني كان بيزوّد ارتفاع الخانة فيبان المستطيل
+     «طايح لفوق» وغير متّسق مع باقي الأعمدة. stockInfo(it) → {qty,unit,label?}|null */
   const stockBadge = (it) => {
     if(!stockInfo) return null;
     const s = stockInfo(it);
     if(!s) return null;
     const q = Number(s.qty) || 0;
     const lbl = s.label || "المتاح بالمخزن";
-    return <div style={{ fontSize: FS - 4, color: T.textMut, marginTop: 2, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>📦 {lbl}: <b style={{ color: q > 0 ? T.ok : T.err }}>{fmt(q)}</b> {s.unit || ""}</div>;
+    const c = q > 0 ? T.ok : T.err;
+    return <span title={lbl + ": " + fmt(q) + " " + (s.unit || "")} style={{ flexShrink: 0, fontSize: FS - 4, fontWeight: 700, color: c, background: c + "12", border: "1px solid " + c + "30", borderRadius: 6, padding: "3px 7px", whiteSpace: "nowrap", lineHeight: 1.4 }}>📦 {fmt(q)} {s.unit || ""}</span>;
   };
   const setItem = (idx, patch) => setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
   const addProduct = () => setItems(prev => [...prev, emptyProduct()]);
@@ -69,7 +72,7 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   /* ── Desktop: كل بند صف واحد ── */
   const productRowDesktop = (it, idx) => (
     <div key={idx} style={{ display: "grid", gridTemplateColumns: COLS, gap: 6, alignItems: "center", padding: "6px 8px", borderTop: "1px solid " + T.brd }}>
-      <div style={{ minWidth: 0 }}><ProductPicker it={it} idx={idx} />{stockBadge(it)}</div>
+      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}><div style={{ flex: 1, minWidth: 0 }}><ProductPicker it={it} idx={idx} /></div>{stockBadge(it)}</div>
       <Inp value={it.unit || ""} onChange={v => setItem(idx, { unit: v })} placeholder="قطعة" />
       <Inp type="number" value={it.qty} onChange={v => setItem(idx, { qty: v })} />
       <Inp type="number" value={it.unitPrice} onChange={v => setItem(idx, { unitPrice: v })} />
@@ -95,7 +98,8 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   ) : (
     <div key={idx} style={{ border: "1px solid " + T.brd, borderRadius: 10, padding: 10, background: T.bg }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <div style={{ flex: 1 }}><ProductPicker it={it} idx={idx} />{stockBadge(it)}</div>
+        <div style={{ flex: 1, minWidth: 0 }}><ProductPicker it={it} idx={idx} /></div>
+        {stockBadge(it)}
         <Btn ghost small onClick={() => removeItem(idx)} style={{ color: T.err }}>🗑</Btn>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8, alignItems: "end" }}>
