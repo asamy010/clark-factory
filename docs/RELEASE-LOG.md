@@ -12,6 +12,30 @@
 
 ---
 
+## V21.27.88 (2026-06-21) — 🧮 كارت الصنف (الجاهز) بيخصم أوامر البيع من الرصيد
+
+بلاغ Ahmed: «تقرير كارت الصنف مش بيجيب الحركات اللي تمت في أوامر البيع مباشر —
+بيتجاهلها ومش بيخصمها من الرصيد».
+
+**Root cause:** أوامر البيع بتسجّل «حجز موديل» كـ `stockMovement` بـ
+`itemType:"order"` + `sourceType:"sales_order"` (حركة رقابية؛ التسليم الفعلي عبر
+شاشة التسليم) — **من غير ما تنقص `o.deliveries`**. وتقرير «الجاهز» في
+WarehousePg بيحسب الرصيد = `cutQty − getConfirmedStock(o.deliveries)` فقط، فأوامر
+البيع **مش داخلة الحساب** → الرصيد الجاهز مبالغ فيه.
+
+**الإصلاح — `src/pages/WarehousePg.jsx`:**
+- import `computeSoReserved` من `stockCatalog.js` + `soReservedByOrder` (useMemo
+  على `data.salesOrders`). نفس مصدر الحقيقة في شاشة التسليم/أوامر البيع، وبيستبعد
+  مرايا التوزيعات (`sourceDistributionId`) اللي بتخصم بالفعل → مفيش حساب مزدوج.
+- `wStats.finished`: الرصيد = `cutQty − del − reserved` (كان `cutQty − del`).
+- جدول «موديلات لها رصيد جاهز»: عمود جديد «محجوز بأوامر البيع» (بنفسجي لو > 0)،
+  والرصيد الجاهز بقى `cutQty − del − reserved`. الفرز اتعمل بعد حساب bal.
+
+ملفات: `WarehousePg.jsx` · `package.json` · `constants/index.js` ·
+`changelog.json`. بناء ✓ (`✓ built in 12.92s`).
+
+---
+
 ## V21.27.87 (2026-06-21) — 📦 الرصيد المتاح جنب الصنف (inline) + في أوامر البيع
 
 طلب Ahmed: لما يختار صنف في المرتجع الحر / أمر الشراء، شارة الرصيد بتطلع كسطر

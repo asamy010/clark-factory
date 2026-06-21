@@ -11,6 +11,7 @@ import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
 import { calcOrder, getConfirmedStock } from "../utils/orders.js";
+import { computeSoReserved } from "../utils/stockCatalog.js";
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
@@ -65,6 +66,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const productCategories=data.productCategories||["مستلزمات تشغيل","قطع غيار","خدمات","ورق وكرتون","مواد تنظيف","أخرى"];
   const stockMovements=data.stockMovements||[];
   const orders=data.orders||[];
+  /* V21.27.88: المحجوز/المباع بأوامر البيع لكل أوردر — أوامر البيع بتعمل «حجز
+     موديل» (stockMovement itemType:"order") من غير ما تنقص deliveries، فكارت
+     الصنف للجاهز كان بيتجاهلها ومش بيخصمها من الرصيد. computeSoReserved بيجمع
+     كميات أوامر البيع (ويستبعد مرايا التوزيعات اللي بتخصم بالفعل). */
+  const soReservedByOrder=useMemo(()=>computeSoReserved(data.salesOrders),[data.salesOrders]);
   const purchaseSettings=data.purchaseSettings||{};
   const stockEnabled=!!purchaseSettings.stockEnabled;
   
@@ -78,9 +84,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     generalProducts.forEach(x=>{const s=Number(x.stock)||0;const c=Number(x.avgCost)||Number(x.price)||0;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
     /* Finished goods: count orders with balance */
     let finishedQty=0,finishedModels=0;
-    orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const del=getConfirmedStock(o);const bal=(t.cutQty||0)-del;if(bal>0){finishedQty+=bal;finishedModels++}});
+    orders.forEach(o=>{if(o.closed)return;const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;const bal=(t.cutQty||0)-del-reserved;if(bal>0){finishedQty+=bal;finishedModels++}});
     return{fabric:f,accessory:a,general:g,finished:{count:finishedModels,qty:finishedQty}};
-  },[fabrics,accessories,generalProducts,orders]);
+  },[fabrics,accessories,generalProducts,orders,soReservedByOrder]);
   
   /* ──────── OPEN PRODUCT FROM QR SCAN ──────── */
   useEffect(()=>{
@@ -1034,16 +1040,19 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
               <th style={TH}>الموديل</th>
               <th style={{...TH,textAlign:"center"}}>عدد القطع المقصوصة</th>
               <th style={{...TH,textAlign:"center"}}>المسلم للعميل</th>
+              <th style={{...TH,textAlign:"center"}}>محجوز بأوامر البيع</th>
               <th style={{...TH,textAlign:"center"}}>الرصيد الجاهز</th>
               <th style={{...TH,textAlign:"center"}}>الحالة</th>
             </tr></thead>
             <tbody>
-              {orders.filter(o=>{if(o.closed)return false;const t=calcOrder(o);const del=getConfirmedStock(o);return((t.cutQty||0)-del)>0}).sort((a,b)=>{const ta=calcOrder(a);const tb=calcOrder(b);const ba=(ta.cutQty||0)-getConfirmedStock(a);const bb=(tb.cutQty||0)-getConfirmedStock(b);return bb-ba}).map(o=>{
-                const t=calcOrder(o);const del=getConfirmedStock(o);const bal=(t.cutQty||0)-del;
+              {/* V21.27.88: الرصيد الجاهز = المقصوص − المُسلَّم − المحجوز بأوامر البيع.
+                  قبل كده كان بيتجاهل أوامر البيع تمامًا. */}
+              {orders.filter(o=>{if(o.closed)return false;const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;return((t.cutQty||0)-del-reserved)>0}).map(o=>{const t=calcOrder(o);const del=getConfirmedStock(o);const reserved=soReservedByOrder[o.id]||0;return{o,t,del,reserved,bal:(t.cutQty||0)-del-reserved}}).sort((a,b)=>b.bal-a.bal).map(({o,t,del,reserved,bal})=>{
                 return<tr key={o.id} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{...TD,fontWeight:700}}>{o.modelNo||"—"}</td>
                   <td style={{...TD,textAlign:"center"}}>{fmt(t.cutQty||0)}</td>
                   <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(del)}</td>
+                  <td style={{...TD,textAlign:"center",color:reserved>0?"#8B5CF6":T.textMut,fontWeight:reserved>0?700:400}}>{reserved>0?fmt(reserved):"—"}</td>
                   <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(bal)}</td>
                   <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{o.status||"—"}</td>
                 </tr>;
