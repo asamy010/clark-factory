@@ -274,6 +274,49 @@ export async function uploadAttachment(entityType, entityId, file, user, caption
   }
 }
 
+/* ── Link an EXISTING storage-library file as an attachment (no re-upload) ──
+   V21.27.78: «من مساحة التخزين» — الملف موجود أصلاً في مكتبة المستندات
+   (data.documentsTree) وله downloadURL. بنعمل سجل attachment يشير للرابط
+   من غير رفع جديد. storagePath فاضي → soft-delete مايحذفش ملف المكتبة (المكتبة
+   بتملك دورة حياته). علامة linkedFromLibrary:true للتمييز. */
+function guessMimeFromName(name){
+  const ext = String(name||"").toLowerCase().split(".").pop();
+  if(["jpg","jpeg"].includes(ext)) return "image/jpeg";
+  if(ext==="png") return "image/png";
+  if(ext==="webp") return "image/webp";
+  if(ext==="gif") return "image/gif";
+  if(ext==="pdf") return "application/pdf";
+  return "application/octet-stream";
+}
+export async function linkAttachmentFromUrl(entityType, entityId, fileRec, user, caption){
+  if(!ATTACHMENT_ENTITY_TYPES.includes(entityType)) throw new Error("نوع كيان غير مدعوم: " + entityType);
+  if(!entityId) throw new Error("لا يوجد معرّف للكيان");
+  const url = fileRec && (fileRec.downloadURL || fileRec.url);
+  if(!url) throw new Error("الملف المختار ليس له رابط");
+  const uid = user.uid || user.email || "";
+  const uname = user.name || user.displayName || user.email || "";
+  const now = Date.now();
+  const mimeType = (fileRec.contentType) || guessMimeFromName(fileRec.name) || "application/octet-stream";
+  const meta = {
+    entityType, entityId: String(entityId),
+    fileName: fileRec.name || "ملف",
+    storagePath: "",            /* linked — مش مملوك */
+    downloadURL: url,
+    mimeType,
+    sizeBytes: Number(fileRec.size) || 0,
+    originalSizeBytes: Number(fileRec.size) || 0,
+    width: fileRec.width || null,
+    height: fileRec.height || null,
+    uploadedBy: uid, uploadedByName: uname,
+    uploadedAt: now, uploadedAtServer: serverTimestamp(),
+    caption: String(caption || "").trim(),
+    tags: [], deleted: false, deletedAt: null, deletedBy: null,
+    linkedFromLibrary: true,
+  };
+  const docRef = await addDoc(collection(db, "attachments"), meta);
+  return { id: docRef.id, ...meta, uploadedAtServer: undefined };
+}
+
 /* ── List attachments for an entity ──────────────────────────────
    V21.9.123 design choice: query by `entityId` SINGLE field only —
    Firestore auto-indexes single-field equality queries, so no

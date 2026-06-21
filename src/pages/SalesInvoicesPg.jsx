@@ -720,6 +720,7 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
           canEdit={!!upConfig && invoice.status !== "void"}
           label={isPurchase ? (_srcPoId ? "مرفقات أمر الشراء (مشتركة)" : "مرفقات الفاتورة (فاتورة المورد، الإيصال)") : "مرفقات الفاتورة (ختم العميل، صورة)"}
           compact
+          data={data}
         />
       </div>}
     </div>

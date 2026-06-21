@@ -42,7 +42,7 @@ function fmtDate(ts){
   }catch(_){ return "—"; }
 }
 
-export function AttachmentList({ entityType, entityId, user, canEdit, label, compact }){
+export function AttachmentList({ entityType, entityId, user, canEdit, label, compact, data }){
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -154,6 +154,7 @@ export function AttachmentList({ entityType, entityId, user, canEdit, label, com
             user={user}
             onUploaded={handleUploaded}
             compact={compact}
+            data={data}
           />
         )}
       </div>

@@ -15,9 +15,10 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { Btn } from "../ui.jsx";
 import { tell, showToast } from "../../utils/popups.js";
-import { uploadAttachment, isAllowedMime, MAX_FILE_SIZE, formatFileSize } from "../../utils/universalAttachments.js";
+import { uploadAttachment, linkAttachmentFromUrl, isAllowedMime, MAX_FILE_SIZE, formatFileSize } from "../../utils/universalAttachments.js";
+import { ImagePickButton } from "../DocumentImagePicker.jsx";
 
-export function AttachmentUploader({ entityType, entityId, user, onUploaded, disabled, compact }){
+export function AttachmentUploader({ entityType, entityId, user, onUploaded, disabled, compact, data }){
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, pct: 0 });
   const cameraInputRef = useRef(null);
@@ -75,18 +76,51 @@ export function AttachmentUploader({ entityType, entityId, user, onUploaded, dis
     }
   };
 
+  /* V21.27.78: «من مساحة التخزين» — ربط ملفات موجودة في مكتبة المستندات بدون رفع جديد. */
+  const handlePickedFromStorage = async (recs) => {
+    const list = Array.from(recs || []);
+    if(list.length === 0) return;
+    setUploading(true);
+    setProgress({ done: 0, total: list.length, pct: 0 });
+    const linked = [], failed = [];
+    for(let i = 0; i < list.length; i++){
+      try { linked.push(await linkAttachmentFromUrl(entityType, entityId, list[i], user, "")); }
+      catch(err){ console.error("[AttachmentUploader] link failed:", err); failed.push({ name: list[i].name || "ملف", error: err.message || String(err) }); }
+      setProgress({ done: i + 1, total: list.length, pct: 0 });
+    }
+    setUploading(false);
+    setProgress({ done: 0, total: 0, pct: 0 });
+    if(linked.length > 0){ onUploaded && onUploaded(linked); showToast("✓ تم ربط " + linked.length + " ملف من مساحة التخزين"); }
+    if(failed.length > 0){ await tell("فشل ربط بعض الملفات", failed.map(f => "• " + f.name + ": " + f.error).join("\n"), { type: "error" }); }
+  };
+
   const wrapStyle = compact
     ? { display: "inline-flex", alignItems: "center", gap: 6 }
     : { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" };
+
+  /* ستايل زر «ملف» (يُستخدم كـ trigger للبوب اب «اختر المصدر» لو data متاحة) */
+  const fileBtnStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 8, background: "#6366f112", color: "#6366f1", border: "1px solid #6366f130", fontWeight: 700, fontSize: FS - 1, fontFamily: "inherit", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1, whiteSpace: "nowrap" };
 
   return (
     <div style={wrapStyle}>
       <Btn small primary onClick={() => cameraInputRef.current && cameraInputRef.current.click()} disabled={uploading} title="التقاط صورة بالكاميرا">
         📷 كاميرا
       </Btn>
-      <Btn small onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading} title="اختيار ملف من الجهاز" style={{background:"#6366f112",color:"#6366f1",border:"1px solid #6366f130"}}>
-        📁 ملف
-      </Btn>
+      {/* V21.27.78: لو data متاحة → بوب اب «اختر المصدر» (كمبيوتر/مساحة التخزين)؛ غير كده → ملف مباشر */}
+      {data ? (
+        <ImagePickButton
+          data={data} multiple imagesOnly={false} disabled={uploading}
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          onFiles={(files) => handleFiles(files)}
+          onPickMany={(recs) => handlePickedFromStorage(recs)}
+          title="إضافة ملف — من الكمبيوتر أو مساحة التخزين">
+          <span style={fileBtnStyle}>📎 إضافة مرفق</span>
+        </ImagePickButton>
+      ) : (
+        <Btn small onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={uploading} title="اختيار ملف من الجهاز" style={{background:"#6366f112",color:"#6366f1",border:"1px solid #6366f130"}}>
+          📁 ملف
+        </Btn>
+      )}
 
       {uploading && (
         <span style={{fontSize: FS-2, color: T.textSec, display:"inline-flex", alignItems:"center", gap: 6}}>

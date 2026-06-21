@@ -2263,6 +2263,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
               canEdit={canEdit}
               label="مستندات المورد (السجل التجاري، البطاقة الضريبية، إلخ)"
               compact
+              data={data}
             />
           </div>
         )}
@@ -2563,8 +2564,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
           {/* V21.27.73: أمر الشراء (مشتركة) + مرفقات خاصة بالاستلام (تتضاف بعد الحفظ) */}
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            {rcpt._poId&&<AttachmentList entityType="purchaseOrders" entityId={rcpt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>}
-            <AttachmentList entityType="purchaseReceipts" entityId={rcpt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>
+            {rcpt._poId&&<AttachmentList entityType="purchaseOrders" entityId={rcpt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact data={data}/>}
+            <AttachmentList entityType="purchaseReceipts" entityId={rcpt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact data={data}/>
           </div>
         </div>
       </div>
@@ -2738,8 +2739,8 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>{/* /left column */}
         {/* V21.27.73: لوحة مرفقات الاستلام — أمر الشراء (مشتركة، عرض) + مرفقات خاصة بالاستلام (إضافة) */}
         <div style={{width:isMob?"100%":340,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"42vh":"92vh",display:"flex",flexDirection:"column",gap:12}}>
-          {viewReceipt._poId&&<AttachmentList entityType="purchaseOrders" entityId={viewReceipt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact/>}
-          <AttachmentList entityType="purchaseReceipts" entityId={viewReceipt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact/>
+          {viewReceipt._poId&&<AttachmentList entityType="purchaseOrders" entityId={viewReceipt._poId} user={user} canEdit={canEdit} label="مرفقات أمر الشراء (مشتركة)" compact data={data}/>}
+          <AttachmentList entityType="purchaseReceipts" entityId={viewReceipt.id} user={user} canEdit={canEdit} label="مرفقات الاستلام" compact data={data}/>
         </div>
       </div>
     </div>}
@@ -2954,7 +2955,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>{/* /left column */}
         {/* V21.27.67: لوحة المرفقات الجانبية لأمر الشراء (مشتركة مع الاستلام/الفاتورة عبر نفس entityId) */}
         <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
-          <AttachmentList entityType="purchaseOrders" entityId={po.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact/>
+          <AttachmentList entityType="purchaseOrders" entityId={po.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact data={data}/>
         </div>
       </div>
     </div>}
@@ -3033,7 +3034,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>{/* /left column */}
         {/* V21.27.71: لوحة المرفقات الجانبية في معاينة الأمر (نفس مرفقات أمر الشراء) */}
         <div style={{width:isMob?"100%":360,flexShrink:0,borderInlineStart:isMob?"none":"1px solid "+T.brd,borderTop:isMob?"1px solid "+T.brd:"none",background:T.bg,overflowY:"auto",padding:16,maxHeight:isMob?"38vh":"92vh"}}>
-          <AttachmentList entityType="purchaseOrders" entityId={viewPo.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact/>
+          <AttachmentList entityType="purchaseOrders" entityId={viewPo.id} user={user} canEdit={canEdit} label="مرفقات أمر الشراء" compact data={data}/>
         </div>
       </div>
     </div>}

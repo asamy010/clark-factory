@@ -12,6 +12,35 @@
 
 ---
 
+## V21.27.78 (2026-06-20) — 📎 إضافة المرفقات: بوب اب «اختر المصدر»
+
+طلب Ahmed: في أمر الشراء لما أضغط إضافة مرفق بيفتح الكمبيوتر فقط — عايزه يفتح
+بوب اب واختار كمبيوتر أو مساحة التخزين. (بالصورة: بوب اب «اختر المصدر» —
+من الكمبيوتر / من مساحة التخزين.)
+
+**القرار:** «مساحة التخزين» = الملفات المرفوعة بالفعل في مكتبة المستندات
+(`data.documentsTree`)، مش جوجل درايف. المكوّنات موجودة بالفعل
+(`ImagePickButton` + `DocumentImagePicker` — مستخدمة في صور الموديلات/الاستوديو).
+الشغل = توصيلها بنظام المرفقات.
+
+**التنفيذ:**
+- `src/utils/universalAttachments.js`: دالة `linkAttachmentFromUrl(entityType,
+  entityId, fileRec, user)` — تعمل سجل attachment يشير لـ `downloadURL` موجود
+  بدون رفع جديد. `storagePath=""` + `linkedFromLibrary:true` → soft-delete
+  مايحذفش ملف المكتبة.
+- `src/components/attachments/AttachmentUploader.jsx`: prop `data` جديد. لو
+  متاح → الزر بقى `ImagePickButton` (بوب اب اختر المصدر: كمبيوتر→`handleFiles`
+  رفع، مساحة التخزين→`handlePickedFromStorage` ربط). `imagesOnly={false}`
+  (صور+PDF). غير متاح → السلوك القديم (ملف مباشر) — متوافق رجعياً.
+- `src/components/attachments/AttachmentList.jsx`: prop `data` ويمرّره للـ uploader.
+- مرّرنا `data={data}` لكل `AttachmentList` في دورة الشراء (أمر/استلام/فاتورة/مورد)
+  في `PurchasePg.jsx` و`SalesInvoicesPg.jsx`.
+
+ملفات: `universalAttachments.js` · `AttachmentUploader.jsx` · `AttachmentList.jsx`
+· `PurchasePg.jsx` · `SalesInvoicesPg.jsx`. بناء ✓ (`✓ built in 22.64s`).
+
+---
+
 ## V21.27.77 (2026-06-20) — ⚖️ رصيد المخزن = صافي الحركات الفعلي تلقائياً
 
 بلاغ Ahmed (بالصورة): الصنف TEST عنده استلامين (REC-001 +100، REC-002 +200 =
