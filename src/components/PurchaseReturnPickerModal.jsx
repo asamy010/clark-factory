@@ -114,7 +114,7 @@ export function PurchaseReturnPickerModal({invoice, supplier, data, upConfig, on
             if(cat?.legacy==="fabric"){ const f=(d.fabrics||[]).find(x=>String(x.id)===String(p.itemId)); if(f&&f.stock<0) f.stock=0; }
             else if(cat?.legacy==="accessory"){ const a=(d.accessories||[]).find(x=>String(x.id)===String(p.itemId)); if(a&&a.stock<0) a.stock=0; }
             else { const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(p.itemId)); if(x&&x.stock<0) x.stock=0; }
-            d.stockMovements.push({ id: gid(), type:"out", itemType:p.itemType, itemId:p.itemId, itemName:p.name||"", qty:-p.qty, unit:"", price:Number(p.unitPrice)||0, date, sourceType:"purchase_return", sourceId:invoice.id, notes:"مرتجع مشتريات — فاتورة "+(invoice.invoiceNo||""), createdBy:userName, createdAt:new Date().toISOString() });
+            d.stockMovements.push({ id: gid(), type:"out", itemType:p.itemType, itemId:p.itemId, itemName:p.name||"", qty:-p.qty, unit:"", price:Number(p.unitPrice)||0, date, sourceType:"purchase_return", sourceId:invoice.id, notes:"مرتجع مشتريات — "+(invoice.invoiceNo||""), createdBy:userName, createdAt:new Date().toISOString() });
           });
         }
         const returnEntry = {
@@ -129,7 +129,7 @@ export function PurchaseReturnPickerModal({invoice, supplier, data, upConfig, on
             qty: p.qty,
             unitPrice: p.unitPrice,
           })),
-          notes: notes.trim() || `مرتجع من فاتورة ${invoice.invoiceNo}`,
+          notes: notes.trim() || `مرتجع من ${invoice.invoiceNo}`,
         };
         result = upsertDebitNoteFromReturn(d, returnEntry, supplier, userName);
         const dnId = result && result.debitNote ? result.debitNote.id : "";

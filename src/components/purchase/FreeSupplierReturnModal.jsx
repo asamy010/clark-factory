@@ -162,8 +162,9 @@ export function FreeSupplierReturnModal({ data, upConfig, user, onClose, onCreat
     onClose();
   };
 
+  /* zIndex 99998: تحت بوب اب التأكيد (ask=100000) والتوست عشان «تأكيد المرتجع» يظهر فوق المودال (V21.27.85) */
   return (
-    <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100002, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
+    <div className="pop-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => { if(e.target === e.currentTarget) onClose(); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, padding: 20, width: "100%", maxWidth: 880, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: FS + 2, fontWeight: 800, color: "#3B82F6" }}>↪️ مرتجع مورد (حر)</div>

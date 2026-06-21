@@ -1506,7 +1506,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
                     <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.date}</td>
                     <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:typeInfo.color+"15",color:typeInfo.color}}>{typeInfo.icon+" "+typeInfo.label}</span></td>
                     <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
-                    <td style={{...TD,textAlign:"center",fontWeight:700,color:typeInfo.color}}>{(m.type==="out"?"-":"+")+fmt(m.qty)+" "+(m.unit||"")}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:700,color:typeInfo.color}}>{(m.type==="out"?"-":"+")+fmt(Math.abs(Number(m.qty)||0))+" "+(m.unit||"")}</td>
                     <td style={{...TD,textAlign:"center",color:T.textSec}}>{m.price?fmt(r2(m.price)):"—"}</td>
                     <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
                     <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
