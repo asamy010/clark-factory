@@ -25,6 +25,7 @@ import { filterByTags } from "../utils/tags.js";
 /* V21.9.125: Universal Attachments — wire to supplier edit form. Existing suppliers only. */
 import { AttachmentList } from "../components/attachments/AttachmentList.jsx";
 import { ReviewRequestModal } from "../components/ReviewRequestModal.jsx";/* V21.27.74: طلب مراجعة لأمر الشراء/الاستلام */
+import { PrintPriceChoiceModal } from "../components/PrintPriceChoiceModal.jsx";/* V21.27.84: طباعة مع/بدون أسعار */
 import { DocLineEditor } from "../components/sales/DocLineEditor.jsx";
 import { DocItemsTable, DocTotals } from "../components/DocItemsTable.jsx";
 import { docColumnsHTML } from "../utils/docColumns.js";
@@ -68,6 +69,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   const[rcptSupplierF,setRcptSupplierF]=useState("");
   const[viewReceipt,setViewReceipt]=useState(null);/* view a receipt detail */
   const[showReview,setShowReview]=useState(null);/* V21.27.74: {link, defaultMsg} لطلب مراجعة أمر شراء/استلام */
+  const[printRcpt,setPrintRcpt]=useState(null);/* V21.27.84: الاستلام اللي بنطبعه (اختيار مع/بدون أسعار) */
   /* V21.21.20: مرتجع مشتريات من الاستلام (إشعار مدين + خصم من المخزن) */
   const[returnRcpt,setReturnRcpt]=useState(null);/* الاستلام اللي بنعمل له مرتجع */
   const[retQty,setRetQty]=useState({});/* itemKey → كمية المرتجع */
@@ -1064,12 +1066,25 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   };
 
   /* ──────── PRINT RECEIPT ──────── */
-  const printReceipt=(r)=>{
+  /* V21.27.84: showPrices=false → نسخة كميات فقط (بدون عمود سعر/إجمالي ولا قسم الدفع) */
+  const printReceipt=(r,showPrices=true)=>{
     const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
-    const rowsHtml=(r.items||[]).map(it=>"<tr><td>"+((getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦"))+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>").join("");
+    const totalQty=(r.items||[]).reduce((s,it)=>s+(Number(it.qty)||0),0);
+    const rowsHtml=(r.items||[]).map(it=>{
+      const emoji=(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦");
+      return showPrices
+        ? "<tr><td>"+emoji+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>"
+        : "<tr><td>"+emoji+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td></tr>";
+    }).join("");
+    const itemsTable=showPrices
+      ? "<table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rowsHtml+"<tr style='font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(r.totalAmount))+" ج.م</td></tr></tbody></table>"
+      : "<table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th></tr></thead><tbody>"+rowsHtml+"<tr style='font-weight:800'><td style='text-align:left'>إجمالي الكميات</td><td class='center info' style='font-size:14px'>"+fmt(r2(totalQty))+"</td><td></td></tr></tbody></table>";
     const paymentLabel=r.paymentMethod==="cash"?"كاش":r.paymentMethod==="check"?"شيك":"آجل";
-    const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+r.receiptNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📥 إذن استلام مشتريات</div><div class='hdr-info'><div>رقم: "+r.receiptNo+"</div><div>التاريخ: "+r.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||r.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+ltrPhone(supplier.phone)+"</td></tr>":"")+(supplier?.address?"<tr><th>العنوان</th><td>"+supplier.address+"</td></tr>":"")+"</table><h3>البنود</h3><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rowsHtml+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(r.totalAmount))+" ج.م</td></tr></tbody></table><h3>تفاصيل الدفع</h3><table><tr><th style='width:30%'>طريقة الدفع</th><td class='info'>"+paymentLabel+"</td></tr><tr><th>المدفوع</th><td class='ok'>"+fmt(r2(r.paidAmount||0))+" ج.م</td></tr><tr><th>المتبقي</th><td class='err'>"+fmt(r2((r.totalAmount||0)-(r.paidAmount||0)))+" ج.م</td></tr>"+(r.treasuryAccount?"<tr><th>الخزنة</th><td>"+r.treasuryAccount+"</td></tr>":"")+"</table>"+(r.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+r.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المستلم</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — تم الإنشاء: "+new Date(r.createdAt||Date.now()).toLocaleString("ar-EG")+" — بواسطة: "+(r.createdBy||"—")+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
+    const paymentSection=showPrices
+      ? "<h3>تفاصيل الدفع</h3><table><tr><th style='width:30%'>طريقة الدفع</th><td class='info'>"+paymentLabel+"</td></tr><tr><th>المدفوع</th><td class='ok'>"+fmt(r2(r.paidAmount||0))+" ج.م</td></tr><tr><th>المتبقي</th><td class='err'>"+fmt(r2((r.totalAmount||0)-(r.paidAmount||0)))+" ج.م</td></tr>"+(r.treasuryAccount?"<tr><th>الخزنة</th><td>"+r.treasuryAccount+"</td></tr>":"")+"</table>"
+      : "";
+    const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+r.receiptNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800'>📥 إذن استلام مشتريات"+(showPrices?"":" — كميات")+"</div><div class='hdr-info'><div>رقم: "+r.receiptNo+"</div><div>التاريخ: "+r.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||r.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+ltrPhone(supplier.phone)+"</td></tr>":"")+(supplier?.address?"<tr><th>العنوان</th><td>"+supplier.address+"</td></tr>":"")+"</table><h3>البنود</h3>"+itemsTable+paymentSection+(r.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+r.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المستلم</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — تم الإنشاء: "+new Date(r.createdAt||Date.now()).toLocaleString("ar-EG")+" — بواسطة: "+(r.createdBy||"—")+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
   
@@ -2744,7 +2759,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
               );
             }} style={{background:"#F59E0B15",color:"#F59E0B",border:"1px solid #F59E0B40",fontWeight:700}}>📥 تحويل لفاتورة</Btn>;
           })()}
-          <Btn onClick={()=>printReceipt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
+          <Btn onClick={()=>setPrintRcpt(viewReceipt)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
           {/* V21.27.74: طلب مراجعة الاستلام */}
           <Btn onClick={()=>setShowReview({link:{type:"receipt",id:viewReceipt.id,label:"استلام "+viewReceipt.receiptNo},defaultMsg:"راجع الاستلام "+viewReceipt.receiptNo+" من فضلك"})} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640"}}>📌 طلب مراجعة</Btn>
           {canEdit&&<Btn onClick={()=>openReceiptReturn(viewReceipt)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>↪️ مرتجع مشتريات</Btn>}
@@ -3052,6 +3067,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
         </div>
       </div>
     </div>}
+
+    {/* V21.27.84: اختيار طباعة الاستلام مع/بدون أسعار */}
+    {printRcpt&&<PrintPriceChoiceModal title={"طباعة الاستلام "+(printRcpt.receiptNo||"")} onPick={(sp)=>{const r=printRcpt;setPrintRcpt(null);printReceipt(r,sp);}} onClose={()=>setPrintRcpt(null)}/>}
 
     {/* V21.27.74: مودال طلب المراجعة لأمر الشراء/الاستلام */}
     {showReview&&<ReviewRequestModal

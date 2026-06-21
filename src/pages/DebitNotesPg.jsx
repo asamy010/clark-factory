@@ -26,6 +26,7 @@ import {
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printDebitNote } from "../utils/printInvoice.js";
 import { FreeSupplierReturnModal } from "../components/purchase/FreeSupplierReturnModal.jsx";/* V21.27.81: مرتجع مورد حر */
+import { PrintPriceChoiceModal } from "../components/PrintPriceChoiceModal.jsx";/* V21.27.84: طباعة مع/بدون أسعار */
 /* V19.39: Bulk-post toolbar shared with the other invoice pages */
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
 
@@ -290,8 +291,10 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
 
 function DebitNoteDetailModal({debitNote, data, onClose, onPost, onVoid, onDelete, isMob}){
   const meta = STATUS_META[debitNote.status] || STATUS_META.draft;
+  const [printChoice, setPrintChoice] = useState(false);/* V21.27.84: اختيار مع/بدون أسعار */
 
   return <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:10001, display:"flex", alignItems:"center", justifyContent:"center", padding:16}} onClick={onClose}>
+    {printChoice && <PrintPriceChoiceModal title={"طباعة المرتجع "+(debitNote.debitNoteNo||"")} onPick={(sp)=>{ setPrintChoice(false); const supplier=(data.suppliers||[]).find(s=>s.id===debitNote.supplierId); const factoryInfo=data.factoryInfo||data.businessSettings||{}; printDebitNote(debitNote, supplier, factoryInfo, sp); }} onClose={()=>setPrintChoice(false)} />}
     <div onClick={e => e.stopPropagation()} style={{
       background:T.cardSolid, borderRadius:14, padding:isMob?16:24,
       width:"100%", maxWidth:800, maxHeight:"90vh", overflowY:"auto",
@@ -382,11 +385,7 @@ function DebitNoteDetailModal({debitNote, data, onClose, onPost, onVoid, onDelet
 
       <div style={{display:"flex", gap:8, justifyContent:"flex-end", flexWrap:"wrap"}}>
         <Btn ghost onClick={onClose}>إغلاق</Btn>
-        <Btn onClick={() => {
-          const supplier = (data.suppliers||[]).find(s => s.id === debitNote.supplierId);
-          const factoryInfo = data.factoryInfo || data.businessSettings || {};
-          printDebitNote(debitNote, supplier, factoryInfo);
-        }} style={{background:T.accent+"12", color:T.accent, border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
+        <Btn onClick={() => setPrintChoice(true)} style={{background:T.accent+"12", color:T.accent, border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
         {debitNote.status === "draft" && <>
           <Btn onClick={() => onDelete(debitNote)} style={{background:T.err+"15", color:T.err, border:"1px solid "+T.err+"40"}}>🗑 حذف المسودة</Btn>
           <Btn primary onClick={() => onPost(debitNote)} style={{background:STATUS_META.posted.color, color:"#fff", border:"none"}}>✅ ترحيل</Btn>

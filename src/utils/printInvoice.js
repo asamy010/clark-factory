@@ -258,7 +258,7 @@ function _esc(s){
    Mirror of printCreditNote but for purchase returns: blue accent (matches
    purchase invoice color scheme), supplier instead of customer, "المستحق رد
    من المورد" instead of "المستحق رد للعميل". */
-export function printDebitNote(debitNote, supplier, factoryInfo){
+export function printDebitNote(debitNote, supplier, factoryInfo, showPrices = true){
   const w = openPrintWindow();
   if(!w){ alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة"); return; }
 
@@ -266,11 +266,16 @@ export function printDebitNote(debitNote, supplier, factoryInfo){
      purchase invoices (orange). Blue signals "money coming back to us"
      while orange means "money owed". */
   const accentColor = "#3B82F6";
-  const rows = (debitNote.items||[]).map(it => `<tr>
+  /* V21.27.84: showPrices=false → كميات فقط (بدون عمود سعر/إجمالي ولا صندوق الإجماليات) */
+  const totalQty = (debitNote.items||[]).reduce((s, it) => s + (Number(it.qty)||0), 0);
+  const rows = (debitNote.items||[]).map(it => showPrices ? `<tr>
     <td><div style="font-weight:700">${_esc(it.name||"—")}</div>${it.itemType?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.itemType)}</div>`:""}</td>
     <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
     <td class="center" style="direction:ltr;color:#475569">${fmt2(it.unitPrice)}</td>
     <td class="center" style="direction:ltr;font-weight:700;color:${accentColor}">${fmt2(it.lineTotal)}</td>
+  </tr>` : `<tr>
+    <td><div style="font-weight:700">${_esc(it.name||"—")}</div>${it.itemType?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.itemType)}</div>`:""}</td>
+    <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
   </tr>`).join("");
 
   const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
@@ -341,20 +346,20 @@ ${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;b
   </div>
 </div>
 
-<h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">الأصناف المُرتجعة للمورد</h3>
+<h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">الأصناف المُرتجعة للمورد${showPrices?"":" — كميات"}</h3>
 <table>
   <thead>
     <tr>
-      <th style="width:50%">الصنف</th>
+      <th style="${showPrices?"width:50%":"width:75%"}">الصنف</th>
       <th style="width:15%" class="center">الكمية</th>
-      <th style="width:15%" class="center">سعر الوحدة</th>
-      <th style="width:20%" class="center">الإجمالي</th>
+      ${showPrices?`<th style="width:15%" class="center">سعر الوحدة</th>
+      <th style="width:20%" class="center">الإجمالي</th>`:""}
     </tr>
   </thead>
   <tbody>${rows}</tbody>
 </table>
 
-<div class="inv-totals">
+${showPrices ? `<div class="inv-totals">
   <div class="box">
     <div class="row">
       <span>الإجمالي قبل الخصم</span>
@@ -369,7 +374,7 @@ ${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;b
       <span style="direction:ltr">${fmt2(debitNote.total)} ج.م</span>
     </div>
   </div>
-</div>
+</div>` : `<div class="inv-totals"><div class="box"><div class="row total"><span>إجمالي الكميات المرتجعة</span><span style="direction:ltr">${fmt(totalQty)}</span></div></div></div>`}
 
 ${debitNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(debitNote.notes)}</p>` : ""}
 
