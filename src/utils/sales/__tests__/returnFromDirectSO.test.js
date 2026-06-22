@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal } from "../salesOrders.js";
+import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal, cancelReturnMutator, removeOperationalReturnForCreditNote } from "../salesOrders.js";
 import { computeSoReserved } from "../../stockCatalog.js";
 import { creditNotePostBlocker } from "../../invoices.js";
 
@@ -11,6 +11,24 @@ const directSO = (id, custId, sourceId, qty, unitPrice, extra = {}) => ({
   subtotal: qty * unitPrice, discountPct: 0, totalDiscount: 0, total: qty * unitPrice,
   salesInvoiceId: extra.salesInvoiceId || "", salesInvoiceNo: extra.salesInvoiceNo || "",
   sourceDistributionId: extra.sourceDistributionId, isDistributionMirror: extra.isDistributionMirror,
+});
+
+/* أمر بيع مباشر فيه بند صنف مخزون متخصم فعليًا (so.stockDeductions). */
+const directSOInv = (id, custId, itemId, qty, unitPrice, opts = {}) => ({
+  id, orderNo: id, customerId: custId, customerName: "عميل", status: "delivered",
+  date: opts.date || "2026-06-01", createdAt: opts.createdAt || id,
+  items: [{ sourceType: "inventoryItem", sourceId: itemId, modelNo: "قماش قطن", description: "قطن", unit: "متر", qty, unitPrice, discountType: "pct", discountValue: opts.discountValue || 0, lineTotal: qty * unitPrice }],
+  subtotal: qty * unitPrice, discountPct: 0, totalDiscount: 0, total: qty * unitPrice,
+  salesInvoiceId: opts.salesInvoiceId || "", salesInvoiceNo: opts.salesInvoiceNo || "",
+  stockDeducted: opts.stockDeducted !== false,
+  stockDeductions: opts.stockDeducted === false ? [] : [{ itemId, categoryId: "cat1", qty, itemName: "قماش قطن", unit: "متر", unitCost: opts.unitCost != null ? opts.unitCost : 40 }],
+});
+const invData = (so, stock = 100) => ({
+  salesOrders: [so], salesInvoices: [], salesCreditNotes: [],
+  itemCategories: [{ id: "cat1", name: "خامات" }],
+  inventoryItems: [{ id: "it1", name: "قماش قطن", unit: "متر", categoryId: "cat1", stock, avgCost: 40 }],
+  stockMovements: [],
+  customers: [{ id: "c1", name: "عميل" }],
 });
 
 describe("returnFromDirectSalesOrderMutator (separate-document, immutable SO)", () => {
@@ -130,25 +148,6 @@ describe("returnFromDirectSalesOrderMutator (separate-document, immutable SO)", 
     expect(d.salesCreditNotes.length).toBe(0);
   });
 
-  /* ── V21.27.99: مرتجع صنف مخزون (خامة/إكسسوار) — استرجاع مخزون فعلي ── */
-  /* أمر بيع مباشر فيه بند صنف مخزون متخصم فعليًا (so.stockDeductions). */
-  const directSOInv = (id, custId, itemId, qty, unitPrice, opts = {}) => ({
-    id, orderNo: id, customerId: custId, customerName: "عميل", status: "delivered",
-    date: opts.date || "2026-06-01", createdAt: opts.createdAt || id,
-    items: [{ sourceType: "inventoryItem", sourceId: itemId, modelNo: "قماش قطن", description: "قطن", unit: "متر", qty, unitPrice, discountType: "pct", discountValue: opts.discountValue || 0, lineTotal: qty * unitPrice }],
-    subtotal: qty * unitPrice, discountPct: 0, totalDiscount: 0, total: qty * unitPrice,
-    salesInvoiceId: opts.salesInvoiceId || "", salesInvoiceNo: opts.salesInvoiceNo || "",
-    stockDeducted: opts.stockDeducted !== false,
-    stockDeductions: opts.stockDeducted === false ? [] : [{ itemId, categoryId: "cat1", qty, itemName: "قماش قطن", unit: "متر", unitCost: opts.unitCost != null ? opts.unitCost : 40 }],
-  });
-  const invData = (so, stock = 100) => ({
-    salesOrders: [so], salesInvoices: [], salesCreditNotes: [],
-    itemCategories: [{ id: "cat1", name: "خامات" }],
-    inventoryItems: [{ id: "it1", name: "قماش قطن", unit: "متر", categoryId: "cat1", stock, avgCost: 40 }],
-    stockMovements: [],
-    customers: [{ id: "c1", name: "عميل" }],
-  });
-
   it("inventoryItem return restores ACTUAL stock + records movement + credit note", () => {
     const d = invData(directSOInv("so1", "c1", "it1", 10, 60), 90); // 90 in stock after a 10m sale
     const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "it1", qty: 4 }] }, "t");
@@ -211,5 +210,108 @@ describe("returnFromDirectSalesOrderMutator (separate-document, immutable SO)", 
     expect(r.reduced).toEqual([]);
     expect(d.salesOrders[0].returns).toBeUndefined();
     expect(d.salesCreditNotes.length).toBe(0);
+  });
+});
+
+/* ── V21.27.101 (issue #4): إلغاء مرتجع موحّد ── */
+describe("cancelReturnMutator (unified return cancellation)", () => {
+  it("cancels a direct-SO MODEL return: removes so.returns + deletes draft CN + restores reserved", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 10, 100)], salesInvoices: [], salesCreditNotes: [], customers: [{ id: "c1", name: "عميل" }] };
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 4 }] }, "t");
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(6);
+    const retId = d.salesOrders[0].returns[0].id;
+    const r = cancelReturnMutator(d, { kind: "so", soId: "so1", retId }, "t");
+    expect(r.ok).toBe(true);
+    expect(d.salesOrders[0].returns.length).toBe(0);       // operational return removed
+    expect(d.salesCreditNotes.length).toBe(0);             // draft CN deleted
+    expect(computeSoReserved(d.salesOrders)["o1"]).toBe(10); // reserved fully restored
+  });
+
+  it("cancels a direct-SO INVENTORY return: re-deducts stock + restores deduction + deletes CN", () => {
+    const d = invData(directSOInv("so1", "c1", "it1", 10, 60), 90);
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "it1", qty: 4 }] }, "t");
+    expect(d.inventoryItems[0].stock).toBe(94);            // return added 4 back
+    expect(d.salesCreditNotes.length).toBe(1);
+    const retId = d.salesOrders[0].returns[0].id;
+    const r = cancelReturnMutator(d, { kind: "so", soId: "so1", retId }, "t");
+    expect(r.ok).toBe(true);
+    expect(d.inventoryItems[0].stock).toBe(90);            // re-deducted → back to sold state
+    expect(d.salesOrders[0].stockDeductions[0].qty).toBe(10); // deduction restored
+    expect(d.salesOrders[0].returns.length).toBe(0);
+    expect(d.salesCreditNotes.length).toBe(0);
+    const cancelMv = d.stockMovements.find(m => m.sourceType === "sales_order_return_cancel");
+    expect(cancelMv).toBeTruthy();
+    expect(cancelMv.qty).toBe(-4);
+  });
+
+  it("voids (not deletes) a POSTED credit note and reports postedJournalRef for GL reversal", () => {
+    const d = invData(directSOInv("so1", "c1", "it1", 5, 60), 95);
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "it1", qty: 2 }] }, "t");
+    /* simulate the CN being posted */
+    const cn = d.salesCreditNotes[0];
+    cn.status = "posted"; cn.postedJournalRef = { id: "je1", date: cn.date };
+    const retId = d.salesOrders[0].returns[0].id;
+    const r = cancelReturnMutator(d, { kind: "so", soId: "so1", retId }, "t");
+    expect(r.ok).toBe(true);
+    expect(r.cn).toMatchObject({ was: "posted", postedJournalRef: { id: "je1" } });
+    expect(d.salesCreditNotes[0].status).toBe("void");     // voided, not removed
+  });
+
+  it("cancels a DISTRIBUTION return: removes customerReturns + linked CN; returns ret for GL", () => {
+    const d = {
+      orders: [{ id: "ord1", modelNo: "M1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, date: "2026-06-01", _key: "ord1:saleReturn:s1:c1:2026-06-01" }] }],
+      salesCreditNotes: [{ id: "cn1", status: "draft", creditNoteNo: "CN-1", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "ord1:saleReturn:s1:c1:2026-06-01" }] }],
+      salesOrders: [],
+    };
+    const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
+    expect(r.ok).toBe(true);
+    expect(r.kind).toBe("dist");
+    expect(d.orders[0].customerReturns.length).toBe(0);    // operational removed
+    expect(d.salesCreditNotes.length).toBe(0);             // draft CN deleted
+    expect(r.ret).toMatchObject({ qty: 3 });               // returned so handler can reverse GL
+  });
+
+  it("does NOT auto-void a CONSOLIDATED CN (>1 returnRefs) — flags cnMulti", () => {
+    const d = {
+      orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, _key: "k1" }] }],
+      salesCreditNotes: [{ id: "cn1", status: "posted", creditNoteNo: "CN-1", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "k1" }, { orderId: "ord2", custId: "c1", _key: "k2" }] }],
+      salesOrders: [],
+    };
+    const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
+    expect(r.ok).toBe(true);
+    expect(r.cnMulti).toBe(true);
+    expect(d.orders[0].customerReturns.length).toBe(0);    // operational still removed
+    expect(d.salesCreditNotes[0].status).toBe("posted");   // CN untouched (manual handling)
+  });
+
+  it("cancels a DISTRIBUTION return with NO credit note (operational-only)", () => {
+    const d = { orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 2, date: "2026-06-01" }] }], salesCreditNotes: [], salesOrders: [] };
+    const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
+    expect(r.ok).toBe(true);
+    expect(d.orders[0].customerReturns.length).toBe(0);
+    expect(r.cn).toBeNull();
+  });
+
+  it("removeOperationalReturnForCreditNote: voiding a CN removes the linked so.returns (bidirectional)", () => {
+    const d = invData(directSOInv("so1", "c1", "it1", 5, 60), 95);
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "it1", qty: 2 }] }, "t");
+    const cnId = d.salesCreditNotes[0].id;
+    expect(d.salesOrders[0].returns.length).toBe(1);
+    expect(d.inventoryItems[0].stock).toBe(97);            // 95 + 2 (return restored it)
+    const out = removeOperationalReturnForCreditNote(d, cnId);
+    expect(out.removed).toBe("so");
+    expect(d.salesOrders[0].returns.length).toBe(0);       // operational cleaned up
+    expect(d.inventoryItems[0].stock).toBe(95);            // re-deducted back to sold state
+  });
+
+  it("removeOperationalReturnForCreditNote: removes linked distribution customerReturns", () => {
+    const d = {
+      orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, _key: "k1" }] }],
+      salesCreditNotes: [{ id: "cn1", status: "posted", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "k1" }] }],
+      salesOrders: [],
+    };
+    const out = removeOperationalReturnForCreditNote(d, "cn1");
+    expect(out.removed).toBe("dist");
+    expect(d.orders[0].customerReturns.length).toBe(0);
   });
 });

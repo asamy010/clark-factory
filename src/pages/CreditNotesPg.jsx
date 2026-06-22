@@ -19,6 +19,7 @@ import {
   postInvoiceMutator,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
+import { removeOperationalReturnForCreditNote } from "../utils/sales/salesOrders.js";
 import { printCreditNote } from "../utils/printInvoice.js";
 /* V19.39: Bulk-post toolbar shared with SalesInvoicesPg + PurchaseInvoicesPg */
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
@@ -201,19 +202,21 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
     }
   };
   const handleVoid = async (cn) => {
-    if(!await ask("إلغاء إشعار دائن", "إلغاء إشعار "+cn.creditNoteNo+"؟\n\nسيتم إنشاء قيد عكسي.", {danger:true,confirmText:"إلغاء"})) return;
-    upConfig(d => { voidCreditNoteMutator(d, cn.id, userName, "إلغاء يدوي"); });
+    /* V21.27.101 (issue #4): ربط ثنائي — إلغاء الإشعار بيشيل المرتجع التشغيلي
+       المرتبط كمان (يرجّع المخزون والرصيد) عشان الكشفين يفضلوا متطابقين. */
+    if(!await ask("إلغاء إشعار دائن", "إلغاء إشعار "+cn.creditNoteNo+"؟\n\nسيتم إنشاء قيد عكسي + إلغاء المرتجع التشغيلي المرتبط (يرجّع المخزون وحساب العميل).", {danger:true,confirmText:"إلغاء"})) return;
+    upConfig(d => { removeOperationalReturnForCreditNote(d, cn.id); voidCreditNoteMutator(d, cn.id, userName, "إلغاء يدوي"); });
     if(cn.postedJournalRef){
       autoPost.creditNoteVoided(data, cn, "creditNote", userName).catch(e => console.warn("[void cn main] failed:", e));
       autoPost.creditNoteVoided(data, cn, "creditNoteCogs", userName).catch(e => console.warn("[void cn cogs] failed:", e));
     }
-    showToast("✓ تم الإلغاء");
+    showToast("✓ تم الإلغاء — رجع المرتجع التشغيلي والمخزون");
     setActiveCN(null);
   };
   const handleDelete = async (cn) => {
-    if(!await ask("حذف المسودة", "حذف مسودة الإشعار "+cn.creditNoteNo+"؟", {danger:true,confirmText:"حذف"})) return;
-    upConfig(d => { deleteDraftCreditNoteMutator(d, cn.id); });
-    showToast("✓ تم الحذف");
+    if(!await ask("حذف المسودة", "حذف مسودة الإشعار "+cn.creditNoteNo+"؟\n\nهيتلغي المرتجع التشغيلي المرتبط كمان (يرجّع المخزون والرصيد).", {danger:true,confirmText:"حذف"})) return;
+    upConfig(d => { removeOperationalReturnForCreditNote(d, cn.id); deleteDraftCreditNoteMutator(d, cn.id); });
+    showToast("✓ تم الحذف — رجع المرتجع التشغيلي والمخزون");
     setActiveCN(null);
   };
 

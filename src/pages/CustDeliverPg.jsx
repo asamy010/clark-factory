@@ -31,7 +31,7 @@ import { getDeleteBlocker } from "../utils/dataIntegrity.js";
 import { auth } from "../firebase";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { buildSalesInvoiceFromDelivery, buildCreditNoteFromReturn, upsertSalesInvoiceFromDelivery, upsertCreditNoteFromReturn } from "../utils/invoices.js";
-import { generateSalesOrdersFromSessionMutator, planSessionSaleDeletion, returnFromDirectSalesOrderMutator } from "../utils/sales/salesOrders.js";
+import { generateSalesOrdersFromSessionMutator, planSessionSaleDeletion, returnFromDirectSalesOrderMutator, cancelReturnMutator } from "../utils/sales/salesOrders.js";
 import { Spinner, Btn, Inp, Sel, SearchSel, Card, DelBtn, QRImg } from "../components/ui.jsx";
 import { VirtualList } from "../components/VirtualList.jsx";
 import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
@@ -1051,13 +1051,42 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       /* V21.9.192: stamp discPct from the matching sale entry so the credit
          note reflects the original invoice's discount, not the customer's
          current discount (which may have changed since the sale). */
-      const retEntry={custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""};
+      const retEntry={id:"ret_"+gid(),custId,custName,qty:retQty,note:retNote,date:cairoDateStr(),sessId,createdBy:userName||""};
       const matchedDisc=findMatchingSaleDiscPct(o,custId,sessId);
       if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
       o.customerReturns.push(retEntry);
     });
     setReturnPopup(null);setRetQty(0);setRetNote("");
     showToast("✓ تم تسجيل مرتجع "+retQty+" قطعة");
+  };
+
+  /* V21.27.101 (issue #4): إلغاء مرتجع موحّد — زر واحد يرجّع كل حاجة دفعة واحدة:
+     المستند التشغيلي (customerReturns / so.returns) + المخزون (لصنف المخزون) +
+     الإشعار الدائن المحاسبي (حذف مسودة / إلغاء مرحّل بقيد عكسي). ref:
+       { kind:"dist", orderId, retId?, key?, idx? } أو { kind:"so", soId, retId }. */
+  const cancelReturn=async(ref,label)=>{
+    if(!await ask("إلغاء المرتجع","تأكيد إلغاء المرتجع"+(label?" — "+label:"")+"؟\n\nهيرجّع المخزون وحساب العميل، ويلغي/يحذف الإشعار الدائن المرتبط (لو موجود).",{danger:true,confirmText:"إلغاء المرتجع"}))return;
+    let res=null;
+    upConfig(d=>{res=cancelReturnMutator(d,ref,userName)});
+    if(!res||!res.ok){showToast("⛔ "+((res&&res.error)||"تعذّر إلغاء المرتجع"));return}
+    /* عكس القيد المحاسبي (لو الإشعار كان مرحّل، أو مرتجع توزيعة مرحّل مباشرة بدون إشعار) */
+    try{
+      if(res.cn&&res.cn.was==="posted"&&res.cn.postedJournalRef){
+        autoPost.creditNoteVoided(data,{id:res.cn.id,creditNoteNo:res.cn.creditNoteNo,postedJournalRef:res.cn.postedJournalRef},"creditNote",userName).catch(()=>{});
+        autoPost.creditNoteVoided(data,{id:res.cn.id,creditNoteNo:res.cn.creditNoteNo,postedJournalRef:res.cn.postedJournalRef},"creditNoteCogs",userName).catch(()=>{});
+      }else if(res.kind==="dist"&&!res.cn&&res.ret){
+        /* مرتجع توزيعة اترحّل مباشرة للـ GL (بدون إشعار دائن) → عكس best-effort */
+        const ret=res.ret;const date=ret.date||ret.createdAt||cairoDateStr();
+        const baseId=ret._key||(res.orderId+":saleReturn:"+(ret.sessionId||ret.sessId||"")+":"+ret.custId+":"+date);
+        autoPost.reverse(data,"saleReturn",baseId,date,"إلغاء المرتجع",userName).catch(()=>{});
+        autoPost.reverse(data,"saleReturnCogs",baseId+":cogs",date,"إلغاء المرتجع",userName).catch(()=>{});
+      }
+    }catch(_){/* GL best-effort — الكرون/الـ rebuild بيعالج */}
+    if(res.cnMulti){
+      await tell("اتلغى المرتجع التشغيلي","رجع المخزون وحساب العميل التشغيلي.\n\n⚠️ الإشعار الدائن "+((res.cn&&res.cn.creditNoteNo)||"")+" مدموج لأكتر من مرتجع — مالغيناهوش تلقائيًا عشان مانعملش عكس محاسبي لمرتجعات تانية. عدّله/الغِه من «الإشعارات الدائنة» لو محتاج.",{type:"warning"});
+    } else {
+      showToast("✓ تم إلغاء المرتجع — رجع المخزون والحساب"+(res.cn?(res.cn.was==="posted"?" + قيد عكسي":" + حُذف الإشعار"):""));
+    }
   };
 
   /* Sell price */
@@ -3917,7 +3946,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       </div>:<div style={{textAlign:"center",padding:20,color:T.textMut}}>لا توجد تسليمات — اضغط "🚚 تسليم جديد"</div>})()}
     </Card>}
     {/* ── V17.7: Returns Log — grouped by customer ── */}
-    {(hubView?hubView==="returnsLog":salesTab==="returns")&&(()=>{const allReturns=[];orders.forEach(o=>{(o.customerReturns||[]).forEach(r=>{allReturns.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc})})});
+    {(hubView?hubView==="returnsLog":salesTab==="returns")&&(()=>{const allReturns=[];
+      orders.forEach(o=>{(o.customerReturns||[]).forEach((r,idx)=>{allReturns.push({...r,source:"dist",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,cancelRef:{kind:"dist",orderId:o.id,retId:r.id,key:r._key,idx}})})});
+      /* V21.27.101 (issue #2): مرتجعات «أمر البيع المباشر» (so.returns) تظهر في السجل كمان */
+      (data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled"||so.sourceDistributionId||so.isDistributionMirror)return;(so.returns||[]).forEach(r=>{allReturns.push({...r,source:"so",orderId:so.id,custId:so.customerId,custName:r.custName||so.customerName||so.customerNameAdHoc,modelNo:r.modelNo||"",modelDesc:r.modelDesc||(r.itemSourceType==="inventoryItem"?"صنف مخزون":""),createdBy:r.by||r.createdBy,cancelRef:{kind:"so",soId:so.id,retId:r.id}})})});
       if(allReturns.length===0)return<Card title={"↩️ سجل المرتجعات"}><div style={{textAlign:"center",padding:30,color:T.textMut}}>لا توجد مرتجعات بعد</div></Card>;
       /* Group by custId — collect each customer's full return history */
       const byCust={};
@@ -3984,7 +4016,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* V17.7: Returns popup — full history for one customer */}
     {returnsPopupCustId&&(()=>{
       const allRetForCust=[];
-      orders.forEach(o=>{(o.customerReturns||[]).filter(r=>r.custId===returnsPopupCustId).forEach((r,idx)=>{allRetForCust.push({...r,orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,_origIdx:idx})})});
+      orders.forEach(o=>{(o.customerReturns||[]).forEach((r,idx)=>{if(r.custId!==returnsPopupCustId)return;allRetForCust.push({...r,source:"dist",orderId:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,_origIdx:idx,cancelRef:{kind:"dist",orderId:o.id,retId:r.id,key:r._key,idx}})})});
+      /* V21.27.101: مرتجعات «أمر البيع المباشر» لنفس العميل */
+      (data.salesOrders||[]).forEach(so=>{if(!so||so.status==="cancelled"||so.sourceDistributionId||so.isDistributionMirror||so.customerId!==returnsPopupCustId)return;(so.returns||[]).forEach(r=>{allRetForCust.push({...r,source:"so",orderId:so.id,modelNo:r.modelNo||"",modelDesc:r.modelDesc||(r.itemSourceType==="inventoryItem"?"صنف مخزون":""),createdBy:r.by||r.createdBy,cancelRef:{kind:"so",soId:so.id,retId:r.id}})})});
       if(allRetForCust.length===0){setReturnsPopupCustId(null);return null}
       allRetForCust.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
       const cust=customers.find(c=>c.id===returnsPopupCustId);
@@ -4031,7 +4065,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                     return<tr key={i} style={{background:isEd?T.warn+"08":i%2===0?"transparent":T.bg+"80",borderBottom:"1px solid "+T.brd}}>
                       <td style={{...TD,textAlign:"center",color:T.textMut}}>{i+1}</td>
                       <td style={{...TD,whiteSpace:"nowrap"}}>{r.date||"—"}</td>
-                      <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}</td>
+                      <td style={{...TD,fontWeight:700,color:T.accent}}>{r.modelNo}{r.source==="so"&&<span style={{marginInlineStart:5,fontSize:FS-4,fontWeight:700,color:"#8B5CF6",background:"#8B5CF612",padding:"1px 6px",borderRadius:20}} title={"مرتجع أمر بيع مباشر"+(r.creditNoteNo?" · إشعار "+r.creditNoteNo:"")}>🧾</span>}</td>
                       <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{r.modelDesc||"—"}</td>
                       <td style={{...TD,fontWeight:800,color:T.err,textAlign:"center",fontSize:FS+1}}>{isEd?<input type="number" value={editRetQty} onChange={e=>setEditRetQty(Number(e.target.value)||0)} style={{width:60,textAlign:"center",border:"2px solid "+T.warn,borderRadius:4,padding:"2px",fontSize:FS,fontWeight:700,fontFamily:"inherit"}}/>:r.qty}</td>
                       <td style={{...TD,fontSize:FS-2}}>{isEd?<input value={editRetNote} onChange={e=>setEditRetNote(e.target.value)} placeholder="ملاحظات" style={{width:"100%",border:"1px solid "+T.brd,borderRadius:4,padding:"2px 4px",fontSize:FS-2,fontFamily:"inherit"}}/>:(r.note||"—")}</td>
@@ -4042,8 +4076,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                           <Btn ghost small onClick={()=>setEditRetIdx(null)} title="إلغاء">✕</Btn>
                         </>:<>
                           <Btn small onClick={()=>{const h="<h2 style='text-align:center'>↩️ إذن مرتجع</h2><table style='margin:0 auto 16px'><tr><th style='text-align:right;padding:4px 12px'>العميل</th><td style='padding:4px 12px;font-weight:800'>"+(r.custName||"—")+"</td><th style='text-align:right;padding:4px 12px'>التاريخ</th><td style='padding:4px 12px'>"+r.date+"</td></tr></table><table><thead><tr><th>الموديل</th><th>الوصف</th><th>الكمية</th><th>ملاحظات</th></tr></thead><tbody><tr><td style='font-weight:800;color:#0EA5E9'>"+r.modelNo+"</td><td>"+(r.modelDesc||"")+"</td><td style='font-weight:800;color:#EF4444;text-align:center;font-size:16px'>"+r.qty+"</td><td>"+(r.note||"—")+"</td></tr></tbody></table><div style='margin-top:8px;font-size:11px;color:#888'>بواسطة: "+(r.createdBy||"—")+"</div><div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>العميل</div></div>";printPage("إذن مرتجع — "+(r.custName||""),h,{factoryName:config.factoryName,logo:config.logo})}} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة إذن مرتجع">🖨</Btn>
-                          <Btn small onClick={()=>{setEditRetIdx("popup_"+i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
-                          <DelBtn onConfirm={()=>{updOrder(r.orderId,o=>{o.customerReturns=(o.customerReturns||[]).filter(x=>!(x.custId===r.custId&&x.date===r.date&&(x.note||"")===(r.note||"")))});showToast("✓ تم حذف المرتجع")}}/>
+                          {r.source!=="so"&&<Btn small onClick={()=>{setEditRetIdx("popup_"+i);setEditRetQty(r.qty);setEditRetNote(r.note||"")}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>}
+                          {/* V21.27.101: إلغاء موحّد — يرجّع المخزون + الرصيد + يلغي الإشعار الدائن */}
+                          <Btn small danger onClick={()=>cancelReturn(r.cancelRef,(r.modelNo||"")+" × "+r.qty)} title="إلغاء المرتجع — يرجّع كل حاجة (مخزون + حساب + إشعار دائن)">↩️ إلغاء</Btn>
                         </>}
                       </div></td>}
                     </tr>})}
@@ -4421,7 +4456,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           for(const lot of m.lots){if(remaining<=0)break;const take=Math.min(remaining,Number(lot.net)||0);if(take<=0)continue;
             updOrder(lot.id,o=>{if(!o.customerReturns)o.customerReturns=[];
               /* V21.9.192: stamp discPct from the most-recent sale for this customer. */
-              const retEntry={custId:freeReturn,custName:cust.name,qty:take,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""};
+              const retEntry={id:"ret_"+gid(),custId:freeReturn,custName:cust.name,qty:take,note:freeRetNote||"مرتجع حر",date:cairoDateStr(),createdBy:userName||""};
               const matchedDisc=findMatchingSaleDiscPct(o,freeReturn,null);
               if(matchedDisc!==undefined)retEntry.discPct=matchedDisc;
               o.customerReturns.push(retEntry);
@@ -4725,8 +4760,17 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           /* Archive package if sale was from package */
           if(qrSale._pkgId){upSales(d=>{const pi=(d.packages||[]).findIndex(p=>p.id===qrSale._pkgId);if(pi>=0){d.packages[pi].status="مباعة";d.packages[pi].closedAt=nowISO();if(!d.packages[pi].movements)d.packages[pi].movements=[];d.packages[pi].movements.push({date:cairoDateStr(),type:"sell",custName:cust.name,totalQty:total,by:userName||""})}})}
         }else{
-          Object.entries(byOrder).forEach(([oid,qty])=>{updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];
-            const retEntry={custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:cairoDateStr(),createdBy:userName};
+          Object.entries(byOrder).forEach(([oid,qty])=>{
+            /* V21.27.101 (issue #2): الموديل اتباع بـ«أمر بيع مباشر» (مفيش تسليم
+               توزيعة للعميل) → وجّه المرتجع لمسار أمر البيع المباشر (so.returns +
+               إشعار دائن + يرجّع المحجوز) بدل customerReturns. */
+            const _o=orders.find(x=>x.id===oid);
+            const _distNet=((_o?.customerDeliveries||[]).filter(d=>d.custId===qrSale.custId).reduce((s,d)=>s+(Number(d.qty)||0),0))-((_o?.customerReturns||[]).filter(r=>r.custId===qrSale.custId).reduce((s,r)=>s+(Number(r.qty)||0),0));
+            const _soM=(directSoRet[qrSale.custId]?.models||{})[oid];
+            const _soAvail=_soM?Math.max(0,(_soM.sold||0)-(_soM.returned||0)):0;
+            if(_distNet<=0&&_soAvail>0){upConfig(d=>{returnFromDirectSalesOrderMutator(d,{customerId:qrSale.custId,returns:[{sourceId:oid,qty:Math.min(qty,_soAvail),note:qrSale.note||"مرتجع سريع"}]},userName)});return}
+            updOrder(oid,o=>{if(!o.customerReturns)o.customerReturns=[];
+            const retEntry={id:"ret_"+gid(),custId:qrSale.custId,custName:cust.name,qty,note:qrSale.note||"مرتجع سريع",date:cairoDateStr(),createdBy:userName};
             /* V19.66: carry over original sale price for discount-aware return posting.
                Find the most recent matching delivery (same customer; same session if linked)
                and copy its price if it was a discounted/custom-price sale. Without this,

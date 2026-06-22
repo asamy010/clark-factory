@@ -12,6 +12,62 @@
 
 ---
 
+## V21.27.101 (2026-06-22) — 🔄 إصلاح جذري لدورة المبيعات (4 ملاحظات Ahmed)
+
+مراجعة Ahmed لدورة المبيعات كاملة → 4 إصلاحات جذرية. فحص بـ subagents
+(الفاتورة/الخصم + المرتجعات/الإلغاء) لتحديد الـ root cause قبل التنفيذ.
+
+### (١) الخصم التلقائي قبل ترحيل الفاتورة — `SalesInvoicesPg.jsx`
+**Root cause:** محرّر الخصم (V18.58) كان بيبدأ بـ `discountValue = invoice.discountPct || 0`.
+فاتورة «أمر البيع المباشر» بتحمل الخصم كـ**مبلغ** (`discount`) مع `discountPct=0`
+(الخصم per-line في الأمر) → الحقل يبدأ فاضي/صفر، لازم يتكتب يدوي، **وأسوأ**:
+الـ debounced auto-save كان بيشتغل on-mount ويصفّر الخصم بمجرد فتح الفاتورة.
+**الإصلاح:** التهيئة بقت تعكس الخصم الفعلي (pct لو فيه نسبة، وإلا amount لو فيه
+مبلغ خصم) + حارس `didMountDisc` يتخطّى أول run (مجرد الفتح مايكتبش).
+
+### (٢) الخصم في بوب اب الفاتورة بكشف الحساب المحاسبي — `AccountStatementView.jsx`
+البوب اب (`drill.detail.kind!=="session"`) كان بيعرض البنود والإجمالي بس.
+أُضيف ملخّص خصم من `drill.raw` (الإجمالي قبل الخصم · الخصم% · المستحق).
+
+### (٣) توحيد المرتجع على كل المصادر (قرار Ahmed: «كل المسارات تدعم المباشر»)
+**Root cause:** ٤ نقاط دخول للمرتجع، واحدة بس («مرتجع حر») كانت تعرض
+أصناف أمر البيع المباشر؛ الباقي توزيعة-only. (و`returnPopup`/`doReturn`
+اتأكّد إنه dead code — مفيش مكان بيفتحه ببيانات.)
+- **سجل المرتجعات** (`CustDeliverPg`): بقى يضمّ `so.returns` (أمر مباشر) جنب
+  `customerReturns` (توزيعة) ببادج 🧾، في السجل + بوب اب العميل.
+- **المرتجع السريع (QR):** لو الموديل اتباع مباشر (مفيش تسليم توزيعة للعميل)
+  → يوجّه لـ `returnFromDirectSalesOrderMutator` بدل `customerReturns`.
+- **مرتجع حر:** كان بالفعل يدعم المباشر (V21.27.99).
+
+### (٤) إلغاء مرتجع موحّد + ربط ثنائي (قرار Ahmed: «زر واحد يرجّع كل حاجة»)
+**Root cause:** الإلغاء كان من مكانين بلا ربط — حذف `customerReturns`/`so.returns`
+(تشغيلي) ≠ void الإشعار الدائن (محاسبي). فإلغاء واحد مايكملش التاني → الكشفين
+يختلفوا (شكوى Ahmed: اتلغى محاسبي بس، فضل تشغيلي).
+- **`cancelReturnMutator(d, ref, userName)`** (pure, `salesOrders.js`): يشيل
+  المستند التشغيلي + يرجّع المخزون (re-deduct لصنف المخزون + استرجاع
+  `stockDeductions`) + يحذف الإشعار المسودة / يعلّم المرحّل void (والـ GL
+  reversal بيتم بره عبر `autoPost.creditNoteVoided` / `autoPost.reverse`
+  لمرتجع توزيعة مرحّل مباشرة). **أمان §0.1:** الإشعار المدموج (>1 returnRefs)
+  مايتلغّيش تلقائيًا (تنبيه + يتدار من شاشة الإشعارات).
+- **`removeOperationalReturnForCreditNote(d, cnId)`** (pure): الربط العكسي —
+  void/حذف الإشعار من شاشته بيشيل المرتجع التشغيلي المرتبط (`so.returns`
+  بالـ `creditNoteId`، أو `customerReturns` بالـ `returnRefs`) ويرجّع المخزون.
+- **`cancelReturn` handler** (`CustDeliverPg`): زر «↩️ إلغاء» في بوب اب سجل
+  المرتجعات → يتأكّد، ينفّذ الـ mutator، يعكس الـ GL.
+- **`CreditNotesPg` handleVoid/handleDelete:** يستدعوا `removeOperationalReturnForCreditNote`.
+- **id ثابت** اتضاف لمرتجعات التوزيعة (`customerReturns`) في كل مسارات الإنشاء
+  للإلغاء الدقيق (fallback: `_key` ثم index للقديم).
+
+### الملفات
+`src/pages/SalesInvoicesPg.jsx` · `src/components/AccountStatementView.jsx` ·
+`src/utils/sales/salesOrders.js` (+`cancelReturnMutator`/`removeOperationalReturnForCreditNote`) ·
+`src/pages/CustDeliverPg.jsx` · `src/pages/CreditNotesPg.jsx` ·
+`src/utils/sales/__tests__/returnFromDirectSO.test.js` (+8 اختبارات = 22).
+**build ✓ · 392 tests ✓.** Blast radius: منطق الإلغاء pure+tests؛ الـ GL
+reversal بيعيد استخدام مسارات autoPost المثبتة؛ الإشعار المدموج محميّ.
+
+---
+
 ## V21.27.100 (2026-06-22) — 🎨 تحسين تنسيق القماش/الخامات + بوب اب الألوان
 
 طلبات Ahmed على شاشة الموديل (تاب القماش والخامات):

@@ -618,7 +618,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                     <td style={{ ...td, fontWeight: 900, color: accent }}>{fmt(drillTotals.net)}</td>
                   </tr></tfoot>}
                 </table>
-              ) : (
+              ) : (<>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
                   <thead><tr style={{ background: accent }}>
                     <th style={th}>الصنف</th><th style={th}>الكمية</th><th style={th}>السعر</th><th style={th}>الإجمالي</th>
@@ -641,7 +641,22 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
                     <td style={{ ...td, fontWeight: 900, color: accent }}>{fmt(drillTotals.total)}</td>
                   </tr></tfoot>}
                 </table>
-              )}
+                {/* V21.27.101 (issue #3): ملخّص الخصم في بوب اب الفاتورة المحاسبي
+                    — كان بيعرض البنود والإجمالي بس من غير ما يبيّن إن فيه خصم. */}
+                {(() => {
+                  const inv = drill.raw || {};
+                  const subtotal = Number(inv.subtotal) || 0;
+                  const total = Number(inv.total != null ? inv.total : subtotal);
+                  const disc = Number(inv.discount) || Math.max(0, subtotal - total);
+                  const dPct = Number(inv.discountPct) || (subtotal > 0 ? Math.round(disc / subtotal * 1000) / 10 : 0);
+                  if(!(subtotal > 0 || disc > 0)) return null;
+                  return <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid " + T.brd, background: T.bg }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: FS - 1, marginBottom: 4 }}><span style={{ color: T.textSec }}>الإجمالي قبل الخصم</span><span style={{ fontWeight: 700 }}>{fmt(subtotal.toFixed(2))}</span></div>
+                    {disc > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: FS - 1, marginBottom: 4, color: T.err }}><span style={{ fontWeight: 600 }}>{"الخصم" + (dPct > 0 ? " (" + dPct + "%)" : "")}</span><span style={{ fontWeight: 700, direction: "ltr" }}>{"-" + fmt(disc.toFixed(2))}</span></div>}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: FS, paddingTop: 6, borderTop: "1px solid " + T.brd }}><span style={{ fontWeight: 800, color: accent }}>المستحق</span><span style={{ fontWeight: 900, color: accent }}>{fmt(total.toFixed(2))}</span></div>
+                  </div>;
+                })()}
+              </>)}
             </div>
           </div>
         </div>

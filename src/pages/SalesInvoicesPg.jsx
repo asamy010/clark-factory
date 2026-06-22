@@ -6,7 +6,7 @@
    posted invoices.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Btn, Card, Inp, Sel, BlockingOverlay } from "../components/ui.jsx";
 import { DocItemsTable } from "../components/DocItemsTable.jsx";
 import { tafqitEGP } from "../utils/tafqit.js";
@@ -443,11 +443,19 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       showToast("⛔ " + (res?.error || "تعذّر تسجيل الدفعة"));
     }
   };
-  /* V18.58: Free discount editor — local state, applied to invoice on change */
-  const [discountType, setDiscountType] = useState(invoice.discountType || (invoice.discountPct ? "pct" : "amount"));
+  /* V18.58: Free discount editor — local state, applied to invoice on change.
+     V21.27.101 (issue #1): auto-reflect the invoice's ACTUAL discount so the
+     user never has to retype it before posting. الفاتورة المتولّدة من أمر بيع
+     مباشر بتحمل الخصم كـ«مبلغ» (discount) مع discountPct=0 — فالكود القديم كان
+     بيبدأ بـ value=discountPct=0 (الحقل فاضي) ويفقد الخصم الفعلي. دلوقتي:
+     pct لو فيه نسبة، وإلا amount لو فيه مبلغ خصم. */
+  const _initDiscType = invoice.discountType || (Number(invoice.discountPct) > 0 ? "pct" : "amount");
+  const [discountType, setDiscountType] = useState(_initDiscType);
   const [discountValue, setDiscountValue] = useState(
-    invoice.discountType === "amount" ? invoice.discount :
-    (invoice.discountPct || 0)
+    invoice.discountType === "pct" ? (Number(invoice.discountPct) || 0) :
+    invoice.discountType === "amount" ? (Number(invoice.discount) || 0) :
+    Number(invoice.discountPct) > 0 ? Number(invoice.discountPct) :
+    (Number(invoice.discount) || 0)   /* مبلغ الخصم الفعلي (أمر بيع مباشر) */
   );
 
   /* Recompute totals from current discount inputs.
@@ -499,8 +507,12 @@ export function InvoiceDetailModal({invoice, type, data, upConfig, onClose, onPo
       };
     });
   };
-  /* Apply on change with debounce-like effect */
+  /* Apply on change with debounce-like effect.
+     V21.27.101: skip the FIRST run (mount) — مجرد فتح الفاتورة ماينفعش يعيد
+     كتابة الخصم (كان بيصفّر خصم فاتورة أمر البيع المباشر بمجرد الفتح). */
+  const didMountDisc = useRef(false);
   useEffect(() => {
+    if(!didMountDisc.current){ didMountDisc.current = true; return; }
     if(isDraft && upConfig){
       const t = setTimeout(saveDiscountChange, 300);
       return () => clearTimeout(t);

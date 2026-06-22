@@ -35,7 +35,7 @@
 
 import { applyStockDelta } from "../categories.js";
 import { r2 } from "../format.js";
-import { reserveInvoiceNo, buildCreditNoteFromSalesOrderReturn } from "../invoices.js";
+import { reserveInvoiceNo, buildCreditNoteFromSalesOrderReturn, findCreditNoteByReturn } from "../invoices.js";
 import { recalcQuotationTotals } from "./quotations.js";
 import { previewDocNo, reserveDocNo } from "../docNumbering.js";
 
@@ -784,6 +784,128 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
   /* أعد ضبط علم الخصم (لو كل deductions رجعت) */
   custSOs.forEach(so => { if(Array.isArray(so.stockDeductions)) so.stockDeducted = so.stockDeductions.some(x => (Number(x && x.qty) || 0) > 0); });
   return { ok: true, reduced, blocked, creditNotes };
+}
+
+/* ── V21.27.101 (issue #4): إلغاء مرتجع موحّد — يرجّع كل حاجة دفعة واحدة ──
+   المشكلة: إلغاء المرتجع كان بيتم من مكانين (الإشعار الدائن للمحاسبي + سجل
+   المرتجعات للتشغيلي)، وإلغاء واحد مابيكملش التاني → الرصيد التشغيلي والمحاسبي
+   يختلفوا. الحل: دالة واحدة تشيل المستند التشغيلي + ترجّع المخزون + تحذف/تلغي
+   الإشعار الدائن المرتبط. الـ GL reversal للمرحّل بيتعمل بره (autoPost) بعد
+   النداء باستخدام معلومات الـ return بترجّعها الدالة (cn.was==="posted" أو
+   مرتجع توزيعة مرحّل مباشرة).
+
+   pure على d. ref:
+     { kind:"so",   soId, retId }            → مرتجع أمر بيع مباشر (so.returns)
+     { kind:"dist", orderId, retId?, key?, idx? } → مرتجع توزيعة (customerReturns)
+   يرجّع { ok, error?, kind, cn:{id,was,postedJournalRef,creditNoteNo}|null,
+           ret?, orderId? } */
+function _removeOrVoidCN(d, cnId, userName){
+  if(!cnId || !Array.isArray(d.salesCreditNotes)) return null;
+  const i = d.salesCreditNotes.findIndex(c => c && c.id === cnId);
+  if(i < 0) return null;
+  const cn = d.salesCreditNotes[i];
+  if(cn.status === "posted"){
+    d.salesCreditNotes[i] = { ...cn, status: "void", voidedAt: new Date().toISOString(), voidedBy: userName || "", voidReason: "إلغاء المرتجع" };
+    return { id: cnId, was: "posted", postedJournalRef: cn.postedJournalRef || null, creditNoteNo: cn.creditNoteNo || "" };
+  }
+  /* مسودة → احذفها */
+  d.salesCreditNotes.splice(i, 1);
+  return { id: cnId, was: cn.status || "draft", creditNoteNo: cn.creditNoteNo || "" };
+}
+
+export function cancelReturnMutator(d, ref, userName){
+  if(!ref || !ref.kind) return { ok: false, error: "مرجع غير محدد" };
+  if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
+  if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+
+  /* (1) مرتجع أمر بيع مباشر */
+  if(ref.kind === "so"){
+    const so = (d.salesOrders || []).find(s => s && s.id === ref.soId);
+    if(!so || !Array.isArray(so.returns)) return { ok: false, error: "المرتجع غير موجود" };
+    const idx = so.returns.findIndex(r => r && r.id === ref.retId);
+    if(idx < 0) return { ok: false, error: "المرتجع غير موجود" };
+    const ret = so.returns[idx];
+    /* صنف مخزون (خامة/إكسسوار): المرتجع كان رجّع المخزون فعليًا → اعكس
+       (re-deduct) + رجّع الخصم في stockDeductions + حركة خروج. */
+    if(ret.itemSourceType === "inventoryItem" && ret.categoryId){
+      const q = Number(ret.qty) || 0;
+      applyStockDelta(d, ret.categoryId, ret.sourceId, -q, null);
+      if(!Array.isArray(so.stockDeductions)) so.stockDeductions = [];
+      const ded = so.stockDeductions.find(x => x && x.itemId === ret.sourceId);
+      if(ded) ded.qty = (Number(ded.qty) || 0) + q;
+      else so.stockDeductions.push({ itemId: ret.sourceId, categoryId: ret.categoryId, qty: q, itemName: ret.itemName || "", unit: ret.unit || "", unitCost: ret.unitCost || 0 });
+      so.stockDeducted = so.stockDeductions.some(x => (Number(x && x.qty) || 0) > 0);
+      d.stockMovements.push({ id: _mid(), type: "out", itemType: ret.categoryId, itemId: ret.sourceId, itemName: ret.itemName || "", qty: -q, unit: ret.unit || "", price: ret.unitCost || 0, date: new Date().toISOString().split("T")[0], sourceType: "sales_order_return_cancel", sourceId: so.id, notes: "إلغاء مرتجع أمر بيع " + (so.orderNo || ""), createdBy: userName || "", createdAt: new Date().toISOString() });
+    }
+    const cn = _removeOrVoidCN(d, ret.creditNoteId, userName);
+    so.returns.splice(idx, 1);
+    return { ok: true, kind: "so", cn };
+  }
+
+  /* (2) مرتجع توزيعة (customerReturns) */
+  if(ref.kind === "dist"){
+    const order = (d.orders || []).find(o => o && o.id === ref.orderId);
+    if(!order || !Array.isArray(order.customerReturns)) return { ok: false, error: "المرتجع غير موجود" };
+    let idx = -1;
+    if(ref.retId) idx = order.customerReturns.findIndex(r => r && r.id === ref.retId);
+    if(idx < 0 && ref.key) idx = order.customerReturns.findIndex(r => r && r._key === ref.key);
+    if(idx < 0 && Number.isInteger(ref.idx) && ref.idx >= 0 && ref.idx < order.customerReturns.length) idx = ref.idx;
+    if(idx < 0) return { ok: false, error: "المرتجع غير موجود" };
+    const ret = order.customerReturns[idx];
+    /* الإشعار الدائن المرتبط (لو فيه — توزيعة في وضع الفواتير). أمان §0.1: لو
+       الإشعار مدموج لأكتر من مرتجع (returnRefs>1) مانلغّيهوش تلقائيًا (عشان
+       مانعملش عكس محاسبي لمرتجعات تانية) — يتدار من شاشة الإشعارات الدائنة. */
+    const cnObj = findCreditNoteByReturn(d, ref.orderId, ret.custId, ret._key);
+    let cn = null, cnMulti = false;
+    if(cnObj){
+      const refs = (Array.isArray(cnObj.returnRefs) && cnObj.returnRefs.length) ? cnObj.returnRefs : (cnObj.returnRef ? [cnObj.returnRef] : []);
+      if(refs.length <= 1) cn = _removeOrVoidCN(d, cnObj.id, userName);
+      else { cnMulti = true; cn = { id: cnObj.id, was: cnObj.status, creditNoteNo: cnObj.creditNoteNo || "", multi: true }; }
+    }
+    order.customerReturns.splice(idx, 1);
+    return { ok: true, kind: "dist", cn, cnMulti, ret, orderId: order.id };
+  }
+  return { ok: false, error: "نوع غير معروف" };
+}
+
+/* V21.27.101: عكسي — لما يتلغي/يتحذف إشعار دائن من شاشته، شيل المرتجع التشغيلي
+   المرتبط (ربط ثنائي). بيرجّع { removed:"so"|"dist"|null }. الـ GL reversal
+   للإشعار نفسه بيتم في شاشته (autoPost.creditNoteVoided) — ده بس بيزامن التشغيلي. */
+export function removeOperationalReturnForCreditNote(d, creditNoteId){
+  if(!creditNoteId) return { removed: null };
+  /* (أ) أمر بيع مباشر: so.returns[].creditNoteId === cnId */
+  for(const so of (d.salesOrders || [])){
+    if(!so || !Array.isArray(so.returns)) continue;
+    const i = so.returns.findIndex(r => r && r.creditNoteId === creditNoteId);
+    if(i >= 0){
+      const ret = so.returns[i];
+      if(ret.itemSourceType === "inventoryItem" && ret.categoryId){
+        const q = Number(ret.qty) || 0;
+        applyStockDelta(d, ret.categoryId, ret.sourceId, -q, null);
+        if(Array.isArray(so.stockDeductions)){
+          const ded = so.stockDeductions.find(x => x && x.itemId === ret.sourceId);
+          if(ded) ded.qty = (Number(ded.qty) || 0) + q;
+          so.stockDeducted = so.stockDeductions.some(x => (Number(x && x.qty) || 0) > 0);
+        }
+        if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+        d.stockMovements.push({ id: _mid(), type: "out", itemType: ret.categoryId, itemId: ret.sourceId, itemName: ret.itemName || "", qty: -q, unit: ret.unit || "", price: ret.unitCost || 0, date: new Date().toISOString().split("T")[0], sourceType: "sales_order_return_cancel", sourceId: so.id, notes: "إلغاء إشعار دائن — مرتجع أمر بيع " + (so.orderNo || ""), createdBy: "", createdAt: new Date().toISOString() });
+      }
+      so.returns.splice(i, 1);
+      return { removed: "so" };
+    }
+  }
+  /* (ب) توزيعة: الإشعار returnRefs[].{orderId,custId,_key} → customerReturns */
+  const cn = (d.salesCreditNotes || []).find(c => c && c.id === creditNoteId);
+  const refs = cn ? (Array.isArray(cn.returnRefs) && cn.returnRefs.length ? cn.returnRefs : (cn.returnRef ? [cn.returnRef] : [])) : [];
+  let removed = false;
+  for(const rf of refs){
+    if(!rf || !rf.orderId) continue;
+    const order = (d.orders || []).find(o => o && o.id === rf.orderId);
+    if(!order || !Array.isArray(order.customerReturns)) continue;
+    const i = order.customerReturns.findIndex(r => r && r.custId === rf.custId && (rf._key ? r._key === rf._key : true));
+    if(i >= 0){ order.customerReturns.splice(i, 1); removed = true; }
+  }
+  return { removed: removed ? "dist" : null };
 }
 
 /* مجموع قيمة مرتجعات أمر البيع المباشر (للرصيد/الكشف). الأمر نفسه يفضل كامل. */
