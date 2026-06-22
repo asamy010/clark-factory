@@ -206,30 +206,33 @@ export function ColorPicker({value,colorHex,onSelect}){
   return<div style={{display:"flex",alignItems:"center",gap:8}}>
     <div onClick={()=>setOpen(true)} title="اختر لون" style={{width:30,height:30,borderRadius:8,border:"2px solid "+T.brd,background:colorHex||"#F1F5F9",cursor:"pointer",flexShrink:0,boxShadow:"inset 0 0 0 1px rgba(0,0,0,0.06)"}}/>
     <input value={txt} onChange={e=>{setTxt(e.target.value);const f=COLORS_DB.find(c=>c.n===e.target.value);onSelect(e.target.value,f?f.h:colorHex||"#ccc")}} onFocus={()=>setOpen(true)} placeholder="اكتب اللون" style={{width:100,padding:"6px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.cardSolid,color:T.text}}/>
-    {open&&<>
-      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:100070,background:"rgba(0,0,0,0.45)"}}/>
-      <div style={{position:"fixed",zIndex:100071,top:"50%",insetInlineStart:"50%",transform:"translate(-50%,-50%)",background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,padding:16,boxShadow:T.shadowLg||"0 25px 70px rgba(0,0,0,0.4)",width:"min(440px,94vw)",maxHeight:"82vh",overflowY:"auto",direction:"rtl"}}>
+    {open&&<div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:100070,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      {/* V21.27.100: توسيط بالفلكس (insetInlineStart+translate كان بيزيح البوب اب
+          لليسار في RTL) · شكل مربع · مربعات ألوان أصغر (نص الحجم تقريباً). */}
+      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,border:"1px solid "+T.brd,borderRadius:16,padding:16,boxShadow:T.shadowLg||"0 25px 70px rgba(0,0,0,0.4)",width:"min(460px,94vw)",maxHeight:"min(520px,88vh)",display:"flex",flexDirection:"column",overflow:"hidden",direction:"rtl"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <span style={{fontSize:FS+1,fontWeight:900,color:T.accent}}>🎨 اختر اللون</span>
           <span onClick={()=>setOpen(false)} style={{cursor:"pointer",fontSize:FS+2,color:T.textMut,fontWeight:800,lineHeight:1}}>✕</span>
         </div>
-        <input value={q} onChange={e=>setQ(e.target.value)} autoFocus placeholder="🔍 ابحث باسم اللون..." style={{width:"100%",padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box",marginBottom:12,outline:"none"}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} autoFocus placeholder="🔍 ابحث باسم اللون..." style={{width:"100%",padding:"8px 12px",borderRadius:10,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.bg,color:T.text,boxSizing:"border-box",marginBottom:12,outline:"none",flexShrink:0}}/>
+        <div style={{flex:1,overflowY:"auto",minHeight:0}}>
         {filtered.length===0?<div style={{fontSize:FS-2,color:T.textMut,textAlign:"center",padding:12}}>{"مفيش لون باسم \""+q.trim()+"\""}</div>
-          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(60px,1fr))",gap:8}}>
-            {filtered.map(c=>{const sel=(colorHex||"").toUpperCase()===c.h.toUpperCase();return<div key={c.n} onClick={()=>pick(c.n,c.h)} title={c.n} style={{cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <div style={{width:"100%",aspectRatio:"1/1",borderRadius:10,background:c.h,border:sel?"3px solid "+T.accent:"1px solid rgba(0,0,0,0.12)",boxShadow:sel?"0 0 0 2px "+T.accent+"40":"none"}}/>
-              <span style={{fontSize:FS-4,color:T.textSec,fontWeight:600,textAlign:"center",lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{c.n}</span>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(34px,1fr))",gap:6}}>
+            {filtered.map(c=>{const sel=(colorHex||"").toUpperCase()===c.h.toUpperCase();return<div key={c.n} onClick={()=>pick(c.n,c.h)} title={c.n} style={{cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+              <div style={{width:"100%",aspectRatio:"1/1",borderRadius:7,background:c.h,border:sel?"3px solid "+T.accent:"1px solid rgba(0,0,0,0.12)",boxShadow:sel?"0 0 0 2px "+T.accent+"40":"none"}}/>
+              <span style={{fontSize:FS-5,color:T.textSec,fontWeight:600,textAlign:"center",lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{c.n}</span>
             </div>;})}
           </div>}
+        </div>
         {/* لون مخصّص */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,paddingTop:12,borderTop:"1px solid "+T.brd,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid "+T.brd,flexWrap:"wrap",flexShrink:0}}>
           <span style={{fontSize:FS-2,color:T.textSec,fontWeight:700}}>لون مخصّص:</span>
           <input type="color" value={colorHex&&/^#[0-9a-fA-F]{6}$/.test(colorHex)?colorHex:"#888888"} onChange={e=>{onSelect(txt||"لون مخصّص",e.target.value);setTxt(t=>t||"لون مخصّص")}} style={{width:42,height:32,border:"1px solid "+T.brd,borderRadius:8,background:"transparent",cursor:"pointer",padding:0}}/>
           <input value={txt} onChange={e=>setTxt(e.target.value)} placeholder="اسم اللون" style={{flex:1,minWidth:120,padding:"7px 10px",borderRadius:8,border:"1px solid "+T.brd,fontSize:FS-1,fontFamily:"inherit",background:T.bg,color:T.text}}/>
           <Btn small primary onClick={()=>{if((txt||"").trim()){onSelect(txt.trim(),colorHex||"#888888");setOpen(false)}}}>تم</Btn>
         </div>
       </div>
-    </>}
+    </div>}
   </div>
 }
 
