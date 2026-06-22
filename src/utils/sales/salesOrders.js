@@ -699,20 +699,26 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
   if(!customerId) return { ok: false, error: "عميل غير محدد" };
   if(!Array.isArray(d.salesOrders)) return { ok: false, error: "لا توجد أوامر بيع" };
   if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
+  if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
   const customer = (d.customers || []).find(c => c && c.id === customerId) || null;
   /* أوامر مباشرة للعميل (مش مرآة توزيعة، مش ملغية) */
   const custSOs = d.salesOrders.filter(so => so && so.customerId === customerId && so.status !== "cancelled" && !so.sourceDistributionId && !so.isDistributionMirror);
   const reduced = [], blocked = [], creditNotes = [];
+  const nowIso = new Date().toISOString();
+  /* V21.27.99: بند قابل للمرتجع = موديل (order) أو صنف مخزون (inventoryItem:
+     خامة/إكسسوار/منتج عام). الموديل بيرجع مشتقًّا (computeSoReserved)؛ صنف
+     المخزون بيرجع فعليًا (applyStockDelta) لأن بيعه خصمه فعليًا. */
+  const _retable = it => it && (it.sourceType === "order" || it.sourceType === "inventoryItem") && it.sourceId;
 
   for(const r of returns){
     const sourceId = r && (r.sourceId || r.modelId);
     const note = (r && r.note) || "";
     let qty = Math.floor(Number(r && r.qty) || 0);
     if(!sourceId || qty <= 0) continue;
-    /* أوامر العميل اللي فيها الموديل، بالمتاح للمرتجع (المُباع − اللي اترجّع) — FIFO */
+    /* أوامر العميل اللي فيها الصنف، بالمتاح للمرتجع (المُباع − اللي اترجّع) — FIFO */
     const list = custSOs
       .map(so => {
-        const sold = (so.items || []).filter(it => it && it.sourceType === "order" && it.sourceId === sourceId).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+        const sold = (so.items || []).filter(it => _retable(it) && it.sourceId === sourceId).reduce((s, it) => s + (Number(it.qty) || 0), 0);
         const ret = (so.returns || []).filter(x => x && x.sourceId === sourceId).reduce((s, x) => s + (Number(x.qty) || 0), 0);
         return { so, avail: sold - ret };
       })
@@ -727,7 +733,8 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
       if(remaining <= 0) break;
       const take = Math.min(remaining, avail);
       if(take <= 0) continue;
-      const item = (so.items || []).find(it => it && it.sourceType === "order" && it.sourceId === sourceId) || {};
+      const item = (so.items || []).find(it => _retable(it) && it.sourceId === sourceId) || {};
+      const isInv = item.sourceType === "inventoryItem";
       const date = new Date().toISOString().split("T")[0];
       const retId = "soret_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
       /* إشعار دائن مسودة بسعر/خصم بند الأمر الفعلي (المستند المحاسبي) */
@@ -736,18 +743,46 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
       creditNotes.push({ id: cn.id, creditNoteNo: cn.creditNoteNo });
       /* سجل المرتجع على الأمر — البنود مابتتلمسش (الأمر يفضل كامل) */
       if(!Array.isArray(so.returns)) so.returns = [];
-      so.returns.push({
-        id: retId, sourceId, modelNo: item.modelNo || "", modelDesc: item.description || "",
+      const retEntry = {
+        id: retId, sourceId, itemSourceType: isInv ? "inventoryItem" : "order",
+        modelNo: item.modelNo || "", modelDesc: item.description || "",
         qty: take, unitPrice: Number(item.unitPrice) || 0,
         gross: cn.subtotal, discount: cn.discount, net: cn.total,
         custId: customerId, custName: customer?.name || so.customerName || "",
-        date, note, by: userName || "", createdAt: new Date().toISOString(),
+        date, note, by: userName || "", createdAt: nowIso,
         creditNoteId: cn.id, creditNoteNo: cn.creditNoteNo,
-      });
+      };
+      /* V21.27.99: مرتجع صنف مخزون = استرجاع مخزون فعلي (applyStockDelta + حركة
+         in)، بس لو البيع خصمه فعلاً (so.stockDeducted + قيد في stockDeductions).
+         بنقلّل deduction المقابل عشان لو الأمر اتلغى بعدين مايعكسش المرتجع تاني
+         (double-restore). الموديلات (order) بترجع مشتقّة عبر computeSoReserved. */
+      if(isInv && so.stockDeducted && Array.isArray(so.stockDeductions)){
+        const ded = so.stockDeductions.find(x => x && x.itemId === sourceId);
+        if(ded){
+          const unitCost = Number(ded.unitCost) || 0;
+          applyStockDelta(d, ded.categoryId, sourceId, +take, unitCost || null);
+          ded.qty = Math.max(0, (Number(ded.qty) || 0) - take);
+          retEntry.categoryId = ded.categoryId;
+          retEntry.itemName = ded.itemName || item.modelNo || "";
+          retEntry.unit = ded.unit || item.unit || "";
+          retEntry.unitCost = unitCost;
+          const mvId = _mid();
+          retEntry.stockMovementId = mvId;
+          d.stockMovements.push({
+            id: mvId, type: "in", itemType: ded.categoryId, itemId: sourceId, itemName: ded.itemName || "",
+            qty: +take, unit: ded.unit || "", price: unitCost, date,
+            sourceType: "sales_order_return", sourceId: so.id,
+            notes: "مرتجع أمر بيع " + (so.orderNo || "") + " — استرجاع مخزون", createdBy: userName || "", createdAt: nowIso,
+          });
+        }
+      }
+      so.returns.push(retEntry);
       remaining -= take;
     }
     reduced.push({ sourceId, qty: qty - remaining });
   }
+  /* أعد ضبط علم الخصم (لو كل deductions رجعت) */
+  custSOs.forEach(so => { if(Array.isArray(so.stockDeductions)) so.stockDeducted = so.stockDeductions.some(x => (Number(x && x.qty) || 0) > 0); });
   return { ok: true, reduced, blocked, creditNotes };
 }
 

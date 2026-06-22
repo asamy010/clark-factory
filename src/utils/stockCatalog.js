@@ -34,9 +34,12 @@ export function computeSoReserved(salesOrders){
       }
     });
     /* V21.27.97: مرتجعات الأمر المباشر = مستند منفصل (so.returns) — تُطرح من
-       المحجوز من غير لمس البنود (الأمر يفضل كامل). */
+       المحجوز من غير لمس البنود (الأمر يفضل كامل).
+       V21.27.99: مرتجعات أصناف المخزون (itemSourceType==="inventoryItem")
+       بترجع للمخزون فعليًا (applyStockDelta) مش عبر المحجوز المشتق — فبنتخطّاها
+       هنا (الغياب = موديل قديم، بيُطرح للتوافق الرجعي). */
     (so.returns || []).forEach(rr => {
-      if(rr && rr.sourceId){
+      if(rr && rr.sourceId && (!rr.itemSourceType || rr.itemSourceType === "order")){
         m[rr.sourceId] = (m[rr.sourceId] || 0) - (Number(rr.qty) || 0);
       }
     });

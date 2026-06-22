@@ -12,6 +12,69 @@
 
 ---
 
+## V21.27.99 (2026-06-22) — 🧵 مرتجع الخامات/الإكسسوار + فاليديشن حذف البيع المتفوتر
+
+استكمال مراجعة دورة المبيعات (قرارات Ahmed): (١) توسعة المرتجع ليشمل أصناف
+المخزون «زي أودو»، (٢) فاليديشن فقط لحذف البيع من «سجل البيع» (يمنع/يحذّر لو
+متفوتر/مرحّل؛ ولو آمن، يشيل السطر ويرجّع المخزون).
+
+### السياق المعماري (اللي اتأكّد بالفحص)
+بنود أمر البيع المباشر نوعين بيخصموا المخزون بطريقتين مختلفتين:
+- **موديل (`sourceType:"order"`):** محجوز **مشتق** عبر `computeSoReserved`
+  (البنود − `so.returns`). التسليم الفعلي عبر شاشة التسليم — مفيش خصم رقمي
+  عند البيع (V21.10.7).
+- **صنف مخزون (`sourceType:"inventoryItem"`):** خصم **فعلي** عند تأكيد الأمر
+  عبر `applyStockDelta(-qty)` + قيد في `so.stockDeductions[]` + حركة out.
+
+محاسبيًا: بيع صنف المخزون مابيعملش قيد COGS journal (لأن `buildSalesInvoiceCogsEntry`
+بيحتاج `order` للتكلفة)، فالمرتجع متّسق: يرجّع المخزون فعليًا + إشعار دائن يعكس
+الإيراد، بدون COGS journal. **مش محتاج لمس postingRules.**
+
+### (١) توسعة المرتجع لأصناف المخزون
+- **`salesOrders.js` — `returnFromDirectSalesOrderMutator`:** اتعمّم ليقبل بنود
+  `order` **و** `inventoryItem`. لمرتجع صنف المخزون:
+  - `applyStockDelta(+take)` بتكلفة الخصم الأصلية (`ded.unitCost`) + حركة
+    `in` (`sourceType:"sales_order_return"`) — **بس لو** البيع خصم فعلًا
+    (`so.stockDeducted` + قيد في `stockDeductions`).
+  - **يقلّل `ded.qty`** المقابل (حماية من double-restore لو الأمر اتلغى بعدين)
+    + يعيد ضبط `so.stockDeducted`.
+  - `so.returns` entry اتعلّم بـ **`itemSourceType`** (`order`/`inventoryItem`)
+    + `categoryId/itemName/unit/unitCost/stockMovementId` للأصناف.
+  - الموديلات زي ما هي (مرتجع مشتق عبر `computeSoReserved`).
+- **حُرّاس الـ derived (يتخطّوا مرتجعات `inventoryItem`):** `computeSoReserved`
+  (stockCatalog) + `dashboardKpis.soReserved` — عشان مرتجع الصنف الفعلي
+  مايتحسبش تاني في المحجوز المشتق للموديلات. (الغياب = موديل قديم، يُطرح
+  للتوافق الرجعي.)
+- **`CustDeliverPg.jsx`:**
+  - `directSoRet` بقى يجمّع `models` **و** `invItems` (sold/returned لكل صنف).
+  - شاشة المرتجع: صفوف `soInvRows` ببادج «🧵 صنف مخزون»؛ الحفظ بيمرّر صفوف
+    الموديل + الصنف للـ mutator (بيتعرّف على النوع تلقائيًا).
+  - بيكر العميل بيشمل عميل اشترى أصناف مخزون بس (`getCustSoInvTotal`).
+  - تقرير القطع/سجل القطع للموديلات بس (حارس `itemSourceType`) — مرتجع الصنف
+    بيبان في الإشعار الدائن + تفاصيل الأمر + كشف الحساب (قيمة).
+
+### (٢) فاليديشن حذف/تعديل البيع من «سجل البيع»
+- **`CustDeliverPg.jsx` — `saleInvoicedMap` (useMemo, O(SOs+invoices)):** يربط
+  (جلسة|عميل) بفواتيرها (مرآة `sourceSessionId+salesInvoiceId`، أو
+  `deliveryRefs`). `saleMoveBlocked(m)` يرجّع سبب المنع:
+  - **مرحّل** → «بيع مرحّل بفاتورة … — الغِ الترحيل الأول».
+  - **مسودة** → «بيع متفوتر (مسودة …) — احذف الفاتورة الأول».
+- `delMove`/`saveEdit` بيرفضوا الحركة المتفوترة (toast)؛ الـ UI بيعرض **🔒**
+  بدل أزرار ✏️/🗑 (نظير 🔗 للـ read-only). الحذف الآمن زي ما هو (المخزون
+  والرصيد مشتقّين → بيرجعوا تلقائيًا).
+
+### الملفات
+- `src/utils/sales/salesOrders.js` — توسعة `returnFromDirectSalesOrderMutator`.
+- `src/utils/stockCatalog.js` · `src/utils/dashboardKpis.js` — حُرّاس derived.
+- `src/pages/CustDeliverPg.jsx` — `directSoRet`+invItems · `saleInvoicedMap` ·
+  فاليديشن الحذف/التعديل · شاشة المرتجع (صفوف الأصناف + البيكر).
+- `src/utils/sales/__tests__/returnFromDirectSO.test.js` — +4 اختبارات (14 إجمالاً).
+
+**Blast radius:** المنطق pure + tests (384 ✓)؛ المرايا/الموديلات مسارها متغيّرش؛
+postingRules متغيّرش؛ build ✓.
+
+---
+
 ## V21.27.98 (2026-06-21) — 📋 سجل البيع يعرض مبيعات «أمر البيع المباشر» كمان
 
 بلاغ Ahmed: «سجل البيع بيظهر المبيعات اللي من التوزيعة فقط — دورة المبيعات
