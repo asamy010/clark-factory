@@ -12,6 +12,46 @@
 
 ---
 
+## V21.27.103 (2026-06-23) — 🔁 تحديث الكاش التلقائي + مرتجع كل الأنواع + شيل زر المحفظة من الهوم
+
+ملاحظتين من Ahmed + اكتشاف سبب جذري للنسخ القديمة.
+
+### (1) 🔑 السبب الجذري لظهور نسخ قديمة على الموبايل — `public/sw.js`
+**Root cause:** `SW_VERSION` كان متجمّد عند `v21.9.168` (التعليق بيقول «يتبمب كل
+إصدار» لكنه ما اتبمبش لشهور). الـ Service Worker بيتحدّث بس لو **بايتات `sw.js`
+اتغيّرت**؛ طول ما SW_VERSION ثابت، `reg.update()` مايلاقيش SW جديد → الـ
+`activate` (اللي بيمسح الكاش القديم) ما بيعيد التشغيل → النسخة القديمة تفضل.
+**الإصلاح:** `SW_VERSION = 'v21.27.103'` → المتصفح يكتشف SW جديد، skipWaiting،
+activate يمسح كل الكاشات القديمة، controllerchange → reload تلقائي للنسخة الجديدة.
+**⚠️ من دلوقتي: بمب `SW_VERSION` في `public/sw.js` مع كل إصدار** (أُضيف للبروتوكول).
+
+### (2) مرتجع «أمر البيع المباشر» يشمل كل أنواع البنود — `salesOrders.js` + `CustDeliverPg.jsx`
+بلاغ Ahmed: موديل مُباع بأمر بيع مباشر لعميل مختار مش بيظهر في قايمة المرتجع.
+الفحص أثبت إن منطق الموديل + صنف المخزون سليم (اختبار `computeDirectSoReturnables`
+بيأكّد ظهور الموديل لعميل مختار) — فالأعراض على الأغلب كانت كاش (نقطة 1). ومع كده
+سُدّت ثغرة حقيقية: المنتج العام (`generalProduct`) والخدمة (`service`) كانوا
+**مُتجاهَلين** تمامًا في المرتجع.
+- **`computeDirectSoReturnables(salesOrders)`** (pure + exported + مختبرة): اتنقل
+  من inline `directSoRet` في CustDeliverPg. بتبوّب الموديلات في `models`، وأي بند
+  تاني له `sourceId` (صنف مخزون/منتج عام/خدمة) في `invItems` مع `itemType`. تستبعد
+  المرايا/الملغية/الـ ad-hoc (بدون customerId).
+- **`returnFromDirectSalesOrderMutator`:** `_retable` بقى يشمل
+  order/inventoryItem/generalProduct/service؛ `itemSourceType` بيتختم بالنوع
+  الفعلي (بدل order/inventoryItem بس). استرجاع المخزون لـ inventoryItem فقط؛
+  الباقي إشعار دائن فقط.
+- **CustDeliverPg:** `directSoRet` = `useMemo(computeDirectSoReturnables)`؛ صفوف
+  المرتجع label يتغيّر حسب النوع (🧵 صنف مخزون / 🏷️ منتج عام / 🛠️ خدمة).
+
+### (3) شيل زر «📱 محافظ إلكترونية» من الهوم — `App.jsx`
+موجود أصلاً في الخزنة (تاب المحافظ) — اتشال من شريط الهوم العلوي (طلب Ahmed).
+
+### الملفات
+`public/sw.js` · `src/utils/sales/salesOrders.js` (+`computeDirectSoReturnables`) ·
+`src/pages/CustDeliverPg.jsx` · `src/App.jsx` ·
+`src/utils/sales/__tests__/returnFromDirectSO.test.js` (+4 = 26). build ✓ · 401 tests ✓.
+
+---
+
 ## V21.27.102 (2026-06-23) — 📦 أرشفة الفواتير الملغية (مبيعات ومشتريات)
 
 طلب Ahmed: زر يأرشف الفواتير الملغية فتختفي من السجل بس تفضل موجودة، وزر

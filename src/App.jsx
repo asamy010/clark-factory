@@ -6938,12 +6938,8 @@ export default function App(){
                 Uses the reliable check (waReady + resilient) — shown only when a bridge
                 URL is configured, so it never clutters setups that don't use WhatsApp. */}
             <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
-              {/* V21.9.203: shortcut to the E-Wallets section (Treasury → محافظ).
-                  Deep-links via the treasury-deep-link sessionStorage that TreasuryPg
-                  reads on mount. Gated on treasury view access. */}
-              {canViewTab("treasury")&&<div onClick={()=>{try{sessionStorage.setItem("treasury-deep-link",JSON.stringify({view:"wallets",ts:Date.now()}))}catch(_){}setTab("treasury")}} title="إدارة المحافظ الإلكترونية — استلام/صرف/تحويل وحدود" style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,flexShrink:0,padding:"6px 12px",borderRadius:999,background:"#8B5CF614",border:"1px solid #8B5CF640",color:"#8B5CF6",fontSize:FS-2,fontWeight:800,whiteSpace:"nowrap",transition:"transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.04)"}} onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)"}}>
-                <span style={{fontSize:FS-3}}>📱</span><span>محافظ إلكترونية</span>
-              </div>}
+              {/* V21.27.103: زر «محافظ إلكترونية» اتشال من الهوم (طلب Ahmed) —
+                  موجود أصلاً في الخزنة (TreasuryPg → تاب المحافظ). */}
               {(config.campaignBridge||{}).url&&<BridgeStatusIndicator url={(config.campaignBridge||{}).url} token={(config.campaignBridge||{}).token} lastTickAt={(config.automation||{}).lastTickAt}/>}
             </div>
           </div>

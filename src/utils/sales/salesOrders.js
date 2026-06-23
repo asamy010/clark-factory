@@ -693,6 +693,38 @@ export function planSessionSaleDeletion(sessionId, ctx = {}){
    { customerId, returns:[{ sourceId, qty, note? }] }. يرجّع { ok,
    reduced:[{sourceId,qty}], blocked:[{sourceId, requested, available}] }
    (blocked = طلب أكتر من المتاح للمرتجع). */
+
+/* V21.27.103: الأصناف القابلة للمرتجع من «أوامر البيع المباشرة» لكل عميل —
+   pure + exported + قابلة للاختبار (كانت inline في CustDeliverPg → directSoRet).
+   بترجّع { [custId]: { models:{[orderId]:{sourceId,modelNo,modelDesc,sold,returned}},
+   invItems:{[itemId]:{sourceId,name,unit,itemType,sold,returned}}, total } }.
+   models = بنود sourceType "order" (موديلات)؛ invItems = أي بند تاني له sourceId
+   (صنف مخزون/منتج عام/خدمة). المرايا والملغية مستبعدة. الأمر المباشر بـ customerId
+   فاضي (ad-hoc) مستبعد (مفيش عميل مسجّل نرجّعله). */
+export function computeDirectSoReturnables(salesOrders){
+  const out = {};
+  const C0 = (cid) => { if(!out[cid]) out[cid] = { models: {}, invItems: {}, total: 0 }; return out[cid]; };
+  const ensM = (M, id, modelNo, modelDesc) => { if(!M[id]) M[id] = { sourceId: id, modelNo: modelNo || "", modelDesc: modelDesc || "", sold: 0, returned: 0 }; return M[id]; };
+  const ensI = (M, id, name, unit, itemType) => { if(!M[id]) M[id] = { sourceId: id, name: name || "", unit: unit || "", itemType: itemType || "inventoryItem", sold: 0, returned: 0 }; return M[id]; };
+  (salesOrders || []).forEach(so => {
+    if(!so || so.status === "cancelled" || so.sourceDistributionId || so.isDistributionMirror) return;
+    const cid = so.customerId; if(!cid) return; const C = C0(cid);
+    (so.items || []).forEach(it => {
+      if(!it || it.isSection || !it.sourceId) return;
+      const q = Number(it.qty) || 0; if(q <= 0) return;
+      if(it.sourceType === "order") ensM(C.models, it.sourceId, it.modelNo || it.description, it.description).sold += q;
+      else ensI(C.invItems, it.sourceId, it.modelNo || it.description, it.unit, it.sourceType).sold += q; /* inventoryItem / generalProduct / service */
+    });
+    (so.returns || []).forEach(rr => {
+      if(!rr || !rr.sourceId) return; const q = Number(rr.qty) || 0;
+      if(rr.itemSourceType && rr.itemSourceType !== "order") ensI(C.invItems, rr.sourceId, rr.itemName || rr.modelNo, rr.unit, rr.itemSourceType).returned += q;
+      else ensM(C.models, rr.sourceId, rr.modelNo, rr.modelDesc).returned += q;
+    });
+  });
+  Object.values(out).forEach(o => { o.total = Object.values(o.models).reduce((s, m) => s + Math.max(0, m.sold - m.returned), 0); });
+  return out;
+}
+
 export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
   const customerId = payload && payload.customerId;
   const returns = Array.isArray(payload && payload.returns) ? payload.returns : [];
@@ -705,10 +737,11 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
   const custSOs = d.salesOrders.filter(so => so && so.customerId === customerId && so.status !== "cancelled" && !so.sourceDistributionId && !so.isDistributionMirror);
   const reduced = [], blocked = [], creditNotes = [];
   const nowIso = new Date().toISOString();
-  /* V21.27.99: بند قابل للمرتجع = موديل (order) أو صنف مخزون (inventoryItem:
-     خامة/إكسسوار/منتج عام). الموديل بيرجع مشتقًّا (computeSoReserved)؛ صنف
-     المخزون بيرجع فعليًا (applyStockDelta) لأن بيعه خصمه فعليًا. */
-  const _retable = it => it && (it.sourceType === "order" || it.sourceType === "inventoryItem") && it.sourceId;
+  /* V21.27.99/103: بند قابل للمرتجع = موديل (order) / صنف مخزون (inventoryItem)
+     / منتج عام (generalProduct) / خدمة (service). الموديل بيرجع مشتقًّا
+     (computeSoReserved)؛ صنف المخزون بيرجع فعليًا (applyStockDelta)؛ المنتج
+     العام/الخدمة = إشعار دائن فقط (مفيش مخزون). */
+  const _retable = it => it && !it.isSection && it.sourceId && ["order","inventoryItem","generalProduct","service"].includes(it.sourceType);
 
   for(const r of returns){
     const sourceId = r && (r.sourceId || r.modelId);
@@ -744,7 +777,7 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
       /* سجل المرتجع على الأمر — البنود مابتتلمسش (الأمر يفضل كامل) */
       if(!Array.isArray(so.returns)) so.returns = [];
       const retEntry = {
-        id: retId, sourceId, itemSourceType: isInv ? "inventoryItem" : "order",
+        id: retId, sourceId, itemSourceType: item.sourceType || "order",
         modelNo: item.modelNo || "", modelDesc: item.description || "",
         qty: take, unitPrice: Number(item.unitPrice) || 0,
         gross: cn.subtotal, discount: cn.discount, net: cn.total,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal, cancelReturnMutator, removeOperationalReturnForCreditNote } from "../salesOrders.js";
+import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal, cancelReturnMutator, removeOperationalReturnForCreditNote, computeDirectSoReturnables } from "../salesOrders.js";
 import { computeSoReserved } from "../../stockCatalog.js";
 import { creditNotePostBlocker } from "../../invoices.js";
 
@@ -210,6 +210,51 @@ describe("returnFromDirectSalesOrderMutator (separate-document, immutable SO)", 
     expect(r.reduced).toEqual([]);
     expect(d.salesOrders[0].returns).toBeUndefined();
     expect(d.salesCreditNotes.length).toBe(0);
+  });
+});
+
+/* ── V21.27.103: computeDirectSoReturnables — الأصناف القابلة للمرتجع ── */
+describe("computeDirectSoReturnables (returnable items per customer)", () => {
+  it("MODEL + selected customer → appears as returnable (the reported case)", () => {
+    const sos = [directSO("so1", "c1", "o1", 5, 100)]; // model, customerId=c1
+    const out = computeDirectSoReturnables(sos);
+    expect(out.c1).toBeTruthy();
+    expect(out.c1.models.o1).toMatchObject({ sourceId: "o1", sold: 5, returned: 0 });
+    expect(out.c1.total).toBe(5);          // > 0 → customer shows in picker
+  });
+
+  it("net reduces after a return (sold − returned)", () => {
+    const d = { salesOrders: [directSO("so1", "c1", "o1", 5, 100)], salesInvoices: [], salesCreditNotes: [], customers: [{ id: "c1", name: "x" }] };
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 2 }] }, "t");
+    const out = computeDirectSoReturnables(d.salesOrders);
+    expect(out.c1.models.o1).toMatchObject({ sold: 5, returned: 2 });
+    expect(out.c1.total).toBe(3);
+  });
+
+  it("generalProduct & service items are returnable (bucketed in invItems with itemType)", () => {
+    const so = {
+      id: "so1", orderNo: "so1", customerId: "c1", status: "confirmed", date: "2026-06-01",
+      items: [
+        { sourceType: "generalProduct", sourceId: "gp1", modelNo: "علبة", unit: "علبة", qty: 3, unitPrice: 50, lineTotal: 150 },
+        { sourceType: "service", sourceId: "sv1", modelNo: "شحن", qty: 1, unitPrice: 80, lineTotal: 80 },
+      ],
+    };
+    const out = computeDirectSoReturnables([so]);
+    expect(out.c1.invItems.gp1).toMatchObject({ sold: 3, itemType: "generalProduct" });
+    expect(out.c1.invItems.sv1).toMatchObject({ sold: 1, itemType: "service" });
+  });
+
+  it("excludes ad-hoc customer (no customerId), mirrors, and cancelled", () => {
+    const sos = [
+      { id: "a", customerNameAdHoc: "زبون نقدي", status: "confirmed", items: [{ sourceType: "order", sourceId: "o1", qty: 5 }] }, // ad-hoc → no customerId
+      directSO("mir", "c1", "o1", 5, 100, { isDistributionMirror: true, sourceDistributionId: "S:c1" }),
+      directSO("can", "c1", "o2", 5, 100, {}),
+    ];
+    sos[2].status = "cancelled";
+    const out = computeDirectSoReturnables(sos);
+    expect(out.c1 && out.c1.models.o1).toBeFalsy(); // mirror excluded
+    expect(out.c1 && out.c1.models.o2).toBeFalsy(); // cancelled excluded
+    expect(Object.keys(out).length).toBe(0);        // ad-hoc has no customerId key
   });
 });
 
