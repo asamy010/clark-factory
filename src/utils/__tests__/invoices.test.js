@@ -18,6 +18,8 @@ import {
   upsertPurchaseInvoiceFromReceipt,
   creditNotePostBlocker,
   debitNotePostBlocker,
+  setInvoiceArchivedMutator,
+  getInvoiceStats,
 } from "../invoices.js";
 
 const ORDER = { id: "o1", modelNo: "M-100", sellPrice: 200 };
@@ -229,5 +231,59 @@ describe("creditNotePostBlocker / debitNotePostBlocker — تشخيص تعذُّ
   it("إشعار مدين مسودة → قابل للترحيل؛ مش مسودة → يُحجب", () => {
     expect(debitNotePostBlocker({ purchaseDebitNotes: [{ id: "dn1", status: "draft" }] }, "dn1")).toBeNull();
     expect(debitNotePostBlocker({ purchaseDebitNotes: [{ id: "dn1", status: "posted" }] }, "dn1")).toContain("مش مسودة");
+  });
+});
+
+/* ── V21.27.102: أرشفة الفواتير الملغية ── */
+describe("setInvoiceArchivedMutator — أرشفة/استرجاع الفواتير الملغية", () => {
+  const mkData = () => ({ salesInvoices: [
+    { id: "i1", status: "void", total: 100 },
+    { id: "i2", status: "void", total: 200 },
+    { id: "i3", status: "posted", total: 300 },
+    { id: "i4", status: "draft", total: 50 },
+  ] });
+
+  it("يأرشف الملغية المحددة فقط (بالـ ids)", () => {
+    const d = mkData();
+    const n = setInvoiceArchivedMutator(d, "sales", ["i1"], true, "tester");
+    expect(n).toBe(1);
+    expect(d.salesInvoices.find(i => i.id === "i1").archived).toBe(true);
+    expect(d.salesInvoices.find(i => i.id === "i1").archivedBy).toBe("tester");
+    expect(d.salesInvoices.find(i => i.id === "i2").archived).toBeUndefined();
+  });
+
+  it("ids=null → يأرشف كل الملغية بس (مش المرحّل/المسودة)", () => {
+    const d = mkData();
+    const n = setInvoiceArchivedMutator(d, "sales", null, true, "t");
+    expect(n).toBe(2); // i1 + i2 (void only)
+    expect(d.salesInvoices.find(i => i.id === "i3").archived).toBeUndefined(); // posted untouched
+    expect(d.salesInvoices.find(i => i.id === "i4").archived).toBeUndefined(); // draft untouched
+  });
+
+  it("الاسترجاع يشيل الـ flag، وما بيلمسش غير الملغية", () => {
+    const d = mkData();
+    setInvoiceArchivedMutator(d, "sales", null, true, "t");
+    const n = setInvoiceArchivedMutator(d, "sales", ["i1"], false, "t");
+    expect(n).toBe(1);
+    expect(d.salesInvoices.find(i => i.id === "i1").archived).toBe(false);
+    expect(d.salesInvoices.find(i => i.id === "i2").archived).toBe(true); // still archived
+  });
+
+  it("idempotent — إعادة الأرشفة لنفس الحالة بترجّع 0", () => {
+    const d = mkData();
+    setInvoiceArchivedMutator(d, "sales", ["i1"], true, "t");
+    expect(setInvoiceArchivedMutator(d, "sales", ["i1"], true, "t")).toBe(0);
+  });
+
+  it("getInvoiceStats بيستثني المؤرشفة من العدّ (ويرجّع archivedCount)", () => {
+    const d = mkData();
+    setInvoiceArchivedMutator(d, "sales", ["i1"], true, "t");
+    const s = getInvoiceStats(d, "sales", {});
+    expect(s.voidCount).toBe(1);     // i2 only (i1 archived → excluded)
+    expect(s.archivedCount).toBe(1); // i1
+    expect(s.total).toBe(3);         // i2 + i3 + i4 (archived excluded)
+    /* includeArchived يرجّعها للعدّ */
+    const s2 = getInvoiceStats(d, "sales", { includeArchived: true });
+    expect(s2.voidCount).toBe(2);
   });
 });

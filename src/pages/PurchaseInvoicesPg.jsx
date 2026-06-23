@@ -14,6 +14,7 @@ import { ask, showToast, tell } from "../utils/popups.js";
 import {
   postInvoiceMutator, voidInvoiceMutator, deleteDraftInvoiceMutator,
   getInvoiceStats, buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt,
+  setInvoiceArchivedMutator,
 } from "../utils/invoices.js";
 import { InvoiceDetailModal } from "./SalesInvoicesPg.jsx";
 import { FxSettlementModal } from "../components/purchase/FxSettlementModal.jsx";
@@ -38,6 +39,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
   const [status, setStatus] = useState("all");
   const [partyId, setPartyId] = useState("");
   const [search, setSearch]   = useState("");
+  const [showArchived, setShowArchived] = useState(false);/* V21.27.102: عرض الفواتير الملغية المؤرشفة */
   const [activeInvoice, setActiveInvoice] = useState(null);
   const [fxInvoice, setFxInvoice] = useState(null);/* V21.21.85: تسوية فرق صرف */
   /* V18.85: Service invoice modal */
@@ -49,10 +51,20 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
   const suppliers = data.suppliers || [];
   const userName = user?.displayName || (user?.email||"").split("@")[0] || "";
 
+  /* V21.27.102: عدد الفواتير الملغية المؤرشفة (كل الفترات) — لزر «المؤرشفة». */
+  const archivedCount = useMemo(() => invoices.filter(i => i && i.archived).length, [invoices]);
+
   const filtered = useMemo(() => {
     let list = invoices;
-    if(from) list = list.filter(i => (i.date||"") >= from);
-    if(to)   list = list.filter(i => (i.date||"") <= to);
+    /* V21.27.102: وضع «المؤرشفة» = الملغية المؤرشفة فقط (يتجاهل فلتر التاريخ)؛
+       الوضع العادي = يستبعد المؤرشفة. */
+    if(showArchived){
+      list = list.filter(i => i && i.archived);
+    } else {
+      list = list.filter(i => !i || !i.archived);
+      if(from) list = list.filter(i => (i.date||"") >= from);
+      if(to)   list = list.filter(i => (i.date||"") <= to);
+    }
     if(status !== "all") list = list.filter(i => i.status === status);
     if(partyId) list = list.filter(i => i.supplierId === partyId);
     if(search.trim()){
@@ -63,9 +75,24 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       );
     }
     return list.slice().sort((a,b) => (b.date||"").localeCompare(a.date||"") || (b.invoiceNo||"").localeCompare(a.invoiceNo||""));
-  }, [invoices, from, to, status, partyId, search]);
+  }, [invoices, from, to, status, partyId, search, showArchived]);
 
   const stats = useMemo(() => getInvoiceStats(data, "purchase", {from, to, partyId, status}), [data, from, to, partyId, status]);
+
+  /* V21.27.102: أرشفة / استرجاع الفواتير الملغية */
+  const handleArchiveVoid = async () => {
+    const ids = filtered.filter(i => i.status === "void" && !i.archived).map(i => i.id);
+    if(ids.length === 0){ showToast("لا توجد فواتير ملغية للأرشفة في النطاق الحالي"); return; }
+    if(!await ask("أرشفة الفواتير الملغية", "أرشفة "+ids.length+" فاتورة ملغية؟\n\nهتختفي من السجل النشط بس هتفضل موجودة، وتقدر ترجعها من زر «المؤرشفة».", {confirmText:"أرشفة"})) return;
+    upConfig(d => { setInvoiceArchivedMutator(d, "purchase", ids, true, userName); });
+    setSelectedIds(new Set());
+    showToast("✓ تم أرشفة "+ids.length+" فاتورة ملغية");
+  };
+  const handleToggleArchive = (inv, archived) => {
+    upConfig(d => { setInvoiceArchivedMutator(d, "purchase", [inv.id], archived, userName); });
+    setActiveInvoice(null);
+    showToast(archived ? "📦 تم نقل الفاتورة للأرشيف" : "↩️ تم استرجاع الفاتورة من الأرشيف");
+  };
 
   /* V18.90: Listen for notification deep-links — open the matching invoice. */
   useEffect(() => {
@@ -207,7 +234,17 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       {uninvoicedReceipts.length > 0 && <Btn primary onClick={handleBulkCreate} style={{background:"#F59E0B",color:"#fff",border:"none",fontWeight:800}}>
         ➕ إنشاء فواتير من {uninvoicedReceipts.length} استلام
       </Btn>}
+      {/* V21.27.102: زر «المؤرشفة» — يفتح/يقفل عرض الفواتير الملغية المؤرشفة */}
+      <Btn onClick={()=>{setShowArchived(s=>!s);setSelectedIds(new Set());}} style={{background:showArchived?"#8B5CF6":"#8B5CF615",color:showArchived?"#fff":"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}} title="الفواتير الملغية المؤرشفة">
+        {showArchived ? "→ رجوع للسجل النشط" : "📂 المؤرشفة"+(archivedCount>0?" ("+archivedCount+")":"")}
+      </Btn>
     </div>
+
+    {/* V21.27.102: شريط وضع الأرشيف */}
+    {showArchived && <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",marginBottom:14,borderRadius:10,background:"#8B5CF610",border:"1px solid #8B5CF630"}}>
+      <span style={{fontSize:18}}>📂</span>
+      <div style={{flex:1,fontSize:FS-1,color:T.text,fontWeight:600}}>أرشيف الفواتير الملغية — <b style={{color:"#8B5CF6"}}>{filtered.length}</b> فاتورة. مش بتظهر في السجل النشط؛ استخدم «↩️ استرجاع» لإرجاع أي فاتورة.</div>
+    </div>}
 
     <div style={{display:"grid", gridTemplateColumns:isMob?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginBottom:14}}>
       <div style={{padding:10, background:T.cardSolid, borderRadius:8, border:"1px solid "+T.brd, textAlign:"center"}}>
@@ -263,9 +300,18 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       </div>
     </Card>
 
+    {/* V21.27.102: زر أرشفة الفواتير الملغية (السجل النشط فقط) */}
+    {!showArchived && (() => { const n = filtered.filter(i => i.status === "void" && !i.archived).length; return n > 0 ? (
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <Btn onClick={handleArchiveVoid} style={{background:"#8B5CF615",color:"#8B5CF6",border:"1px solid #8B5CF640",fontWeight:700}} title="نقل الفواتير الملغية للأرشيف — تختفي من السجل وتفضل موجودة">
+          📦 أرشفة الملغية ({n})
+        </Btn>
+      </div>
+    ) : null; })()}
+
     {filtered.length === 0 ? <Card>
       <div style={{padding:30, textAlign:"center", color:T.textMut, fontSize:FS-1}}>
-        💡 لا توجد فواتير مشتريات في هذه الفترة. لإنشاء فواتير، روح صفحة <b>المشتريات → إذونات الاستلام</b> واضغط "تحويل لفاتورة".
+        {showArchived ? "📂 مفيش فواتير ملغية مؤرشفة." : <>💡 لا توجد فواتير مشتريات في هذه الفترة. لإنشاء فواتير، روح صفحة <b>المشتريات → إذونات الاستلام</b> واضغط "تحويل لفاتورة".</>}
       </div>
     </Card>
       : <div style={{display:"flex", flexDirection:"column", gap:6}}>
@@ -309,6 +355,8 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
             <span style={{padding:"4px 10px", borderRadius:6, fontSize:FS-2, fontWeight:700, background:meta.bg, color:meta.color, border:"1px solid "+meta.color+"30"}}>{meta.label}</span>
             {inv.status==="posted" && inv.currency && inv.currency!=="EGP" && Number(inv.fcTotal)>0 && <button onClick={e => { e.stopPropagation(); setFxInvoice(inv); }} title="تسوية فرق صرف" style={{background:"#0EA5E912", color:"#0EA5E9", border:"1px solid #0EA5E933", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS, fontWeight:700}}>💱</button>}
             {isDraft && <button onClick={e => { e.stopPropagation(); handleDelete(inv); }} title="حذف المسودة" style={{background:"#EF444412", color:"#EF4444", border:"1px solid #EF444433", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS}}>🗑</button>}
+            {/* V21.27.102: في وضع الأرشيف — زر استرجاع سريع */}
+            {inv.archived && <button onClick={e => { e.stopPropagation(); handleToggleArchive(inv, false); }} title="استرجاع من الأرشيف" style={{background:"#8B5CF612", color:"#8B5CF6", border:"1px solid #8B5CF633", borderRadius:8, padding:"4px 8px", cursor:"pointer", fontSize:FS}}>↩️</button>}
           </div>;
         })}
         {filtered.length > showN && <button onClick={() => setShowN(n => n + 50)} style={{marginTop:4, padding:"10px", borderRadius:10, border:"1px dashed "+T.brd, background:T.bg, color:T.accent, fontWeight:700, cursor:"pointer", fontFamily:"inherit"}}>عرض المزيد ({filtered.length - showN} متبقي)</button>}
@@ -318,7 +366,7 @@ export function PurchaseInvoicesPg({data, upConfig, isMob, user}){
       invoice={activeInvoice} type="purchase"
       data={data} upConfig={upConfig}
       onClose={() => setActiveInvoice(null)}
-      onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete}
+      onPost={handlePost} onVoid={handleVoid} onDelete={handleDelete} onArchive={handleToggleArchive}
       isMob={isMob}
       user={user}
     />}

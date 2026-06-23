@@ -622,8 +622,13 @@ export function getInvoiceStats(data, type, filter){
     );
     if(filter.status && filter.status !== "all") list = list.filter(i => i.status === filter.status);
   }
+  /* V21.27.102: الفواتير المؤرشفة (ملغية متشالة من السجل النشط) مش بتتعد في
+     كروت الإحصائيات — عشان رقم «ملغية» يطابق اللي ظاهر في القائمة. */
+  const archivedCount = list.filter(i => i && i.archived).length;
+  if(!(filter && filter.includeArchived)) list = list.filter(i => i && !i.archived);
   const stats = {
     total: list.length,
+    archivedCount,
     draftCount: 0, draftAmount: 0,
     postedCount: 0, postedAmount: 0,
     voidCount: 0, voidAmount: 0,
@@ -636,6 +641,26 @@ export function getInvoiceStats(data, type, filter){
     else if(i.status === "void"){ stats.voidCount++; stats.voidAmount += amt; }
   });
   return stats;
+}
+
+/* ── V21.27.102: أرشفة / استرجاع فاتورة ملغية (مبيعات أو مشتريات) ──
+   الأرشفة flag بسيط (archived) — الفاتورة بتختفي من السجل النشط بس بتفضل
+   موجودة وتتفتح من «المؤرشفة». مسموح للملغية بس (void). type:"sales"|"purchase".
+   بيرجّع عدد اللي اتأرشف/اترجع. ids اختياري (لو null → كل الملغية). */
+export function setInvoiceArchivedMutator(d, type, ids, archived, userName){
+  const key = type === "purchase" ? "purchaseInvoices" : "salesInvoices";
+  if(!Array.isArray(d[key])) return 0;
+  const idSet = Array.isArray(ids) ? new Set(ids) : null;
+  let n = 0;
+  d[key].forEach(inv => {
+    if(!inv || inv.status !== "void") return;          /* الأرشفة للملغية بس */
+    if(idSet && !idSet.has(inv.id)) return;
+    if(!!inv.archived === !!archived) return;          /* مفيش تغيير */
+    if(archived){ inv.archived = true; inv.archivedAt = new Date().toISOString(); inv.archivedBy = userName || ""; }
+    else { inv.archived = false; inv.archivedAt = null; inv.archivedBy = ""; }
+    n++;
+  });
+  return n;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
