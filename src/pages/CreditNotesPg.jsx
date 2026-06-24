@@ -20,7 +20,7 @@ import {
   postInvoiceMutator,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
-import { removeOperationalReturnForCreditNote } from "../utils/sales/salesOrders.js";
+import { removeOperationalReturnForCreditNote, computeDirectSoReturnables, returnFromDirectSalesOrderMutator } from "../utils/sales/salesOrders.js";
 import { printCreditNote } from "../utils/printInvoice.js";
 /* V19.39: Bulk-post toolbar shared with SalesInvoicesPg + PurchaseInvoicesPg */
 import { BulkPostHeader, RowCheckbox, BulkPostBar } from "../components/BulkPostBar.jsx";
@@ -579,8 +579,31 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
         sellPrice: Number(o.sellPrice) || 0, net, delQty, retQty,
         sessions, invoiceNo: inv ? inv.invoiceNo : null, invoice: inv || null,
         salesOrder: so || null, image: o.image || null,
+        kind: "dist",
       });
     });
+    /* V21.27.112 (BUG FIX): الموديلات/الأصناف المباعة بـ «أمر بيع مباشر» — دي
+       مابتعملش customerDeliveries (بتحجز المخزون فقط)، فكانت بتختفي تمامًا من
+       «إضافة مرتجع» (اللي كان بيقرأ من customerDeliveries بس). دلوقتي بنضيفها من
+       computeDirectSoReturnables: net = المُباع − اللي اترجّع. orderId = مفتاح
+       مميّز ("direct:"+key) عشان مايتلخبطش مع مرتجع التوزيعة. */
+    const dr = computeDirectSoReturnables(data.salesOrders)[custId];
+    if(dr){
+      const pushDirect = (m, itemType) => {
+        const net = Math.max(0, (m.sold || 0) - (m.returned || 0));
+        if(net <= 0) return;
+        const ord = orders.find(x => x && x.id === m.sourceId) || null;
+        out.push({
+          orderId: "direct:" + (m.sourceId || m.modelNo || m.name),
+          direct: true, kind: "direct", sourceId: m.sourceId,
+          modelNo: m.modelNo || m.name || "—", modelDesc: m.modelDesc || (itemType ? (itemType === "generalProduct" ? "منتج عام" : itemType === "service" ? "خدمة" : "صنف مخزون") : ""),
+          sellPrice: ord ? (Number(ord.sellPrice) || 0) : 0, net, delQty: m.sold || 0, retQty: m.returned || 0,
+          sessions: [], invoiceNo: null, invoice: null, salesOrder: null, image: ord ? (ord.image || null) : null,
+        });
+      };
+      Object.values(dr.models || {}).forEach(m => pushDirect(m, null));
+      Object.values(dr.invItems || {}).forEach(m => pushDirect(m, m.itemType));
+    }
     return out.sort((a, b) => String(a.modelNo).localeCompare(String(b.modelNo)));
   }, [custId, orders, data.salesInvoices, data.salesOrders]);
 
@@ -615,8 +638,12 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
     setBusy(true);
     try {
       const date = new Date().toISOString().split("T")[0];
+      /* V21.27.112: افصل بين مرتجع التوزيعة (customerReturns) ومرتجع أمر البيع
+         المباشر (so.returns عبر returnFromDirectSalesOrderMutator). */
+      const distLines = lines.filter(l => !returnableMap[l.orderId]?.direct);
+      const directLines = lines.filter(l => returnableMap[l.orderId]?.direct);
       const built = [];
-      for(const l of lines){
+      for(const l of distLines){
         const o = orders.find(x => x.id === l.orderId);
         if(!o) continue;
         const q = Number(qtys[l.orderId]) || 0;
@@ -633,17 +660,35 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
         /* (أ) سجّل المرتجع على الأوردر → يخصم من حساب العميل التشغيلي */
         await updOrder(o.id, ord => { if(!ord.customerReturns) ord.customerReturns = []; ord.customerReturns.push(retEntry); });
       }
-      /* (ب) مسودة إشعار دائن — بتتدمج في إشعار واحد لنفس العميل/التاريخ */
+      /* (ب) مسودة إشعار دائن للتوزيعات — بتتدمج في إشعار واحد لنفس العميل/التاريخ */
       let cn = null;
-      upConfig(d => {
-        for(const b of built){
-          const cust = (d.customers || []).find(c => c.id === custId) || customer;
-          const res = upsertCreditNoteFromReturn(d, b.retEntry, b.order, cust, userName);
-          if(res && res.creditNote) cn = res.creditNote;
+      if(built.length){
+        upConfig(d => {
+          for(const b of built){
+            const cust = (d.customers || []).find(c => c.id === custId) || customer;
+            const res = upsertCreditNoteFromReturn(d, b.retEntry, b.order, cust, userName);
+            if(res && res.creditNote) cn = res.creditNote;
+          }
+        });
+      }
+      /* (ج) مرتجع أوامر البيع المباشرة → so.returns + إشعار دائن (مستند منفصل) */
+      let directCnId = null, directBlocked = [];
+      if(directLines.length){
+        const soReturns = directLines
+          .map(l => ({ sourceId: returnableMap[l.orderId].sourceId, qty: Number(qtys[l.orderId]) || 0, note: note.trim() }))
+          .filter(r => r.sourceId && r.qty > 0);
+        if(soReturns.length){
+          let res = null;
+          upConfig(d => { res = returnFromDirectSalesOrderMutator(d, { customerId: custId, returns: soReturns }, userName); });
+          if(res && res.ok){
+            directBlocked = res.blocked || [];
+            if(res.creditNotes && res.creditNotes.length) directCnId = res.creditNotes[res.creditNotes.length - 1].id;
+          } else if(res && res.error){ showToast("⛔ " + res.error); }
         }
-      });
-      setCreatedCN(cn ? JSON.parse(JSON.stringify(cn)) : null);
-      showToast("✓ تم تسجيل المرتجع — اتخصم من حساب العميل");
+      }
+      /* الإشعار المعروض في مرحلة «تم»: المباشر لو موجود (له items من المُولّد)، وإلا التوزيعة */
+      setCreatedCN(directCnId ? { id: directCnId } : (cn ? JSON.parse(JSON.stringify(cn)) : null));
+      showToast("✓ تم تسجيل المرتجع — اتخصم من حساب العميل" + (directBlocked.length ? " (بعض الكميات تجاوزت المتاح واتجاهلت)" : ""));
     } catch(e){
       showToast("⛔ تعذّر تسجيل المرتجع: " + (e?.message || e));
     } finally { setBusy(false); }
@@ -735,7 +780,7 @@ function AddReturnModal({ data, userName, isMob, upConfig, updOrder, onPost, onC
             {searchResults.length === 0 ? <div style={{ padding: 12, textAlign: "center", color: T.textMut, fontSize: FS - 2 }}>لا يوجد موديل متاح للإرجاع بهذا البحث</div> :
               searchResults.slice(0, 25).map(r => <div key={r.orderId} onClick={() => addModel(r.orderId)} style={{ padding: "8px 10px", cursor: "pointer", borderTop: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", gap: 8 }}
                 onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ fontWeight: 700, color: T.text }}>{r.modelNo}{r.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {r.modelDesc}</span> : ""}</span>
+                <span style={{ fontWeight: 700, color: T.text }}>{r.modelNo}{r.direct ? <span style={{ marginInlineStart: 5, fontSize: FS - 4, fontWeight: 700, color: "#8B5CF6", background: "#8B5CF612", padding: "1px 6px", borderRadius: 20 }}>🧾 أمر مباشر</span> : ""}{r.modelDesc ? <span style={{ color: T.textMut, fontSize: FS - 3 }}> — {r.modelDesc}</span> : ""}</span>
                 <span style={{ fontSize: FS - 2, color: T.ok, fontWeight: 700, whiteSpace: "nowrap" }}>متاح {r.net}</span>
               </div>)}
           </div>}

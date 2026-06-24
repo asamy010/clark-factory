@@ -12,6 +12,34 @@
 
 ---
 
+## V21.27.112 (2026-06-24) — 🎯 حل نهائي: مرتجع أمر البيع المباشر من «إشعارات دائنة»
+
+**السبب الجذري الحقيقي اتكشف من صورة Ahmed:** المستخدم بيعمل المرتجع من تاب
+«إشعارات دائنة» → بوب اب «إضافة مرتجع» (`AddReturnModal` في `CreditNotesPg.jsx`)
+— **مش** «مرتجع حر» في CustDeliverPg (اللي كنت بفحصه). البوب اب ده كان بيبني
+قائمة «الموديلات المتاحة للإرجاع» من **`customerDeliveries` فقط** (السطر 549:
+`if(dels.length===0) return`). وأمر البيع المباشر **بيحجز المخزون بس (مفيش
+customerDeliveries)** → موديلاته بتختفي تمامًا → «لا يوجد موديل متاح للإرجاع».
+
+### الإصلاح — `src/pages/CreditNotesPg.jsx`
+- **`returnable`** (useMemo): بعد التوزيعات، بنضيف أوامر البيع المباشرة من
+  `computeDirectSoReturnables(data.salesOrders)[custId]` — `models` + `invItems`
+  بـ net>0. كل entry بـ `orderId="direct:"+key`, `direct:true`, `sourceId`,
+  `image`/`sellPrice` من أمر الإنتاج. (التوزيعات بـ `kind:"dist"`.)
+- **`confirmReturn`**: بيفصل `distLines` (→ `customerReturns` +
+  `upsertCreditNoteFromReturn` زي ما كان) عن `directLines`
+  (→ `returnFromDirectSalesOrderMutator` = so.returns + إشعار دائن مستقل). كل
+  نوع بمساره المالي الصح. الإشعار المعروض في مرحلة «تم» = المباشر لو موجود.
+- شارة «🧾 أمر مباشر» في نتيجة البحث للتمييز.
+- imports: `computeDirectSoReturnables`, `returnFromDirectSalesOrderMutator`.
+
+### ملاحظة
+ده مكمّل لـ V21.27.111 (المفتاح المستقر في الطبقة النقية). الاتنين مع بعض =
+مرتجع أمر البيع المباشر شغّال من «إشعارات دائنة» و«مرتجع حر». SW: `v21.27.112`.
+build ✓ · 421 tests ✓.
+
+---
+
 ## V21.27.111 (2026-06-24) — 🛠️ إصلاح مرتجع أمر البيع المباشر (مفتاح بند مستقر)
 
 بلاغ Ahmed المتكرر «بج خطير»: الموديلات المباعة بأمر بيع مباشر مش بتظهر في
