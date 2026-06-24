@@ -6964,7 +6964,10 @@ export default function App(){
           {/* V21.9.144: maxWidth 1500→1700 (less side padding on wide screens),
               gap 14→20 (~43% wider spacing between the 4 columns for a cleaner,
               more "اطراف منفصلة" professional look per user feedback). */}
-          {!isMob?<div style={{display:"grid",gridTemplateColumns:"20fr 50fr 15fr 15fr",gap:20,alignItems:"flex-start",maxWidth:1700,margin:"0 auto"}}>
+          {/* V21.27.108: على التابلت (768-1100) — شبكة 2×2 بكامل عرض الشاشة:
+              صف علوي [إشعارات | شبكة+أزرار]، صف سفلي [ملاحظات/نشاط | مهام] تحت
+              صف الأزرار. الديسكتوب يفضل 4 أعمدة أفقية بـ maxWidth. */}
+          {!isMob?<div style={{display:"grid",gridTemplateColumns:isTab?"minmax(0,1fr) minmax(0,1fr)":"20fr 50fr 15fr 15fr",gap:isTab?16:20,alignItems:"flex-start",...(isTab?{width:"100%"}:{maxWidth:1700,margin:"0 auto"})}}>
 
             {/* ═══════════════════════════════════════════════════════════
                 COL 1 (right in RTL — 20%) — NOTIFICATIONS
@@ -7109,8 +7112,9 @@ export default function App(){
                 COL 3 (middle-left — 15%) — NOTES / ACTIVITY tab strip
                 Sticky so it stays on-screen during scroll. Same tab-strip
                 logic as V21.9.134-141 (notes default, activity toggle).
+                V21.27.108: static على التابلت (بينزل للصف السفلي بدل الجنب).
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={{position:"sticky",top:12}}>
+            <div style={{position:isTab?"static":"sticky",top:12}}>
               <div style={{display:"flex",gap:4,marginBottom:14,background:T.bg,padding:4,borderRadius:10,border:"1px solid "+T.brd}}>
                 <div onClick={()=>setSidebarTab("notes")} className={"sb-tab "+(sidebarTab==="notes"?"active":"")} style={{flex:1}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -7165,8 +7169,9 @@ export default function App(){
 
             {/* ═══════════════════════════════════════════════════════════
                 COL 4 (left in RTL — 15%) — TASKS (always visible)
+                V21.27.108: static على التابلت (بينزل للصف السفلي جنب الملاحظات).
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={{position:"sticky",top:12}}>
+            <div style={{position:isTab?"static":"sticky",top:12}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:14,background:"#FEF9C3",padding:"8px 12px",borderRadius:10,border:"1px solid #EAB30840"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
