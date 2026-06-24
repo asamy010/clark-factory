@@ -21,6 +21,7 @@ import { getPriceTiers, pricesArrToMap, pricesMapToArr } from "../utils/pricing.
 import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
+import { deletePartitionedDoc, KIND_TO_PARTITIONED_FIELD } from "../utils/partitionedCollections.js";
 import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -425,6 +426,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const confirmed=await ask("حذف بالقوة",msg,{danger:true,confirmText:"⚠️ حذف بالقوة",cancelText:"إلغاء"});
     if(!confirmed)return false;
     upConfig(d=>{forceDeleteCleanup(d,kind,id)});
+    /* V21.27.114: حذف صريح للمستند partitioned حسب نوع الصنف */
+    if(KIND_TO_PARTITIONED_FIELD[kind])deletePartitionedDoc(KIND_TO_PARTITIONED_FIELD[kind],id);
     showToast("✓ تم الحذف بالقوة — راجع المحاسبة لو لزم");
     return true;
   };
@@ -457,6 +460,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const confirmed=await ask("حذف المنتج","حذف المنتج "+p.name+"؟",{danger:true,confirmText:"حذف"});
     if(!confirmed)return;
     upConfig(d=>{d.generalProducts=(d.generalProducts||[]).filter(x=>x.id!==p.id)});
+    deletePartitionedDoc("generalProducts",p.id);/* V21.27.114: حذف صريح للمستند */
     showToast("تم حذف المنتج");
   };
 
@@ -511,6 +515,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       d.fabrics=(d.fabrics||[]).filter(x=>x.id!==f.id);
       if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
     });
+    /* V21.27.114: حذف صريح لمستند fabricsDocs (الـ sync ممكن يتخطّاه لو الـ
+       listener فاضي وقت الحفظ → الصنف كان بيرجع بعد الريفريش). */
+    deletePartitionedDoc("fabrics",f.id);
     showToast("✓ تم حذف القماش — يمكن الاستعادة من سلة المحذوفات");
   };
 
@@ -563,6 +570,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       d.accessories=(d.accessories||[]).filter(x=>x.id!==a.id);
       if(d.recycleBin.length>100)d.recycleBin=d.recycleBin.slice(0,100);
     });
+    deletePartitionedDoc("accessories",a.id);/* V21.27.114: حذف صريح للمستند */
     showToast("✓ تم حذف الإكسسوار — يمكن الاستعادة من سلة المحذوفات");
   };
   

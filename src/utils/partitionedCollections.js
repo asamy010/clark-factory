@@ -189,10 +189,36 @@ export async function syncPartitionedCollection(collectionName, oldArr, newArr) 
   }
   
   if (writes.length === 0) return 0;
-  
+
   await Promise.all(writes);
   return writes.length;
 }
+
+/* V21.27.114: حذف صريح لمستند partitioned (مثلاً fabricsDocs/{id}).
+   ───────────────────────────────────────────────────────────────────────
+   ليه: syncPartitionedCollection بيتخطّى الحذف لو oldArr (بيانات الـ listener)
+   فاضية وقت الحفظ — safety V16.75 (مايعرفش يفرّق بين «اتحذف عمداً» و«ناقص لأن
+   الحالة مش محمّلة»). النتيجة: الصنف يتشال من factory/config بس مستنده في
+   fabricsDocs يفضل → يرجع بعد إعادة التحميل. الحذف الصريح بيضمن إزالة المستند
+   بغض النظر عن حالة الـ listener. آمن (no-op) لو الحقل لسه في config (مش مهاجَر)
+   أو المستند مش موجود. */
+export async function deletePartitionedDoc(field, id) {
+  const collectionName = PARTITIONED_COLLECTIONS[field];
+  if (!collectionName || id == null || String(id).trim() === "") return false;
+  try {
+    await deleteDoc(doc(db, collectionName, String(id)));
+    return true;
+  } catch (e) {
+    console.warn("[deletePartitionedDoc] " + field + "/" + id + " فشل:", e?.message || e);
+    return false;
+  }
+}
+
+/* خريطة نوع الحذف (kind) → حقل partitioned، لاستخدام الحذف الصريح. */
+export const KIND_TO_PARTITIONED_FIELD = {
+  fabric: "fabrics", accessory: "accessories", generalProduct: "generalProducts",
+  customer: "customers", supplier: "suppliers", workshop: "workshops", employee: "employees",
+};
 
 /* V19.57: Selective strip — only strips field-groups whose migration has run.
    Critical: until V19.57 migration completes, the 8 master-data fields MUST stay

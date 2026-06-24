@@ -71,7 +71,6 @@ export function PurchaseHubPg(props){
     { id: "ledger",     label: "📊 كشف محاسبي",       show: canInv || canPurch },
     { id: "reports",    label: "📈 تقارير",            show: canPurch || canInv },
     { id: "suppliers",  label: "👥 الموردون",         show: canViewPurchView("suppliers"), cnt: (data.suppliers || []).length },
-    { id: "stock",      label: "📦 المخزن",           show: canViewPurchView("stock") },
     { id: "categories", label: "🏷️ الأصناف",          show: canViewPurchView("categories"), cnt: (data.itemCategories || []).length },
   ].filter(t => t.show), [data.purchaseRfqs, data.purchaseOrders, data.purchaseReceipts, data.purchaseInvoices, data.purchaseDebitNotes, data.suppliers, data.itemCategories, canViewTab, props.canViewSub]);
 

@@ -12,6 +12,31 @@
 
 ---
 
+## V21.27.114 (2026-06-24) — 🗑️ مرحلة 1: مسح تاب المخزن (المشتريات) + بج رجوع الصنف المحذوف
+
+طلب Ahmed (5 مهام، منفّذة على مراحل). **المرحلة 1** = الآمن + البج:
+### (#1) مسح تاب «المخزن» من هب المشتريات
+- `src/pages/PurchaseHubPg.jsx`: شِلنا `{ id: "stock", label: "📦 المخزن" }` من الـ tabs.
+
+### (#4) بج: حذف صنف (قماش/إكسسوار/منتج عام) بيرجع بعد الريفريش
+- **Root cause:** `syncPartitionedCollection` فيه safety (V16.75):
+  `if(oldById.size > 0)` — لو `partitionedDataRef` (بيانات الـ listener) فاضية وقت
+  الحفظ، **مفيش حذف للمستند**. فالصنف يتشال من `factory/config` بس مستنده في
+  `fabricsDocs`/`accessoriesDocs` يفضل → يرجع بعد إعادة التحميل.
+- **الحل (`src/utils/partitionedCollections.js`):** `deletePartitionedDoc(field, id)`
+  (جديد + exported) — حذف صريح للمستند، يتجاوز الـ safety والـ listener. آمن
+  (no-op) لو الحقل لسه في config أو المستند مش موجود. + `KIND_TO_PARTITIONED_FIELD`.
+- **`src/pages/WarehousePg.jsx`:** نداء `deletePartitionedDoc` بعد كل حذف:
+  `deleteFab` (fabrics) · `deleteAcc` (accessories) · `deleteProd` (generalProducts) ·
+  `tryForceDelete` (حسب kind).
+- SW: `v21.27.114`. build ✓ · 421 tests ✓.
+
+### 🔜 المراحل الجاية (نفس الطلب)
+- مرحلة 2: تاب «إذونات مخزنية» + إعدادات (داخل/خارج) · زر «رصيد افتتاحي» بتابات.
+- مرحلة 3: معامل تحويل الوحدات (متر↔قطعة) في الشراء — البنية موجودة (`units.js`).
+
+---
+
 ## V21.27.113 (2026-06-24) — 🖼️ إصلاح ظهور صورة الموديل في Packing/الطباعة بالصورة
 
 بلاغ Ahmed (صورتين): الصورة بتطلع «مكسورة» (broken-image icon) في طباعة Packing
