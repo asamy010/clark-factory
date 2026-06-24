@@ -11,7 +11,7 @@ import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
 import { openSalesDoc } from "../../utils/sales/navDoc.js";
 import { printPage } from "../../utils/print.js";
-import { buildSalesDocHTML } from "../../utils/sales/docPrint.js";
+import { buildSalesDocHTML, buildPackingListHTML, buildSalesDocWithImagesHTML } from "../../utils/sales/docPrint.js";
 import { DocItemsTable, DocTotals } from "../DocItemsTable.jsx";
 import { SendDocWhatsApp } from "../SendDocWhatsApp.jsx";
 
@@ -140,6 +140,9 @@ export function SalesOrderDetailModal({ so, data, canEdit, onCancelOrder, onDele
 
         <div style={{ position: "sticky", bottom: 0, background: T.cardSolid, padding: "12px 18px", borderTop: "1px solid " + T.brd, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Btn ghost small onClick={() => printPage("أمر بيع — " + (so.orderNo || ""), buildSalesDocHTML(so, data, "order"), { factoryName: data.factoryName, logo: data.logo })}>🖨 طباعة / PDF</Btn>
+          {/* V21.27.110: Packing List (موديل/وصف/كمية/صورة) + طباعة الأمر بالصور */}
+          <Btn ghost small onClick={() => printPage("Packing — " + (so.orderNo || ""), buildPackingListHTML(so, data), { factoryName: data.factoryName, logo: data.logo })} style={{ color: "#0EA5E9" }}>📦 Packing</Btn>
+          <Btn ghost small onClick={() => printPage("أمر بيع بالصور — " + (so.orderNo || ""), buildSalesDocWithImagesHTML(so, data, "order"), { factoryName: data.factoryName, logo: data.logo })} style={{ color: "#8B5CF6" }}>🖼 طباعة بالصورة</Btn>
           <Btn ghost small onClick={() => setSendWa(true)} style={{ color: "#1DA851" }}>📤 إرسال واتساب</Btn>
           {canEditOrder && onEdit && <Btn ghost small onClick={onEdit} style={{ color: T.accent }}>✏️ تعديل</Btn>}
           {canCancel && <Btn ghost small onClick={onCancelOrder} style={{ color: T.err }}>✗ إلغاء الأمر (استرجاع مخزون)</Btn>}

@@ -12,6 +12,31 @@
 
 ---
 
+## V21.27.110 (2026-06-24) — 📦 أمر البيع: زر Packing + طباعة بالصورة
+
+طلب Ahmed: زرّين في أمر البيع — «Packing» (قائمة تغليف: رقم الموديل/الوصف/
+الكمية/الصورة + طباعة/PDF) و«طباعة بالصورة» (الأمر كامل + صورة الموديل).
+
+### `src/utils/sales/docPrint.js`
+- **`_itemImage(it, data)`**: صورة الموديل من أمر الإنتاج (`data.orders[].image`)
+  عبر `it.sourceType==="order"` + `it.sourceId`. أنواع تانية → placeholder 🧩.
+- **`buildPackingListHTML(doc, data)`** (جديد): جدول [# · رقم الموديل · وصف ·
+  الكمية · الصورة] + تذييل إجمالي الكمية (sumQtyByUnit). بدون أسعار.
+- **`buildSalesDocWithImagesHTML(doc, data, kind)`** (جديد): جدول [صورة · # ·
+  موديل · وصف · كمية · سعر · إجمالي] + بلوك الإجماليات. بيزاوج `buildDocColumns`
+  rows مع `doc.items` بالـ index لجلب صورة كل بند.
+- صور `<img crossorigin="anonymous">` (لـ html2pdf/CORS من Firebase Storage).
+
+### `src/components/sales/SalesOrderDetailModal.jsx`
+- footer: زر «📦 Packing» + زر «🖼 طباعة بالصورة» (كلاهما عبر `printPage`).
+
+### الملفات
+`src/utils/sales/docPrint.js` · `src/components/sales/SalesOrderDetailModal.jsx` ·
+`src/utils/sales/__tests__/docPrint.test.js` (جديد، 4). SW: `v21.27.110`.
+build ✓ · 417 tests ✓.
+
+---
+
 ## V21.27.109 (2026-06-24) — 📱 ضبط شبكة الهوم للتابلت
 
 بلاغ Ahmed: (1) أسماء التطبيقات الطويلة بتطلع بره المربع في التابلت. (2) عايز
