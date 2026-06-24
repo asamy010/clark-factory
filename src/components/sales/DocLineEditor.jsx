@@ -12,10 +12,11 @@
      isMob, accent
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { Btn, Inp, SearchSel } from "../ui.jsx";
+import { Btn, Inp, SearchSel, Sel } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt } from "../../utils/format.js";
+import { hasDualUnit, convertLineUnit } from "../../utils/units.js";
 
 function lineTotalPreview(it){
   if(it.isSection) return 0;
@@ -43,6 +44,26 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
     return <span title={lbl + ": " + fmt(q) + " " + (s.unit || "")} style={{ flexShrink: 0, fontSize: FS - 4, fontWeight: 700, color: c, background: c + "12", border: "1px solid " + c + "30", borderRadius: 6, padding: "3px 7px", whiteSpace: "nowrap", lineHeight: 1.4 }}>📦 {fmt(q)} {s.unit || ""}</span>;
   };
   const setItem = (idx, patch) => setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it));
+
+  /* V21.27.117: خانة الوحدة. الأصناف ثنائية الوحدة (unit2+unit2Rate) بتعرض
+     منسدلة [الأساسية، الفرعية]. تبديل الوحدة بيحوّل الكمية والسعر (الإجمالي
+     ثابت) عبر convertLineUnit. الأصناف بوحدة واحدة تفضل خانة نص حر زي الأول. */
+  const unitCell = (it, idx) => {
+    if (hasDualUnit(it)) {
+      const base = it.baseUnit || it.unit || it.unit2;
+      const opts = [base, it.unit2].filter((u, i, a) => u && a.indexOf(u) === i);
+      const cur = it.unit || base;
+      return (
+        <Sel value={cur} onChange={v => {
+          const c = convertLineUnit(it, cur, v, it.qty, it.unitPrice);
+          setItem(idx, { unit: v, qty: c.qty, unitPrice: c.unitPrice });
+        }}>
+          {opts.map(u => <option key={u} value={u}>{u}</option>)}
+        </Sel>
+      );
+    }
+    return <Inp value={it.unit || ""} onChange={v => setItem(idx, { unit: v })} placeholder="قطعة" />;
+  };
   const addProduct = () => setItems(prev => [...prev, emptyProduct()]);
   const addSection = () => setItems(prev => [...prev, emptySection()]);
   const removeItem = (idx) => setItems(prev => prev.filter((_, i) => i !== idx));
@@ -73,7 +94,7 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   const productRowDesktop = (it, idx) => (
     <div key={idx} style={{ display: "grid", gridTemplateColumns: COLS, gap: 6, alignItems: "center", padding: "6px 8px", borderTop: "1px solid " + T.brd }}>
       <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}><div style={{ flex: 1, minWidth: 0 }}><ProductPicker it={it} idx={idx} /></div>{stockBadge(it)}</div>
-      <Inp value={it.unit || ""} onChange={v => setItem(idx, { unit: v })} placeholder="قطعة" />
+      {unitCell(it, idx)}
       <Inp type="number" value={it.qty} onChange={v => setItem(idx, { qty: v })} />
       <Inp type="number" value={it.unitPrice} onChange={v => setItem(idx, { unitPrice: v })} />
       <Inp type="number" value={it.discountValue} onChange={v => setItem(idx, { discountValue: v, discountType: "pct" })} />
@@ -103,7 +124,7 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
         <Btn ghost small onClick={() => removeItem(idx)} style={{ color: T.err }}>🗑</Btn>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8, alignItems: "end" }}>
-        <div><label style={lbl}>الوحدة</label><Inp value={it.unit || ""} onChange={v => setItem(idx, { unit: v })} placeholder="قطعة" /></div>
+        <div><label style={lbl}>الوحدة</label>{unitCell(it, idx)}</div>
         <div><label style={lbl}>كمية</label><Inp type="number" value={it.qty} onChange={v => setItem(idx, { qty: v })} /></div>
         <div><label style={lbl}>السعر</label><Inp type="number" value={it.unitPrice} onChange={v => setItem(idx, { unitPrice: v })} /></div>
         <div><label style={lbl}>خصم %</label><Inp type="number" value={it.discountValue} onChange={v => setItem(idx, { discountValue: v, discountType: "pct" })} /></div>

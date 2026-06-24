@@ -113,3 +113,38 @@ export function baseToSecondary(item, baseQty) {
   return rate ? (Number(baseQty) || 0) * rate : null;
 }
 
+/* هل اسم الوحدة ده هو الوحدة الفرعية للصنف؟ */
+export function isSecondaryUnit(item, unitName) {
+  return !!(item && item.unit2 && String(unitName || "").trim() === String(item.unit2).trim() && itemUnit2Rate(item) > 0);
+}
+
+/* V21.27.117: تحويل بند مشتريات بين الوحدة الأساسية والفرعية مع الحفاظ على
+   الإجمالي ثابت — لما المستخدم يبدّل الوحدة في طلب/أمر/فاتورة الشراء.
+   item لازم يحمل unit (أساسية) + unit2 + unit2Rate. fromUnit/toUnit أسماء فعلية.
+   مثال: متر↔قطعة، rate=30. 1 متر بسعر 300 → 30 قطعة بسعر 10 (الإجمالي 300 ثابت). */
+export function convertLineUnit(item, fromUnit, toUnit, qty, unitPrice) {
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  const rate = itemUnit2Rate(item);
+  const q = Number(qty) || 0, p = Number(unitPrice) || 0;
+  if (!rate || String(fromUnit) === String(toUnit)) return { qty: q, unitPrice: p };
+  const fromSec = isSecondaryUnit(item, fromUnit);
+  const toSec = isSecondaryUnit(item, toUnit);
+  if (fromSec === toSec) return { qty: q, unitPrice: p }; /* مفيش تبديل base↔sec */
+  if (!fromSec && toSec) return { qty: r2(q * rate), unitPrice: r2(p / rate) };   /* base → secondary */
+  return { qty: r2(q / rate), unitPrice: r2(p * rate) };                          /* secondary → base */
+}
+
+/* V21.27.117: الكمية والتكلفة بالوحدة الأساسية (للمخزون). الصنف يخزّن الرصيد
+   بالأساسية دايمًا — فلو بند الشراء بالوحدة الفرعية، نحوّله للأساسية قبل
+   applyStockDelta. بيرجّع {qty, unitCost} بالأساسية. */
+export function toBaseForStock(item, lineUnit, qty, unitPrice) {
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  const rate = itemUnit2Rate(item);
+  const q = Number(qty) || 0, p = Number(unitPrice) || 0;
+  if (rate > 0 && isSecondaryUnit(item, lineUnit)) {
+    return { qty: r2(q / rate), unitCost: r2(p * rate) };
+  }
+  return { qty: q, unitCost: p };
+}
+
+

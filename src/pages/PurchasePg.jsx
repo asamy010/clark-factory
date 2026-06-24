@@ -31,7 +31,7 @@ import { DocItemsTable, DocTotals } from "../components/DocItemsTable.jsx";
 import { docColumnsHTML } from "../utils/docColumns.js";
 import { T, TH, TD } from "../theme.js";
 import { openPrintWindow } from "../utils/print.js";
-import { getUnits } from "../utils/units.js";
+import { getUnits, toBaseForStock, hasDualUnit } from "../utils/units.js";
 import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
 import { formatBlockerMessage, getDeleteBlocker, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { buildPurchaseInvoiceFromReceipt, upsertPurchaseInvoiceFromReceipt, findInvoiceByReceipt, upsertDebitNoteFromReturn } from "../utils/invoices.js";
@@ -466,7 +466,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     id:it.id, sourceType:it.itemType||"service", sourceId:it.itemId||"",
     modelNo:it.itemName||"", description:"", unit:it.unit||"", code:it.code||"",/* V21.21.55 */
     qty:it.qty??0, unitPrice:(it.unitPrice!=null?it.unitPrice:it.price)||0,
-    discountType:it.discountType||"pct", discountValue:it.discountValue||0, notes:it.notes||""
+    discountType:it.discountType||"pct", discountValue:it.discountValue||0, notes:it.notes||"",
+    /* V21.27.117: بيانات الوحدة الثنائية (منسدلة الوحدة في المحرّر) */
+    unit2:it.unit2||"", unit2Rate:Number(it.unit2Rate)||0, baseUnit:it.baseUnit||""
   });
   const editorToPo=(it)=>{
     if(it&&it.isSection)return{isSection:true,title:it.title||""};
@@ -476,7 +478,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const net=r2(sub-disc);
     return{ id:it.id||gid(), itemType:(it.sourceType&&it.sourceType!=="service")?it.sourceType:"", itemId:it.sourceId||"",
       itemName:it.modelNo||it.description||"", code:it.code||"",/* V21.21.55 */ qty, unit:it.unit||"", unitPrice:up,
-      discountType:it.discountType||"pct", discountValue:dVal, price:qty>0?r2(net/qty):net, amount:net, notes:it.notes||"" };
+      discountType:it.discountType||"pct", discountValue:dVal, price:qty>0?r2(net/qty):net, amount:net, notes:it.notes||"",
+      /* V21.27.117: بيانات الوحدة الثنائية */
+      unit2:it.unit2||"", unit2Rate:Number(it.unit2Rate)||0, baseUnit:it.baseUnit||"" };
   };
   const poProductOptions=(()=>{
     const opts=[];
@@ -488,7 +492,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const s=String(value), ci=s.indexOf(":"); const sourceType=s.slice(0,ci), sourceId=s.slice(ci+1);
     let catId=sourceType; if(catId==="fabric")catId="core_fabric"; else if(catId==="accessory")catId="core_accessory";
     const found=getItemsForCategory(data,catId).find(x=>String(x.id)===String(sourceId));
-    return { sourceType, sourceId, modelNo:found?.name||"", description:"", code:found?.code||"",/* V21.21.55 */ unit:found?.unit||cur?.unit||"", unitPrice:Number(found?.price??found?.avgCost??0)||cur?.unitPrice };
+    /* V21.27.117: بيانات الوحدة الثنائية من الصنف الأصلي (لمنسدلة الوحدة + التحويل) */
+    return { sourceType, sourceId, modelNo:found?.name||"", description:"", code:found?.code||"",/* V21.21.55 */ unit:found?.unit||cur?.unit||"", unitPrice:Number(found?.price??found?.avgCost??0)||cur?.unitPrice,
+      unit2:found?.unit2||"", unit2Rate:Number(found?.unit2Rate)||0, baseUnit:found?.unit||"" };
   };
   /* V21.27.79: الكمية المتاحة بالمخزن تحت كل صنف في أمر الشراء (صافي الحركات،
      نفس منطق V21.27.77؛ fallback لرصيد الصنف المخزّن لو مفيش حركات). */
@@ -537,7 +543,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       const obj={
         id:poId,poNo,supplierId:po.supplierId,supplierName:supplier?.name||"",
         date:po.date||today,
-        items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({id:it.id||gid(),/* V21.27.66: حافظ على id ثابت لكل بند — ضروري لربط الاستلام الجزئي (_poLineId) وعرض «المطلوب» */itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||""})),
+        items:validItems.map(it=>it.isSection?{isSection:true,title:it.title||""}:({id:it.id||gid(),/* V21.27.66: حافظ على id ثابت لكل بند — ضروري لربط الاستلام الجزئي (_poLineId) وعرض «المطلوب» */itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",qty:Number(it.qty)||0,unit:it.unit||"",unitPrice:Number(it.unitPrice)||0,discountType:it.discountType||"pct",discountValue:Number(it.discountValue)||0,price:Number(it.price)||0,amount:Number(it.amount)||0,notes:it.notes||"",/* V21.27.117: وحدة ثنائية */...(Number(it.unit2Rate)>0&&it.unit2?{unit2:it.unit2,unit2Rate:Number(it.unit2Rate),baseUnit:it.baseUnit||""}:{})})),
         subtotal:afterLineDisc,discountPct:poPct,headerDiscount:poHeaderDisc,totalAmount:r2(totalAmount),notes:po.notes||"",
         createdBy:userName,createdAt:po.createdAt||new Date().toISOString()
       };
@@ -879,7 +885,21 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const supplier=suppliers.find(s=>String(s.id)===String(rcpt.supplierId));
     const receiptNo=nextReceiptNo();
     const rcptId=gid();
-    
+
+    /* V21.27.117: تحويل كل بند للوحدة الأساسية (لو فرعي) قبل تطبيق المخزون —
+       الرصيد بيتخزّن دايمًا بالأساسية. بنلقّط الصنف الأصلي للحصول على unit2Rate،
+       والـ snapshot (_baseQty/_baseCost) بيتخزّن على بند الاستلام عشان عكس الحذف
+       ما يعتمدش على معدل التحويل وقت الحذف. */
+    const baseConvOf=(it)=>{
+      let catId=it.itemType;
+      if(catId==="fabric")catId="core_fabric";else if(catId==="accessory")catId="core_accessory";
+      const master=getItemsForCategory(data,catId).find(x=>String(x.id)===String(it.itemId));
+      const conv=toBaseForStock(master||it,it.unit,Number(it.qty)||0,Number(it.price)||0);
+      const dual=!!(master&&hasDualUnit(master))&&Math.abs(conv.qty-(Number(it.qty)||0))>1e-9;
+      return {qty:conv.qty,cost:conv.unitCost,unit:master?.unit||it.unit||"",dual};
+    };
+    const validItemsB=validItems.map(it=>({...it,_bc:baseConvOf(it)}));
+
     /* Build confirm message */
     let confirmMsg="سيتم حفظ الاستلام:\n\n";
     confirmMsg+="• المورد: "+(supplier?.name||"—")+"\n";
@@ -898,11 +918,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       supplierId:rcpt.supplierId,supplierName:supplier?.name||"",
       date:rcpt.date||today,
       _poId:rcpt._poId||"", /* V21.12.2: ربط الاستلام بأمر الشراء (لحساب حالة الأمر) */
-      items:validItems.map(it=>({
+      items:validItemsB.map(it=>({
         itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,code:it.code||"",/* V21.21.55 */
         qty:Number(it.qty)||0,unit:it.unit||"",
         price:Number(it.price)||0,amount:Number(it.amount)||0,
         notes:it.notes||"",
+        /* V21.27.117: snapshot الكمية/التكلفة بالوحدة الأساسية (للمخزون + عكس الحذف)
+           — يُخزَّن فقط لو البند بوحدة فرعية مختلفة عن الأساسية. */
+        ...(it._bc&&it._bc.dual?{_baseQty:it._bc.qty,_baseCost:it._bc.cost,_baseUnit:it._bc.unit}:{}),
         /* V21.21.83: العملة الأجنبية metadata (fcAmount يتناسب مع الكمية المستلمة) */
         ...(it.fcPrice?{fcPrice:Number(it.fcPrice)||0,fcAmount:r2((Number(it.qty)||0)*(Number(it.fcPrice)||0))}:{}),
         ...(it._poLineId?{_poLineId:it._poLineId}:{}),...(it._fromPo?{_fromPo:it._fromPo}:{}) /* V21.21.7: تتبّع الاستلام الجزئي لكل بند */
@@ -928,9 +951,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       
       /* 2. Update stock + add stockMovement for each item (if stock enabled) */
       if(stockEnabled){
-        validItems.forEach(it=>{
-          const qty=Number(it.qty)||0;
-          const price=Number(it.price)||0;
+        validItemsB.forEach(it=>{
+          /* V21.27.117: المخزون بالوحدة الأساسية دايمًا — لو البند بوحدة فرعية
+             نستخدم الكمية/التكلفة المحوَّلة (_bc). لو وحدة واحدة، _bc = نفس المُدخل. */
+          const bc=it._bc||{qty:Number(it.qty)||0,cost:Number(it.price)||0,unit:it.unit||"",dual:false};
+          const qty=bc.qty;
+          const price=bc.cost;
           /* V16.31: Use applyStockDelta to handle legacy + new categories uniformly.
              The function does the weighted-avg cost calculation and stock update. */
           let catId=it.itemType;
@@ -944,12 +970,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f)f.lastReceiveDate=receipt.date}
           else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a)a.lastReceiveDate=receipt.date}
           else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x)x.lastReceiveDate=receipt.date}
-          /* Movement */
+          /* Movement — يُسجَّل بالوحدة الأساسية (عشان الرصيد يطابق صافي الحركات)؛
+             لو البند كان بوحدة فرعية نوضّح الكمية المُستلمة الأصلية في الملاحظة. */
+          const _entUnit=it.unit||"",_entQty=Number(it.qty)||0;
           d.stockMovements.push({
             id:gid(),type:"in",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,
-            qty,unit:it.unit||"",price,date:receipt.date,
+            qty,unit:bc.unit||it.unit||"",price,date:receipt.date,
             sourceType:"receipt",sourceId:rcptId,
-            notes:"استلام "+receiptNo+" من "+(supplier?.name||""),
+            notes:"استلام "+receiptNo+" من "+(supplier?.name||"")+(bc.dual?" · مُستلَم: "+fmt(_entQty)+" "+_entUnit:""),
             createdBy:userName,createdAt:new Date().toISOString()
           });
         });
@@ -1032,13 +1060,17 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
       if(stockEnabled){
         picked.forEach(it=>{
           const catId=_catIdFromItemType(it);
-          applyStockDelta(d,catId,it.itemId,-it._retQ,null);
+          /* V21.27.117: اخصم من المخزون بالوحدة الأساسية. لو الاستلام كان بوحدة
+             فرعية (it._baseQty محفوظ)، حوّل كمية المرتجع بنفس النسبة. */
+          const _dualRcpt=(it._baseQty!=null&&(Number(it.qty)||0)>0);
+          const baseRet=_dualRcpt?r2(it._retQ*((Number(it._baseQty)||0)/(Number(it.qty)||1))):it._retQ;
+          applyStockDelta(d,catId,it.itemId,-baseRet,null);
           /* clamp ≥0 (زي deleteReceipt) */
           const cat=getCategoryById(d,catId);
           if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f&&f.stock<0)f.stock=0}
           else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a&&a.stock<0)a.stock=0}
           else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x&&x.stock<0)x.stock=0}
-          d.stockMovements.push({id:gid(),type:"out",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName||"",qty:-it._retQ,unit:it.unit||"",price:Number(it.price)||0,date:today2,sourceType:"purchase_return",sourceId:r.id,notes:"مرتجع مشتريات للمورد — استلام "+(r.receiptNo||""),createdBy:userName,createdAt:nowISO()});
+          d.stockMovements.push({id:gid(),type:"out",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName||"",qty:-baseRet,unit:(_dualRcpt?(it._baseUnit||it.unit):it.unit)||"",price:Number(it.price)||0,date:today2,sourceType:"purchase_return",sourceId:r.id,notes:"مرتجع مشتريات للمورد — استلام "+(r.receiptNo||"")+(_dualRcpt?" · مرتجع: "+fmt(it._retQ)+" "+(it.unit||""):""),createdBy:userName,createdAt:nowISO()});
         });
       }
       /* (2) إشعار مدين (يقلّل المستحق للمورد) */
@@ -1111,7 +1143,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           let catId=it.itemType;
           if(catId==="fabric")catId="core_fabric";
           else if(catId==="accessory")catId="core_accessory";
-          const qty=Number(it.qty)||0;
+          /* V21.27.117: اعكس بالوحدة الأساسية (نفس اللي اتطبّق). الاستلامات القديمة
+             أو وحدة واحدة مالهاش _baseQty → نرجع لـ qty (= الأساسية أصلاً). */
+          const qty=(it._baseQty!=null)?(Number(it._baseQty)||0):(Number(it.qty)||0);
           /* Subtract — applyStockDelta handles legacy + new uniformly. We pass null
              for unitCost since reversing shouldn't shift the avg cost. */
           applyStockDelta(d,catId,it.itemId,-qty,null);

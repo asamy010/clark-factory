@@ -99,4 +99,21 @@ describe("convertRfqToPurchaseOrderMutator — يحوّل لجنيه + يحفظ 
     expect(po.currency).toBeUndefined();
     expect(po.items[0].fcAmount).toBeUndefined();
   });
+  /* V21.27.117: بيانات الوحدة الثنائية تنتقل من طلب السعر لأمر الشراء */
+  it("ينقل unit2/unit2Rate/baseUnit لأمر الشراء (متر↔قطعة)", () => {
+    const d = {
+      purchaseRfqs: [recalcRfqTotals({
+        id: "rfq_3", rfqNo: "طلب-3", supplierId: "s1",
+        items: [{ qty: 30, unitPrice: 10, sourceType: "fabric", sourceId: "f1", modelNo: "قماش",
+                  unit: "قطعة", unit2: "قطعة", unit2Rate: 30, baseUnit: "متر" }],
+      })],
+      purchaseOrders: [],
+    };
+    convertRfqToPurchaseOrderMutator(d, "rfq_3", "tester");
+    const line = d.purchaseOrders[0].items[0];
+    expect(line.unit).toBe("قطعة");
+    expect(line.unit2).toBe("قطعة");
+    expect(line.unit2Rate).toBe(30);
+    expect(line.baseUnit).toBe("متر");
+  });
 });

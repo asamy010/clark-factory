@@ -257,6 +257,8 @@ export function convertRfqToPurchaseOrderMutator(d, rfqId, userName){
       amount: netEGP,
       ...(foreign ? { fcPrice: qty > 0 ? r2(net / qty) : net, fcAmount: net } : {}),
       notes: it.notes || "",
+      /* V21.27.117: نقل بيانات الوحدة الثنائية لأمر الشراء (عشان الاستلام يحوّل للأساسية) */
+      ...(Number(it.unit2Rate) > 0 && it.unit2 ? { unit2: it.unit2, unit2Rate: Number(it.unit2Rate), baseUnit: it.baseUnit || "" } : {}),
     };
   });
   const totalAmount = r2(items.reduce((s, it) => s + (it.amount || 0), 0));        /* جنيه */

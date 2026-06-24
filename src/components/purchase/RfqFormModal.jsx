@@ -17,6 +17,8 @@ const toEditorItem = (it) => it && it.isSection ? { ...it } : ({
   unit: it.unit || "", qty: it.qty ?? 1, unitPrice: it.unitPrice ?? 0,
   discountType: it.discountType || "pct", discountValue: it.discountValue || 0, notes: it.notes || "",
   code: it.code || "",/* V21.21.55: حافظ على الكود في دورة التعديل */
+  /* V21.27.117: حافظ على بيانات الوحدة الثنائية في دورة التعديل (عشان منسدلة الوحدة) */
+  unit2: it.unit2 || "", unit2Rate: it.unit2Rate || 0, baseUnit: it.baseUnit || "",
 });
 
 export function RfqFormModal({ data, editRfq, userName, onSave, onClose, previewNo, isMob = false }){
@@ -48,10 +50,14 @@ export function RfqFormModal({ data, editRfq, userName, onSave, onClose, preview
     const s = String(value); const ci = s.indexOf(":");
     const sourceType = s.slice(0, ci), sourceId = s.slice(ci + 1);
     let modelNo = "", unit = cur?.unit || "", unitPrice = cur?.unitPrice, code = "";
-    if(sourceType === "fabric"){ const f = fabrics.find(x => String(x.id) === sourceId); if(f){ modelNo = f.name || ""; code = f.code || ""; unit = f.unit || unit; unitPrice = Number(f.avgCost ?? f.price ?? 0) || unitPrice; } }
-    else if(sourceType === "accessory"){ const a = accessories.find(x => String(x.id) === sourceId); if(a){ modelNo = a.name || ""; code = a.code || ""; unit = a.unit || unit; unitPrice = Number(a.avgCost ?? a.price ?? 0) || unitPrice; } }
-    else if(sourceType === "generalProduct"){ const p = generalProducts.find(x => String(x.id) === sourceId); if(p){ modelNo = p.name || p.modelNo || ""; code = p.code || ""; unit = p.unit || unit; unitPrice = Number(p.price ?? p.cost ?? 0) || unitPrice; } }
-    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice, code };/* V21.21.55 */
+    /* V21.27.117: الوحدة الثنائية من الصنف الأصلي (أساسية+فرعية+معدل) */
+    let unit2 = "", unit2Rate = 0, baseUnit = "";
+    let src = null;
+    if(sourceType === "fabric"){ src = fabrics.find(x => String(x.id) === sourceId); if(src){ modelNo = src.name || ""; code = src.code || ""; unit = src.unit || unit; unitPrice = Number(src.avgCost ?? src.price ?? 0) || unitPrice; } }
+    else if(sourceType === "accessory"){ src = accessories.find(x => String(x.id) === sourceId); if(src){ modelNo = src.name || ""; code = src.code || ""; unit = src.unit || unit; unitPrice = Number(src.avgCost ?? src.price ?? 0) || unitPrice; } }
+    else if(sourceType === "generalProduct"){ src = generalProducts.find(x => String(x.id) === sourceId); if(src){ modelNo = src.name || src.modelNo || ""; code = src.code || ""; unit = src.unit || unit; unitPrice = Number(src.price ?? src.cost ?? 0) || unitPrice; } }
+    if(src){ unit2 = src.unit2 || ""; unit2Rate = Number(src.unit2Rate) || 0; baseUnit = src.unit || ""; }
+    return { sourceType, sourceId, modelNo, description: modelNo, unit, unitPrice, code, unit2, unit2Rate, baseUnit };/* V21.21.55 / V21.27.117 */
   };
 
   const afterLine = useMemo(() => r2(items.reduce((s, it) => {
