@@ -134,7 +134,7 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
 
   const coa = config.coa || [];
 
-  return <div style={{padding: isPhone ? 12 : 20, maxWidth:1400, margin:"0 auto"}}>
+  return <div style={{padding: isPhone ? 12 : 20, maxWidth:1680, margin:"0 auto"}}>
     {/* Page header */}
     <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap"}}>
       <div style={{
@@ -182,16 +182,19 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
         })}
       </div>
     ) : (
-      <div style={{display:"flex", gap:6, marginBottom:16, flexWrap:"wrap", borderBottom:"2px solid "+T.brd, paddingBottom:0}}>
+      /* V21.27.105: nowrap + overflowX:auto — كل التابات على صف واحد (بدل اللفّ
+         لصفّين)، scroll أفقي على الشاشات الأضيق. padding/gap/font أصغر للاتساع. */
+      <div style={{display:"flex", gap:4, marginBottom:16, flexWrap:"nowrap", overflowX:"auto", borderBottom:"2px solid "+T.brd, paddingBottom:0}}>
         {TAB_DEFS.map(t => {
           const isActive = active === t.key;
           return <div key={t.key} onClick={() => setActive(t.key)} style={{
-            padding: "10px 18px",
-            cursor:"pointer", fontSize: FS,
+            padding: "10px 12px",
+            cursor:"pointer", fontSize: FS-1,
             fontWeight: isActive ? 800 : 600,
             color: isActive ? T.accent : T.textSec,
             borderBottom: isActive ? "3px solid "+T.accent : "3px solid transparent",
-            marginBottom:-2, display:"flex", alignItems:"center", gap:6,
+            marginBottom:-2, display:"flex", alignItems:"center", gap:5,
+            whiteSpace:"nowrap", flexShrink:0,
             transition:"all 0.15s",
           }}>
             <span>{t.icon}</span><span>{t.label}</span>
