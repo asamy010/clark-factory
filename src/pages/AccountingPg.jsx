@@ -182,19 +182,20 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
         })}
       </div>
     ) : (
-      /* V21.27.105: nowrap + overflowX:auto — كل التابات على صف واحد (بدل اللفّ
-         لصفّين)، scroll أفقي على الشاشات الأضيق. padding/gap/font أصغر للاتساع. */
-      <div style={{display:"flex", gap:4, marginBottom:16, flexWrap:"nowrap", overflowX:"auto", borderBottom:"2px solid "+T.brd, paddingBottom:0}}>
+      /* V21.27.106: صف واحد بدون scrollbar — space-between يوزّع التابات على
+         العرض الكامل (يملأ الفراغ)؛ شِلنا overflowX:auto اللي كان بيطلّع شريط
+         تمرير أفقي حتى مع overflow ضئيل بالبكسل. */
+      <div style={{display:"flex", gap:4, marginBottom:16, flexWrap:"nowrap", justifyContent:"space-between", borderBottom:"2px solid "+T.brd, paddingBottom:0}}>
         {TAB_DEFS.map(t => {
           const isActive = active === t.key;
           return <div key={t.key} onClick={() => setActive(t.key)} style={{
-            padding: "10px 12px",
+            padding: "10px 10px",
             cursor:"pointer", fontSize: FS-1,
             fontWeight: isActive ? 800 : 600,
             color: isActive ? T.accent : T.textSec,
             borderBottom: isActive ? "3px solid "+T.accent : "3px solid transparent",
             marginBottom:-2, display:"flex", alignItems:"center", gap:5,
-            whiteSpace:"nowrap", flexShrink:0,
+            whiteSpace:"nowrap",
             transition:"all 0.15s",
           }}>
             <span>{t.icon}</span><span>{t.label}</span>
