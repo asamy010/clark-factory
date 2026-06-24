@@ -23,7 +23,7 @@ describe("buildPackingListHTML", () => {
   });
   it("يضمّن صورة الموديل من أمر الإنتاج، وplaceholder للبند بلا صورة", () => {
     expect(html).toContain("https://store/img1.jpg");
-    expect(html).toContain("🧩"); // placeholder لبند الخدمة
+    expect(html).toContain("📷"); // placeholder لبند الخدمة (بلا صورة)
   });
   it("إجمالي الكمية مجمّع حسب الوحدة في التذييل", () => {
     expect(html).toContain("5 قطعة"); // وحدة قطعة 5 + خدمة بلا وحدة 1

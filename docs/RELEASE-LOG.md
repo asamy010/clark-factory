@@ -12,6 +12,22 @@
 
 ---
 
+## V21.27.113 (2026-06-24) — 🖼️ إصلاح ظهور صورة الموديل في Packing/الطباعة بالصورة
+
+بلاغ Ahmed (صورتين): الصورة بتطلع «مكسورة» (broken-image icon) في طباعة Packing
+و«طباعة بالصورة».
+- **السبب:** `<img crossorigin="anonymous">` في `_imgCell` (`docPrint.js`) —
+  المتصفح (خصوصًا iOS Safari في نافذة الطباعة) بيرفض الصورة لو الـ CORS مش
+  مظبوط 100%. `printPage`'s html2pdf أصلًا بيستخدم `html2canvas:{useCORS:true,
+  allowTaint:true}` فالـ PDF مش محتاج الـ attribute.
+- **الإصلاح (`src/utils/sales/docPrint.js`):** شِلنا `crossorigin="anonymous"`
+  (الطباعة العادية بتعرض الصورة؛ PDF يشتغل عبر useCORS) + `loading="eager"` +
+  `referrerpolicy="no-referrer"` + `onerror` يبدّل الصورة المكسورة بـ placeholder
+  📷 نظيف. الـ placeholder الافتراضي بقى 📷 بدل 🧩 (أوضح، أقل عرضة لمشاكل الخط).
+- اختبار docPrint محدّث (placeholder 📷). SW: `v21.27.113`. build ✓ · 421 tests ✓.
+
+---
+
 ## V21.27.112 (2026-06-24) — 🎯 حل نهائي: مرتجع أمر البيع المباشر من «إشعارات دائنة»
 
 **السبب الجذري الحقيقي اتكشف من صورة Ahmed:** المستخدم بيعمل المرتجع من تاب

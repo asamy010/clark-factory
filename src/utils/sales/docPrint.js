@@ -20,10 +20,15 @@ function _itemImage(it, data){
   }
   return "";
 }
+/* V21.27.113: الصورة بدون crossorigin — الطباعة العادية على iOS كانت بترفض
+   الصورة مع crossorigin لو الـ CORS مش مظبوط (صورة مكسورة). من غيره بتتحمّل
+   عادي للعرض/الطباعة؛ وحفظ PDF بيشتغل عبر html2canvas useCORS+allowTaint في
+   printPage. onerror يبدّل الصورة المكسورة بـ placeholder نظيف بدل أيقونة الكسر. */
 function _imgCell(img, w, h){
+  const ph = `<div style=&quot;width:${w}px;height:${h}px;border-radius:6px;border:1px dashed #cbd5e1;display:inline-flex;align-items:center;justify-content:center;color:#94a3b8;font-size:18px&quot;>📷</div>`;
   return img
-    ? `<img src="${_esc(img)}" crossorigin="anonymous" style="width:${w}px;height:${h}px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1"/>`
-    : `<div style="width:${w}px;height:${h}px;border-radius:6px;border:1px dashed #cbd5e1;display:inline-flex;align-items:center;justify-content:center;color:#94a3b8;font-size:20px">🧩</div>`;
+    ? `<img src="${_esc(img)}" loading="eager" referrerpolicy="no-referrer" onerror="this.outerHTML='${ph}'" style="width:${w}px;height:${h}px;object-fit:cover;border-radius:6px;border:1px solid #cbd5e1"/>`
+    : `<div style="width:${w}px;height:${h}px;border-radius:6px;border:1px dashed #cbd5e1;display:inline-flex;align-items:center;justify-content:center;color:#94a3b8;font-size:18px">📷</div>`;
 }
 
 export function buildSalesDocHTML(doc, data, kind){
