@@ -16,6 +16,7 @@ import { ChartOfAccountsTab } from "../components/accounting/ChartOfAccountsTab.
 import { JournalTab } from "../components/accounting/JournalTab.jsx";
 import { TrialBalanceTab } from "../components/accounting/TrialBalanceTab.jsx";
 import { FinancialReportsTab } from "../components/accounting/FinancialReportsTab.jsx";
+import { AccountingReportsTab } from "../components/accounting/AccountingReportsTab.jsx";
 import { PartyLedgerTab } from "../components/accounting/PartyLedgerTab.jsx";
 import { GeneralLedgerTab } from "../components/accounting/GeneralLedgerTab.jsx";
 import { PaymentsTab } from "../components/accounting/PaymentsTab.jsx";
@@ -41,6 +42,8 @@ const TAB_DEFS = [
   {key:"payments", label:"دفعات",          icon:"💰"},
   {key:"aging",    label:"تقادم الديون",    icon:"⏳"},
   {key:"reports",  label:"القوائم المالية", icon:"📈"},
+  /* V21.27.104: تقارير محاسبية مشتقّة (تقييم مخزون + مستحقات) — حاوية تكبر بتقارير تانية */
+  {key:"acctReports", label:"تقارير محاسبية", icon:"🧾"},
   {key:"settings", label:"الإعدادات",     icon:"⚙️"},
 ];
 
@@ -238,6 +241,10 @@ export function AccountingPg({data, config, upConfig, isMob, user}){
     />}
     {active === "reports" && <FinancialReportsTab
       coa={coa} configInfo={{factoryName: config.factoryName||"CLARK", logo: config.logo, address: config.address||"", phone: config.phone||""}}
+      T={T} FS={FS} isMob={isMob} showToast={showToast}
+    />}
+    {active === "acctReports" && <AccountingReportsTab
+      data={data} configInfo={{factoryName: config.factoryName||"CLARK", logo: config.logo, address: config.address||"", phone: config.phone||""}}
       T={T} FS={FS} isMob={isMob} showToast={showToast}
     />}
     {active === "settings" && <AccountingSettingsTab

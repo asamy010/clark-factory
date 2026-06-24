@@ -66,7 +66,7 @@ export function computeDashboardKpis(data){
        للمحجوز المشتق — فبنتخطّاها (الموديلات order بس هي اللي تُطرح هنا). */
     (so.returns || []).forEach(rr => { if(rr && rr.sourceId && (!rr.itemSourceType || rr.itemSourceType === "order")) soReserved[rr.sourceId] = (soReserved[rr.sourceId] || 0) - (Number(rr.qty) || 0); });
   });
-  let finishedVal = 0; const finishedDetail = [];
+  let finishedVal = 0, finishedSellVal = 0; const finishedDetail = [];
   (d.orders || []).forEach(o => {
     const sd = getConfirmedStock(o); if(sd <= 0) return;
     const cd = (o.customerDeliveries || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
@@ -75,10 +75,15 @@ export function computeDashboardKpis(data){
     if(avail <= 0) return;
     let cost = 0; try { cost = Number(calcOrder(o).costPer) || 0; } catch(_) {}
     const val = r2(avail * cost);
-    finishedVal += val;
-    finishedDetail.push({ name: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : ""), qty: avail, unitCost: r2(cost), value: val });
+    /* V21.27.104: قيمة الجاهز بسعر البيع (avail × سعر بيع الأمر) — لتقرير
+       تقييم المخزون المحاسبي (الجاهز بالتكلفة + بسعر المبيعات). سعر البيع
+       مخزّن مباشرة على الأمر (o.sellPrice) — مش محسوب. */
+    const sell = Number(o.sellPrice) || 0;
+    const sval = r2(avail * sell);
+    finishedVal += val; finishedSellVal += sval;
+    finishedDetail.push({ name: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : ""), qty: avail, unitCost: r2(cost), value: val, unitSell: r2(sell), sellValue: sval });
   });
-  finishedVal = r2(finishedVal);
+  finishedVal = r2(finishedVal); finishedSellVal = r2(finishedSellVal);
   finishedDetail.sort((a, b) => b.value - a.value);
 
   /* الخامات/الإكسسوار: المخزون × متوسط التكلفة (legacy + أصناف المخازن المخصصة) */
@@ -135,7 +140,7 @@ export function computeDashboardKpis(data){
   return {
     sales: { total: salesTotal, returns: salesReturns, net: salesNet, balance: custBalance, detail: salesDetail },
     purchases: { total: buyTotal, returns: buyReturns, net: buyNet, payable, detail: supDetail },
-    inventory: { finished: finishedVal, fabric: fabricVal, accessory: accessoryVal, other: otherVal, total: inventoryTotal, finishedDetail, fabricDetail, accessoryDetail, otherDetail },
+    inventory: { finished: finishedVal, finishedSell: finishedSellVal, fabric: fabricVal, accessory: accessoryVal, other: otherVal, total: inventoryTotal, finishedDetail, fabricDetail, accessoryDetail, otherDetail },
     profit: { value: netProfit, salesNet, cogs, grossProfit, opex, opexDetail, netProfit, tradingProfit, configured: opexSet.size > 0 },
   };
 }
