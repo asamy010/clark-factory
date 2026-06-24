@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal, cancelReturnMutator, removeOperationalReturnForCreditNote, computeDirectSoReturnables } from "../salesOrders.js";
+import { returnFromDirectSalesOrderMutator, salesOrderReturnedValue, salesOrderNetTotal, cancelReturnMutator, removeOperationalReturnForCreditNote, computeDirectSoReturnables, createSalesOrderDirectMutator, soItemKey } from "../salesOrders.js";
 import { computeSoReserved } from "../../stockCatalog.js";
 import { creditNotePostBlocker } from "../../invoices.js";
 
@@ -358,5 +358,70 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     const out = removeOperationalReturnForCreditNote(d, "cn1");
     expect(out.removed).toBe("dist");
     expect(d.orders[0].customerReturns.length).toBe(0);
+  });
+});
+
+/* ── V21.27.111: مفتاح مستقر — بنود بدون sourceId + E2E round-trip ── */
+describe("V21.27.111: returnables بمفتاح مستقر (soItemKey)", () => {
+  it("soItemKey: sourceId لو موجود، وإلا free:الاسم", () => {
+    expect(soItemKey({ sourceType: "order", sourceId: "o1", modelNo: "M1" })).toBe("o1");
+    expect(soItemKey({ sourceType: "service", sourceId: "", modelNo: "تطريز خاص" })).toBe("free:تطريز خاص");
+    expect(soItemKey({ sourceType: "service", description: "بند يدوي" })).toBe("free:بند يدوي");
+  });
+
+  it("بند نص حر (بدون sourceId) بقى يظهر في المرتجع (كان بيختفي)", () => {
+    const so = {
+      id: "so1", orderNo: "so1", customerId: "c1", status: "confirmed", date: "2026-06-01",
+      items: [{ sourceType: "service", sourceId: "", modelNo: "موديل مكتوب بإيد", qty: 4, unitPrice: 120 }],
+    };
+    const out = computeDirectSoReturnables([so]);
+    expect(out.c1).toBeTruthy();
+    const k = "free:موديل مكتوب بإيد";
+    expect(out.c1.invItems[k]).toMatchObject({ sold: 4, returned: 0 });
+    expect(out.c1.total).toBe(4); // total بقى يشمل invItems
+  });
+
+  it("E2E: createSalesOrderDirectMutator(موديل من القائمة) → يظهر ويترجّع كامل", () => {
+    const d = {
+      customers: [{ id: "c1", name: "عميل أ" }],
+      orders: [{ id: "o1", modelNo: "M1", modelDesc: "قميص", sellPrice: 100, deliveries: [{ qty: 20, status: "confirmed" }], customerDeliveries: [], customerReturns: [] }],
+      salesOrders: [], salesInvoices: [], salesCreditNotes: [], invoiceCounters: {},
+    };
+    const created = createSalesOrderDirectMutator(d, {
+      date: "2026-06-24", customerId: "c1", customerName: "عميل أ", customerNameAdHoc: "",
+      items: [{ sourceType: "order", sourceId: "o1", modelNo: "M1", description: "قميص", unit: "قطعة", qty: 5, unitPrice: 100, discountType: "pct", discountValue: 0 }],
+      discountPct: 0, notes: "",
+    }, "tester", {});
+    expect(created.ok).toBe(true);
+
+    // يظهر في المرتجع
+    let ret = computeDirectSoReturnables(d.salesOrders);
+    expect(ret.c1.models.o1.sold).toBe(5);
+    expect(ret.c1.total).toBe(5);
+
+    // مرتجع 2 قطعة
+    const r = returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "o1", qty: 2 }] }, "tester");
+    expect(r.ok).toBe(true);
+    expect(r.creditNotes.length).toBe(1);
+
+    // المتبقي للمرتجع = 3
+    ret = computeDirectSoReturnables(d.salesOrders);
+    expect(ret.c1.models.o1.sold).toBe(5);
+    expect(ret.c1.models.o1.returned).toBe(2);
+    expect(ret.c1.total).toBe(3);
+  });
+
+  it("عميل عنده توزيعة (customerDeliveries) + أمر مباشر — الموديل المباشر يظهر مستقل", () => {
+    // التوزيعة بتظهر عبر custModels (customerDeliveries على orders)؛ الأمر المباشر عبر directSoRet.
+    const d = {
+      customers: [{ id: "c1", name: "عميل أ" }],
+      orders: [{ id: "o1", modelNo: "M1", customerDeliveries: [{ custId: "c1", qty: 3 }], customerReturns: [] }],
+      salesOrders: [{ id: "so1", orderNo: "so1", customerId: "c1", status: "confirmed", date: "2026-06-01",
+        items: [{ sourceType: "order", sourceId: "o2", modelNo: "M2", description: "بنطلون", qty: 6, unitPrice: 150 }] }],
+    };
+    const ret = computeDirectSoReturnables(d.salesOrders);
+    // الموديل المباشر (M2/o2) يظهر بغض النظر عن توزيعة M1
+    expect(ret.c1.models.o2).toMatchObject({ sold: 6, modelNo: "M2" });
+    expect(ret.c1.total).toBe(6);
   });
 });

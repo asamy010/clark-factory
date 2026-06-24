@@ -4437,6 +4437,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const _itLabel=t=>t==="generalProduct"?"منتج عام":t==="service"?"خدمة":"صنف مخزون";
       const soInvRows=Object.values(directSoRet[freeReturn]?.invItems||{}).map(m=>({...m,net:Math.max(0,(m.sold||0)-(m.returned||0))})).filter(m=>m.net>0).map(m=>({id:"SOINV:"+m.sourceId,kind:"soinv",sourceId:m.sourceId,modelNo:m.name,modelDesc:_itLabel(m.itemType)+(m.unit?" · "+m.unit:""),delivered:m.sold,returned:m.returned,net:m.net,unit:m.unit,itemType:m.itemType}));
       const allModels=[...custModels.map(m=>({...m,kind:"dist"})),...soModels,...soInvRows];
+      /* V21.27.111: تشخيص — لو الجدول فاضي رغم وجود أوامر بيع للعميل، وضّح السبب
+         (مرايا توزيعة محتسبة في التوزيعات · ملغية · أو كلها مرتجعة). */
+      const _custSOsAll=(data.salesOrders||[]).filter(so=>so&&String(so.customerId)===String(freeReturn));
+      const _soDiag=(allModels.length===0&&_custSOsAll.length>0)?(()=>{const mir=_custSOsAll.filter(so=>so.sourceDistributionId||so.isDistributionMirror).length;const can=_custSOsAll.filter(so=>so.status==="cancelled").length;return{total:_custSOsAll.length,mir,can,direct:_custSOsAll.length-mir-can}})():null;
       const totalRet=Object.values(freeRetItems).reduce((s,v)=>s+(Number(v)||0),0);
       const saveFreeReturn=async()=>{if(totalRet<=0){showToast("⚠️ ادخل كمية المرتجع");return}
         let totalDone=0;
@@ -4478,6 +4482,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
               <td style={{...TD,textAlign:"center",width:90}}><input type="number" value={retQ||""} onChange={e=>{const v=Math.min(Math.max(0,Number(e.target.value)||0),m.net);setFreeRetItems(p=>({...p,[m.id]:v}))}} placeholder="0" style={{width:70,textAlign:"center",border:"2px solid "+(retQ>0?T.err:T.brd),borderRadius:6,padding:"4px",fontSize:FS,fontWeight:700,fontFamily:"inherit",background:retQ>0?T.err+"06":"transparent",color:retQ>0?T.err:T.text}}/></td>
             </tr>})}
           </tbody></table>
+          {/* V21.27.111: تشخيص لو مفيش أصناف قابلة للمرتجع رغم وجود أوامر بيع */}
+          {allModels.length===0&&<div style={{padding:12,borderRadius:10,background:T.warn+"10",border:"1px solid "+T.warn+"35",marginBottom:12,fontSize:FS-2,color:T.text,lineHeight:1.7}}>
+            <div style={{fontWeight:800,color:T.warn,marginBottom:4}}>⚠️ مفيش أصناف قابلة للمرتجع للعميل ده</div>
+            {_soDiag
+              ? <span>{"العميل عنده "+_soDiag.total+" أمر بيع: "}<b>{_soDiag.direct}</b>{" مباشر · "}<b>{_soDiag.mir}</b>{" مرآة توزيعة (بترجّع من سجل التسليمات/التوزيعة مش هنا) · "}<b>{_soDiag.can}</b>{" ملغي. لو فيه أمر مباشر بموديل المفروض يظهر — لو مش ظاهر، اعمل تحديث (اقفل التطبيق وافتحه) وجرّب تاني، ولو استمر ابعتلي رقم الأمر."}</span>
+              : <span>مفيش توزيعات ولا أوامر بيع مباشرة سارية للعميل ده (أو كلها اترجّعت بالكامل).</span>}
+          </div>}
           <div><label style={{fontSize:FS-2,color:T.textSec,fontWeight:600}}>ملاحظات</label><Inp value={freeRetNote} onChange={setFreeRetNote} placeholder="سبب المرتجع..."/></div>
           {totalRet>0&&<div style={{padding:10,borderRadius:8,background:T.err+"08",border:"1px solid "+T.err+"20",marginTop:10,textAlign:"center"}}>
             <span style={{fontWeight:800,color:T.err,fontSize:FS+1}}>{"اجمالي المرتجع: "+totalRet+" قطعة"}</span>

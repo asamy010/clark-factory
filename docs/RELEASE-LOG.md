@@ -12,6 +12,41 @@
 
 ---
 
+## V21.27.111 (2026-06-24) — 🛠️ إصلاح مرتجع أمر البيع المباشر (مفتاح بند مستقر)
+
+بلاغ Ahmed المتكرر «بج خطير»: الموديلات المباعة بأمر بيع مباشر مش بتظهر في
+المرتجع. الفحص (E2E بالـ mutator الحقيقي) أثبت إن مسار الموديل-المختار-من-القائمة
+**سليم**، لكن اتكشفت ثغرة جذرية + اتعمل تصليب دفاعي شامل.
+
+### الثغرة الجذرية — `src/utils/sales/salesOrders.js`
+`computeDirectSoReturnables` كانت بتتطلب `it.sourceId`: السطر
+`if(!it.isSection || !it.sourceId) return` → **أي بند بدون sourceId** (موديل/خدمة
+مكتوبة بإيد كنص حر) كان **بيختفي تمامًا** من المرتجع. وكمان `total` كان من
+`models` بس (مش `invItems`).
+
+### الإصلاح (دفاعي وشامل)
+- **`soItemKey(it)`** (جديد + exported): مفتاح مستقر = `sourceId` لو موجود، وإلا
+  `"free:"+الاسم`. يضمن إن أي بند مباع يقدر يترجّع.
+- **`computeDirectSoReturnables`**: تستخدم المفتاح المستقر (شالت اشتراط sourceId)؛
+  `total` بقى يشمل `invItems` كمان.
+- **`returnFromDirectSalesOrderMutator`**: المطابقة (وكذلك طرح `so.returns`) بقت
+  بالمفتاح المستقر (`soItemKey`/`_retKey`) مش `sourceId` مباشر — الموديلات
+  (لها sourceId) سلوكها ما اتغيّرش، والبنود الحرة بقت تترجّع.
+- **تشخيص** في «مرتجع حر» (`CustDeliverPg.jsx`): لو الجدول فاضي رغم وجود أوامر
+  بيع، رسالة توضّح العدد (مباشر · مرآة توزيعة · ملغي) — يكشف أي سبب متبقٍّ.
+
+### الاختبارات (+4 = 30 في الملف · 421 إجمالي)
+E2E `createSalesOrderDirectMutator` → `computeDirectSoReturnables` →
+`returnFromDirectSalesOrderMutator` (round-trip) · بند نص حر بدون sourceId يظهر
+ويترجّع · عميل عنده توزيعة + أمر مباشر (الموديل المباشر يظهر مستقل) · `soItemKey`.
+
+### الملفات
+`src/utils/sales/salesOrders.js` · `src/pages/CustDeliverPg.jsx` ·
+`src/utils/sales/__tests__/returnFromDirectSO.test.js`. SW: `v21.27.111`.
+build ✓ · 421 tests ✓.
+
+---
+
 ## V21.27.110 (2026-06-24) — 📦 أمر البيع: زر Packing + طباعة بالصورة
 
 طلب Ahmed: زرّين في أمر البيع — «Packing» (قائمة تغليف: رقم الموديل/الوصف/
