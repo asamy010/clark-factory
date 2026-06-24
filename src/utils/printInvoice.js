@@ -8,7 +8,7 @@
 import { openPrintWindow } from "./print.js";
 import { PRINT_CSS } from "../constants/index.js";
 import { ltrPhone } from "./format.js";
-import { docColumnsHTML } from "./docColumns.js";
+import { docColumnsHTML, sumQtyByUnit, fmtQtyByUnit } from "./docColumns.js";
 
 const fmt = n => Math.round(Number(n)||0).toLocaleString("en-US");
 const r2  = n => Math.round((Number(n)||0)*100)/100;
@@ -211,6 +211,11 @@ ${creditNote.linkedInvoiceNo ? `<div style="background:#FEF2F2;padding:8px 12px;
     </tr>
   </thead>
   <tbody>${rows}</tbody>
+  <tfoot><tr style="border-top:2px solid #1E293B;font-weight:800">
+    <td style="font-weight:800">الإجمالي</td>
+    <td class="center" style="direction:ltr;font-weight:800">${_esc(fmtQtyByUnit(sumQtyByUnit(creditNote.items)))}</td>
+    <td></td><td></td>
+  </tr></tfoot>
 </table>
 
 <div class="inv-totals">
@@ -357,6 +362,11 @@ ${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;b
     </tr>
   </thead>
   <tbody>${rows}</tbody>
+  <tfoot><tr style="border-top:2px solid #1E293B;font-weight:800">
+    <td style="font-weight:800">الإجمالي</td>
+    <td class="center" style="direction:ltr;font-weight:800">${_esc(fmtQtyByUnit(sumQtyByUnit(debitNote.items)))}</td>
+    ${showPrices?`<td></td><td></td>`:""}
+  </tr></tfoot>
 </table>
 
 ${showPrices ? `<div class="inv-totals">

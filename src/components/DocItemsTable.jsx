@@ -8,11 +8,11 @@
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
-import { buildDocColumns } from "../utils/docColumns.js";
+import { buildDocColumns, fmtQtyByUnit } from "../utils/docColumns.js";
 import { tafqitEGP } from "../utils/tafqit.js";
 
 export function DocItemsTable({ items, headerDiscountPct, headerDiscountAmount, accent = "#0EA5E9" }){
-  const { rows } = buildDocColumns(items, { headerDiscountPct, headerDiscountAmount });
+  const { rows, totals } = buildDocColumns(items, { headerDiscountPct, headerDiscountAmount });
   /* V21.21.45: خط أكبر (FS-1/FS-2) بدل FS-3/FS-4 السابق */
   const th = { padding: "8px 7px", fontSize: FS - 2, whiteSpace: "nowrap", fontWeight: 700, color: T.textSec };
   const td = { padding: "8px 7px", fontSize: FS - 1 };
@@ -50,6 +50,18 @@ export function DocItemsTable({ items, headerDiscountPct, headerDiscountAmount, 
             </tr>
           ))}
         </tbody>
+        {/* V21.27.107: صف إجمالي الكمية تحت عمود الكمية (مجمّع حسب الوحدة) */}
+        {rows.some(r => !r.isSection) && (
+          <tfoot>
+            <tr style={{ borderTop: "2px solid " + T.brd, background: T.bg }}>
+              <td style={{ ...td }}></td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 800, color: T.text }}>الإجمالي</td>
+              <td style={{ ...td }}></td>
+              <td style={{ ...td, textAlign: "center", fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{fmtQtyByUnit(totals.qtyByUnit)}</td>
+              <td style={{ ...td }} colSpan={5}></td>
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

@@ -12,6 +12,7 @@ import { Btn, Card, Inp, Sel, SearchSel } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
+import { sumQtyByUnit, fmtQtyByUnit } from "../utils/docColumns.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postCreditNoteMutator, creditNotePostBlocker, voidCreditNoteMutator, deleteDraftCreditNoteMutator,
@@ -447,6 +448,14 @@ function CreditNoteDetailModal({creditNote, data, onClose, onPost, onVoid, onDel
               <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:"#EF4444"}}>{fmt(it.lineTotal.toFixed(2))}</td>
             </tr>)}
           </tbody>
+          {/* V21.27.107: إجمالي الكمية المُرتجعة (مجمّع حسب الوحدة) */}
+          {(creditNote.items||[]).length > 0 && <tfoot>
+            <tr style={{borderTop:"2px solid "+T.brd, background:"#EF444408"}}>
+              <td style={{padding:"8px 10px", fontWeight:800, color:T.text}}>الإجمالي</td>
+              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:T.text, whiteSpace:"nowrap"}}>{fmtQtyByUnit(sumQtyByUnit(creditNote.items))}</td>
+              <td></td><td></td>
+            </tr>
+          </tfoot>}
         </table>
       </div>
 

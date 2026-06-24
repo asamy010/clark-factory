@@ -31,6 +31,30 @@ function _lineDiscount(subBefore, raw){
   return 0;
 }
 
+/* V21.27.107: إجمالي الكمية مجمّعة حسب الوحدة — لصف «إجمالي الكمية» تحت عمود
+   الكمية في كل المستندات. بتتجاهل الأقسام (isSection) والكميات الصفرية. بترجّع
+   [{unit, qty}] — لو كل البنود بنفس الوحدة (أو بلا وحدة) → عنصر واحد؛ لو الوحدات
+   مختلفة → عنصر لكل وحدة (الوحدة الفاضية تتجمّع لوحدها). */
+export function sumQtyByUnit(items){
+  const map = new Map();
+  (Array.isArray(items) ? items : []).forEach(it => {
+    if(!it || it.isSection) return;
+    const q = Number(it.qty) || 0;
+    if(!q) return;
+    const u = String(it.unit || "").trim();
+    map.set(u, r2((map.get(u) || 0) + q));
+  });
+  return [...map.entries()].map(([unit, qty]) => ({ unit, qty }));
+}
+
+/* نص عرض إجمالي الكمية: وحدة واحدة بلا اسم → "8" · باسم → "8 قطعة" ·
+   وحدات مختلفة → "5 قطعة · 3 متر". */
+export function fmtQtyByUnit(list){
+  const arr = Array.isArray(list) ? list : [];
+  if(!arr.length) return "0";
+  return arr.map(x => fmt(x.qty) + (x.unit ? " " + x.unit : "")).join(" · ");
+}
+
 /* يبني صفوف الأعمدة الموحّدة + الإجماليات، موزّعاً خصم الرأس على الصفوف.
    opts.headerDiscountAmount  — خصم رأس بقيمة مطلقة (الفواتير).
    opts.headerDiscountPct     — خصم رأس بنسبة % (عرض السعر/أمر البيع).
@@ -88,7 +112,10 @@ export function buildDocColumns(items, opts = {}){
   const discount = r2(lineDiscTotal + headerDisc);
   /* V21.21.45: نسبة الخصم الإجمالية الفعلية */
   const discountPct = subBefore > 0 ? r2(discount / subBefore * 100) : 0;
-  return { rows, totals: { subBefore, discount, discountPct, subAfter: r2(subBefore - discount) } };
+  /* V21.27.107: إجمالي الكمية حسب الوحدة + المجموع الكلي (لصف الإجمالي) */
+  const qtyByUnit = sumQtyByUnit(items);
+  const totalQty = r2(lines.reduce((s, r) => s + r.qty, 0));
+  return { rows, totals: { subBefore, discount, discountPct, subAfter: r2(subBefore - discount), qtyByUnit, totalQty } };
 }
 
 /* hتجنّب حقن HTML في حقول النصوص داخل الـ PDF */
@@ -119,11 +146,18 @@ export function docColumnsHTML(items, opts = {}){
       </tr>`
   ).join("");
   const th = `padding:5px;border:${bd}`;
+  /* V21.27.107: صف إجمالي الكمية (مجمّع حسب الوحدة) تحت عمود الكمية */
+  const qtyFoot = `<tfoot><tr style="background:#F1F5F9;font-weight:800">
+        <td style="${th}"></td><td style="${th}">الإجمالي</td><td style="${th}"></td>
+        <td style="text-align:center;${th}">${_esc(fmtQtyByUnit(totals.qtyByUnit))}</td>
+        <td style="${th}" colspan="5"></td>
+      </tr></tfoot>`;
   return `<table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="background:${accent};color:#fff">
         <th style="${th}">الكود</th><th style="${th}">اسم الصنف</th><th style="${th}">الوحدة</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">إجمالي قبل الخصم</th><th style="${th}">نسبة الخصم</th><th style="${th}">الخصم</th><th style="${th}">إجمالي بعد الخصم</th>
       </tr></thead>
       <tbody>${body}</tbody>
+      ${qtyFoot}
     </table>
     <div style="margin-top:12px;width:340px;margin-inline-start:auto;font-size:13px">
       <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>

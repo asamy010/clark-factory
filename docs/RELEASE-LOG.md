@@ -12,6 +12,39 @@
 
 ---
 
+## V21.27.107 (2026-06-24) — 🔢 إجمالي الكمية تحت عمود الكمية (بيع وشراء)
+
+طلب Ahmed: يظهر إجمالي الكمية تحت عمود الكمية في أمر/فاتورة/مرتجع البيع
+ونظائرها في الشراء؛ ولو الوحدات مختلفة يجمع كل وحدة لوحدها.
+
+### منطق موحّد — `src/utils/docColumns.js`
+- **`sumQtyByUnit(items)`** (جديد + exported): بترجّع `[{unit, qty}]` مجمّعة حسب
+  الوحدة، تتجاهل الأقسام والكميات الصفرية. الوحدة الفاضية تتجمّع لوحدها.
+- **`fmtQtyByUnit(list)`** (جديد + exported): نص العرض — وحدة واحدة بلا اسم
+  «8» · باسم «8 قطعة» · مختلفة «7 قطعة · 3 متر».
+- **`buildDocColumns`**: الـ `totals` بقى يرجّع كمان `qtyByUnit` + `totalQty`.
+- **`docColumnsHTML`**: أُضيف `<tfoot>` بصف الإجمالي تحت عمود الكمية (طباعة الفواتير).
+
+### نقاط العرض/الطباعة
+- **`DocItemsTable.jsx`** (مشترك): `<tfoot>` بإجمالي الكمية → يغطّي أمر البيع
+  (SalesOrderDetailModal) · فاتورة البيع (SalesInvoicesPg) · عرض السعر
+  (QuotationDetailModal) · أمر الشراء/RFQ (RfqDetailModal) · فاتورة الشراء.
+- **مرتجع البيع** (`CreditNotesPg.jsx`) + **مرتجع الشراء** (`DebitNotesPg.jsx`):
+  جداول مخصصة → `<tfoot>` يدوي بـ `sumQtyByUnit`.
+- **الطباعة**: `printCreditNote` + `printDebitNote` (`printInvoice.js`) → صف إجمالي.
+
+### ملاحظة
+المرتجعات/الفواتير لو بنودها بلا `unit` → إجمالي رقمي واحد (سلوك صحيح).
+`toEqual` على totals في docColumns.test.js اتحوّل لـ `toMatchObject` (حقول جديدة).
+
+### الملفات
+`src/utils/docColumns.js` · `src/components/DocItemsTable.jsx` ·
+`src/pages/CreditNotesPg.jsx` · `src/pages/DebitNotesPg.jsx` ·
+`src/utils/printInvoice.js` · `src/utils/__tests__/docColumns.test.js` (+6=16).
+SW: `v21.27.107`. build ✓ · 413 tests ✓.
+
+---
+
 ## V21.27.106 (2026-06-24) — ↔️ إلغاء شريط التمرير الأفقي في تابات المحاسبة
 
 بلاغ Ahmed: ظهر scrollbar أفقي تحت التابات (من `overflowX:auto` في V21.27.105)

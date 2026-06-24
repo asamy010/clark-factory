@@ -18,6 +18,7 @@ import { Btn, Card, Inp, Sel } from "../components/ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
 import { fmt } from "../utils/format.js";
+import { sumQtyByUnit, fmtQtyByUnit } from "../utils/docColumns.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postDebitNoteMutator, debitNotePostBlocker, voidDebitNoteMutator, deleteDraftDebitNoteMutator,
@@ -350,6 +351,14 @@ function DebitNoteDetailModal({debitNote, data, onClose, onPost, onVoid, onDelet
               <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:700, color:"#3B82F6"}}>{fmt(Number(it.lineTotal||0).toFixed(2))}</td>
             </tr>)}
           </tbody>
+          {/* V21.27.107: إجمالي الكمية المُرتجعة (مجمّع حسب الوحدة) */}
+          {(debitNote.items||[]).length > 0 && <tfoot>
+            <tr style={{borderTop:"2px solid "+T.brd, background:"#3B82F608"}}>
+              <td style={{padding:"8px 10px", fontWeight:800, color:T.text}}>الإجمالي</td>
+              <td style={{padding:"8px 10px", textAlign:"center", direction:"ltr", fontWeight:800, color:T.text, whiteSpace:"nowrap"}}>{fmtQtyByUnit(sumQtyByUnit(debitNote.items))}</td>
+              <td></td><td></td>
+            </tr>
+          </tfoot>}
         </table>
       </div>
 
