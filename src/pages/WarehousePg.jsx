@@ -22,6 +22,7 @@ import { uploadImageToStorage } from "../utils/imageStorage.js";
 import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { deletePartitionedDoc, KIND_TO_PARTITIONED_FIELD } from "../utils/partitionedCollections.js";
+import { StockPermitsTab } from "../components/StockPermitsTab.jsx";
 import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -852,6 +853,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {key:"finished",label:"👕 الجاهز",count:wStats.finished.count},
         {key:"general",label:"➕ منتجات عامة",count:generalProducts.length},
         {key:"movements",label:"📊 سجل الحركات",count:stockMovements.length},
+        {key:"permits",label:"📋 إذونات مخزنية",count:(data.stockPermitTypes||[]).length},
         {key:"units",label:"📏 الوحدات",count:getUnits(data).length}
       ].map(st=>{const active=subTab===st.key;return<div key={st.key} onClick={()=>setSubTab(st.key)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:active?"3px solid "+T.accent:"3px solid transparent",marginBottom:-2,fontWeight:active?800:600,color:active?T.accent:T.textSec,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
         <span>{st.label}</span>
@@ -1158,6 +1160,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         in src/utils/units.js handles the fallback to DEFAULT_UNITS plus any
         units already in use across inventoryItems[], so dropdowns work
         correctly even before this list is configured. */}
+    {/* V21.27.115: إذونات مخزنية (إعدادات أنواع داخل/خارج + إنشاء إذن + سجل) */}
+    {subTab==="permits"&&<StockPermitsTab data={data} upConfig={upConfig} canEdit={canEdit} userName={userName} isMob={isMob}/>}
     {subTab==="units"&&(()=>{
       const currentList=getUnits(data);
       const isCustom=Array.isArray(data.inventoryUnits);
