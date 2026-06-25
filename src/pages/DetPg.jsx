@@ -141,6 +141,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const[settReason,setSettReason]=useState("");const[settNotes,setSettNotes]=useState("");
   /* V15.10: Extra cost popup state — tracks form fields for adding/editing additional costs */
   const[extraCostPopup,setExtraCostPopup]=useState(null);/* {editId?, category, customReason, amount, date, notes} */
+  /* V21.27.126: مصروف على القطعة لكل الأوامر دفعة واحدة + شريط تقدّم blocking. */
+  const[bulkExp,setBulkExp]=useState(null);/* {reason,amount,date,notes} | null — مودال الإدخال */
+  const[bulkProg,setBulkProg]=useState(null);/* {done,total,running,err} | null — شريط التقدّم */
   const[stageProgressOrder,setStageProgressOrder]=useState(null);/* V19.0: order to show in stage-progress modal */
   const[wsOpOrder,setWsOpOrder]=useState(null);/* V21.13: order to show in التشغيل (workshops) popup من البطاقة */
   const[showNew,setShowNew]=useState(false);
@@ -249,6 +252,39 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
     };
   },[data?.orders?.length]);
 
+  /* V21.27.126: تنفيذ «مصروف على القطعة» لكل الأوامر (ماعدا الملغية) مع شريط
+     تقدّم blocking. idempotent: لو الأمر فيه نفس البند (category + reason) يتحدّث
+     بدل ما يتكرّر. كتابة متسلسلة (updOrder لكل أمر) عشان نعرض التقدّم بدقة. */
+  const runBulkExpense=async()=>{
+    if(!bulkExp)return;
+    const amt=Number(bulkExp.amount)||0;
+    if(amt<=0){showToast("⚠️ أدخل سعر القطعة (أكبر من صفر)");return;}
+    const reason=(bulkExp.reason||"").trim();
+    const date=bulkExp.date||cairoDateStr();
+    const notes=bulkExp.notes||"";
+    const targets=(data.orders||[]).filter(o=>o&&o.status!=="ملغي");
+    if(targets.length===0){showToast("لا توجد أوامر تشغيل");return;}
+    const ok=await ask("مصروف على القطعة — لكل الأوامر","هيتضاف «مصروف على القطعة» بسعر "+fmt(amt)+" ج.م/قطعة لـ "+targets.length+" أمر (ماعدا الملغية).\nلو الأمر فيه نفس البند بنفس السبب هيتحدّث (مش هيتكرّر).\n\nمتابعة؟",{confirmText:"تنفيذ"});
+    if(!ok)return;
+    setBulkExp(null);
+    setBulkProg({done:0,total:targets.length,running:true,err:0});
+    let done=0,err=0;
+    for(const o of targets){
+      try{
+        await updOrder(o.id,ord=>{
+          if(!Array.isArray(ord.extraCosts))ord.extraCosts=[];
+          const idx=ord.extraCosts.findIndex(x=>x&&x.category==="مصروف على القطعة"&&String(x.reason||"")===reason);
+          if(idx>=0)ord.extraCosts[idx]={...ord.extraCosts[idx],category:"مصروف على القطعة",reason,amount:amt,costType:"perPiece",date,notes};
+          else ord.extraCosts.push({id:gid(),category:"مصروف على القطعة",reason,amount:amt,costType:"perPiece",date,notes,createdBy:userName,createdAt:new Date().toISOString()});
+        });
+      }catch(e){err++;console.warn("[bulkExpense]",o.id,e);}
+      done++;
+      setBulkProg({done,total:targets.length,running:true,err});
+    }
+    setBulkProg({done,total:targets.length,running:false,err});
+    showToast(err?("⚠️ تمت الإضافة لـ "+(done-err)+" أمر، فشل "+err):("✅ تمت إضافة المصروف لـ "+done+" أمر"));
+  };
+
   if(dupInit)return<OrdForm data={data} initial={dupInit} onSave={o=>{addOrder(o);setDupInit(null);showToast("✓ تم تكرار الأوردر")}} onCancel={()=>setDupInit(null)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   if(showNew)return<OrdForm data={data} initial={mkOrder()} onSave={o=>{addOrder(o);setShowNew(false);showToast("✓ تم اضافة أمر القص")}} onCancel={()=>setShowNew(false)} isMob={isMob} statusCards={statusCards} upConfig={upConfig}/>;
   /* V21.22.0: أمر تشغيل من موديل (الوصفة متعبّية، المستخدم يكتب الكميات بس) */
@@ -293,6 +329,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           <div style={{fontSize:FS-1,color:T.textSec,marginTop:2}}>إدارة أوامر الإنتاج والتسليم</div>
         </div>
         {canEdit&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {/* V21.27.126: مصروف على القطعة لكل الأوامر دفعة واحدة */}
+          <Btn onClick={()=>setBulkExp({reason:"",amount:"",date:cairoDateStr(),notes:""})} style={{display:"flex",alignItems:"center",gap:6,background:"#F59E0B12",color:"#D97706",border:"1px solid #F59E0B35",fontWeight:700}} title="إضافة مصروف على القطعة لكل أوامر التشغيل">💸 <span>مصروف على القطعة (للكل)</span></Btn>
           {/* V21.22.0: أمر من موديل (snapshot الوصفة، اكتب الكميات بس) */}
           <Btn onClick={()=>{setModelQ("");setPickModel(true)}} style={{display:"flex",alignItems:"center",gap:6,background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}}>🧩 <span>أمر من موديل</span></Btn>
           <Btn primary onClick={()=>setShowNew(true)} style={{display:"flex",alignItems:"center",gap:6}}>
@@ -301,6 +339,54 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
           </Btn>
         </div>}
       </div>
+
+      {/* V21.27.126: مودال «مصروف على القطعة لكل الأوامر» */}
+      {bulkExp&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={()=>setBulkExp(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:18,padding:isMob?18:24,width:"100%",maxWidth:460,border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <span style={{fontSize:FS+2,fontWeight:800,color:"#D97706"}}>💸 مصروف على القطعة — لكل الأوامر</span>
+            <span onClick={()=>setBulkExp(null)} style={{cursor:"pointer",fontSize:22,color:T.textMut,padding:4}}>✕</span>
+          </div>
+          <div style={{padding:"9px 12px",borderRadius:10,background:"#F59E0B0D",border:"1px solid #F59E0B30",fontSize:FS-1,color:T.textSec,marginBottom:14,lineHeight:1.6}}>
+            هيتضاف بند <b style={{color:"#D97706"}}>«مصروف على القطعة»</b> (يُضرب في كمية القص لكل أمر) لكل أوامر الموسم <b>ماعدا الملغية</b>. لو الأمر فيه نفس البند بنفس السبب <b>يتحدّث</b> مش يتكرّر.
+          </div>
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>السبب / الوصف (اختياري — يُستخدم لتمييز البند)</label>
+            <Inp value={bulkExp.reason} onChange={v=>setBulkExp(p=>({...p,reason:v}))} placeholder="مثال: مصاريف تسويق، كهرباء، إدارية..."/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div>
+              <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>سعر القطعة (ج.م) *</label>
+              <Inp type="number" value={bulkExp.amount} onChange={v=>setBulkExp(p=>({...p,amount:v}))} placeholder="0"/>
+            </div>
+            <div>
+              <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>التاريخ</label>
+              <Inp type="date" value={bulkExp.date} onChange={v=>setBulkExp(p=>({...p,date:v}))}/>
+            </div>
+          </div>
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:FS-1,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>ملاحظات إضافية</label>
+            <Inp value={bulkExp.notes} onChange={v=>setBulkExp(p=>({...p,notes:v}))} placeholder="اختياري"/>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn ghost onClick={()=>setBulkExp(null)}>إلغاء</Btn>
+            <Btn primary onClick={runBulkExpense} style={{background:"#D97706"}}>💸 تنفيذ على الكل</Btn>
+          </div>
+        </div>
+      </div>}
+
+      {/* V21.27.126: شريط تقدّم blocking أثناء الإضافة — المستخدم مايقدرش يعمل حاجة */}
+      {bulkProg&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:10011,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+        <div style={{background:T.cardSolid,borderRadius:16,padding:28,width:"100%",maxWidth:420,textAlign:"center",border:"1px solid "+T.brd,boxShadow:"0 20px 60px rgba(0,0,0,0.35)"}}>
+          <div style={{fontSize:36,marginBottom:8}}>{bulkProg.running?"💸":(bulkProg.err?"⚠️":"✅")}</div>
+          <div style={{fontSize:FS+2,fontWeight:800,color:T.text,marginBottom:6}}>{bulkProg.running?"جاري إضافة المصروف لكل الأوامر...":"تمّت الإضافة"}</div>
+          <div style={{fontSize:FS+4,fontWeight:900,color:"#D97706",marginBottom:14}}>{bulkProg.done} / {bulkProg.total}<span style={{fontSize:FS-1,fontWeight:700,color:T.textSec}}> أمر</span>{bulkProg.err?<span style={{fontSize:FS-2,color:T.err,fontWeight:700,marginInlineStart:8}}>فشل {bulkProg.err}</span>:null}</div>
+          <div style={{height:12,borderRadius:7,background:T.bg,overflow:"hidden",marginBottom:16,border:"1px solid "+T.brd}}><div style={{height:"100%",width:(bulkProg.total?Math.round(bulkProg.done/bulkProg.total*100):0)+"%",background:"linear-gradient(90deg,#F59E0B,#D97706)",borderRadius:7,transition:"width 0.3s ease"}}/></div>
+          {bulkProg.running
+            ? <div style={{fontSize:FS-1,color:T.textMut,fontWeight:600}}>⏳ من فضلك انتظر — لا تغلق الصفحة حتى ينتهي</div>
+            : <Btn primary onClick={()=>setBulkProg(null)} style={{background:"#D97706",padding:"9px 28px"}}>تم</Btn>}
+        </div>
+      </div>}
 
       {/* V21.22.0: منتقي الموديل — يبني أمر تشغيل من الوصفة */}
       {pickModel&&<div onClick={()=>setPickModel(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
