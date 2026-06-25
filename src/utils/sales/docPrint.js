@@ -5,7 +5,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { fmt } from "../format.js";
-import { docColumnsHTML, buildDocColumns, sumQtyByUnit, fmtQtyByUnit } from "../docColumns.js";
+import { docColumnsHTML, buildDocColumns, sumQtyByUnit, fmtQtyByUnit, salesAckHTML } from "../docColumns.js";
 
 /* hحقن HTML آمن */
 function _esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -33,17 +33,16 @@ function _imgCell(img, w, h){
 
 export function buildSalesDocHTML(doc, data, kind){
   const title = kind === "quote" ? "عرض سعر" : "أمر بيع";
-  const accent = "#0EA5E9";
-  /* V21.21.42: جدول موحّد (كود/اسم/وحدة/كمية/سعر/قبل الخصم/الخصم/بعد الخصم)
-     مع توزيع خصم الرأس (discountPct) على الصفوف. */
+  /* V21.27.121: تصميم أبيض/أسود «كيرفي» موحّد (mono) + إقرار الاستلام تحت الجدول.
+     الأعمدة والبيانات زي ما هي — تغيير شكل فقط. */
   return `
-    <h2 style="color:${accent};margin:0 0 4px">${title} — ${doc.orderNo || doc.quoteNo || ""}</h2>
-    <div style="font-size:12px;color:#64748b;margin-bottom:10px">
+    <h2 style="color:#111;margin:0 0 4px">${title} — ${doc.orderNo || doc.quoteNo || ""}</h2>
+    <div style="font-size:12px;color:#555;margin-bottom:10px">
       العميل: ${doc.customerName || doc.customerNameAdHoc || "—"}${doc.customerPhone ? " · " + doc.customerPhone : ""} · التاريخ: ${doc.date || ""}${doc.validUntil ? " · صالح حتى: " + doc.validUntil : ""}
     </div>
-    ${docColumnsHTML(doc.items, { headerDiscountPct: doc.discountPct, accent })}
+    ${docColumnsHTML(doc.items, { headerDiscountPct: doc.discountPct, mono: true })}
     ${doc.notes ? '<p style="margin-top:10px;font-size:12px"><b>ملاحظات:</b> ' + doc.notes + "</p>" : ""}
-    <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع العميل: ____________</div><div>توقيع المصنع: ____________</div></div>`;
+    ${salesAckHTML()}`;
 }
 
 /* نص رسالة الواتساب (ملخص المستند) */
@@ -102,16 +101,18 @@ export function buildPackingListHTML(doc, data){
    بيرجّع rows بنفس ترتيب items فبنزاوجهم بالـ index لجلب الصورة من البند. */
 export function buildSalesDocWithImagesHTML(doc, data, kind){
   const title = kind === "quote" ? "عرض سعر" : "أمر بيع";
-  const accent = "#0EA5E9", bd = "1px solid #cbd5e1";
+  /* V21.27.121: تصميم أبيض/أسود «كيرفي» (mono) — نفس الأعمدة والبيانات. */
+  const accent = "#333333", bd = "1px solid #b4b4b4";
   const th = `padding:6px;border:${bd};font-size:11px`;
   const td = `padding:5px;border:${bd};font-size:11px`;
   const { rows, totals } = buildDocColumns(doc.items, { headerDiscountPct: doc.discountPct });
   const items = doc.items || [];
-  let body = "", n = 0;
+  let body = "", n = 0, di = -1;
   rows.forEach((r, i) => {
-    if(r.isSection){ body += `<tr><td colspan="7" style="background:#F1F5F9;font-weight:800;color:#0369A1;padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`; return; }
-    n++;
-    body += `<tr>
+    if(r.isSection){ body += `<tr><td colspan="7" style="background:#e4e4e4;font-weight:800;color:#111;padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`; return; }
+    n++; di++;
+    const rowBg = di % 2 ? "#f5f5f5" : "#ffffff";
+    body += `<tr style="background:${rowBg}">
       <td style="text-align:center;padding:4px;border:${bd}">${_imgCell(_itemImage(items[i], data), 54, 68)}</td>
       <td style="text-align:center;${td}">${n}</td>
       <td style="text-align:center;${td};font-weight:700">${_esc(r.code || "—")}</td>
@@ -123,21 +124,22 @@ export function buildSalesDocWithImagesHTML(doc, data, kind){
   });
   const totalQ = fmtQtyByUnit(sumQtyByUnit(doc.items));
   return `
-    <h2 style="color:${accent};margin:0 0 4px">🖼 ${title} بالصور — ${_esc(doc.orderNo || doc.quoteNo || "")}</h2>
-    <div style="font-size:12px;color:#64748b;margin-bottom:10px">العميل: ${_esc(doc.customerName || doc.customerNameAdHoc || "—")}${doc.customerPhone ? " · " + _esc(doc.customerPhone) : ""} · التاريخ: ${_esc(doc.date || "")}</div>
+    <h2 style="color:#111;margin:0 0 4px">🖼 ${title} بالصور — ${_esc(doc.orderNo || doc.quoteNo || "")}</h2>
+    <div style="font-size:12px;color:#555;margin-bottom:10px">العميل: ${_esc(doc.customerName || doc.customerNameAdHoc || "—")}${doc.customerPhone ? " · " + _esc(doc.customerPhone) : ""} · التاريخ: ${_esc(doc.date || "")}</div>
+    <div style="border-radius:10px;overflow:hidden;border:${bd}">
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="background:${accent};color:#fff">
         <th style="${th}">الصورة</th><th style="${th}">#</th><th style="${th}">رقم الموديل</th><th style="${th}">الوصف</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">الإجمالي</th>
       </tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="background:#F1F5F9;font-weight:800">
+      <tfoot><tr style="background:#ececec;font-weight:800">
         <td style="${th}" colspan="4">الإجمالي</td><td style="text-align:center;${th}">${_esc(totalQ)}</td><td style="${th}"></td><td style="${th}"></td>
       </tr></tfoot>
-    </table>
-    <div style="margin-top:12px;width:340px;margin-inline-start:auto;font-size:13px">
-      <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #1E293B;font-size:16px;font-weight:800"><span>الإجمالي</span><span>${fmt(totals.subAfter)} ج.م</span></div>
+    </table></div>
+    <div style="margin-top:14px;width:300px;margin-inline-start:auto;font-size:12px;border:1px solid #333;border-radius:10px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#333;color:#fff;font-weight:800;font-size:15px"><span>الإجمالي</span><span>${fmt(totals.subAfter)} ج.م</span></div>
     </div>
-    <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع العميل: ____________</div><div>توقيع المصنع: ____________</div></div>`;
+    ${salesAckHTML()}`;
 }

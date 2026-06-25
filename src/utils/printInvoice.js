@@ -8,7 +8,7 @@
 import { openPrintWindow } from "./print.js";
 import { PRINT_CSS } from "../constants/index.js";
 import { ltrPhone } from "./format.js";
-import { docColumnsHTML, sumQtyByUnit, fmtQtyByUnit } from "./docColumns.js";
+import { docColumnsHTML, sumQtyByUnit, fmtQtyByUnit, salesAckHTML } from "./docColumns.js";
 
 const fmt = n => Math.round(Number(n)||0).toLocaleString("en-US");
 const r2  = n => Math.round((Number(n)||0)*100)/100;
@@ -20,9 +20,11 @@ export function printInvoice(invoice, party, factoryInfo, type){
   if(!w){ alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة"); return; }
 
   const isPurchase = type === "purchase";
+  /* V21.27.121: فاتورة المبيعات بتصميم أبيض/أسود (mono)؛ المشتريات تفضل ملوّنة. */
+  const mono = !isPurchase;
   const docTitle = isPurchase ? "فاتورة مشتريات" : "فاتورة مبيعات";
   const docIcon  = isPurchase ? "📥" : "📤";
-  const accentColor = isPurchase ? "#F59E0B" : "#10B981";
+  const accentColor = isPurchase ? "#F59E0B" : "#333333";
   const partyLabel = isPurchase ? "المورد" : "العميل";
 
   /* V21.21.42: البنود اتنقلت لجدول الأعمدة الموحّد (docColumnsHTML) تحت. */
@@ -31,11 +33,13 @@ export function printInvoice(invoice, party, factoryInfo, type){
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
   const factoryEmail = (factoryInfo && factoryInfo.email) || "";
 
+  /* V21.27.121: شارة الحالة بالأبيض/أسود في المبيعات */
+  const _badge = (txt, c) => `<span style="background:${mono ? "#eee" : c + "15"};color:${mono ? "#333" : c};padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px;border:${mono ? "1px solid #ccc" : "none"}">${txt}</span>`;
   const statusBadge = invoice.status === "posted"
-    ? `<span style="background:#10B98115;color:#10B981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✓ مرحّلة</span>`
+    ? _badge("✓ مرحّلة", "#10B981")
     : invoice.status === "void"
-    ? `<span style="background:#EF444415;color:#EF4444;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✕ ملغية</span>`
-    : `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">📝 مسودة</span>`;
+    ? _badge("✕ ملغية", "#EF4444")
+    : _badge("📝 مسودة", "#6B7280");
 
   const html = `<html dir="rtl">
 <head>
@@ -98,15 +102,15 @@ ${PRINT_CSS}
 </div>
 
 <h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">البنود</h3>
-${docColumnsHTML(invoice.items, { headerDiscountAmount: Number(invoice.discount) || 0, accent: accentColor })}
+${docColumnsHTML(invoice.items, { headerDiscountAmount: Number(invoice.discount) || 0, accent: accentColor, mono })}
 
-${invoice.notes ? `<h3 style="margin-top:18px">ملاحظات</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(invoice.notes)}</p>` : ""}
+${invoice.notes ? `<h3 style="margin-top:18px">ملاحظات</h3><p style="padding:10px;background:${mono ? "#f4f4f4;border:1px solid #ddd" : "#FEF3C7"};border-radius:6px;font-size:12px">${_esc(invoice.notes)}</p>` : ""}
 
-<div class="sig">
+${mono ? salesAckHTML() : `<div class="sig">
   <div class="sig-box">${isPurchase ? "المسؤول" : "البائع"}</div>
   <div class="sig-box">المحاسب</div>
   <div class="sig-box">${isPurchase ? "المورد" : "العميل"}</div>
-</div>
+</div>`}
 
 <div class="foot">
   ${factoryName} — ${docTitle} — تم الإنشاء: ${new Date(invoice.createdAt||Date.now()).toLocaleString("ar-EG")} — بواسطة: ${_esc(invoice.createdBy||"—")}
@@ -124,24 +128,17 @@ export function printCreditNote(creditNote, customer, factoryInfo){
   const w = openPrintWindow();
   if(!w){ alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة"); return; }
 
-  const accentColor = "#EF4444";
-  const rows = (creditNote.items||[]).map(it => `<tr>
-    <td><div style="font-weight:700">${_esc(it.modelNo||"—")}</div>${it.modelDesc?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.modelDesc)}</div>`:""}</td>
-    <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
-    <td class="center" style="direction:ltr;color:#475569">${fmt2(it.unitPrice)}</td>
-    <td class="center" style="direction:ltr;font-weight:700;color:${accentColor}">${fmt2(it.lineTotal)}</td>
-  </tr>`).join("");
+  /* V21.27.121: تصميم أبيض/أسود «كيرفي» موحّد + أعمدة الفاتورة الموحّدة
+     (docColumnsHTML) + إقرار الاستلام. الإجماليات من القيم المخزّنة (authoritative). */
+  const accentColor = "#333333";
 
   const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
   const factoryAddr = (factoryInfo && factoryInfo.address) || "";
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
   const factoryEmail = (factoryInfo && factoryInfo.email) || "";
 
-  const statusBadge = creditNote.status === "posted"
-    ? `<span style="background:#10B98115;color:#10B981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✓ مرحّل</span>`
-    : creditNote.status === "void"
-    ? `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✕ ملغي</span>`
-    : `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">📝 مسودة</span>`;
+  const _cnBadge = (txt) => `<span style="background:#eee;color:#333;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px;border:1px solid #ccc">${txt}</span>`;
+  const statusBadge = creditNote.status === "posted" ? _cnBadge("✓ مرحّل") : creditNote.status === "void" ? _cnBadge("✕ ملغي") : _cnBadge("📝 مسودة");
 
   const html = `<html dir="rtl">
 <head>
@@ -154,15 +151,15 @@ ${PRINT_CSS}
 .inv-brand{font-size:22px;font-weight:900;color:${accentColor}}
 .inv-meta{text-align:left;font-size:11px;color:#475569}
 .inv-title{font-size:18px;font-weight:800;color:${accentColor};margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
-.inv-num{font-family:monospace;background:#FEF2F2;padding:4px 12px;border-radius:6px;border:1px solid #FECACA;color:${accentColor};font-size:14px;font-weight:800}
+.inv-num{font-family:monospace;background:#f4f4f4;padding:4px 12px;border-radius:6px;border:1px solid #ccc;color:${accentColor};font-size:14px;font-weight:800}
 .inv-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
-.inv-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px}
+.inv-box{background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:10px}
 .inv-box .lbl{font-size:10px;color:#64748B;font-weight:600;margin-bottom:3px}
 .inv-box .val{font-size:13px;color:#1E293B;font-weight:700}
 .inv-totals{display:flex;justify-content:flex-end;margin:14px 0}
-.inv-totals .box{min-width:280px;padding:14px;background:#FEF2F2;border-radius:8px;border:1px solid #FECACA}
-.inv-totals .row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px}
-.inv-totals .row.total{font-size:16px;font-weight:800;border-top:2px solid ${accentColor};margin-top:6px;padding-top:8px;color:${accentColor}}
+.inv-totals .box{min-width:300px;background:#fff;border-radius:10px;border:1px solid #333;overflow:hidden}
+.inv-totals .row{display:flex;justify-content:space-between;padding:7px 12px;font-size:12px;border-bottom:1px solid #ddd}
+.inv-totals .row.total{font-size:15px;font-weight:800;background:#333;color:#fff;padding:10px 12px;border-bottom:none}
 </style>
 </head>
 <body>
@@ -186,7 +183,7 @@ ${PRINT_CSS}
   </div>
 </div>
 
-${creditNote.linkedInvoiceNo ? `<div style="background:#FEF2F2;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#991B1B"><b>للفاتورة الأصلية:</b> ${_esc(creditNote.linkedInvoiceNo)}</div>` : ""}
+${creditNote.linkedInvoiceNo ? `<div style="background:#f4f4f4;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#333;border:1px solid #ddd"><b>للفاتورة الأصلية:</b> ${_esc(creditNote.linkedInvoiceNo)}</div>` : ""}
 
 <div class="inv-grid">
   <div class="inv-box">
@@ -201,22 +198,7 @@ ${creditNote.linkedInvoiceNo ? `<div style="background:#FEF2F2;padding:8px 12px;
 </div>
 
 <h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">الأصناف المُرتجعة</h3>
-<table>
-  <thead>
-    <tr>
-      <th style="width:50%">الصنف</th>
-      <th style="width:15%" class="center">الكمية</th>
-      <th style="width:15%" class="center">سعر الوحدة</th>
-      <th style="width:20%" class="center">الإجمالي</th>
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-  <tfoot><tr style="border-top:2px solid #1E293B;font-weight:800">
-    <td style="font-weight:800">الإجمالي</td>
-    <td class="center" style="direction:ltr;font-weight:800">${_esc(fmtQtyByUnit(sumQtyByUnit(creditNote.items)))}</td>
-    <td></td><td></td>
-  </tr></tfoot>
-</table>
+${docColumnsHTML(creditNote.items, { headerDiscountAmount: Number(creditNote.discount) || 0, mono: true, noTotals: true })}
 
 <div class="inv-totals">
   <div class="box">
@@ -235,13 +217,9 @@ ${creditNote.linkedInvoiceNo ? `<div style="background:#FEF2F2;padding:8px 12px;
   </div>
 </div>
 
-${creditNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(creditNote.notes)}</p>` : ""}
+${creditNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#f4f4f4;border:1px solid #ddd;border-radius:6px;font-size:12px">${_esc(creditNote.notes)}</p>` : ""}
 
-<div class="sig">
-  <div class="sig-box">المستلم</div>
-  <div class="sig-box">المحاسب</div>
-  <div class="sig-box">العميل</div>
-</div>
+${salesAckHTML()}
 
 <div class="foot">
   ${factoryName} — إشعار دائن — تم الإنشاء: ${new Date(creditNote.createdAt||Date.now()).toLocaleString("ar-EG")} — بواسطة: ${_esc(creditNote.createdBy||"—")}
