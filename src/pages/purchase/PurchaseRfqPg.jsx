@@ -129,7 +129,7 @@ export function PurchaseRfqPg({ data, upConfig, isMob, user, canEdit }){
   };
 
   return (
-    <div style={{ padding: isMob ? 4 : 0 }}>
+    <div style={{ padding: isMob ? 4 : 0, maxWidth: 1400, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>💬 طلب عروض أسعار</div>
         {canEdit && <Btn primary onClick={() => { setEditRfq(null); setShowForm(true); }} style={{ background: "#D97706" }}>+ طلب جديد</Btn>}

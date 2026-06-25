@@ -82,8 +82,15 @@ export function Btn({children,on,primary,danger,ghost,onClick,small,disabled,sty
 
 export function Inp({value,onChange,placeholder,type,step,style:sx,readOnly}){
   const isNum=type==="number";
-  const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null&&onChange)onChange(r)}}};
-  return<input className="clark-inp" type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={value==null?"":value} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");onChange&&onChange(cleaned)}else{onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>e.target.select()} placeholder={placeholder||(isNum?"0":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
+  /* V21.27.119: محرّر رقمي يحتفظ بالنص الخام أثناء الكتابة عشان الأرقام العشرية
+     تشتغل في كل حقول التطبيق — حتى لو الـ parent بيعمل Number(v)||0 (اللي كان
+     بيحوّل "3." → 3 ويبلع الـ "." فيمنع كتابة 3.5). أثناء التركيز نعرض الـ raw؛
+     بعد ما المستخدم يخرج من الحقل نرجع لقيمة الـ parent (الرقم النهائي). */
+  const[focused,setFocused]=useState(false);
+  const[raw,setRaw]=useState("");
+  const handleKey=(e)=>{if(e.key==="Enter"&&isNum){const v=String(e.target.value);if(v.startsWith("=")){const r=safeCalc(v.slice(1));if(r!==null){setRaw(String(r));onChange&&onChange(r)}}}};
+  const display=(isNum&&focused)?raw:(value==null?"":value);
+  return<input className="clark-inp" type={isNum?"text":type||"text"} inputMode={isNum?"decimal":undefined} step={step||"any"} value={display} readOnly={readOnly} onChange={e=>{const v=e.target.value;if(isNum&&!v.startsWith("=")){let cleaned=v.replace(/[^0-9.\-]/g,"");const parts=cleaned.split(".");if(parts.length>2)cleaned=parts[0]+"."+parts.slice(1).join("");setRaw(cleaned);onChange&&onChange(cleaned)}else{setRaw(v);onChange&&onChange(v)}}} onKeyDown={handleKey} onFocus={e=>{if(isNum)setRaw(value==null?"":String(value));setFocused(true);e.target.select()}} onBlur={()=>setFocused(false)} placeholder={placeholder||(isNum?"0":"")} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid "+T.brd,fontSize:FS,fontFamily:"inherit",background:readOnly?T.bg:T.cardSolid,color:T.text,boxSizing:"border-box",outline:"none",...(sx||{})}}/>
 }
 
 export function Sel({value,onChange,children}){

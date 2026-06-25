@@ -1194,7 +1194,9 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
   },[stockTypeTab,data,hideZero,stockFilterDeb,sortBy,itemTagFilter,itemTagFilterMode]);
   
   /* ──────── RENDER ──────── */
-  return<div>
+  /* V21.27.119: حصر العرض ومنتصف الصفحة (نفس فواتير البيع/الشراء = maxWidth 1400)
+     عشان أوامر الشراء وباقي أقسام الهَب ما تتمدّش على عرض الشاشة كله. */
+  return<div style={{maxWidth:1400,margin:"0 auto"}}>
     {/* Header + status bar — V21.12.0: داخل هَب المشتريات بنعرضه على تاب المخزن
        فقط (للأزرار تفعيل/رصيد ابتدائي)؛ الهَب بيوفّر العنوان. hubView=null=قديم. */}
     {(!hubView||hubView==="stock")&&<div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>

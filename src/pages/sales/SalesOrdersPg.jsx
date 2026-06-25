@@ -198,7 +198,7 @@ export function SalesOrdersPg({ data, upConfig, isMob, user, canEdit }){
   };
 
   return (
-    <div style={{ padding: isMob ? 12 : 20 }}>
+    <div style={{ padding: isMob ? 12 : 20, maxWidth: 1400, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 800, fontSize: FS + 4, color: T.text }}>📑 أوامر البيع</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
