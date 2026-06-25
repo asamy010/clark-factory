@@ -12,6 +12,44 @@
 
 ---
 
+## V21.27.128 (2026-06-25) — 🎯 تقييم المخزون يأخذ تكلفة القطعة من الأمر بالضبط
+
+بلاغ Ahmed: سعر التكلفة في تقرير تقييم المخزون غلط — لازم ياخد رقم التكلفة من
+الأمر للموديل نفسه (وبرضه في لوحة التحكم).
+
+### ROOT CAUSE
+بعد V21.27.127 التقييم بقى `costPer + extraCostPerPiece` — لكن ده لسه مش مطابق
+لرقم الأمر، لأن الأمر (DetPg تبويب التكاليف، صف «تكلفة القطعة») بيحسب:
+```
+totalAllCost = costAllProjected + settlement.cost + extraTotal
+perPiece     = totalAllCost / cutQty
+```
+الفرق: الأمر بيستخدم **costAllProjected** (المتوقّع — يشمل أجور الورش المعلّقة
+بسعرها) **+ التسوية**، بينما التقييم كان بيستخدم **costPer** (الفعلي) ويتجاهل
+التسوية.
+
+### الإصلاح
+- **`src/utils/orders.js`:** helper جديد `orderCostPerPiece(o)` يطابق صف «تكلفة
+  القطعة» في الأمر حرفيًا (costAllProjected + settlement.cost + extraTotal ÷
+  cutQty). guard لـ cutQty<=0 (نفس سلوك DetPg: 0).
+- **`src/utils/dashboardKpis.js`** + **`InventoryValuationReport.jsx`:** تكلفة
+  وحدة الجاهز = `orderCostPerPiece(o)` (بدل costPer/costPer+extra).
+- **`inventoryValuation.js`** (المحاسبة) بيعيد استخدام computeDashboardKpis →
+  اتصلح تلقائيًا.
+
+### tests
+- `dataFixture.js`: ضفت `cutQty:50` للأمر o1 (كان mainCut=0 — غير واقعي؛ الأمر
+  نفسه كان هيعرض تكلفة 0). دلوقتي accPer 20 × 50 ÷ 50 = 20 = نفس القديم.
+- `inventoryValuation.test.js`: +3 tests لـ `orderCostPerPiece` (تسوية+مصروف،
+  total÷cutQty، صفر).
+- 438 tests ✓. build ✓. SW: `v21.27.128`.
+
+### ملاحظة
+لسه «صافي الربح» بيتحسب من COGS (`costPerProjected` — بدون تسوية/مصروفات) مش من
+التقييم، فالربح ما اتغيّرش. التقييم (أصل) بقى = رقم الأمر بالظبط.
+
+---
+
 ## V21.27.127 (2026-06-25) — 🧮 تقييم مخزن الجاهز يشمل المصروفات الإضافية للقطعة
 
 بلاغ Ahmed: بعد إضافة «مصروف على القطعة» (V21.27.126) تقييم مخزن الجاهز ما زادش.

@@ -15,7 +15,7 @@ import { Btn, Card, Inp } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, r2 } from "../../utils/format.js";
-import { getConfirmedStock, getConfirmedSeriesStock, calcOrder, extraCostPerPiece } from "../../utils/orders.js";
+import { getConfirmedStock, getConfirmedSeriesStock, calcOrder, orderCostPerPiece } from "../../utils/orders.js";
 import { showToast } from "../../utils/popups.js";
 import { printPage } from "../../utils/print.js";
 import { exportExcel } from "../../utils/print-extras.js";
@@ -47,8 +47,8 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
       const availSeries = Math.max(0, getConfirmedSeriesStock(o) - net);
       const availBroken = Math.max(0, avail - availSeries);
       const sell = Number(o.sellPrice) || 0;
-      /* V21.27.127: تكلفة الوحدة = إنتاج (costPer) + مصروفات إضافية للقطعة. */
-      let cost = 0; try { const t = calcOrder(o); cost = (Number(t.costPer) || 0) + extraCostPerPiece(o, t.cutQty); } catch(_) {}
+      /* V21.27.128: تكلفة الوحدة = نفس رقم «تكلفة القطعة» في الأمر بالضبط. */
+      let cost = 0; try { cost = orderCostPerPiece(o); } catch(_) {}
       const mk = (type, qty) => ({ id: o.id + "-" + type, oid: o.id, poNumber: o.poNumber || "", type, modelNo: o.modelNo || "—", modelDesc: o.modelDesc || "", qty,
         sell: r2(sell), cost: r2(cost), sellVal: r2(qty * sell), costVal: r2(qty * cost), profit: r2(qty * (sell - cost)) });
       if(availSeries > 0) rows.push(mk("series", availSeries));

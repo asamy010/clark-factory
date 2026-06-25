@@ -61,8 +61,22 @@ describe("buildInventoryValuationReport", () => {
   });
 });
 
-/* V21.27.127: «مصروف على القطعة» والتكاليف الإضافية تنعكس في تقييم الجاهز */
-import { extraCostPerPiece } from "../../orders.js";
+/* V21.27.127/128: تكلفة الجاهز = نفس رقم «تكلفة القطعة» في الأمر */
+import { extraCostPerPiece, orderCostPerPiece } from "../../orders.js";
+
+describe("orderCostPerPiece — يطابق «تكلفة القطعة» في الأمر (V21.27.128)", () => {
+  it("(costAllProjected 0 + تسوية 20 + مصروف 5×10=50) ÷ 10 = 7", () => {
+    const o = { cutQty: 10, settlement: { cost: 20 }, extraCosts: [{ amount: 5, costType: "perPiece" }] };
+    expect(orderCostPerPiece(o)).toBe(7);
+  });
+  it("بدون أي تكاليف = 0", () => {
+    expect(orderCostPerPiece({ cutQty: 10 })).toBe(0);
+    expect(orderCostPerPiece({})).toBe(0);
+  });
+  it("بند total يتقسّم على كمية القص (100 ÷ 10 = 10)", () => {
+    expect(orderCostPerPiece({ cutQty: 10, extraCosts: [{ amount: 100, costType: "total" }] })).toBe(10);
+  });
+});
 
 describe("extraCostPerPiece (V21.27.127)", () => {
   it("perPiece كما هي، total تتقسّم على كمية القص", () => {

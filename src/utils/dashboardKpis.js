@@ -19,7 +19,7 @@
 
 import { r2 } from "./format.js";
 import { computeSalesOverviewTotals, buildCustomerSummary, buildSupplierSummary } from "./accountSummary.js";
-import { calcOrder, getConfirmedStock, extraCostPerPiece } from "./orders.js";
+import { calcOrder, getConfirmedStock, orderCostPerPiece } from "./orders.js";
 import { getCategoryById } from "./categories.js";
 
 export function computeDashboardKpis(data){
@@ -73,10 +73,11 @@ export function computeDashboardKpis(data){
     const ret = (o.customerReturns || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
     const avail = Math.max(0, sd - (cd - ret + (soReserved[o.id] || 0)));
     if(avail <= 0) return;
-    /* V21.27.127: تكلفة الوحدة للجاهز = تكلفة الإنتاج (costPer) + المصروفات
-       الإضافية للقطعة (منها «مصروف على القطعة»). قبل كده كانت extraCosts
-       مستبعدة فالتقييم ما كانش بيزيد بعد إضافة المصروف. */
-    let cost = 0; try { const t = calcOrder(o); cost = (Number(t.costPer) || 0) + extraCostPerPiece(o, t.cutQty); } catch(_) {}
+    /* V21.27.128: تكلفة الوحدة = نفس رقم «تكلفة القطعة» في الأمر بالضبط
+       (orderCostPerPiece = costAllProjected + التسوية + المصروفات الإضافية ÷
+       كمية القص). قبل كده كانت تستخدم costPer (الفعلي) وتتجاهل التسوية
+       والمصروفات → رقم مخالف للأمر. */
+    let cost = 0; try { cost = orderCostPerPiece(o); } catch(_) {}
     const val = r2(avail * cost);
     /* V21.27.104: قيمة الجاهز بسعر البيع (avail × سعر بيع الأمر) — لتقرير
        تقييم المخزون المحاسبي (الجاهز بالتكلفة + بسعر المبيعات). سعر البيع

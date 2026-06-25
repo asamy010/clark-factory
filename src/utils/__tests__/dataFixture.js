@@ -43,7 +43,10 @@ export function makeFactoryData() {
         id: "o1",
         modelNo: "M-100",
         sellPrice: 100,
-        /* تكلفة الوحدة عبر الإكسسوار فقط: accPer = 20 → costPer = 20 */
+        /* V21.27.128: كمية القص (mainCut) — لازمة لحساب تكلفة القطعة من الأمر
+           (costAllProjected ÷ cutQty). 50 قطعة مقصوصة. */
+        cutQty: 50,
+        /* تكلفة الوحدة عبر الإكسسوار فقط: accPer = 20 → تكلفة القطعة = 20 */
         accItems: [{ name: "زرار", price: 20 }],
         /* مخزون جاهز مؤكد: 50 قطعة */
         deliveries: [{ qty: 50, status: "done", date: "2026-05-20" }],

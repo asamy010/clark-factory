@@ -257,6 +257,30 @@ export function extraCostPerPiece(o, cutQty){
   }, 0));
 }
 
+/* V21.27.128: التكلفة الكاملة للقطعة الواحدة كما يعرضها الأمر بالضبط — المصدر
+   الموثوق الوحيد لتقييم مخزون الجاهز (طلب Ahmed: «خد التكلفة كرقم من الأمر»).
+   مطابِق تمامًا لصف «تكلفة القطعة» في تبويب التكاليف بـ DetPg:
+     totalAllCost = costAllProjected + settlement.cost + extraTotal
+     perPiece     = totalAllCost / cutQty
+   ملاحظات:
+   • costAllProjected (المتوقّع) — يشمل أجور الورش المُسلَّمة + المعلّقة بسعرها،
+     والخامات والإكسسوار والهالك. (المنتج الجاهز شغله خلص فالمتوقّع ≈ الفعلي.)
+   • extraTotal: كل بند extraCost (perPiece × cutQty أو total كما هو).
+   • settlement.cost: تسوية الأمر اليدوية إن وُجدت. */
+export function orderCostPerPiece(o){
+  const t = calcOrder(o);
+  const cutQty = Number(t.cutQty) || 0;
+  if(cutQty <= 0) return 0;
+  const ec = (o && Array.isArray(o.extraCosts)) ? o.extraCosts : [];
+  const extraTotal = ec.reduce((s, x) => {
+    const amt = Number(x && x.amount) || 0;
+    return s + (x && x.costType === "perPiece" ? amt * cutQty : amt);
+  }, 0);
+  const settCost = Number(o && o.settlement && o.settlement.cost) || 0;
+  const totalAllCost = r2((Number(t.costAllProjected) || 0) + settCost + extraTotal);
+  return r2(totalAllCost / cutQty);
+}
+
 export function getConfirmedStock(o){
   if(!o||typeof o!=="object")return 0;
   const cached=_stockCache.get(o);
