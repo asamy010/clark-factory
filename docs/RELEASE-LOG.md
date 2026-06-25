@@ -12,6 +12,37 @@
 
 ---
 
+## V21.27.127 (2026-06-25) — 🧮 تقييم مخزن الجاهز يشمل المصروفات الإضافية للقطعة
+
+بلاغ Ahmed: بعد إضافة «مصروف على القطعة» (V21.27.126) تقييم مخزن الجاهز ما زادش.
+
+### ROOT CAUSE
+تقييم الجاهز = `avail × calcOrder(o).costPer`. و`calcOrder.costPer` =
+`fabPer+accPer+wsCostPer+wastePer` — **بيستبعد `order.extraCosts`** عمدًا (التكاليف
+الإضافية بتتضاف في عرض تفاصيل الأمر فقط). فأي «مصروف على القطعة» ما كانش بينعكس
+في التقييم.
+
+### الإصلاح
+- **`src/utils/orders.js`:** helper جديد `extraCostPerPiece(o, cutQty?)` —
+  لكل بند extraCost: `perPiece` كما هو، `total ÷ cutQty`.
+- **`src/utils/dashboardKpis.js`:** تكلفة وحدة الجاهز = `costPer +
+  extraCostPerPiece(o, t.cutQty)` (يصلح البطاقة + finishedDetail/البوب اب).
+- **`src/components/reports/InventoryValuationReport.jsx`:** نفس الإصلاح.
+- **`inventoryValuation.js`** (المحاسبة) بيعيد استخدام `computeDashboardKpis`
+  فاتصلح تلقائيًا.
+
+### قرار مالي (مهم)
+لم أغيّر **COGS/الربح**. «صافي الربح» في اللوحة بيتحسب من COGS
+(`costPerProjected`) مش من التقييم — فإصلاح التقييم **ما بيغيّرش رقم الربح**
+(تجنّبًا لازدواج محتمل لو المستخدم بيسجّل نفس التكاليف في الخزنة كـ opex).
+التقييم (أصل) بقى بالتكلفة الكاملة؛ لو Ahmed عايز المصروفات تنعكس في COGS/الربح
+كمان، نعملها بعد تأكيد طريقة التسجيل.
+
+- tests: +4 (`extraCostPerPiece` + تكامل تقييم الجاهز). 435 ✓. build ✓.
+  SW: `v21.27.127`.
+
+---
+
 ## V21.27.126 (2026-06-25) — 💸 مصروف على القطعة لكل أوامر التشغيل دفعة واحدة
 
 طلب Ahmed (feature). قرارات مؤكَّدة من المستخدم قبل التنفيذ (AskUserQuestion):

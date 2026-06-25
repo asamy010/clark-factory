@@ -242,6 +242,21 @@ export function calcOrder(o){
   return result;
 }
 
+/* V21.27.127: تكلفة المصروفات الإضافية للقطعة الواحدة على الأمر. كل بند في
+   extraCosts: لو costType==="perPiece" فهو بالفعل لكل قطعة؛ لو "total" نقسّمه
+   على كمية القص. بتُضاف لتكلفة الوحدة في تقييم مخزون الجاهز عشان «مصروف على
+   القطعة» وباقي التكاليف الإضافية تنعكس في التقييم. cutQty اختياري (لتفادي
+   استدعاء calcOrder مرتين عند المُستدعي اللي حاسبه بالفعل). */
+export function extraCostPerPiece(o, cutQty){
+  let cq = Number(cutQty);
+  if(!isFinite(cq) || cq < 0) cq = Number(calcOrder(o).cutQty) || 0;
+  const ec = (o && Array.isArray(o.extraCosts)) ? o.extraCosts : [];
+  return r2(ec.reduce((s, x) => {
+    const amt = Number(x && x.amount) || 0;
+    return s + (x && x.costType === "perPiece" ? amt : (cq > 0 ? amt / cq : 0));
+  }, 0));
+}
+
 export function getConfirmedStock(o){
   if(!o||typeof o!=="object")return 0;
   const cached=_stockCache.get(o);

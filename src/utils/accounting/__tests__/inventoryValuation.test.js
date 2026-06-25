@@ -60,3 +60,38 @@ describe("buildInventoryValuationReport", () => {
     expect(empty.finishedDetail).toEqual([]);
   });
 });
+
+/* V21.27.127: «مصروف على القطعة» والتكاليف الإضافية تنعكس في تقييم الجاهز */
+import { extraCostPerPiece } from "../../orders.js";
+
+describe("extraCostPerPiece (V21.27.127)", () => {
+  it("perPiece كما هي، total تتقسّم على كمية القص", () => {
+    const o = { cutQty: 10, extraCosts: [
+      { amount: 5, costType: "perPiece" },   /* = 5 */
+      { amount: 100, costType: "total" },     /* 100 / 10 = 10 */
+    ] };
+    expect(extraCostPerPiece(o, 10)).toBe(15);
+  });
+  it("بدون مصروفات إضافية = 0", () => {
+    expect(extraCostPerPiece({ cutQty: 10 }, 10)).toBe(0);
+    expect(extraCostPerPiece({}, 0)).toBe(0);
+  });
+  it("total بدون كمية قص (÷0) يتجاهلها بأمان", () => {
+    expect(extraCostPerPiece({ extraCosts: [{ amount: 50, costType: "total" }] }, 0)).toBe(0);
+  });
+});
+
+describe("تقييم الجاهز يشمل المصروف على القطعة (V21.27.127)", () => {
+  const data2 = {
+    customers: [{ id: "c1", name: "عميل" }],
+    orders: [{ id: "o1", modelNo: "M1", sellPrice: 100, cutQty: 10,
+      deliveries: [{ qty: 10, status: "confirmed" }],
+      customerDeliveries: [{ custId: "c1", qty: 2 }], customerReturns: [],
+      extraCosts: [{ amount: 5, costType: "perPiece" }] }],
+  };
+  it("الجاهز بالتكلفة = المتاح(8) × (إنتاج 0 + مصروف 5) = 40", () => {
+    const rep = buildInventoryValuationReport(data2);
+    expect(rep.finishedCost).toBe(40);
+    expect(rep.finishedDetail[0].unitCost).toBe(5);
+  });
+});
