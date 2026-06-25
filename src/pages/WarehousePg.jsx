@@ -593,8 +593,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const listKey=moveForm.itemType==="fabric"?"fabrics":moveForm.itemType==="accessory"?"accessories":"generalProducts";
     const item=(data[listKey]||[]).find(x=>String(x.id)===String(moveForm.itemId));
     if(!item){await tell("خطأ","الصنف غير موجود",{type:"error"});return}
-    const curStock=Number(item.stock)||0;
-    
+    const curStock=netStockOf(item);/* V21.27.129: الحارس على صافي الحركات */
+
     /* For "out" and "adjust" (to less), check stock */
     if(moveForm.type==="out"&&qty>curStock){
       await tell("المخزن غير كافي","المتاح: "+fmt(curStock)+" "+item.unit+"\nالمطلوب: "+fmt(qty)+" "+item.unit,{type:"error"});
@@ -905,16 +905,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         </div>
       </Card>
       
-      {/* Low stock alerts */}
+      {/* Low stock alerts — V21.27.129: الرصيد = صافي الحركات (نفس العرض الرئيسي) */}
       {(()=>{const alerts=[];
-        fabrics.forEach(f=>{const s=Number(f.stock)||0;if(f.minStock&&s<=f.minStock)alerts.push({...f,_type:"fabric",_icon:"🧵",_color:T.accent})});
-        accessories.forEach(a=>{const s=Number(a.stock)||0;if(a.minStock&&s<=a.minStock)alerts.push({...a,_type:"accessory",_icon:"🪡",_color:"#8B5CF6"})});
-        generalProducts.forEach(p=>{const s=Number(p.stock)||0;if(p.minStock&&s<=p.minStock)alerts.push({...p,_type:"general",_icon:"➕",_color:"#EC4899"})});
+        fabrics.forEach(f=>{const s=netStockOf(f);if(f.minStock&&s<=f.minStock)alerts.push({...f,_net:s,_type:"fabric",_icon:"🧵",_color:T.accent})});
+        accessories.forEach(a=>{const s=netStockOf(a);if(a.minStock&&s<=a.minStock)alerts.push({...a,_net:s,_type:"accessory",_icon:"🪡",_color:"#8B5CF6"})});
+        generalProducts.forEach(p=>{const s=netStockOf(p);if(p.minStock&&s<=p.minStock)alerts.push({...p,_net:s,_type:"general",_icon:"➕",_color:"#EC4899"})});
         if(alerts.length===0)return null;
         return<Card title={"⚠️ تنبيهات — أصناف تحت الحد الأدنى ("+alerts.length+")"} style={{borderLeft:"3px solid "+T.err}}>
           <div style={{maxHeight:200,overflowY:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-              <tbody>{alerts.map(a=>{const stock=Number(a.stock)||0;const isZero=stock===0;
+              <tbody>{alerts.map(a=>{const stock=Number(a._net)||0;const isZero=stock===0;
                 return<tr key={a._type+a.id} style={{borderBottom:"1px solid "+T.brd}}>
                   <td style={{...TD,fontWeight:700}}>{a._icon} {a.name}</td>
                   <td style={{...TD,textAlign:"center",color:a._color,fontSize:FS-3}}>{a._type==="fabric"?"خامة":a._type==="accessory"?"إكسسوار":"منتج"}</td>
@@ -1573,8 +1573,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           <Btn ghost small onClick={()=>setShowMoveForm(false)}>✕</Btn>
         </div>
         
-        {/* Current stock info */}
-        {(()=>{const listKey=moveForm.itemType==="fabric"?"fabrics":moveForm.itemType==="accessory"?"accessories":"generalProducts";const item=(data[listKey]||[]).find(x=>String(x.id)===String(moveForm.itemId));const stock=Number(item?.stock)||0;
+        {/* Current stock info — V21.27.129: صافي الحركات (نفس العرض الرئيسي) */}
+        {(()=>{const listKey=moveForm.itemType==="fabric"?"fabrics":moveForm.itemType==="accessory"?"accessories":"generalProducts";const item=(data[listKey]||[]).find(x=>String(x.id)===String(moveForm.itemId));const stock=item?netStockOf(item):0;
           return<div style={{padding:10,background:T.bg,borderRadius:8,marginBottom:12,fontSize:FS-1}}>الرصيد الحالي: <strong style={{color:T.accent}}>{fmt(stock)+" "+(moveForm.unit||"")}</strong></div>;
         })()}
         
@@ -1618,7 +1618,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     
     {/* ════ VIEW PRODUCT POPUP (from QR scan or click) ════ */}
     {viewProd&&(()=>{
-      const stock=Number(viewProd.stock)||0;
+      const stock=netStockOf(viewProd);/* V21.27.129: صافي الحركات */
       const cost=Number(viewProd.avgCost)||Number(viewProd.price)||0;
       const isLow=viewProd.minStock&&stock<=viewProd.minStock;
       const isZero=stock===0;

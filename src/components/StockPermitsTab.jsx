@@ -17,6 +17,7 @@ import { FS } from "../constants/index.js";
 import { Btn, Inp, Sel, SearchSel } from "./ui.jsx";
 import { fmt, r2 } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
+import { computeStockNetMap, netStockOf } from "../utils/stockLedger.js";
 
 const _gid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -46,6 +47,10 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
   const listKey = (CATS.find(c => c.key === cat) || CATS[0]).listKey;
   const itemList = Array.isArray(data[listKey]) ? data[listKey] : [];
   const selItem = itemList.find(x => String(x.id) === String(itemId)) || null;
+  /* V21.27.129: الرصيد = صافي حركات المخزون (استلامات + إذونات + مرتجعات
+     بالاتجاه) — نفس مصدر العرض في «المخازن» بدل item.stock اللي ممكن يدرِف. */
+  const netMap = useMemo(() => computeStockNetMap(data.stockMovements), [data.stockMovements]);
+  const stockOf = (it) => netStockOf(netMap, it);
 
   /* ── إعدادات الأنواع ── */
   const addType = () => {
@@ -74,7 +79,7 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
     if(!selItem){ showToast("⚠️ اختر الصنف"); return; }
     const q = Number(qty) || 0;
     if(q <= 0){ showToast("⚠️ ادخل كمية صحيحة"); return; }
-    const cur = Number(selItem.stock) || 0;
+    const cur = stockOf(selItem);
     if(direction === "out" && q > cur){ await tell("المخزن غير كافٍ", "المتاح: " + fmt(cur) + " " + (selItem.unit || "") + "\nالمطلوب: " + fmt(q)); return; }
     const cost = direction === "in" ? (Number(price) || Number(selItem.avgCost) || Number(selItem.price) || 0) : 0;
     const ok = await ask("تنفيذ الإذن المخزني",
@@ -148,7 +153,7 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
             <div><label style={lbl}>الفئة</label><Sel value={cat} onChange={v => { setCat(v); setItemId(""); }}>{CATS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</Sel></div>
           </div>
           <div style={{ marginBottom: 10 }}><label style={lbl}>الصنف</label>
-            <SearchSel value={itemId} onChange={setItemId} options={itemList.map(x => ({ value: x.id, label: x.name + (x.unit ? " (" + x.unit + ")" : "") + " — رصيد: " + fmt(Number(x.stock) || 0) }))} placeholder="ابحث واختر الصنف..." showAllOnFocus maxResults={14} />
+            <SearchSel value={itemId} onChange={setItemId} options={itemList.map(x => ({ value: x.id, label: x.name + (x.unit ? " (" + x.unit + ")" : "") + " — رصيد: " + fmt(stockOf(x)) }))} placeholder="ابحث واختر الصنف..." showAllOnFocus maxResults={14} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: isMob ? "1fr 1fr" : (direction === "in" ? "1fr 1fr 1fr" : "1fr 1fr"), gap: 10, marginBottom: 10 }}>
             <div><label style={lbl}>الكمية{selItem ? " (" + (selItem.unit || "") + ")" : ""}</label><Inp type="number" value={qty} onChange={setQty} placeholder="0" /></div>
@@ -157,7 +162,7 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
           </div>
           <div style={{ marginBottom: 12 }}><label style={lbl}>ملاحظات (اختياري)</label><Inp value={notes} onChange={setNotes} placeholder="سبب الإذن..." /></div>
           {selItem && selType && <div style={{ fontSize: FS - 2, color: direction === "in" ? T.ok : T.err, fontWeight: 700, marginBottom: 10 }}>
-            {direction === "in" ? "➕ هيزوّد" : "➖ هيخصم"} {fmt(Number(qty) || 0)} {selItem.unit || ""} {direction === "in" ? "للرصيد" : "من الرصيد"} (الرصيد الحالي: {fmt(Number(selItem.stock) || 0)})
+            {direction === "in" ? "➕ هيزوّد" : "➖ هيخصم"} {fmt(Number(qty) || 0)} {selItem.unit || ""} {direction === "in" ? "للرصيد" : "من الرصيد"} (الرصيد الحالي: {fmt(stockOf(selItem))})
           </div>}
           <Btn onClick={executePermit} disabled={!canEdit || !selType || !selItem || !(Number(qty) > 0)} style={{ background: direction === "in" ? T.ok : (direction === "out" ? T.err : T.accent), color: "#fff", border: "none", width: "100%" }}>✓ تنفيذ الإذن</Btn>
         </>}
