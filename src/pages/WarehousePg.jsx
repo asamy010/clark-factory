@@ -23,7 +23,6 @@ import { ImagePickButton } from "../components/DocumentImagePicker.jsx";
 import { formatBlockerMessage, canForceDelete, summarizeForceDelete, forceDeleteCleanup } from "../utils/dataIntegrity.js";
 import { deletePartitionedDoc, KIND_TO_PARTITIONED_FIELD } from "../utils/partitionedCollections.js";
 import { StockPermitsTab } from "../components/StockPermitsTab.jsx";
-import { OpeningBalanceModal } from "../components/OpeningBalanceModal.jsx";
 import { FinishedStockLog } from "../components/FinishedStockLog.jsx";
 
 export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCards,user,userRole}){
@@ -47,7 +46,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[cardTab,setCardTab]=useState("general");
   const[newTier,setNewTier]=useState("");
   const[showMoveForm,setShowMoveForm]=useState(false);
-  const[showOpeningBal,setShowOpeningBal]=useState(false);/* V21.27.116: رصيد افتتاحي */
   const[moveForm,setMoveForm]=useState(null);/* {itemType, itemId, itemName, unit, type:in|out|adjust, qty, price, date, notes} */
   /* Movements filters */
   const[movType,setMovType]=useState("");
@@ -844,8 +842,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <span style={{fontSize:FS+4,fontWeight:800,color:T.text}}>📦 مركز المخازن</span>
         {!stockEnabled&&<span style={{padding:"3px 10px",borderRadius:8,fontSize:FS-2,fontWeight:700,background:T.warn+"15",color:T.warn,border:"1px solid "+T.warn+"40"}} title="يمكن التفعيل من تبويبة المشتريات">⚠️ مخزن الخامات غير مفعل</span>}
       </div>
-      {/* V21.27.116: زر الرصيد الافتتاحي (بتابات قماش/إكسسوار/منتج عام) */}
-      {canEdit&&<Btn small onClick={()=>setShowOpeningBal(true)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",fontWeight:700}}>📥 رصيد افتتاحي</Btn>}
     </div>
     
     {/* Sub-tabs */}
@@ -1570,8 +1566,6 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     </div>}
     
     {/* ════ MANUAL MOVEMENT POPUP ════ */}
-    {/* V21.27.116: رصيد افتتاحي */}
-    {showOpeningBal&&<OpeningBalanceModal data={data} upConfig={upConfig} canEdit={canEdit} userName={userName} isMob={isMob} onClose={()=>setShowOpeningBal(false)}/>}
     {showMoveForm&&moveForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowMoveForm(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>

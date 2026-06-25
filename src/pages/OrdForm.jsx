@@ -28,7 +28,6 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   const[editStatusForm,setEditStatusForm]=useState(false);
   const[copyMode,setCopyMode]=useState(false);const[copyFrom,setCopyFrom]=useState("");
   const[copyFields,setCopyFields]=useState({fabrics:true,pieces:true,sizes:true,acc:true,instructions:true});
-  const[qfab,setQfab]=useState(null);/* quick add fabric popup */
   /* V19.80.3: dynamic fabric slots — initially A only; "+ إضافة خامة" reveals
      the next letter (B, C, ... up to FKEYS.length). Initial value derived from
      existing form data so editing an order with 3 fabrics shows 3 slots. */
@@ -122,7 +121,8 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       if(!form.modelNo||!form.modelNo.trim())v.push("رقم/اسم الموديل مطلوب");
       if(!form.modelDesc||!form.modelDesc.trim())v.push("وصف الموديل مطلوب");
       if(!form.sizeSetId)v.push("المقاس مطلوب");
-      if(!form.fabricA)v.push("لازم خامة واحدة على الأقل");
+      /* V21.27.120: ممنوع منعاً باتاً بدون خامة A (لازم خامة حقيقية موجودة). */
+      if(!fabObj(form.fabricA))v.push("⛔ خامة A مطلوبة — ممنوع الحفظ بدون خامة A");
       if((form.colorsA||[]).filter(c=>(c.color||"").trim()).length===0)v.push("لازم لون واحد على الأقل في الخامة الأولى");
       if(v.length>0){setErrs(v);return}setErrs([]);
       const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));
@@ -134,6 +134,10 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       return;
     }
     const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);
+    /* V21.27.120: حارس صارم (أمر Ahmed) — ممنوع منعاً باتاً حفظ أمر قص بدون خامة A.
+       validateOrder بتمنع الفاضي؛ ده طبقة تانية بتمنع كمان خامة محذوفة/غير موجودة
+       (id موجود بس الخامة اتشالت من المخزن). مفيش أي مسار حفظ يعدّي من غير خامة A. */
+    if(!fabObj(form.fabricA)){setErrs(["⛔ ممنوع حفظ أمر القص بدون خامة A — اختر خامة A أولاً"]);return;}
     /* V21.27.86: امنع تسجيل أوردر القص لو المخزن غير كافٍ للخامة المطلوبة.
        checkStockAvailability بترجّع ok:true لو المخزن متعطّل (stockEnabled/
        autoDeductOnCut)، فالقيد ده آمن في كل الحالات — ومتسق مع بلوك App.jsx. */
@@ -306,7 +310,6 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
                     ? <div style={{padding:"5px 9px",borderRadius:8,border:"1px solid "+T.brd,background:T.bg,fontSize:FS-1,fontWeight:600,color:T.text,minHeight:30,display:"flex",alignItems:"center"}} title="الخامة بتتعرّف في الموديل">{fb?fb.name:"—"}</div>
                     : <SearchSel value={fid?String(fid):""} onChange={v=>updF("fabric"+k,v)} options={fabOpts} placeholder={k==="A"?"ابحث عن خامة...":"ابحث (اختياري)..."} maxResults={8} showAllOnFocus sx={{padding:"5px 9px",fontSize:FS-1}}/>}
                 </div>
-                {!fromModel&&upConfig&&<Btn small onClick={()=>setQfab({name:"",unit:"كيلو",price:"",forKey:k})} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="إضافة خامة جديدة للمخزن">+</Btn>}
                 {!fromModel&&idx>0&&<Btn small onClick={()=>removeFabric(k)} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30",padding:"3px 9px",fontSize:FS-1,fontWeight:700}} title="حذف الخامة">✕</Btn>}
               </div>
               {/* ─ Inputs row: shown only when a fabric is selected ─ */}
@@ -402,22 +405,6 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       <div style={{fontSize:20,fontWeight:800}}>{"كمية القص (A): "}<span style={{color:T.accent}}>{mainQty}</span></div>
       <div style={{display:"flex",gap:10}}><Btn ghost onClick={handleCancel}>الغاء</Btn><Btn primary onClick={save}>حفظ</Btn></div>
     </div>
-    {qfab&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setQfab(null)}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div style={{fontSize:FS+2,fontWeight:800,color:T.ok}}>{"اضافة خامة سريعة ("+qfab.forKey+")"}</div>
-          <Btn ghost small onClick={()=>setQfab(null)} title="إغلاق">✕</Btn>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div><label style={{fontSize:FS-2,color:T.textSec}}>اسم الخامة</label><Inp value={qfab.name} onChange={v=>setQfab({...qfab,name:v})} placeholder="مثال: شعييرات مازيراتي"/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>الوحدة</label><Sel value={qfab.unit} onChange={v=>setQfab({...qfab,unit:v})}>{getUnits(data,qfab.unit).map(u=><option key={u} value={u}>{u}</option>)}</Sel></div>
-            <div><label style={{fontSize:FS-2,color:T.textSec}}>السعر</label><Inp type="number" value={qfab.price} onChange={v=>setQfab({...qfab,price:v})} placeholder="0"/></div>
-          </div>
-          <Btn primary onClick={()=>{if(!qfab.name.trim()||!qfab.price)return;const newId=Date.now();upConfig(d=>{if(!d.fabrics)d.fabrics=[];d.fabrics.push({id:newId,name:qfab.name.trim(),unit:qfab.unit,price:Number(qfab.price)||0})});updF("fabric"+qfab.forKey,String(newId));setQfab(null);showToast("✓ تم اضافة الخامة")}}>حفظ واختيار</Btn>
-        </div>
-      </div>
-    </div>}
   </Card>
   {dupPopup&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setDupPopup(false)}><div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:24,width:"100%",maxWidth:380,border:"1px solid "+T.brd,boxShadow:"0 10px 40px rgba(0,0,0,0.2)"}}>
     <div style={{fontSize:FS+2,fontWeight:800,color:"#8B5CF6",marginBottom:14}}>📋 تكرار من أوردر</div>
