@@ -645,7 +645,7 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const supplier=suppliers.find(s=>String(s.id)===String(p.supplierId));
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     /* V21.21.43: جدول الأعمدة الموحّد (كود/اسم/وحدة/كمية/سعر/قبل/الخصم/بعد) + توزيع الخصم الكلي */
-    const itemsHTML=docColumnsHTML(p.items,{headerDiscountPct:p.discountPct,accent:"#8B5CF6"});
+    const itemsHTML=docColumnsHTML(p.items,{headerDiscountPct:p.discountPct,mono:true});/* V21.27.125: أبيض/أسود زي المبيعات */
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>"+p.poNo+"</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📋 أمر شراء</div><div class='hdr-info'><div>رقم: "+p.poNo+"</div><div>التاريخ: "+p.date+"</div></div></div><h3>بيانات المورد</h3><table><tr><th style='width:30%'>اسم المورد</th><td>"+(supplier?.name||p.supplierName||"—")+"</td></tr>"+(supplier?.phone?"<tr><th>التليفون</th><td>"+ltrPhone(supplier.phone)+"</td></tr>":"")+"</table><h3>البنود المطلوبة</h3>"+itemsHTML+(p.notes?"<h3>ملاحظات</h3><p style='padding:8px;background:#FEF3C7;border-radius:6px'>"+p.notes+"</p>":"")+"<div class='sig'><div class='sig-box'>المشتريات</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — أمر شراء — للتوثيق فقط</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -1095,15 +1095,14 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const supplier=suppliers.find(s=>String(s.id)===String(r.supplierId));
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const totalQty=(r.items||[]).reduce((s,it)=>s+(Number(it.qty)||0),0);
-    const rowsHtml=(r.items||[]).map(it=>{
-      const emoji=(getCategoryById(data,it.itemType==="fabric"?"core_fabric":it.itemType==="accessory"?"core_accessory":it.itemType)?.emoji||"📦");
-      return showPrices
-        ? "<tr><td>"+emoji+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td><td class='center'>"+fmt(r2(it.price))+"</td><td class='center'><b>"+fmt(r2(it.amount))+"</b></td></tr>"
-        : "<tr><td>"+emoji+" "+it.itemName+"</td><td class='center'>"+fmt(it.qty)+"</td><td class='center'>"+(it.unit||"")+"</td></tr>";
-    }).join("");
+    /* V21.27.125: أبيض/أسود زي المبيعات — السعر عبر docColumnsHTML(mono)؛ الكميات
+       جدول mono بسيط. */
+    const _pca="-webkit-print-color-adjust:exact;print-color-adjust:exact";
+    const _qtyRows=(r.items||[]).map((it,i)=>"<tr style='background:"+(i%2?"#f0f0f0":"#fff")+";"+_pca+"'><td style='padding:5px;border:1px solid #b4b4b4;text-align:center'>"+(it.itemName||"—")+"</td><td style='padding:5px;border:1px solid #b4b4b4;text-align:center;font-weight:600'>"+fmt(it.qty)+"</td><td style='padding:5px;border:1px solid #b4b4b4;text-align:center'>"+(it.unit||"")+"</td></tr>").join("");
+    const _qTh="padding:6px;border:1px solid #b4b4b4;background:#000;color:#fff !important;text-align:center;"+_pca;
     const itemsTable=showPrices
-      ? "<table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>"+rowsHtml+"<tr style='font-weight:800'><td colspan='4' style='text-align:left'>الإجمالي الكلي</td><td class='center info' style='font-size:14px'>"+fmt(r2(r.totalAmount))+" ج.م</td></tr></tbody></table>"
-      : "<table><thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th></tr></thead><tbody>"+rowsHtml+"<tr style='font-weight:800'><td style='text-align:left'>إجمالي الكميات</td><td class='center info' style='font-size:14px'>"+fmt(r2(totalQty))+"</td><td></td></tr></tbody></table>";
+      ? docColumnsHTML(r.items,{mono:true})
+      : "<div style='border-radius:10px;overflow:hidden;border:1px solid #000'><table style='width:100%;border-collapse:collapse;font-size:11px'><thead><tr><th style='"+_qTh+"'>الصنف</th><th style='"+_qTh+"'>الكمية</th><th style='"+_qTh+"'>الوحدة</th></tr></thead><tbody>"+_qtyRows+"<tfoot><tr style='background:#ececec;font-weight:800;"+_pca+"'><td style='padding:6px;border:1px solid #b4b4b4;text-align:center'>إجمالي الكميات</td><td style='padding:6px;border:1px solid #b4b4b4;text-align:center'>"+fmt(r2(totalQty))+"</td><td style='padding:6px;border:1px solid #b4b4b4'></td></tr></tfoot></tbody></table></div>";
     const paymentLabel=r.paymentMethod==="cash"?"كاش":r.paymentMethod==="check"?"شيك":"آجل";
     const paymentSection=showPrices
       ? "<h3>تفاصيل الدفع</h3><table><tr><th style='width:30%'>طريقة الدفع</th><td class='info'>"+paymentLabel+"</td></tr><tr><th>المدفوع</th><td class='ok'>"+fmt(r2(r.paidAmount||0))+" ج.م</td></tr><tr><th>المتبقي</th><td class='err'>"+fmt(r2((r.totalAmount||0)-(r.paidAmount||0)))+" ج.م</td></tr>"+(r.treasuryAccount?"<tr><th>الخزنة</th><td>"+r.treasuryAccount+"</td></tr>":"")+"</table>"

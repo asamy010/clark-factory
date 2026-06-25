@@ -2627,7 +2627,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
       body+="<div class='sig-box'><div class='role'>اعتمده: المدير المالي</div><div class='name'>التوقيع + التاريخ</div></div>";
       body+="<div class='sig-box'><div class='role'>استلمه: المحاسب</div><div class='name'>التوقيع + التاريخ</div></div>";
       body+="</div>";
-      const configInfo={factoryName:data.factoryName||"CLARK Factory",logo:data.logo||"",address:data.address||"",phone:data.phone||""};
+      const configInfo={factoryName:data.factoryName||"CLARK ERP System",logo:data.logo||"",address:data.address||"",phone:data.phone||""};
       printPage("تقرير أسبوعي مالي — W"+w.weekNum,body,configInfo);
     }catch(err){
       console.error("Print weekly financial summary error:",err);
@@ -2702,7 +2702,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
     }
     lines.push("━━━━━━━━━━━━━━");
     lines.push("");
-    lines.push("_CLARK Factory — "+today+"_");
+    lines.push("_CLARK ERP System — "+today+"_");
     const msg=lines.join("\n");
     const url="https://wa.me/"+phone+"?text="+encodeURIComponent(msg);
     /* V15.80: Use <a> click instead of window.open to bypass popup blockers.
@@ -4239,7 +4239,7 @@ export function HRPg({data,upConfig,isMob,canEdit,user,userRole,getHrSubPerm,set
                     "</style></head><body>"+
                     "<div class='hdr-sig'>"+
                       "<h1>✍️ كشف توقيع استلام المرتبات</h1>"+
-                      "<div class='sub'>CLARK Factory — "+(data.factoryName||"مصنع كلارك")+"</div>"+
+                      "<div class='sub'>CLARK ERP System — "+(data.factoryName||"مصنع كلارك")+"</div>"+
                       "<div class='meta'>"+
                         "<div class='meta-item'>الأسبوع: <b>W"+openWeek.weekNum+"</b></div>"+
                         "<div class='meta-item'>الفترة: <b>"+openWeek.weekStart+" → "+openWeek.weekEnd+"</b></div>"+

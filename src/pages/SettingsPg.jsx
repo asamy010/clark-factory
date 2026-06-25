@@ -901,7 +901,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
           <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
             {showLogo
               ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
-              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK Factory</div>}
+              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK ERP System</div>}
           </div>
           {/* Title chip */}
           <div style={{textAlign:"center",fontSize:11,fontWeight:800,border:"2px solid #000",display:"block",width:"fit-content",padding:"2px 14px",borderRadius:4,margin:"0 auto 4px"}}>↗ تسليم ورشة</div>
@@ -989,7 +989,7 @@ function LargeLabelLivePreview({draft,kind,T,FS}){
           <div style={{textAlign:"center",paddingBottom:3,borderBottom:"2px solid #000",marginBottom:4}}>
             {showLogo
               ?<img src={CLARK_LOGO_PRINT} alt="CLARK" style={{height:16,maxWidth:"60%",filter:"brightness(0) saturate(100%)",objectFit:"contain"}}/>
-              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK Factory</div>}
+              :<div style={{fontWeight:800,fontSize:11,letterSpacing:2}}>CLARK ERP System</div>}
           </div>
           {/* Title chip */}
           <div style={{textAlign:"center",fontSize:11,fontWeight:800,border:"2px solid #000",display:"block",width:"fit-content",padding:"2px 14px",borderRadius:4,margin:"0 auto 4px"}}>🚚 إذن تسليم</div>

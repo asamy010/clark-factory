@@ -525,7 +525,7 @@ export const DEFAULT_TEMPLATES={
 /* Sample data for previews */
 export const SAMPLE_DATA={
   receipt:{
-    factory:{name:"CLARK Factory",phone:"01000000000",address:"القاهرة, مصر",logo:""},
+    factory:{name:"CLARK ERP System",phone:"01000000000",address:"القاهرة, مصر",logo:""},
     customer:{name:"مكتب سينا كيدز",phone:"01111111111",discount:5},
     session:{date:"2026-04-23",id:"SESS-001",receiver:"أحمد محمد"},
     items:[
@@ -537,13 +537,13 @@ export const SAMPLE_DATA={
     options:{showQR:false,showFooterMessage:true,footerMessage:"نسعد بخدمتكم — شكراً لتعاملكم معنا"},
   },
   salary:{
-    factory:{name:"CLARK Factory",logo:""},
+    factory:{name:"CLARK ERP System",logo:""},
     employee:{name:"أحمد فوزي",code:"EMP-017"},
     week:{num:23,start:"2026-04-17",end:"2026-04-23"},
     salary:{basic:800,overtime:120,bonus:50,grossPay:970,advances:200,deductions:30,debtInstall:50,totalDeductions:280,thursdayPay:690,remainingBalance:0},
   },
   wsOrder:{
-    factory:{name:"CLARK Factory",logo:""},
+    factory:{name:"CLARK ERP System",logo:""},
     order:{modelNo:"3262112",modelDesc:"تويز 4 قطع بناتي",marker:"MK-045",instructions:"حياكة بخيوط سرج، كي ملابس قبل التسليم"},
     delivery:{date:"2026-04-20",workshop:"ورشة الأمانة",qty:120,garmentType:"قميص",notes:""},
     fabrics:[
@@ -552,7 +552,7 @@ export const SAMPLE_DATA={
     ],
   },
   statement:{
-    factory:{name:"CLARK Factory",phone:"01000000000",logo:""},
+    factory:{name:"CLARK ERP System",phone:"01000000000",logo:""},
     customer:{name:"مكتب سينا كيدز",phone:"01111111111",discount:5},
     today:"2026-04-23",
     rows:[
@@ -564,7 +564,7 @@ export const SAMPLE_DATA={
     options:{showFooterMessage:true,footerMessage:"نرحب بتعاملكم المستمر"},
   },
   wsReceive:{
-    factory:{name:"CLARK Factory",logo:""},
+    factory:{name:"CLARK ERP System",logo:""},
     workshop:{name:"ورشة الأمانة"},
     order:{modelNo:"3262112",modelDesc:"تويز 4 قطع"},
     qty:60,date:"2026-04-22",receiver:"محمد سعيد",notes:"",

@@ -384,7 +384,7 @@ function _computeVars(data, date, alertThresholds) {
   const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("ar-EG", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
-  const factoryName = data.factoryName || "CLARK Factory";
+  const factoryName = data.factoryName || "CLARK ERP System";
 
   /* Sales — same logic as _salesSection, repeated here so we have raw vars */
   let salesQty = 0, salesValue = 0;

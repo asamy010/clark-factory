@@ -238,7 +238,7 @@ export function printSalesDeliveryLabel(custName,custPhone,custAddr,date,items,t
   /* Brand row */
   const brandHtml=showLogo&&clarkLogoDataUrl
     ?"<div class='brand'><img src='"+clarkLogoDataUrl+"' alt='CLARK' style='height:9mm;max-width:55%;filter:brightness(0) saturate(100%);object-fit:contain'/></div>"
-    :"<div class='brand'>CLARK Factory</div>";
+    :"<div class='brand'>CLARK ERP System</div>";
   /* Customer info table — only enabled rows */
   let custRows="<tr><td class='lbl'>التاريخ</td><td class='val'>"+date+"</td></tr>";
   if(showPhone&&custPhone)custRows+="<tr><td class='lbl'>التليفون</td><td class='val'>"+ltrPhone(custPhone)+"</td></tr>";
@@ -478,7 +478,7 @@ export function renderLabelPages(d,n,cfg,clarkLogoDataUrl,confirmUrl,existingWin
   +"@media(max-width:1024px){.pbar{display:flex}}@media print{.pbar{display:none}}"
   +"</style></head><body>");
   let h="<div class='pbar'><button onclick='window.close()'>↩</button><button class='pr' onclick='window.print()'>🖨 "+n+"</button></div>";
-  const brandHtml="<div class='brand'>"+(showLogo&&clarkLogoDataUrl?"<img class='brand-img' src='"+clarkLogoDataUrl+"' alt='CLARK'/>":"<div class='brand-txt'>CLARK Factory</div>")+"</div>";
+  const brandHtml="<div class='brand'>"+(showLogo&&clarkLogoDataUrl?"<img class='brand-img' src='"+clarkLogoDataUrl+"' alt='CLARK'/>":"<div class='brand-txt'>CLARK ERP System</div>")+"</div>";
   const dataRows=[
     ["الموديل",d.modelNo||""],
     ...(showDesc?[["الوصف",d.modelDesc||""]]:[]),
@@ -575,7 +575,7 @@ export function openPrintWindow(){
 export function printSalaryEnvelopes(empsList,weekInfo,configInfo){
   const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة");return}
   const logo=(configInfo&&configInfo.logo)||"";
-  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK Factory";
+  const factoryName=(configInfo&&configInfo.factoryName)||"CLARK ERP System";
   const weekLabel=weekInfo?("W"+(weekInfo.weekNum||"")):"";
   const weekDate=(weekInfo&&weekInfo.startDate)||"";
   let envelopes="";

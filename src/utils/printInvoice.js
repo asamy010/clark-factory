@@ -20,15 +20,15 @@ export function printInvoice(invoice, party, factoryInfo, type){
   if(!w){ alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة"); return; }
 
   const isPurchase = type === "purchase";
-  /* V21.27.121: فاتورة المبيعات بتصميم أبيض/أسود (mono)؛ المشتريات تفضل ملوّنة. */
-  const mono = !isPurchase;
+  /* V21.27.121/125: تصميم أبيض/أسود (mono) للمبيعات والمشتريات (طلب Ahmed). */
+  const mono = true;
   const docTitle = isPurchase ? "فاتورة مشتريات" : "فاتورة مبيعات";
   const docIcon  = isPurchase ? "📥" : "📤";
-  const accentColor = isPurchase ? "#F59E0B" : "#333333";
+  const accentColor = "#333333";
   const partyLabel = isPurchase ? "المورد" : "العميل";
 
   /* V21.21.42: البنود اتنقلت لجدول الأعمدة الموحّد (docColumnsHTML) تحت. */
-  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
+  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK ERP System";
   const factoryAddr = (factoryInfo && factoryInfo.address) || "";
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
   const factoryEmail = (factoryInfo && factoryInfo.email) || "";
@@ -132,7 +132,7 @@ export function printCreditNote(creditNote, customer, factoryInfo){
      (docColumnsHTML) + إقرار الاستلام. الإجماليات من القيم المخزّنة (authoritative). */
   const accentColor = "#333333";
 
-  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
+  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK ERP System";
   const factoryAddr = (factoryInfo && factoryInfo.address) || "";
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
   const factoryEmail = (factoryInfo && factoryInfo.email) || "";
@@ -249,29 +249,24 @@ export function printDebitNote(debitNote, supplier, factoryInfo, showPrices = tr
   /* Use a distinct accent — different from credit notes (red) and from
      purchase invoices (orange). Blue signals "money coming back to us"
      while orange means "money owed". */
-  const accentColor = "#3B82F6";
+  /* V21.27.125: تصميم أبيض/أسود موحّد زي المبيعات (طلب Ahmed). */
+  const accentColor = "#333333";
   /* V21.27.84: showPrices=false → كميات فقط (بدون عمود سعر/إجمالي ولا صندوق الإجماليات) */
   const totalQty = (debitNote.items||[]).reduce((s, it) => s + (Number(it.qty)||0), 0);
-  const rows = (debitNote.items||[]).map(it => showPrices ? `<tr>
-    <td><div style="font-weight:700">${_esc(it.name||"—")}</div>${it.itemType?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.itemType)}</div>`:""}</td>
-    <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
-    <td class="center" style="direction:ltr;color:#475569">${fmt2(it.unitPrice)}</td>
-    <td class="center" style="direction:ltr;font-weight:700;color:${accentColor}">${fmt2(it.lineTotal)}</td>
-  </tr>` : `<tr>
-    <td><div style="font-weight:700">${_esc(it.name||"—")}</div>${it.itemType?`<div style="font-size:10px;color:#64748B;margin-top:2px">${_esc(it.itemType)}</div>`:""}</td>
-    <td class="center" style="direction:ltr;font-weight:600">${fmt(it.qty)}</td>
+  /* جدول الكميات فقط (mono) — حالة showPrices=false */
+  const _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact";
+  const qtyRows = (debitNote.items||[]).map((it,i) => `<tr style="background:${i%2?"#f0f0f0":"#fff"};${_pca}">
+    <td style="padding:5px;border:1px solid #b4b4b4;text-align:center">${_esc(it.name||"—")}${it.itemType?` <span style="font-size:10px;color:#555">(${_esc(it.itemType)})</span>`:""}</td>
+    <td style="padding:5px;border:1px solid #b4b4b4;text-align:center;font-weight:600">${fmt(it.qty)}</td>
   </tr>`).join("");
 
-  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK Factory";
+  const factoryName = (factoryInfo && factoryInfo.name) || "CLARK ERP System";
   const factoryAddr = (factoryInfo && factoryInfo.address) || "";
   const factoryPhone = (factoryInfo && factoryInfo.phone) || "";
   const factoryEmail = (factoryInfo && factoryInfo.email) || "";
 
-  const statusBadge = debitNote.status === "posted"
-    ? `<span style="background:#10B98115;color:#10B981;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✓ مرحّل</span>`
-    : debitNote.status === "void"
-    ? `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">✕ ملغي</span>`
-    : `<span style="background:#6B728015;color:#6B7280;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px">📝 مسودة</span>`;
+  const _dnBadge = (txt) => `<span style="background:#eee;color:#333;padding:4px 12px;border-radius:6px;font-weight:700;font-size:12px;border:1px solid #ccc">${txt}</span>`;
+  const statusBadge = debitNote.status === "posted" ? _dnBadge("✓ مرحّل") : debitNote.status === "void" ? _dnBadge("✕ ملغي") : _dnBadge("📝 مسودة");
 
   const html = `<html dir="rtl">
 <head>
@@ -284,15 +279,16 @@ ${PRINT_CSS}
 .inv-brand{font-size:22px;font-weight:900;color:${accentColor}}
 .inv-meta{text-align:left;font-size:11px;color:#475569}
 .inv-title{font-size:18px;font-weight:800;color:${accentColor};margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
-.inv-num{font-family:monospace;background:#EFF6FF;padding:4px 12px;border-radius:6px;border:1px solid #BFDBFE;color:${accentColor};font-size:14px;font-weight:800}
+.inv-num{font-family:monospace;background:#f4f4f4;padding:4px 12px;border-radius:6px;border:1px solid #ccc;color:${accentColor};font-size:14px;font-weight:800}
 .inv-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
-.inv-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px}
+.inv-box{background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:10px}
 .inv-box .lbl{font-size:10px;color:#64748B;font-weight:600;margin-bottom:3px}
 .inv-box .val{font-size:13px;color:#1E293B;font-weight:700}
 .inv-totals{display:flex;justify-content:flex-end;margin:14px 0}
-.inv-totals .box{min-width:280px;padding:14px;background:#EFF6FF;border-radius:8px;border:1px solid #BFDBFE}
-.inv-totals .row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px}
-.inv-totals .row.total{font-size:16px;font-weight:800;border-top:2px solid ${accentColor};margin-top:6px;padding-top:8px;color:${accentColor}}
+.inv-totals .box{min-width:300px;background:#fff;border-radius:10px;border:1px solid #000;overflow:hidden}
+.inv-totals .row{display:flex;justify-content:space-between;padding:7px 12px;font-size:12px;border-bottom:1px solid #ccc;color:#000}
+.inv-totals .row.total{font-size:15px;font-weight:800;background:#000;color:#fff !important;padding:10px 12px;border-bottom:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.inv-totals .row.total span{color:#fff !important}
 </style>
 </head>
 <body>
@@ -316,7 +312,7 @@ ${PRINT_CSS}
   </div>
 </div>
 
-${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#1E40AF"><b>للفاتورة الأصلية:</b> ${_esc(debitNote.linkedInvoiceNo)}</div>` : ""}
+${debitNote.linkedInvoiceNo ? `<div style="background:#f4f4f4;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;color:#333;border:1px solid #ddd"><b>للفاتورة الأصلية:</b> ${_esc(debitNote.linkedInvoiceNo)}</div>` : ""}
 
 <div class="inv-grid">
   <div class="inv-box">
@@ -331,22 +327,16 @@ ${debitNote.linkedInvoiceNo ? `<div style="background:#EFF6FF;padding:8px 12px;b
 </div>
 
 <h3 style="margin-top:18px;margin-bottom:8px;color:#1E293B">الأصناف المُرتجعة للمورد${showPrices?"":" — كميات"}</h3>
-<table>
-  <thead>
-    <tr>
-      <th style="${showPrices?"width:50%":"width:75%"}">الصنف</th>
-      <th style="width:15%" class="center">الكمية</th>
-      ${showPrices?`<th style="width:15%" class="center">سعر الوحدة</th>
-      <th style="width:20%" class="center">الإجمالي</th>`:""}
-    </tr>
-  </thead>
-  <tbody>${rows}</tbody>
-  <tfoot><tr style="border-top:2px solid #1E293B;font-weight:800">
-    <td style="font-weight:800">الإجمالي</td>
-    <td class="center" style="direction:ltr;font-weight:800">${_esc(fmtQtyByUnit(sumQtyByUnit(debitNote.items)))}</td>
-    ${showPrices?`<td></td><td></td>`:""}
-  </tr></tfoot>
-</table>
+${showPrices
+  ? docColumnsHTML((debitNote.items||[]).map(it=>({ itemName:it.name, name:it.name, qty:it.qty, unitPrice:it.unitPrice, unit:it.unit||"" })), { headerDiscountAmount: Number(debitNote.discount)||0, mono:true, noTotals:true })
+  : `<div style="border-radius:10px;overflow:hidden;border:1px solid #000"><table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr>
+        <th style="padding:6px;border:1px solid #b4b4b4;background:#000;color:#fff !important;text-align:center;${_pca}">الصنف</th>
+        <th style="padding:6px;border:1px solid #b4b4b4;background:#000;color:#fff !important;text-align:center;${_pca}">الكمية</th>
+      </tr></thead>
+      <tbody>${qtyRows}</tbody>
+      <tfoot><tr style="background:#ececec;font-weight:800;${_pca}"><td style="padding:6px;border:1px solid #b4b4b4;text-align:center">الإجمالي</td><td style="padding:6px;border:1px solid #b4b4b4;text-align:center">${_esc(fmtQtyByUnit(sumQtyByUnit(debitNote.items)))}</td></tr></tfoot>
+    </table></div>`}
 
 ${showPrices ? `<div class="inv-totals">
   <div class="box">
@@ -365,7 +355,7 @@ ${showPrices ? `<div class="inv-totals">
   </div>
 </div>` : `<div class="inv-totals"><div class="box"><div class="row total"><span>إجمالي الكميات المرتجعة</span><span style="direction:ltr">${fmt(totalQty)}</span></div></div></div>`}
 
-${debitNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#FEF3C7;border-radius:6px;font-size:12px">${_esc(debitNote.notes)}</p>` : ""}
+${debitNote.notes ? `<h3 style="margin-top:18px">سبب المرتجع</h3><p style="padding:10px;background:#f4f4f4;border:1px solid #ddd;border-radius:6px;font-size:12px">${_esc(debitNote.notes)}</p>` : ""}
 
 <div class="sig">
   <div class="sig-box">المستلم بالمصنع</div>

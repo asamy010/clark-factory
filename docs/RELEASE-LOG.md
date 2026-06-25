@@ -12,6 +12,29 @@
 
 ---
 
+## V21.27.125 (2026-06-25) — 🏷️ «CLARK ERP System» + مطبوعات الشراء أبيض/أسود
+
+طلبا Ahmed:
+1. **استبدال «CLARK Factory» بـ«CLARK ERP System»** على مستوى التطبيق — sed على:
+   SettingsPg.jsx · HRPg.jsx · automation/buildDailyReport.js · printInvoice.js ·
+   print.js · printTemplates.js. (`printPage` كان أصلاً «CLARK ERP System».)
+2. **مطبوعات الشراء بنفس تصميم المبيعات الأبيض/أسود (mono):**
+   - `printInvoice.js` `printInvoice`: شِيل فرع الألوان — `mono=true` دايمًا +
+     `accentColor=#333` (المبيعات والمشتريات سوا).
+   - `printInvoice.js` `printDebitNote` (مرتجع مشتريات): تحوّل لـ mono كامل —
+     `docColumnsHTML(mono,noTotals)` بأعمدة الفاتورة (حالة الأسعار) + جدول كميات
+     mono (حالة الكميات) + صندوق إجماليات mono (CSS: بار أسود + span أبيض
+     !important + pca) + ترويسة/شارات/بانر رمادي.
+   - `PurchasePg.jsx` `printPo`: `docColumnsHTML(mono:true)`.
+   - `PurchasePg.jsx` `printReceipt`: السعر → `docColumnsHTML(mono:true)`؛
+     الكميات → جدول mono (هيدر أسود + كتابة بيضاء !important + pca + zebra).
+   - RFQ: مفيش دالة طباعة (متأكَّد بالـ grep).
+- **تحقّق مرئي:** فاتورة مشتريات اترندرت بـ Chromium في وضع الطباعة — مطابقة
+  للمبيعات (هيدر أسود متوسّط/إجمالي أسود/إقرار/CLARK ERP System).
+- build ✓ · 431 tests ✓. SW: `v21.27.125`.
+
+---
+
 ## V21.27.124 (2026-06-25) — 💸 «مصروف على القطعة» بدل «تغليف» في التكلفة الإضافية
 
 طلب Ahmed: في مودال التكلفة الإضافية بالأوردر، استبدال زر «تغليف» بـ«مصروف على
