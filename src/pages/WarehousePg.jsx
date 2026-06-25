@@ -13,6 +13,7 @@ import { fmt, gid, r2 } from "../utils/format.js";
 import { calcOrder } from "../utils/orders.js";
 import { computeSoReserved, computeOrderAvail } from "../utils/stockCatalog.js";
 import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
+import { analyzeStockReconciliation, relinkOrphanMovements, syncStoredStockFromLedger } from "../utils/stockReconcile.js";
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
@@ -84,6 +85,56 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
      المخزّن اللي ممكن يدرِف عن الحركات → رصيد مختلف عن «المشتريات ← المخزن». */
   const stockNetMap=useMemo(()=>computeStockNetMap(data.stockMovements),[data.stockMovements]);
   const netStockOf=(it)=>netStockOfLedger(stockNetMap,it);
+
+  /* ──────── V21.27.131: STOCK RECONCILIATION («مطابقة المخزون») ──────── */
+  /* بيكتشف الحركات اليتيمة (itemId مش بيطابق صنف حالي → كمياتها طايرة مش
+     بتتجمّع، زي TEST) + درِفت الرصيد المخزّن عن صافي الحركات. */
+  const recon=useMemo(()=>analyzeStockReconciliation(data),[data.stockMovements,data.fabrics,data.accessories,data.generalProducts,data.inventoryItems]);
+  /* اختيار صنف الهدف لكل مجموعة يتيمة (id الهدف). افتراضياً الترشيح بالاسم. */
+  const[reconPick,setReconPick]=useState({});/* { orphanItemId: targetId } */
+  const reconTargetOf=(o)=>{const picked=reconPick[String(o.itemId)];return picked!==undefined?picked:(o.suggestId!=null?String(o.suggestId):"")};
+  /* ربط مجموعة حركات يتيمة بصنف الهدف (بتأكيد + مزامنة الرصيد بعدها). */
+  const relinkOrphan=async(o)=>{
+    if(!canEdit){await denyAction("مطابقة المخزون");return;}
+    const targetId=reconTargetOf(o);
+    if(!targetId){await tell("اختر الصنف","حدد الصنف الصحيح اللي هتترتبط بيه الحركات من القائمة.",{type:"warning"});return;}
+    const target=recon.allItems.find(it=>String(it.id)===String(targetId));
+    if(!target){await tell("خطأ","الصنف الهدف غير موجود.",{type:"error"});return;}
+    const confirmed=await ask("ربط الحركات اليتيمة",
+      "• الحركات: "+o.count+" حركة باسم «"+o.itemName+"» (صافي "+fmt(o.net)+")\n"+
+      "• هتترتبط بالصنف: «"+target.name+"» ("+target._label+")\n\n"+
+      "هيتم تحديث itemId للحركات دي + مزامنة رصيد ومتوسط تكلفة الصنف من حركاته.\n\n"+
+      "⚠️ راجع إن الصنف الهدف هو الصح فعلاً — العملية بتعدّل أرصدة مخزون.\n\nمتابعة؟",
+      {confirmText:"🔗 ربط",danger:true});
+    if(!confirmed)return;
+    let n=0;
+    upConfig(d=>{n=relinkOrphanMovements(d,o.itemId,target)});
+    setReconPick(p=>{const c={...p};delete c[String(o.itemId)];return c});
+    showToast(n>0?("✅ تم ربط "+n+" حركة بصنف «"+target.name+"»"):"⚠️ لم يتم العثور على حركات للربط");
+  };
+  /* مزامنة رصيد صنف مخزّن مع صافي حركاته. */
+  const syncDriftItem=async(row)=>{
+    if(!canEdit){await denyAction("مزامنة الرصيد");return;}
+    const item=recon.allItems.find(it=>String(it.id)===String(row.id));
+    if(!item)return;
+    const confirmed=await ask("مزامنة الرصيد المخزّن",
+      "• الصنف: «"+row.name+"»\n• الرصيد المخزّن: "+fmt(row.stored)+"\n• صافي الحركات: "+fmt(row.net)+"\n\n"+
+      "هيتم تعيين الرصيد المخزّن = صافي الحركات (المصدر الصحيح المعروض في المخزن).\n\nمتابعة؟",
+      {confirmText:"🔄 مزامنة"});
+    if(!confirmed)return;
+    upConfig(d=>{syncStoredStockFromLedger(d,item)});
+    showToast("✅ تم مزامنة رصيد «"+row.name+"»");
+  };
+  /* مزامنة كل أصناف الدرِفت دفعة واحدة. */
+  const syncAllDrift=async()=>{
+    if(!canEdit){await denyAction("مزامنة الأرصدة");return;}
+    if(recon.drift.length===0)return;
+    const confirmed=await ask("مزامنة كل الأرصدة","هيتم مزامنة "+recon.drift.length+" صنف (الرصيد المخزّن = صافي الحركات).\n\nمتابعة؟",{confirmText:"🔄 مزامنة الكل"});
+    if(!confirmed)return;
+    const ids=recon.drift.map(r=>r.id);
+    upConfig(d=>{const byId=new Map(recon.allItems.map(it=>[String(it.id),it]));ids.forEach(id=>{const it=byId.get(String(id));if(it)syncStoredStockFromLedger(d,it)})});
+    showToast("✅ تم مزامنة "+ids.length+" صنف");
+  };
 
   /* ──────── COMPREHENSIVE WAREHOUSE STATS ──────── */
   const wStats=useMemo(()=>{
@@ -853,16 +904,31 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {key:"finished",label:"👕 الجاهز",count:wStats.finished.count},
         {key:"general",label:"➕ منتجات عامة",count:generalProducts.length},
         {key:"movements",label:"📊 سجل الحركات",count:stockMovements.length},
+        {key:"reconcile",label:"🔧 مطابقة المخزون",count:recon.counts.orphanGroups+recon.counts.drift,alert:recon.hasIssues},
         {key:"permits",label:"📋 إذونات مخزنية",count:(data.stockPermitTypes||[]).length},
         {key:"units",label:"📏 الوحدات",count:getUnits(data).length}
-      ].map(st=>{const active=subTab===st.key;return<div key={st.key} onClick={()=>setSubTab(st.key)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:active?"3px solid "+T.accent:"3px solid transparent",marginBottom:-2,fontWeight:active?800:600,color:active?T.accent:T.textSec,fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-        <span>{st.label}</span>
-        {st.count!==undefined&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:10,background:active?T.accent+"15":T.bg,color:active?T.accent:T.textMut}}>{st.count}</span>}
+      ].map(st=>{const active=subTab===st.key;return<div key={st.key} onClick={()=>setSubTab(st.key)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:active?"3px solid "+(st.alert?T.err:T.accent):"3px solid transparent",marginBottom:-2,fontWeight:active?800:600,color:active?(st.alert?T.err:T.accent):(st.alert?T.err:T.textSec),fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+        <span>{st.alert?"⚠️ "+st.label.replace(/^🔧 /,""):st.label}</span>
+        {st.count!==undefined&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:10,background:st.alert?T.err+"18":active?T.accent+"15":T.bg,color:st.alert?T.err:active?T.accent:T.textMut}}>{st.count}</span>}
       </div>})}
     </div>
     
     {/* ════ OVERVIEW ════ */}
     {subTab==="overview"&&<>
+      {/* V21.27.131: تنبيه مطابقة المخزون — حركات يتيمة/درِفت بيخلّي رصيد غلط */}
+      {recon.hasIssues&&<div onClick={()=>setSubTab("reconcile")} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",padding:"10px 14px",marginBottom:12,borderRadius:12,background:T.err+"0C",border:"1px solid "+T.err+"35",cursor:"pointer"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:FS+6}}>🔧</span>
+          <div>
+            <div style={{fontWeight:800,color:T.err,fontSize:FS-1}}>فيه أصناف رصيدها مش مظبوط — محتاجة مطابقة</div>
+            <div style={{fontSize:FS-2,color:T.textSec,marginTop:2}}>
+              {recon.counts.orphanGroups>0?(recon.counts.orphanGroups+" صنف بحركات يتيمة ("+recon.counts.orphanMoves+" حركة) "):""}
+              {recon.counts.drift>0?((recon.counts.orphanGroups>0?"• ":"")+recon.counts.drift+" صنف رصيده المخزّن مختلف عن حركاته"):""}
+            </div>
+          </div>
+        </div>
+        <Btn small style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>🔧 افتح المطابقة</Btn>
+      </div>}
       {/* Big stats */}
       <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:10,marginBottom:12}}>
         <div onClick={()=>setSubTab("fabric")} style={{padding:14,borderRadius:12,background:T.accent+"06",border:"1px solid "+T.accent+"20",cursor:"pointer"}}>
@@ -1315,6 +1381,92 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       </div>}
     </Card>}
     
+    {/* ════ V21.27.131: STOCK RECONCILIATION ════ */}
+    {subTab==="reconcile"&&<div>
+      <Card style={{marginBottom:12,background:T.bg}}>
+        <div style={{fontSize:FS,fontWeight:800,color:T.text,marginBottom:6}}>🔧 مطابقة المخزون</div>
+        <div style={{fontSize:FS-2,color:T.textSec,lineHeight:1.8}}>
+          الأداة دي بتكتشف سببين شائعين بيخلّوا رصيد الصنف غلط:
+          <br/>• <b>حركات يتيمة</b>: حركات شراء/صرف اتسجّلت لـ id قديم لصنف اتحذف واتعمل تاني (زي «TEST») — كمياتها مش بتتجمّع على الصنف الحالي. الحل: تربطها بالصنف الصحيح بالاسم.
+          <br/>• <b>درِفت الرصيد المخزّن</b>: رصيد الصنف المخزّن مختلف عن صافي حركاته (العرض في المخزن بياخد من الحركات، فده تنظيف للقيمة المخزّنة).
+        </div>
+      </Card>
+
+      {!recon.hasIssues&&<Card style={{textAlign:"center",padding:30}}>
+        <div style={{fontSize:40,marginBottom:8}}>✅</div>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.ok}}>كل الأصناف مطابقة</div>
+        <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>مفيش حركات يتيمة ولا درِفت في الأرصدة.</div>
+      </Card>}
+
+      {/* ── Orphan movements ── */}
+      {recon.orphans.length>0&&<Card title={"🔗 حركات يتيمة ("+recon.counts.orphanGroups+" صنف · "+recon.counts.orphanMoves+" حركة)"} style={{marginBottom:12,borderLeft:"3px solid "+T.err}}>
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>كل صف ده مجموعة حركات مربوطة بـ id صنف مش موجود. اختار الصنف الصحيح (الترشيح بالاسم تلقائي) واضغط «ربط» — هيتم تحويل الحركات للصنف ومزامنة رصيده.</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+            <thead><tr>
+              <th style={TH}>اسم الصنف (من الحركة)</th>
+              <th style={{...TH,textAlign:"center"}}>عدد الحركات</th>
+              <th style={{...TH,textAlign:"center"}}>صافي الكمية</th>
+              <th style={TH}>اربط بالصنف الصحيح</th>
+              <th style={{...TH,textAlign:"center",width:90}}>إجراء</th>
+            </tr></thead>
+            <tbody>
+              {recon.orphans.map(o=>{const tId=reconTargetOf(o);const matched=o.suggestId!=null&&String(tId)===String(o.suggestId);
+                return<tr key={String(o.itemId)} style={{borderBottom:"1px solid "+T.brd}}>
+                  <td style={{...TD,fontWeight:700}}>
+                    {o.itemName}
+                    <div style={{fontSize:FS-4,color:T.textMut,fontWeight:500,marginTop:2}}>id: {String(o.itemId)}{o.itemTypes.length?" · "+o.itemTypes.join("، "):""}</div>
+                  </td>
+                  <td style={{...TD,textAlign:"center"}}>{o.count}</td>
+                  <td style={{...TD,textAlign:"center",fontWeight:700,color:o.net<0?T.err:T.ok}}>{fmt(o.net)}</td>
+                  <td style={{...TD}}>
+                    <Sel value={tId} onChange={v=>setReconPick(p=>({...p,[String(o.itemId)]:v}))}>
+                      <option value="">— اختار الصنف —</option>
+                      {recon.allItems.map(it=><option key={String(it.id)} value={String(it.id)}>{it.name+" ("+it._label+")"}</option>)}
+                    </Sel>
+                    {o.ambiguous&&<div style={{fontSize:FS-4,color:T.warn,marginTop:3}}>⚠️ فيه أكتر من صنف بنفس الاسم — اختار يدوي.</div>}
+                    {matched&&<div style={{fontSize:FS-4,color:T.ok,marginTop:3}}>✓ ترشيح تلقائي بالاسم</div>}
+                  </td>
+                  <td style={{...TD,textAlign:"center"}}>
+                    <Btn small onClick={()=>relinkOrphan(o)} disabled={!canEdit||!tId} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30",opacity:(!canEdit||!tId)?0.5:1}}>🔗 ربط</Btn>
+                  </td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>}
+
+      {/* ── Stored stock drift ── */}
+      {recon.drift.length>0&&<Card title={"🔄 درِفت الأرصدة المخزّنة ("+recon.counts.drift+")"} extra={canEdit?<Btn small onClick={syncAllDrift} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>🔄 مزامنة الكل</Btn>:null} style={{borderLeft:"3px solid "+T.warn}}>
+        <div style={{fontSize:FS-2,color:T.textSec,marginBottom:10,lineHeight:1.7}}>الأصناف دي رصيدها المخزّن (item.stock) مختلف عن صافي حركاتها. العرض في المخزن سليم (بياخد من الحركات)، لكن المزامنة بتنضّف القيمة المخزّنة عشان باقي الحسابات.</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+            <thead><tr>
+              <th style={TH}>الصنف</th>
+              <th style={{...TH,textAlign:"center"}}>النوع</th>
+              <th style={{...TH,textAlign:"center"}}>المخزّن</th>
+              <th style={{...TH,textAlign:"center"}}>صافي الحركات</th>
+              <th style={{...TH,textAlign:"center"}}>الفرق</th>
+              <th style={{...TH,textAlign:"center",width:100}}>إجراء</th>
+            </tr></thead>
+            <tbody>
+              {recon.drift.map(r=><tr key={String(r.id)} style={{borderBottom:"1px solid "+T.brd}}>
+                <td style={{...TD,fontWeight:700}}>{r.name}</td>
+                <td style={{...TD,textAlign:"center",color:T.textSec,fontSize:FS-3}}>{r.label}</td>
+                <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(r.stored)}</td>
+                <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok}}>{fmt(r.net)}</td>
+                <td style={{...TD,textAlign:"center",fontWeight:700,color:r.diff<0?T.err:T.warn}}>{r.diff>0?"+":""}{fmt(r.diff)}</td>
+                <td style={{...TD,textAlign:"center"}}>
+                  <Btn small onClick={()=>syncDriftItem(r)} disabled={!canEdit} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30",opacity:canEdit?1:0.5}}>🔄 مزامنة</Btn>
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </Card>}
+    </div>}
+
     {/* ════ NEW/EDIT PRODUCT POPUP ════ */}
     {showProdForm&&prodForm&&<div className="pop-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:99998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowProdForm(false)}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.cardSolid,borderRadius:16,padding:20,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>

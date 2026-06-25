@@ -12,6 +12,49 @@
 
 ---
 
+## V21.27.131 (2026-06-25) — 🔧 مطابقة المخزون (إصلاح أرصدة الأصناف · TEST)
+
+**المشكلة (Ahmed):** الصنف «TEST» في المخازن (تاب الخامات) بان رصيده 50 وهو
+غلط — «مش مجمّع اللي حصل في الشراء لنفس الصنف».
+
+**السبب الجذري (root cause):** الرصيد المعروض بيتجمّع من حركات المخزن بالـ
+`itemId` **فقط** (`computeStockNetMap` — الـ itemType مالوش دخل). لما صنف
+يتحذف (soft-delete بيشيله من القائمة بس **بيسيب حركاته**) ويتعاد إنشاؤه بـ id
+جديد — أو لما الاستلام اتسجّل لـ id قديم — حركات الشراء بتفضل مربوطة بالـ id
+القديم. فبقت «يتيمة»: مفيش صنف حالي بالـ id ده، وكمياتها مش بتتجمّع على الصنف
+الجديد. النتيجة: `netStockOf(TEST)` مالقاش حركات للـ id الجديد → رجع لـ
+`item.stock` المخزّن (50) بدل ما يجمّع المشتريات.
+
+**الحل — أداة «مطابقة المخزون»:**
+- `src/utils/stockReconcile.js` (جديد، pure):
+  - `analyzeStockReconciliation(data)` → بيكتشف:
+    1. **حركات يتيمة** — مجمّعة بالـ itemId؛ كل مجموعة فيها الاسم، عدد الحركات،
+       صافي الكمية، والترشيح بالاسم للصنف الصحيح (auto لو فيه تطابق واحد،
+       ambiguous لو أكتر من صنف بنفس الاسم). بيستبعد `order`/`service`.
+    2. **درِفت الأرصدة** — صنف له حركات لكن `item.stock` ≠ صافي الـ ledger.
+  - `relinkOrphanMovements(d, orphanId, target)` — بيحوّل كل حركات الـ id اليتيم
+    للصنف الهدف (itemId + itemName + itemType القانوني) + بيزامن رصيد/متوسط تكلفة
+    الهدف من الـ ledger. idempotent (لو الـ id اليتيم مبقاش موجود → 0).
+  - `syncStoredStockFromLedger(d, item)` + `recomputeItemLedgerState(...)`
+    (صافي + متوسط مرجّح بنفس قواعد applyStockDelta) + `getAllStockItems(data)`.
+- `src/pages/WarehousePg.jsx`:
+  - تبويب جديد «🔧 مطابقة المخزون» ببادچ بعدد المشاكل (يتحوّل ⚠️ أحمر لو فيه).
+  - تنبيه أحمر قابل للضغط في «نظرة عامة» بيودّي للتبويب لما `recon.hasIssues`.
+  - جدول الحركات اليتيمة (Sel لاختيار الهدف + زر «🔗 ربط» بتأكيد danger).
+  - جدول الدرِفت (المخزّن/الصافي/الفرق + زر «🔄 مزامنة» مفرد + «مزامنة الكل»).
+  - كل الإجراءات مقيّدة بـ `canEdit` (denyAction) — بتعدّل أرصدة مخزون.
+
+**الاختبار:** `src/utils/__tests__/stockReconcile.test.js` (11 حالة — كشف TEST،
+استبعاد order/service، ambiguous، درِفت، ربط+مزامنة، idempotent). build ✓،
+كل الـ **459 اختبار ناجح**.
+
+**الملفات:** `src/utils/stockReconcile.js` (جديد)،
+`src/utils/__tests__/stockReconcile.test.js` (جديد)، `src/pages/WarehousePg.jsx`،
+`package.json`، `src/constants/index.js`، `public/changelog.json`،
+`public/sw.js`، `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.130 (2026-06-25) — 📐 سياسات تقييم المخزون (Average/FIFO/LIFO)
 
 طلب Ahmed: في تقييم المخزون للقماش/الإكسسوار، اختيار سياسة تسعير (بدون/Average/
