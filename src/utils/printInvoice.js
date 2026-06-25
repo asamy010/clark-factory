@@ -157,9 +157,10 @@ ${PRINT_CSS}
 .inv-box .lbl{font-size:10px;color:#64748B;font-weight:600;margin-bottom:3px}
 .inv-box .val{font-size:13px;color:#1E293B;font-weight:700}
 .inv-totals{display:flex;justify-content:flex-end;margin:14px 0}
-.inv-totals .box{min-width:300px;background:#fff;border-radius:10px;border:1px solid #333;overflow:hidden}
-.inv-totals .row{display:flex;justify-content:space-between;padding:7px 12px;font-size:12px;border-bottom:1px solid #ddd}
-.inv-totals .row.total{font-size:15px;font-weight:800;background:#333;color:#fff;padding:10px 12px;border-bottom:none}
+.inv-totals .box{min-width:300px;background:#fff;border-radius:10px;border:1px solid #000;overflow:hidden}
+.inv-totals .row{display:flex;justify-content:space-between;padding:7px 12px;font-size:12px;border-bottom:1px solid #ccc;color:#000}
+.inv-totals .row.total{font-size:15px;font-weight:800;background:#000;color:#fff !important;padding:10px 12px;border-bottom:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.inv-totals .row.total span{color:#fff !important}
 </style>
 </head>
 <body>

@@ -12,6 +12,45 @@
 
 ---
 
+## V21.27.122 (2026-06-25) — 🖨️ ضبط طباعة المبيعات (هيدر/إجمالي أسود واضح + توسيط)
+
+طلب Ahmed بعد رؤية الطباعة الفعلية: الهيدر يبقى أسود/كتابة بيضاء متوسّطة،
+البيانات متوسّطة، صف الإجمالي أسود/كتابة بيضاء، التفقيط كتابة سوداء واضحة،
+وجملة الإقرار على الجنب مش متوسّطة.
+
+### ROOT CAUSE (مهم — اتسجّل في §10)
+طباعة V21.27.121 كانت بتعرض الهيدر/الإجمالي رمادي فاتح/كتابة غامقة بدل الأسود
+لسببين:
+1. **المتصفح بيشيل خلفيات الألوان في الطباعة** افتراضيًا (توفير حبر) — لازم
+   `-webkit-print-color-adjust:exact;print-color-adjust:exact` على أي عنصر
+   خلفيته ملوّنة عشان تتطبع.
+2. **`PRINT_CSS` فيه `#report-content *,body>*:not(.pbar) *,table *{color:#000
+   !important}`** — بيدوس على أي `color:#fff`. الحل: `color:#fff !important`
+   **inline** (الـ inline important بيغلب الـ stylesheet important) — وكمان على
+   الـ `<span>` الأبناء (القاعدة العامة بتستهدفهم مباشرة، مش بالوراثة).
+   و`th{background:#E5E7EB}` كانت بتدوس على خلفية الهيدر → الحل: الخلفية السوداء
+   على الـ `<th>` نفسه inline مش على الـ `<tr>`.
+
+### التغييرات
+- **`src/utils/docColumns.js`** (`docColumnsHTML` mono):
+  - هيدر: خلفية `#000` على كل `<th>` + `color:#fff !important` + توسيط +
+    print-color-adjust:exact.
+  - كل البيانات + صف إجمالي الكمية متوسّطة.
+  - صندوق الإجمالي: بار `#000` + `<span>`ـات `color:#fff !important` + pca.
+  - التفقيط: خلفية بيضاء + كتابة سوداء واضحة + برواز أسود.
+  - zebra بقت `#f0f0f0` + pca على كل صف عشان تتطبع.
+  - `salesAckHTML`: `text-align:right` (على الجنب) بدل center.
+- **`src/utils/sales/docPrint.js`** (`buildSalesDocWithImagesHTML`): نفس إصلاح
+  mono (هيدر/إجمالي أسود واضح + توسيط + pca).
+- **`src/utils/printInvoice.js`** (`printCreditNote`): `.row.total` →
+  `background:#000;color:#fff !important` + `.row.total span{color:#fff
+  !important}` + pca.
+- **تحقّق مرئي:** اترندرت معاينة بـ Chromium في **وضع الطباعة (emulateMedia
+  print)** مع PRINT_CSS — أكّدت إن الأسود/الأبيض بيبان صح. (مش بس media:screen.)
+- build ✓ · 431 tests ✓. SW: `v21.27.122`.
+
+---
+
 ## V21.27.121 (2026-06-25) — 🖤 تصميم طباعة أبيض/أسود موحّد لمستندات المبيعات
 
 طلب Ahmed (تغيير تصميم فقط — نفس الأعمدة والبيانات): مطبوعات عرض السعر + أمر

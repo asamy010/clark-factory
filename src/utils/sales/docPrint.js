@@ -102,44 +102,48 @@ export function buildPackingListHTML(doc, data){
 export function buildSalesDocWithImagesHTML(doc, data, kind){
   const title = kind === "quote" ? "عرض سعر" : "أمر بيع";
   /* V21.27.121: تصميم أبيض/أسود «كيرفي» (mono) — نفس الأعمدة والبيانات. */
-  const accent = "#333333", bd = "1px solid #b4b4b4";
-  const th = `padding:6px;border:${bd};font-size:11px`;
-  const td = `padding:5px;border:${bd};font-size:11px`;
+  const bd = "1px solid #000";
+  /* V21.27.122: نفس إصلاح mono — print-color-adjust + كتابة بيضاء !important +
+     توسيط، عشان الهيدر/الإجمالي الأسود يبان واضح في الطباعة والـ PDF. */
+  const pca = ";-webkit-print-color-adjust:exact;print-color-adjust:exact";
+  const th = `padding:6px;border:${bd};font-size:11px;background:#000;color:#fff !important;text-align:center${pca}`;
+  const td = `padding:5px;border:${bd};font-size:11px;text-align:center`;
   const { rows, totals } = buildDocColumns(doc.items, { headerDiscountPct: doc.discountPct });
   const items = doc.items || [];
   let body = "", n = 0, di = -1;
   rows.forEach((r, i) => {
-    if(r.isSection){ body += `<tr><td colspan="7" style="background:#e4e4e4;font-weight:800;color:#111;padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`; return; }
+    if(r.isSection){ body += `<tr><td colspan="7" style="background:#e4e4e4;font-weight:800;color:#111;padding:6px;border:${bd};text-align:center${pca}">📑 ${_esc(r.title)}</td></tr>`; return; }
     n++; di++;
-    const rowBg = di % 2 ? "#f5f5f5" : "#ffffff";
-    body += `<tr style="background:${rowBg}">
+    const rowBg = di % 2 ? "#f0f0f0" : "#ffffff";
+    body += `<tr style="background:${rowBg}${pca}">
       <td style="text-align:center;padding:4px;border:${bd}">${_imgCell(_itemImage(items[i], data), 54, 68)}</td>
-      <td style="text-align:center;${td}">${n}</td>
-      <td style="text-align:center;${td};font-weight:700">${_esc(r.code || "—")}</td>
+      <td style="${td}">${n}</td>
+      <td style="${td};font-weight:700">${_esc(r.code || "—")}</td>
       <td style="${td}">${_esc(r.name || "—")}</td>
-      <td style="text-align:center;${td}">${fmt(r.qty)}${r.unit ? " " + _esc(r.unit) : ""}</td>
-      <td style="text-align:left;${td}">${fmt(r.price)}</td>
-      <td style="text-align:left;${td};font-weight:700">${fmt(r.subAfter)}</td>
+      <td style="${td}">${fmt(r.qty)}${r.unit ? " " + _esc(r.unit) : ""}</td>
+      <td style="${td}">${fmt(r.price)}</td>
+      <td style="${td};font-weight:700">${fmt(r.subAfter)}</td>
     </tr>`;
   });
   const totalQ = fmtQtyByUnit(sumQtyByUnit(doc.items));
+  const footTh = `padding:6px;border:${bd};font-size:11px;text-align:center`;
   return `
     <h2 style="color:#111;margin:0 0 4px">🖼 ${title} بالصور — ${_esc(doc.orderNo || doc.quoteNo || "")}</h2>
     <div style="font-size:12px;color:#555;margin-bottom:10px">العميل: ${_esc(doc.customerName || doc.customerNameAdHoc || "—")}${doc.customerPhone ? " · " + _esc(doc.customerPhone) : ""} · التاريخ: ${_esc(doc.date || "")}</div>
     <div style="border-radius:10px;overflow:hidden;border:${bd}">
     <table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="background:${accent};color:#fff">
+      <thead><tr>
         <th style="${th}">الصورة</th><th style="${th}">#</th><th style="${th}">رقم الموديل</th><th style="${th}">الوصف</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">الإجمالي</th>
       </tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="background:#ececec;font-weight:800">
-        <td style="${th}" colspan="4">الإجمالي</td><td style="text-align:center;${th}">${_esc(totalQ)}</td><td style="${th}"></td><td style="${th}"></td>
+      <tfoot><tr style="background:#ececec;font-weight:800${pca}">
+        <td style="${footTh}" colspan="4">الإجمالي</td><td style="${footTh}">${_esc(totalQ)}</td><td style="${footTh}"></td><td style="${footTh}"></td>
       </tr></tfoot>
     </table></div>
-    <div style="margin-top:14px;width:300px;margin-inline-start:auto;font-size:12px;border:1px solid #333;border-radius:10px;overflow:hidden">
-      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#333;color:#fff;font-weight:800;font-size:15px"><span>الإجمالي</span><span>${fmt(totals.subAfter)} ج.م</span></div>
+    <div style="margin-top:14px;width:300px;margin-inline-start:auto;font-size:12px;border:1px solid #000;border-radius:10px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ccc;color:#000"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ccc;color:#000"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#000;font-weight:800;font-size:15px${pca}"><span style="color:#fff !important">الإجمالي</span><span style="color:#fff !important">${fmt(totals.subAfter)} ج.م</span></div>
     </div>
     ${salesAckHTML()}`;
 }

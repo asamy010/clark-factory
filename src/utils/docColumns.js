@@ -140,46 +140,54 @@ export function docColumnsHTML(items, opts = {}){
   const sectionTx = mono ? "#111111" : "#0369A1";
   const footBg = mono ? "#ececec" : "#F1F5F9";
   const pctStr = (p) => (p > 0 ? (Number.isInteger(p) ? p : p) + "%" : "—");
+  /* V21.27.122: في وضع mono — الطباعة بتشيل الخلفيات افتراضيًا و PRINT_CSS فيه
+     `* {color:#000 !important}`، فلازم print-color-adjust:exact + color:#fff
+     بـ !important inline عشان الهيدر/الإجمالي الأسود يبان بكتابة بيضاء واضحة.
+     وكل البيانات + العناوين متوسّطة (طلب Ahmed). */
+  const pca = mono ? ";-webkit-print-color-adjust:exact;print-color-adjust:exact" : "";
+  const aNum = mono ? "center" : "left";
+  const aName = mono ? "center" : "right";
+  const th = `padding:6px;border:${bd}`;
+  const headTh = mono ? `padding:6px;border:${bd};background:#000;color:#fff !important;text-align:center${pca}` : th;
   let dataIdx = -1;
   const body = rows.map(r => {
-    if(r.isSection) return `<tr><td colspan="9" style="background:${sectionBg};font-weight:800;color:${sectionTx};padding:6px;border:${bd}">📑 ${_esc(r.title)}</td></tr>`;
+    if(r.isSection) return `<tr><td colspan="9" style="background:${sectionBg};font-weight:800;color:${sectionTx};padding:6px;border:${bd};text-align:${mono ? "center" : "right"}${pca}">📑 ${_esc(r.title)}</td></tr>`;
     dataIdx++;
-    const rowBg = mono ? (dataIdx % 2 ? "#f5f5f5" : "#ffffff") : "#ffffff";
-    return `<tr style="background:${rowBg}">
+    const rowBg = mono ? (dataIdx % 2 ? "#f0f0f0" : "#ffffff") : "#ffffff";
+    return `<tr style="background:${rowBg}${pca}">
         <td style="text-align:center;padding:5px;border:${bd}">${_esc(r.code) || "—"}</td>
-        <td style="padding:5px;border:${bd}">${_esc(r.name) || "—"}</td>
+        <td style="text-align:${aName};padding:5px;border:${bd}">${_esc(r.name) || "—"}</td>
         <td style="text-align:center;padding:5px;border:${bd}">${_esc(r.unit) || "—"}</td>
         <td style="text-align:center;padding:5px;border:${bd}">${fmt(r.qty)}</td>
-        <td style="text-align:left;padding:5px;border:${bd}">${fmt(r.price)}</td>
-        <td style="text-align:left;padding:5px;border:${bd}">${fmt(r.subBefore)}</td>
+        <td style="text-align:${aNum};padding:5px;border:${bd}">${fmt(r.price)}</td>
+        <td style="text-align:${aNum};padding:5px;border:${bd}">${fmt(r.subBefore)}</td>
         <td style="text-align:center;padding:5px;border:${bd};color:${discColor}">${pctStr(r.discountPct)}</td>
-        <td style="text-align:left;padding:5px;border:${bd};color:${discColor}">${r.discount > 0 ? "− " + fmt(r.discount) : "—"}</td>
-        <td style="text-align:left;padding:5px;border:${bd}"><b>${fmt(r.subAfter)}</b></td>
+        <td style="text-align:${aNum};padding:5px;border:${bd};color:${discColor}">${r.discount > 0 ? "− " + fmt(r.discount) : "—"}</td>
+        <td style="text-align:${aNum};padding:5px;border:${bd}"><b>${fmt(r.subAfter)}</b></td>
       </tr>`;
   }).join("");
-  const th = `padding:6px;border:${bd}`;
   /* V21.27.107: صف إجمالي الكمية (مجمّع حسب الوحدة) تحت عمود الكمية */
-  const qtyFoot = `<tfoot><tr style="background:${footBg};font-weight:800">
-        <td style="${th}"></td><td style="${th}">الإجمالي</td><td style="${th}"></td>
+  const qtyFoot = `<tfoot><tr style="background:${footBg};font-weight:800${pca}">
+        <td style="${th}"></td><td style="${th};text-align:${mono ? "center" : "right"}">الإجمالي</td><td style="${th}"></td>
         <td style="text-align:center;${th}">${_esc(fmtQtyByUnit(totals.qtyByUnit))}</td>
         <td style="${th}" colspan="5"></td>
       </tr></tfoot>`;
-  const tableHTML = `<div style="${mono ? "border-radius:10px;overflow:hidden;border:" + bd + ";" : ""}">
+  const tableHTML = `<div style="${mono ? "border-radius:10px;overflow:hidden;border:1px solid #000;" : ""}">
     <table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr style="background:${accent};color:#fff">
-        <th style="${th}">الكود</th><th style="${th}">اسم الصنف</th><th style="${th}">الوحدة</th><th style="${th}">الكمية</th><th style="${th}">السعر</th><th style="${th}">إجمالي قبل الخصم</th><th style="${th}">نسبة الخصم</th><th style="${th}">الخصم</th><th style="${th}">إجمالي بعد الخصم</th>
+      <thead><tr style="${mono ? "" : "background:" + accent + ";color:#fff"}">
+        <th style="${headTh}">الكود</th><th style="${headTh}">اسم الصنف</th><th style="${headTh}">الوحدة</th><th style="${headTh}">الكمية</th><th style="${headTh}">السعر</th><th style="${headTh}">إجمالي قبل الخصم</th><th style="${headTh}">نسبة الخصم</th><th style="${headTh}">الخصم</th><th style="${headTh}">إجمالي بعد الخصم</th>
       </tr></thead>
       <tbody>${body}</tbody>
       ${qtyFoot}
     </table></div>`;
   if(opts.noTotals) return tableHTML;
   const totalsHTML = mono
-    ? `<div style="margin-top:14px;width:300px;margin-inline-start:auto;font-size:12px;border:1px solid #333;border-radius:10px;overflow:hidden">
-        <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
-        <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ddd"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
-        <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#333;color:#fff;font-weight:800;font-size:15px"><span>الإجمالي</span><span>${fmt(totals.subAfter)} ج.م</span></div>
+    ? `<div style="margin-top:14px;width:300px;margin-inline-start:auto;font-size:12px;border:1px solid #000;border-radius:10px;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ccc;color:#000"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #ccc;color:#000"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#000;font-weight:800;font-size:15px${pca}"><span style="color:#fff !important">الإجمالي</span><span style="color:#fff !important">${fmt(totals.subAfter)} ج.م</span></div>
       </div>
-      <div style="margin-top:8px;padding:8px 10px;background:#f4f4f4;border:1px solid #ccc;border-radius:8px;font-size:12px;font-weight:700;color:#333">${_esc(tafqitEGP(totals.subAfter))}</div>`
+      <div style="margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #000;border-radius:8px;font-size:12px;font-weight:700;color:#000">${_esc(tafqitEGP(totals.subAfter))}</div>`
     : `<div style="margin-top:12px;width:340px;margin-inline-start:auto;font-size:13px">
         <div style="display:flex;justify-content:space-between;padding:3px 0"><span>الإجمالي قبل الخصم</span><b>${fmt(totals.subBefore)}</b></div>
         <div style="display:flex;justify-content:space-between;padding:3px 0;color:#EF4444"><span>إجمالي الخصومات${totals.discountPct > 0 ? " (" + totals.discountPct + "%)" : ""}</span><b>${totals.discount > 0 ? "− " + fmt(totals.discount) : fmt(0)}</b></div>
@@ -189,11 +197,12 @@ export function docColumnsHTML(items, opts = {}){
   return tableHTML + totalsHTML;
 }
 
-/* V21.27.121: إقرار الاستلام + توقيع المستلم (تذييل موحّد لمطبوعات المبيعات). */
+/* V21.27.121: إقرار الاستلام + توقيع المستلم (تذييل موحّد لمطبوعات المبيعات).
+   V21.27.122: محاذاة على الجنب (يمين) بدل التوسيط (طلب Ahmed). */
 export function salesAckHTML(){
-  return `<div style="margin-top:30px;text-align:center;font-size:12.5px;color:#333;line-height:2;font-weight:600;max-width:640px;margin-inline:auto">
+  return `<div style="margin-top:30px;text-align:right;font-size:12.5px;color:#000;line-height:2;font-weight:600">
       اقرأ أنا الموقع أدناه بأنني استلمت هذه البضاعة المذكورة عاليه وأتعهد بسداد قيمتها وقت طلبها.<br>
       وأعتبر مسؤولاً مسؤولية كاملة في حالة تبديد هذه البضاعة أو تلفها.
     </div>
-    <div style="margin-top:26px;font-size:13px;font-weight:700;color:#111">توقيع المستلم: ________________________</div>`;
+    <div style="margin-top:26px;text-align:right;font-size:13px;font-weight:700;color:#000">توقيع المستلم: ________________________</div>`;
 }
