@@ -22,7 +22,7 @@ export function LoginScreen(){
     <div style={{width:"100%",maxWidth:420,background:T.card,backdropFilter:"blur(20px)",borderRadius:28,padding:44,border:"1px solid "+T.brd,boxShadow:T.shadow}}>
       <div style={{textAlign:"center",marginBottom:36}}>
         <img src={CLARK_LOGO} alt="CLARK" style={{width:200,marginBottom:12}}/>
-        <div style={{fontSize:FS,color:T.textSec}}>نظام ادارة القص والتشغيل</div>
+        <div style={{fontSize:FS,color:T.textSec}}>CLARK ERP System</div>
       </div>
       <div style={{marginBottom:16}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>البريد الالكتروني</label><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@email.com" type="email" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>
       <div style={{marginBottom:20}}><label style={{display:"block",fontSize:FS,color:T.textSec,marginBottom:6,fontWeight:600}}>كلمة المرور</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={iS}/></div>

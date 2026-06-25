@@ -1,5 +1,14 @@
 [
  {
+  "version": "V21.27.118",
+  "date": "2026-06-25",
+  "types": ["improvement"],
+  "title": "✏️ Phase 118 — تعديل نص شاشة الدخول",
+  "changes": [
+   { "type": "improvement", "text": "نص شاشة تسجيل الدخول تحت اللوجو اتغيّر من «نظام ادارة القص والتشغيل» إلى «CLARK ERP System»." }
+  ]
+ },
+ {
   "version": "V21.27.117",
   "date": "2026-06-24",
   "types": ["feature", "improvement"],
