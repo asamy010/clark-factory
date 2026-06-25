@@ -12,6 +12,60 @@
 
 ---
 
+## V21.27.132 (2026-06-25) — 🏦 إصلاح: تعديل حركة الخزنة بيرجع زي ما كان (نادر)
+
+**المشكلة (Ahmed):** أحياناً لما يعدّل حركة خزنة، التعديل مش بيتثبّت وبيرجع
+لقيمته القديمة قبل التعديل. «محصلش كتير ولكن حصل مرات».
+
+**السبب الجذري (root cause):** الخزنة مخزّنة كـ split collection
+(`treasuryDays/{YYYY-MM-DD}`). بعد أي تعديل، `upConfig` بيعمل optimistic update
++ بيسجّل «pending write» بالقيمة الجديدة، وبعدين كل ما listener لأي split
+collection يضرب `rebuild()`، فيه حلقة تنظيف بتقرر إمتى تمسح الـ pending عن
+طريق `_stableMatch(serverEntry, pendingEntry)` — مقارنة **قائمة حقول محددة**
+(allowlist) مش `_deepEqual`. الحقول كانت: `amount, date, type, category,
+account, desc, transferId, weekId, empId, custId, supplierId, status,
+fromAccount, toAccount, note, approved*, rejected*, endedAt, endedBy, read`.
+
+لكن حركة الخزنة بيتعدّل فيها كمان حقلين مش موجودين في القائمة دي: **`notes`
+(الملاحظات)** و**`season` (الموسم)** (شوف `editTx`/`saveTx` في TreasuryPg —
+`tx.notes=txNotes; tx.season=txSeason`). فلو المستخدم عدّل الملاحظات (أو الموسم)
+**بس** من غير ما يغيّر أي حقل تاني:
+1. النسخة المؤقتة فيها `notes` الجديدة؛ نسخة السيرفر لسه فيها القديمة.
+2. كل الحقول اللي `_stableMatch` بيقارنها متطابقة (المبلغ/التاريخ/...الخ).
+3. `_stableMatch` بيرجّع `true` (الملاحظات مش متقارنة) → `pendingMap.delete(id)`
+   بيمسح التعديل المؤقت **بدري** أثناء سباق listeners (أي كتابة split تانية
+   — جهاز تاني، أو custPayments/audit المرتبطة — بتضرب rebuild قبل ما كتابة
+   `treasuryDays` تكمل round-trip).
+4. الـ merge بيرجع لنسخة السيرفر القديمة → **التعديل اختفى ورجع زي ما كان**.
+
+race-gated، فبيحصل «مرات» بس (لما التعديل يلمس notes/season فقط ويتزامن مع
+rebuild في نص النافذة) — مطابق تمامًا لوصف المستخدم. ده **نفس فئة** إصلاحَي
+V21.9.14 (status على التحويلات) وV21.9.244 (endedAt على الإشعارات) — حقل
+mutable ناقص من `_stableMatch`.
+
+**الحل:** إضافة سطرين في `_stableMatch` (App.jsx):
+```js
+if(!eq(server.notes,pending.notes))return false;
+if(!eq(server.season,pending.season))return false;
+```
+دلوقتي النسخة المؤقتة بتتمسك لحد ما السيرفر يثبّت التعديل فعلاً، والـ
+`upConfigTx` retry بيكمل الكتابة. آمن: الحقلين undefined في السجلات اللي مش
+بتستخدمهم (`eq(undefined,undefined)=true`) → صفر أثر على باقي split collections؛
+والتغيير يقدر بس «يحتفظ» بالـ pending أطول (الاتجاه الآمن) مش يمسحه غلط. مفيش
+خطر never-clear لأن العميل بيكتب نفس `notes`/`season` في الـ day-doc ويقراهم
+verbatim → بيتطابقوا بعد ما الكتابة تنزل.
+
+**ليه surgical (مش extract+unit-test):** `_stableMatch` closure داخل rebuild في
+hot path (App.jsx، 7000+ سطر). البروتوكول §0.1 بيحذّر من refactors غير ضرورية
+في كود high-blast-radius. الإصلاح سطرين بنفس نمط سابقتين موثّقتين في نفس
+الدالة. الاتجاه آمن أحادي (retain-longer مستحيل يسبب فقدان بيانات). build ✓ +
+كل الـ 459 اختبار ناجح (مفيش regressions).
+
+**الملفات:** `src/App.jsx`، `package.json`، `src/constants/index.js`،
+`public/changelog.json`، `public/sw.js`، `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.131 (2026-06-25) — 🔧 مطابقة المخزون (إصلاح أرصدة الأصناف · TEST)
 
 **المشكلة (Ahmed):** الصنف «TEST» في المخازن (تاب الخامات) بان رصيده 50 وهو

@@ -3823,6 +3823,24 @@ export default function App(){
           if(!eq(server.category,pending.category))return false;
           if(!eq(server.account,pending.account))return false;
           if(!eq(server.desc,pending.desc))return false;
+          /* V21.27.132 ROOT-CAUSE FIX (treasury edit "مش بتتعدل وبترجع زي ما كانت"
+             — EXACT same class as V21.9.14 status + V21.9.244 endedAt below):
+             notes (ملاحظات) + season (الموسم) are user-editable on a treasury
+             entry (editTx → saveTx writes tx.notes / tx.season) but were ABSENT
+             from _stableMatch's compared fields. So an edit that changed ONLY
+             the notes (or only the season) left EVERY compared field equal
+             between the stale server copy and the optimistic copy →
+             _stableMatch(serverOld, pendingNew) returned true → pendingMap.delete
+             cleared the optimistic edit PREMATURELY during a split-listener race
+             (any sibling/cross-device split write echoing before the treasuryDays
+             write round-trips) → the UI reverted to the pre-edit server value.
+             Race-gated, so it only bit "مرات" (sometimes), matching the report.
+             These keys are undefined on records that don't carry them
+             (eq(undefined,undefined)=true) so every other split collection's
+             dedup is untouched; the change can only RETAIN a pending write
+             longer (the safe direction), never clear one wrongly. */
+          if(!eq(server.notes,pending.notes))return false;
+          if(!eq(server.season,pending.season))return false;
           /* Specific cross-checks (cheap and accurate) */
           if(!eq(server.transferId,pending.transferId))return false;
           if(!eq(server.weekId,pending.weekId))return false;
