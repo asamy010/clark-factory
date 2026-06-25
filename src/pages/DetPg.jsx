@@ -752,15 +752,18 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
   const t=calcOrder(order);const accItems=order.accItems||[];const accAll=t.accPer*t.cutQty;
   const activeFabs=FKEYS.filter(k=>order["fabric"+k]);
 
-  /* V21.13.3: تبسيط التصنيفات — 5 فقط في صف واحد، الافتراضي «تشغيل من القص للتعبئة» */
+  /* V21.13.3: تبسيط التصنيفات — 5 فقط في صف واحد، الافتراضي «تشغيل من القص للتعبئة»
+     V21.27.124: «تغليف» اتشال واتحط مكانه «مصروف على القطعة» بعد «تشغيل من القص
+     للتعبئة» مباشرة (طلب Ahmed). */
   const EXTRA_COST_CATEGORIES=[
     {name:"تشغيل من القص للتعبئة",icon:"🏭"},
+    {name:"مصروف على القطعة",icon:"💸"},
     {name:"هالك",icon:"🔴"},
     {name:"نقل",icon:"🚚"},
-    {name:"تغليف",icon:"📦"},
     {name:"أخرى",icon:"➕"}
   ];
-  const getCategoryIcon=(name)=>{const c=EXTRA_COST_CATEGORIES.find(x=>x.name===name);return c?c.icon:"➕"};
+  /* V21.27.124: أيقونة «تغليف» محفوظة للإدخالات القديمة رغم إزالة زرها. */
+  const getCategoryIcon=(name)=>{const c=EXTRA_COST_CATEGORIES.find(x=>x.name===name);if(c)return c.icon;if(name==="تغليف")return "📦";return "➕"};
 
   /* Prev/Next navigation */
   const sortedIds=sortOrders(data.orders).map(o=>o.id);const curIdx=sortedIds.indexOf(sel);
