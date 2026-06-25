@@ -16,6 +16,8 @@ import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
 import { fmt, r2 } from "../../utils/format.js";
 import { getConfirmedStock, getConfirmedSeriesStock, calcOrder, orderCostPerPiece } from "../../utils/orders.js";
+import { computeStockNetMap, netStockOf } from "../../utils/stockLedger.js";
+import { VALUATION_POLICIES, valuateItem } from "../../utils/accounting/inventoryPolicies.js";
 import { showToast } from "../../utils/popups.js";
 import { printPage } from "../../utils/print.js";
 import { exportExcel } from "../../utils/print-extras.js";
@@ -25,7 +27,10 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
   const [stockType, setStockType] = useState("series"); /* series | broken | all */
   const [groupByModel, setGroupByModel] = useState(true); /* V21.22.5: الجرد بالموديل (افتراضي) */
   const [expanded, setExpanded] = useState(() => new Set()); /* modelNo المفتوحة لعرض أوامرها */
+  /* V21.27.130: سياسة تقييم الخامات/الإكسسوار (none|average|fifo|lifo) */
+  const [policy, setPolicy] = useState("none");
   const accent = kind === "finished" ? "#0EA5E9" : "#D97706";
+  const policyMeta = VALUATION_POLICIES.find(p => p.key === policy) || VALUATION_POLICIES[0];
 
   /* ── المنتجات الجاهزة (سيري + كسر كصفوف منفصلة) ── */
   const finished = useMemo(() => {
@@ -58,20 +63,24 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
     return { rows };
   }, [kind, data.orders]);
 
-  /* ── الخامات + الإكسسوار ── */
+  /* ── الخامات + الإكسسوار ──
+     V21.27.130: الرصيد = صافي حركات المخزون (استلامات+إذونات+مرتجعات)، والقيمة
+     حسب سياسة التسعير المختارة (بدون/متوسط/FIFO/LIFO). */
+  const matNetMap = useMemo(() => computeStockNetMap(data.stockMovements), [data.stockMovements]);
   const materials = useMemo(() => {
     if(kind !== "materials") return [];
+    const moves = data.stockMovements || [];
     const mk = (arr, label, icon) => {
       const rows = (arr || []).map(x => {
-        const qty = Number(x.stock) || 0;
-        const unitCost = Number(x.avgCost) || Number(x.price) || 0;
-        return { id: x.id, name: x.name || "—", qty, unit: x.unit || "", unitCost: r2(unitCost), value: r2(qty * unitCost) };
+        const qty = netStockOf(matNetMap, x);
+        const v = valuateItem(x, qty, moves, policy);
+        return { id: x.id, name: x.name || "—", qty, unit: x.unit || "", unitCost: r2(v.unitCost), value: r2(v.value) };
       }).filter(r => r.qty !== 0);
       rows.sort((a, b) => b.value - a.value);
       return { label, icon, rows, total: r2(rows.reduce((s, r) => s + r.value, 0)), count: rows.length, qtyNeg: rows.some(r => r.qty < 0) };
     };
     return [mk(data.fabrics, "الخامات", "🧵"), mk(data.accessories, "الإكسسوار", "🧷")];
-  }, [kind, data.fabrics, data.accessories]);
+  }, [kind, data.fabrics, data.accessories, data.stockMovements, matNetMap, policy]);
 
   const matchesQ = (s) => !q.trim() || String(s || "").toLowerCase().includes(q.trim().toLowerCase());
   const fRows = finished.rows
@@ -115,11 +124,12 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
       h += `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:6px">النوع المعروض: ${stockType === "all" ? "سيري + كسر" : TYPE_LBL[stockType]}</div>`;
       h += tbl(head, body, foot);
     } else {
+      h += `<div style="text-align:center;font-size:11px;color:#64748b;margin-bottom:6px">سياسة التقييم: <b>${policyMeta.label}</b></div>`;
       matFiltered.forEach(sec => {
         h += `<h3 style="color:${accent}">${sec.icon} ${sec.label}</h3>`;
         const body = sec.vRows.map(r => `<tr><td style="border:1px solid #e2e8f0;padding:5px">${r.name}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.qty)} ${r.unit}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.unitCost)}</td><td style="border:1px solid #e2e8f0;padding:5px;text-align:center">${fmt(r.value)}</td></tr>`).join("");
         const foot = `<tfoot><tr style="background:#fff7ed;font-weight:800"><td colspan="3" style="padding:6px;border:1px solid #cbd5e1">إجمالي ${sec.label} (${sec.vRows.length})</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${fmt(sec.total)}</td></tr></tfoot>`;
-        h += tbl(["الصنف", "الرصيد", "متوسط التكلفة", "القيمة"], body, foot);
+        h += tbl(["الصنف", "الرصيد", "تكلفة الوحدة" + (policy !== "none" ? " (" + policyMeta.short + ")" : ""), "القيمة"], body, foot);
       });
       h += `<h3 style="text-align:left;color:${accent}">الإجمالي الكلي: ${fmt(matGrand)} ج.م</h3>`;
     }
@@ -135,10 +145,10 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
         fRows.forEach(r => aoa.push(showType ? [r.modelNo, TYPE_LBL[r.type], r.qty, r.sell, r.cost, r.sellVal, r.costVal, r.profit] : [r.modelNo, r.qty, r.sell, r.cost, r.sellVal, r.costVal, r.profit]));
         aoa.push(showType ? ["الإجمالي", "", fTot.qty, "", "", fTot.sellVal, fTot.costVal, fTot.profit] : ["الإجمالي", fTot.qty, "", "", fTot.sellVal, fTot.costVal, fTot.profit]);
       } else {
-        aoa.push(["تقييم المخزون — الخامات والإكسسوار"], []);
+        aoa.push(["تقييم المخزون — الخامات والإكسسوار — سياسة: " + policyMeta.label], []);
         matFiltered.forEach(sec => {
           aoa.push([sec.label]);
-          aoa.push(["الصنف", "الرصيد", "الوحدة", "متوسط التكلفة", "القيمة"]);
+          aoa.push(["الصنف", "الرصيد", "الوحدة", "تكلفة الوحدة" + (policy !== "none" ? " (" + policyMeta.short + ")" : ""), "القيمة"]);
           sec.vRows.forEach(r => aoa.push([r.name, r.qty, r.unit, r.unitCost, r.value]));
           aoa.push(["إجمالي " + sec.label, "", "", "", sec.total], []);
         });
@@ -199,6 +209,18 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
           <KPI label="إجمالي قيمة المواد" value={matGrand} color="#0EA5E9" />
         </div>
       )}
+
+      {/* V21.27.130: منتقي سياسة التقييم — للخامات/الإكسسوار فقط */}
+      {kind === "materials" && <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: T.bg, border: "1px solid " + T.brd }}>
+        <div style={{ fontSize: FS - 2, fontWeight: 700, color: T.textSec, marginBottom: 8 }}>📐 سياسة تقييم المخزون <span style={{ fontWeight: 600, color: T.textMut }}>(عند اختلاف الأسعار وتقادم المخزون)</span></div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {VALUATION_POLICIES.map(p => {
+            const active = policy === p.key;
+            return <div key={p.key} onClick={() => setPolicy(p.key)} title={p.desc} style={{ cursor: "pointer", padding: "7px 14px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, border: "1.5px solid " + (active ? accent : T.brd), background: active ? accent : T.cardSolid, color: active ? "#fff" : T.text, transition: "all .15s" }}>{p.label}</div>;
+          })}
+        </div>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginTop: 8, lineHeight: 1.6 }}>{policyMeta.desc}</div>
+      </div>}
 
       <div style={{ marginBottom: 10, maxWidth: 320 }}>
         <Inp value={q} onChange={setQ} placeholder={kind === "finished" ? "بحث بالموديل..." : "بحث بالصنف..."} />
@@ -269,7 +291,7 @@ export function InventoryValuationReport({ data, kind = "finished", isMob }){
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
                   <thead><tr style={{ background: accent }}>
-                    <th style={{ ...th, textAlign: "right" }}>الصنف</th><th style={th}>الرصيد</th><th style={th}>متوسط التكلفة</th><th style={th}>القيمة</th>
+                    <th style={{ ...th, textAlign: "right" }}>الصنف</th><th style={th}>الرصيد</th><th style={th}>تكلفة الوحدة{policy !== "none" ? " (" + policyMeta.short + ")" : ""}</th><th style={th}>القيمة</th>
                   </tr></thead>
                   <tbody>
                     {sec.vRows.length === 0 ? (
