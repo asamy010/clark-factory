@@ -27,7 +27,7 @@ import { ImageEditorModal } from "../components/ImageEditorModal.jsx";
 import {
   AR_RATIOS, IMAGE_SIZES, TIERS, SHOT_TYPES, GENDERS, EXPRESSIONS, CHILD_AGES, FRAMINGS,
   SKIN_TONES, LIGHTINGS, CAMERA_PRESETS, CAM_STYLES, REALISM_LEVELS,
-  CAMERA_ANGLES, GAZES, COLOR_GRADES,
+  CAMERA_ANGLES, GAZES, COLOR_GRADES, NATIONALITIES,
   COVER_STYLES, mergePresets, buildStudioPrompt, buildEditPrompt, buildCoverPrompt,
   buildRealismSuffix, cameraPromptOf, stylePromptOf, describeStudioOptions,
   LOGO_POSITIONS, LOGO_SIZES, buildLogoPrompt, SCENERY_BACKGROUNDS, QUICK_EDITS, FOOTWEAR_CLAUSE,
@@ -140,6 +140,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const [genderId, setGenderId] = useState("boy");
   const [expressionId, setExpressionId] = useState("smile"); /* افتراضي ابتسامة */
   const [ageId, setAgeId] = useState("a4_6");
+  const [nationalityId, setNationalityId] = useState("auto"); /* V21.27.133: جنسية الطفل — تلقائي افتراضي (مايتحقنش إلا لو اتختار) */
   const [poseId, setPoseId] = useState("front");
   const [backgroundId, setBackgroundId] = useState("studio_white");
   const [framingId, setFramingId] = useState("auto"); /* V21.27.45: افتراضي «تلقائي» — مايغيّرش البرومبت الجاهز إلا لو المستخدم اختار إطار */
@@ -313,7 +314,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   const groupIsAdult = openGroup === "FOR HIM" || openGroup === "FOR HER";
   const ageInert = readyMode && groupIsAdult;  /* العمر باهت لجروبات الكبار */
   const optInert = readyMode;                  /* باقي خيارات الموديل باهتة */
-  const opts = { shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, camAngleId, gazeId, colorGradeId, notes };
+  const opts = { shotType, genderId, expressionId, ageId, nationalityId, poseId, backgroundId, framingId, skinToneId, lightingId, camAngleId, gazeId, colorGradeId, notes };
   /* البرومبت الفعلي: حر (لو مفعّل وفيه نص) → وإلا المبني من الـ chips (وضع
      «موديل مرجعي» buildStudioPrompt بيرجّع برومبت التلبيس المرجعي). */
   /* V21.26.0: البرومبت الحر يُستخدم فقط في وضع «موديل» ولمّا المستخدم يفعّله
@@ -499,6 +500,10 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const isAdultGroup = group && ADULT_GROUPS.includes(group);
     const toneObj = SKIN_TONES.find(s => s.id === skinToneId);
     const toneTxt = (toneObj && skinToneId !== "any" && toneObj.prompt) ? toneObj.prompt : "";
+    /* V21.27.133: جنسية الطفل المختارة تتحقن في البرومبت الجاهز (override لأي
+       جنسية مكتوبة جوّه البرومبت). auto=مايتحقنش. أمر Ahmed. */
+    const natObj = NATIONALITIES.find(x => x.id === nationalityId);
+    const natTxt = (natObj && nationalityId !== "auto" && natObj.prompt) ? natObj.prompt : "";
     /* V21.27.41: طبّق «الإطار» (قُرب اللقطة/القَص) المختار على أي برومبت جاهز —
        override لأي إطار مكتوب جوّه البرومبت، عشان المستخدم يتحكّم في اللقطة
        (قريبة/نصفي/٣٤/كامل/واسعة) زي ما بيتحكّم في العمر. أمر Ahmed: ضروري. */
@@ -516,6 +521,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const styleTxt   = stylePromptOf(camStyle);
     const attrLines = [];
     if(!hadAgePlaceholder && !isAdultGroup) attrLines.push("- Subject age: " + ageTxt);
+    if(natTxt)     attrLines.push("- Subject nationality / ethnicity: render the subject as " + natTxt + " (apply these facial features and skin while keeping the EXACT outfit, garment colors and fabric unchanged)");
     if(toneTxt)    attrLines.push("- Subject skin tone: " + toneTxt);
     if(framingTxt) attrLines.push("- Shot framing / crop: " + framingTxt);
     if(angleTxt)   attrLines.push("- Camera angle: " + angleTxt);
@@ -759,6 +765,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(o.genderId) setGenderId(o.genderId);
     if(o.expressionId) setExpressionId(o.expressionId);
     if(o.ageId) setAgeId(o.ageId);
+    if(o.nationalityId) setNationalityId(o.nationalityId);
     if(o.poseId) setPoseId(o.poseId);
     if(o.backgroundId) setBackgroundId(o.backgroundId);
     if(o.framingId) setFramingId(o.framingId);
@@ -856,7 +863,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
   }, []);
   /* لقطة كل الإعدادات الحالية — لإعادة فتح الجلسة وتعديلها */
   const snapshotSettings = () => ({
-    shotType, genderId, expressionId, ageId, poseId, backgroundId, framingId, skinToneId, lightingId, notes,
+    shotType, genderId, expressionId, ageId, nationalityId, poseId, backgroundId, framingId, skinToneId, lightingId, notes,
     camAngleId, gazeId, colorGradeId,
     tier, aspectRatio, imageSize, cameraId, camStyle, realismOn, realismLevel, customOn, customPrompt, storageFolder,
   });
@@ -866,6 +873,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     if(s.genderId) setGenderId(s.genderId);
     if(s.expressionId) setExpressionId(s.expressionId);
     if(s.ageId) setAgeId(s.ageId);
+    if(s.nationalityId) setNationalityId(s.nationalityId);
     if(s.poseId) setPoseId(s.poseId);
     if(s.backgroundId) setBackgroundId(s.backgroundId);
     if(s.framingId) setFramingId(s.framingId);
@@ -1192,12 +1200,14 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
               <div style={{ fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 10 }}>🎛️ الخيارات</div>
               {readyMode && (
                 <div style={{ fontSize: FS - 3, color: T.textSec, background: T.accent + "0D", border: "1px solid " + T.accent + "22", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.7 }}>
-                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — بيتطبّق على البرومبت: <b>{groupIsAdult ? "" : "العمر + "}الإطار + زاوية الكاميرا + اتجاه النظر + درجة الألوان + لون البشرة + العدسة + الإضاءة + التعبير + الملاحظات</b>. (كل واحد على «تلقائي» مابيتحقنش — اختار قيمة عشان تتطبّق). + تعزيز الواقعية (لو مفعّل). الوقفة/الخلفية للوضع اليدوي بس.
+                  📸 إنت في مجموعة برومبت جاهز «{openGroup}» — بيتطبّق على البرومبت: <b>{groupIsAdult ? "" : "العمر + الجنسية + "}الإطار + زاوية الكاميرا + اتجاه النظر + درجة الألوان + لون البشرة + العدسة + الإضاءة + التعبير + الملاحظات</b>. (كل واحد على «تلقائي» مابيتحقنش — اختار قيمة عشان تتطبّق). + تعزيز الواقعية (لو مفعّل). الوقفة/الخلفية للوضع اليدوي بس.
                 </div>
               )}
               {isReference && <div style={{ fontSize: FS - 2, color: T.textMut, lineHeight: 1.7 }}>في وضع «موديل مرجعي» البرومبت بيتنفّذ تلقائياً — كل التفاصيل (الوقفة/الخلفية/الإضاءة/الهوية) بتتاخد من صورة الموديل (Image 1)، والقطعة من Image 2. مفيش برومبت تكتبه.</div>}
               {isModelShot && chipRow("الجنس", GENDERS, genderId, setGenderId, optInert)}
               {((isModelShot && isChild) || readyMode) && chipRow("العمر", CHILD_AGES, ageId, setAgeId, ageInert)}
+              {/* V21.27.133: جنسية الطفل — تتحقن في البرومبت الجاهز واليدوي (تلقائي=مايتحقنش) */}
+              {((isModelShot && isChild) || readyMode) && chipRow("جنسية الطفل 🌍", NATIONALITIES, nationalityId, setNationalityId)}
               {/* V21.27.42: التعبير بقى مؤثّر في البرومبت الجاهز كمان */}
               {(isModelShot || readyMode) && chipRow("تعبير الوجه 😊", EXPRESSIONS, expressionId, setExpressionId)}
               {isModelShot && (

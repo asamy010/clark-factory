@@ -84,6 +84,28 @@ export const CHILD_AGES = [
   { id: "teen",   label: "مراهق (١٣-١٦)",    prompt: "13 to 16 year old teenager" },
 ];
 
+/* ── V21.27.133: جنسية الطفل ──
+   تحكّم في جنسية/ملامح الطفل المُولّد. أول خيار «تلقائي» (subj+prompt فاضي =
+   مايتحقنش — مايغيّرش البرومبت الجاهز إلا لو المستخدم اختار جنسية). 10 جنسيات
+   فعلية من ضمنها المصري (طلب Ahmed) — من غير الصيني.
+   - subj   = صفة مختصرة تتحط قبل وصف الموديل في البرومبت اليدوي
+              (buildStudioPrompt): "Egyptian 4 to 6 year old child girl ...".
+   - prompt = جملة ملامح كاملة تتحقن كسطر attribute في البرومبت الجاهز
+              (runSavedPrompt) — override لأي وصف مخالف جوّه البرومبت. */
+export const NATIONALITIES = [
+  { id: "auto",     label: "تلقائي",      subj: "",          prompt: "" },
+  { id: "egyptian", label: "مصري 🇪🇬",     subj: "Egyptian",  prompt: "an Egyptian child with authentic Middle-Eastern / North-African Egyptian facial features" },
+  { id: "gulf",     label: "خليجي 🇸🇦",    subj: "Gulf Arab", prompt: "a Gulf Arab (Khaleeji) child with Arabian-Peninsula facial features" },
+  { id: "moroccan", label: "مغربي 🇲🇦",    subj: "Moroccan",  prompt: "a Moroccan child with North-African Maghrebi facial features" },
+  { id: "levant",   label: "شامي 🇱🇧",     subj: "Levantine", prompt: "a Levantine Arab child (Lebanese / Syrian look) with Eastern-Mediterranean facial features" },
+  { id: "turkish",  label: "تركي 🇹🇷",     subj: "Turkish",   prompt: "a Turkish child with Anatolian facial features" },
+  { id: "european", label: "أوروبي 🇪🇺",   subj: "European",  prompt: "a European child with fair Central-European facial features" },
+  { id: "british",  label: "بريطاني 🇬🇧",  subj: "British",   prompt: "a British child with Northern-European facial features" },
+  { id: "american", label: "أمريكي 🇺🇸",   subj: "American",  prompt: "an American child with a natural everyday American look" },
+  { id: "indian",   label: "هندي 🇮🇳",     subj: "Indian",    prompt: "an Indian child with South-Asian facial features" },
+  { id: "japanese", label: "ياباني 🇯🇵",   subj: "Japanese",  prompt: "a Japanese child with East-Asian facial features" },
+];
+
 export const POSES = [
   { id: "front",   label: "واقف طبيعي",      prompt: "standing in a relaxed natural stance facing the camera, weight shifted onto one leg, shoulders loose, a lively confident and effortless posture" },
   { id: "three4",  label: "ثلاثة أرباع",      prompt: "a dynamic three-quarter stance, body angled, looking towards the camera with effortless natural energy" },
@@ -328,7 +350,9 @@ export function buildStudioPrompt(opts, lib){
     const camAngle = byId(CAMERA_ANGLES, o.camAngleId);
     const gaze = byId(GAZES, o.gazeId);
     const grade = byId(COLOR_GRADES, o.colorGradeId);
-    const subject = (age ? (age.prompt + " ") : "") + gender.prompt + (skin && skin.prompt ? " with " + skin.prompt : "");
+    /* V21.27.133: جنسية الطفل — صفة مختصرة قبل وصف الموديل (auto=فاضي) */
+    const nat = byId(NATIONALITIES, o.nationalityId);
+    const subject = ((nat && nat.subj) ? (nat.subj + " ") : "") + (age ? (age.prompt + " ") : "") + gender.prompt + (skin && skin.prompt ? " with " + skin.prompt : "");
     /* روح/طاقة الصورة — الافتراضي ابتسامة + حيوية ومنع شكل المانيكان الجامد. */
     const mood = isChild
       ? "A fun, cheerful, playful and joyful kids-fashion mood, full of life and natural childlike energy and movement."
