@@ -1463,7 +1463,6 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             {key:"sale",   icon:I.scan,        label:"بيع سريع",          sub:"مسح QR وتسجيل البيع",  bg:"#10B981",dark:"#059669",show:true,                          onClick:()=>setQrSale({mode:"sale",custId:null,items:[],note:""})},
             {key:"session",icon:I.truck,       label:"سجل توزيع جديد",    sub:"إنشاء جلسة توزيعة",    bg:"#0EA5E9",dark:"#0284C7",show:true,                          onClick:()=>{setSelModels({});setSelCusts({});setShowNewSession(true)}},
             {key:"retScan",icon:I.undo,        label:"مرتجع سريع - Scan", sub:"مسح QR وتسجيل مرتجع",  bg:"#EF4444",dark:"#DC2626",show:true,                          onClick:()=>setQrSale({mode:"return",custId:null,items:[],note:"",linkedSession:"free"})},
-            {key:"retFree",icon:I.arrowReturn, label:"مرتجع حر",          sub:"اختيار يدوي للمرتجع",  bg:"#F43F5E",dark:"#E11D48",show:true,                          onClick:()=>{setFreeReturn("pick");setFreeRetItems({});setFreeRetNote("")}},
             {key:"receive",icon:I.inbox,       label:"تأكيد استلام",       sub:"مسح QR كسيري أو قطعة",  bg:"#F59E0B",dark:"#D97706",show:true,badge:pendingRcvCount,    onClick:()=>setPendingRcv({items:{},scanMode:"series"})},
             {key:"label",  icon:I.tag,         label:"ليبل - QR",         sub:"طباعة ليبل المنتج",    bg:"#8B5CF6",dark:"#7C3AED",show:stockModels.length>0,          onClick:()=>setCustomLabel("pick")},
             {key:"recover",icon:I.refresh,     label:"استعادة توزيعات",    sub:"استرجاع جلسات محذوفة", bg:"#0D9488",dark:"#0F766E",show:oList.length>0,badge:oList.length,onClick:recoverAction},
@@ -4859,6 +4858,13 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div><div style={{fontSize:FS+2,fontWeight:800,color:isOverride?"#EF4444":color}}>{title}{isOverride&&<span style={{fontSize:FS-1,marginInlineStart:8,padding:"2px 8px",background:"#EF4444",color:"#fff",borderRadius:6}}>🚨 طوارئ</span>}</div><div style={{fontSize:FS-1,color:T.textMut}}>{custName+(linkedSess?" — مربوط بسجل "+linkedSess.date:isSale?" — بيع حر":"")}</div></div>
             <div style={{display:"flex",gap:4}}><Btn ghost small onClick={()=>setQrSale(p=>({...p,linkedSession:undefined,custId:null,items:[]}))}>{isSale?"← سجل":"← عميل"}</Btn><Btn ghost small onClick={closeQrSale}>✕</Btn></div>
+          </div>
+          {/* V21.27.123: شريط إجمالي ثابت أعلى الشاشة (طلب Ahmed) — يفضل ظاهر جنب
+              الكاميرا أثناء مسح كميات كبيرة، فالمستخدم مايحتاجش ينزل تحت يشوف
+              الإجمالي. sticky عشان يثبت فوق وقت التمرير لقائمة البنود. */}
+          <div style={{position:"sticky",top:isMob?-16:-24,zIndex:6,margin:isMob?"0 -16px 10px":"0 -24px 12px",padding:isMob?"9px 16px":"10px 24px",background:isOverride?"#EF4444":color,color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"0 3px 10px rgba(0,0,0,0.18)"}}>
+            <span style={{fontSize:FS-1,fontWeight:700,opacity:0.95}}>{isSale?"📦 إجمالي المُسكَّن":"↩️ إجمالي المرتجع"}</span>
+            <span style={{fontSize:FS+8,fontWeight:900,lineHeight:1}}>{total}<span style={{fontSize:FS-1,fontWeight:700,marginInlineStart:5,opacity:0.9}}>قطعة</span></span>
           </div>
           {/* V15.40: Emergency Override toggle — only for linked sales */}
           {isSale&&linkedSess&&<div onClick={()=>setQrSale(p=>({...p,override:!p.override}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:10,borderRadius:10,cursor:"pointer",background:isOverride?"#EF444410":T.bg+"60",border:"1.5px solid "+(isOverride?"#EF4444":T.brd)}}>
