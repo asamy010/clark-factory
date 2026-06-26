@@ -1604,6 +1604,26 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           perCust[r.custId].returnsNet+=Math.round(gross*(1-dPct/100));
         });
       });
+      /* V21.27.141 ROOT-CAUSE FIX (شكوى Ahmed: عميل بياخد فاتورة ويدفعها كاملة
+         فبيبان رصيده سالب بقيمة الدفعة — «عميل نقدي كاش» وغيره):
+         التقرير كان بيحسب «المبيعات» من التوزيعات (customerDeliveries) **فقط**،
+         وبيتجاهل أوامر البيع المباشرة (data.salesOrders) — رغم إن buildCustomerSummary
+         (مصدر الرصيد الأساسي في الكشف والملخّص) بيعدّها كبيع تشغيلي («أمر البيع =
+         البيع»، §14.1/§14.2: عرض سعر → أمر بيع → فاتورة). النتيجة: العميل اللي
+         بيعه اتسجّل كأمر بيع/فاتورة كانت مبيعاته بتبان 0، ودفعته الكاش بتتعدّ
+         لوحدها → رصيد = −الدفعة. نضيف أوامر البيع المباشرة (مع تخطّي مرايا
+         التوزيعات لمنع الحساب المزدوج) لنفس بنود perCust — نفس منطق
+         buildCustomerSummary.salesOrdersNet (so.total صافي بعد الخصم − مرتجعاته). */
+      (data.salesOrders||[]).forEach(so=>{
+        if(!so || so.status==="cancelled") return;
+        if(so.sourceDistributionId || so.isDistributionMirror) return; /* مرآة توزيعة — محتسبة من التوزيعة فوق */
+        const cid=so.customerId;
+        if(cid==null || cid==="") return; /* أمر ad-hoc بدون عميل مسجّل — مش بيظهر صف */
+        if(!perCust[cid])perCust[cid]=initPerCust();
+        const retVal=(so.returns||[]).reduce((s,rr)=>s+(Number(rr&&rr.net)||0),0);
+        perCust[cid].sales+=Number(so.subtotal)||Number(so.total)||0;     /* gross للـ % */
+        perCust[cid].salesNet+=(Number(so.total)||0)-retVal;              /* صافي للرصيد */
+      });
       /* V21.9.167: Two buckets only — check vs non-check. Per customer
          feedback: cash, transfer (تحويل/instapay), and any other non-check
          method all consolidate into "دفعات كاش". The "أخرى" column was
