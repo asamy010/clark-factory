@@ -296,7 +296,9 @@ export default function App(){
   if(urlParams.get("stock")==="1"||urlParams.get("p")==="s"){
     const sig=urlParams.get("s")||urlParams.get("sig");
     if(sig){
-      return <StockPortalPage params={{sig}}/>;
+      /* V21.27.134: view=showcase → عرض «معرض الصور» (صورة كبيرة/صف + المتاح بس) */
+      const view=urlParams.get("view")||urlParams.get("v")||"";
+      return <StockPortalPage params={{sig,view}}/>;
     }
   }
   /* V21.21.69: Partner portal — public co-owner dashboard.

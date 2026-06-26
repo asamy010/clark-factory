@@ -12,6 +12,52 @@
 
 ---
 
+## V21.27.134 (2026-06-25) — 🛍️ لينك المخزن المتاح: ألوان بالصور + لينك «معرض الصور»
+
+**الطلب (Ahmed):** فيتشر «لينك المخزن المتاح» (تسليم العملاء):
+١) اللينك يعرض الموديلات وتحتها الألوان المتاحة، ولو الألوان ليها صور المستخدم
+   يقدر يشوفها.
+٢) لينك تاني من **نفس الزر** يعرض الصورة كبيرة على صف واحد ويكتب «متاح كام» بس
+   (زي الصورة المرجعية — كتالوج).
+
+**البنية الحالية (قبل):** الزر بيفتح `StockPortalLinkModal` → `/api/stock-portal-sign`
+(لينك موقّع HMAC). البورتال `StockPortalPage` بيقرا `/api/stock-portal` اللي
+بيستهلك `stockCatalog.buildStockCatalog`. `buildStockCatalog` **كان أصلاً** بيدعم
+`includeColors` (بيرجّع `colors:[{name,hex,image}]` من خامة المصدر — image من
+`shopify_meta.color_images[name].url`)، بس البورتال ماكانش بيطلبها ولا يعرضها.
+
+**التنفيذ:**
+- `api/stock-portal.js`: تمرير `includeColors:true` + إضافة `colors` (name/hex/
+  image، مفلتر بالاسم) للـ payload المُعقّم.
+- `src/App.jsx`: قراءة `view` من الـ URL وتمريرها لـ `StockPortalPage`
+  (`view=showcase` → معرض الصور).
+- `src/components/StockPortalPage.jsx`:
+  - **التفصيلي:** صف ألوان تحت كل موديل — دايرة `hex` أو صورة مصغّرة + الاسم؛
+    اللون اللي له صورة بيفتح **lightbox** بالضغط. صورة الموديل كمان بتتكبّر.
+  - **showcase (جديد):** عمود واحد، صورة كبيرة (`objectFit:contain`, `maxHeight:82vh`)
+    لكل موديل + شارة «متاح N» خضرا (أو «قريباً») + رقم الموديل — من غير أسعار/ألوان/
+    اطلب (زي «بس كده»). + بحث + lightbox.
+  - مكوّن `Lightbox` مشترك + helper `colorsRow`.
+- `src/components/StockPortalLinkModal.jsx`: بقى يعرض **لينكين** (helper `linkBlock`):
+  🛍️ تفصيلي (`url`) و🖼️ معرض الصور (`url + "&view=showcase"`) — كل واحد نسخ/معاينة/
+  مشاركة واتساب. نفس التوقيع → تدوير اللينك بيلغي الاتنين. الهاتف/التدوير موحّد.
+
+**ليه نفس التوقيع للينكين:** `view` بيغيّر العرض client-side بس؛ البيانات والتحقق
+HMAC زي ما هما — مفيش منطق توقيع جديد، وتدوير واحد بيلغّي الاتنين.
+
+**الاختبار:** `stockCatalog.test.js` +٣ حالات: شكل اللون `{name,hex,image}`
+(الصورة من color_images)، وغياب `colors` من غير `includeColors`. build ✓ — كل
+الـ **٤٦٩ اختبار ناجح**. (البورتال نفسه public + موقّع — يتعاين من زر «معاينة» في
+المودال على الإنتاج.)
+
+**الملفات:** `api/stock-portal.js`، `src/App.jsx`،
+`src/components/StockPortalPage.jsx`، `src/components/StockPortalLinkModal.jsx`،
+`src/utils/__tests__/stockCatalog.test.js`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`،
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.133 (2026-06-25) — 🌍 AI Studio: التحكم في جنسية الطفل (حقن في البرومبت)
 
 **الطلب (Ahmed):** في هَب AI Studio، إضافة التحكم في جنسية الطفل بحيث البرومبت

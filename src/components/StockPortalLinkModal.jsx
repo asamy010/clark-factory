@@ -47,8 +47,11 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
     })();
   }, []);
 
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(url); showToast && showToast("✅ تم نسخ اللينك"); }
+  /* V21.27.134: لينك «معرض الصور» = نفس اللينك + view=showcase (نفس التوقيع/الأمان). */
+  const showcaseUrl = url ? (url + "&view=showcase") : "";
+
+  const copyUrl = async (u) => {
+    try { await navigator.clipboard.writeText(u); showToast && showToast("✅ تم نسخ اللينك"); }
     catch (e) { showToast && showToast("⚠️ انسخ يدوياً"); }
   };
 
@@ -78,10 +81,26 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
     finally { setBusy(false); }
   };
 
-  const shareWa = () => {
-    const txt = "شوف المخزن المتاح عندنا 👇\n" + url;
+  const shareWa = (u, label) => {
+    const txt = (label || "شوف المخزن المتاح عندنا") + " 👇\n" + u;
     window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
   };
+
+  /* بلوك لينك واحد (الرابط + نسخ + معاينة + مشاركة) — يُعاد استخدامه للينكين. */
+  const linkBlock = (title, sub, u, accent, shareLabel) => (
+    <div style={{ border: "1px solid " + T.brd, borderRadius: 12, padding: 12, marginBottom: 12, background: T.bg }}>
+      <div style={{ fontSize: FS - 1, fontWeight: 800, color: accent, marginBottom: 2 }}>{title}</div>
+      <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 8, lineHeight: 1.5 }}>{sub}</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <input readOnly value={u} onFocus={e => e.target.select()} style={{ flex: 1, minWidth: 160, padding: "9px 11px", borderRadius: 10, border: "1px solid " + T.brd, background: T.cardSolid, color: T.text, fontSize: FS - 3, direction: "ltr", fontFamily: "monospace" }} />
+        <Btn small onClick={() => copyUrl(u)} style={{ background: accent, color: "#fff", border: "none", fontWeight: 800 }}>📋 نسخ</Btn>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Btn small ghost onClick={() => window.open(u, "_blank")}>👁 معاينة</Btn>
+        <Btn small onClick={() => shareWa(u, shareLabel)} style={{ background: "#25D36612", color: "#1DA851", border: "1px solid #25D36640", fontWeight: 800 }}>💬 شارك على واتساب</Btn>
+      </div>
+    </div>
+  );
 
   return <div onClick={onClose} style={{
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 10001,
@@ -95,7 +114,7 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
       <div style={{ padding: isMob ? "14px 16px" : "16px 20px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.accent }}>🔗 لينك المخزن المتاح</div>
-          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>صفحة عامة بالصور والكميات المتاحة وسعر الجملة</div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>لينكين: تفصيلي (ألوان + أسعار) · معرض صور (صورة كبيرة + المتاح)</div>
         </div>
         <Btn ghost small onClick={onClose}>✕</Btn>
       </div>
@@ -106,16 +125,15 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
           : error
           ? <div style={{ padding: 16, background: T.err + "10", border: "1px solid " + T.err + "30", borderRadius: 10, color: T.err, fontSize: FS - 1 }}>⛔ {error}</div>
           : <>
-            {/* The link */}
-            <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>الرابط</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-              <input readOnly value={url} onFocus={e => e.target.select()} style={{ flex: 1, minWidth: 180, padding: "10px 12px", borderRadius: 10, border: "1px solid " + T.brd, background: T.bg, color: T.text, fontSize: FS - 2, direction: "ltr", fontFamily: "monospace" }} />
-              <Btn small onClick={copy} style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800 }}>📋 نسخ</Btn>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-              <Btn small ghost onClick={() => window.open(url, "_blank")}>👁 معاينة</Btn>
-              <Btn small onClick={shareWa} style={{ background: "#25D36612", color: "#1DA851", border: "1px solid #25D36640", fontWeight: 800 }}>💬 شارك على واتساب</Btn>
-            </div>
+            {/* V21.27.134: لينكين من نفس الزر */}
+            {linkBlock(
+              "🛍️ لينك تفصيلي",
+              "الموديلات + الألوان المتاحة (بالصور) + الكمية + سعر الجملة + زر «اطلب».",
+              url, T.accent, "شوف المخزن المتاح بالتفصيل عندنا")}
+            {linkBlock(
+              "🖼️ لينك معرض الصور",
+              "صورة كبيرة لكل موديل في صف واحد + «متاح كام» بس — للعرض السريع (زي الكتالوج).",
+              showcaseUrl, "#8B5CF6", "شوف معرض الموديلات المتاحة عندنا")}
 
             {/* WhatsApp receive phone */}
             <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>رقم واتساب الاستلام (لزر «اطلب» في البورتال)</div>

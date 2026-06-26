@@ -144,4 +144,25 @@ describe("buildStockCatalog — includeColors من خامة المصدر", () =>
     const cat = buildStockCatalog(data, { includeColors: true });
     expect((cat[0].colors || []).map(c => c.name)).toEqual(["أحمر", "أزرق"]);  /* A بس */
   });
+
+  /* V21.27.134: شكل اللون اللي بيستهلكه بورتال المخزن: name + hex + image
+     (الصورة من shopify_meta.color_images[name].url لو متاحة). */
+  it("بيرجّع name + hex + image (صورة اللون من color_images)", () => {
+    const data = {
+      orders: [mkOrder({ id: "o1", confirmed: 50, _raw: colorRaw({
+        shopify_meta: { color_source_fabric: "A", color_images: { "أحمر": { url: "https://cdn/red.jpg" } } },
+      }) })],
+      salesOrders: [],
+    };
+    const colors = buildStockCatalog(data, { includeColors: true })[0].colors;
+    expect(colors).toEqual([
+      { name: "أحمر", hex: "#f00", image: "https://cdn/red.jpg" }, /* له صورة */
+      { name: "أزرق", hex: "#00f", image: "" },                     /* swatch بس */
+    ]);
+  });
+
+  it("بدون includeColors → مفيش حقل colors (البورتال التفصيلي بس اللي بيطلبه)", () => {
+    const data = { orders: [mkOrder({ id: "o1", confirmed: 50, _raw: colorRaw({}) })], salesOrders: [] };
+    expect(buildStockCatalog(data)[0].colors).toBeUndefined();
+  });
 });

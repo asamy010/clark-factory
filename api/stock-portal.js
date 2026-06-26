@@ -94,11 +94,14 @@ export default async function handler(req, res) {
       ? await readSplitCollection("salesOrdersDays")
       : (config.salesOrders || []);
 
-    const allItems = buildStockCatalog({ orders, salesOrders }, { includeProduction: true });
+    /* V21.27.134: includeColors → ألوان كل موديل (اسم + hex swatch + صورة لو
+       متاحة) عشان البورتال التفصيلي يعرضها تحت الموديل. */
+    const allItems = buildStockCatalog({ orders, salesOrders }, { includeProduction: true, includeColors: true });
     const kpis = buildStockKpis(allItems);
 
     /* تعقيم الـ payload — نطلّع بس اللي العميل المفروض يشوفه (مفيش id داخلي
-       ولا stockQty الإجمالي): صورة + اسم + المتاح/المتوقّع + سعر الجملة. */
+       ولا stockQty الإجمالي): صورة + اسم + المتاح/المتوقّع + سعر الجملة +
+       الألوان (اسم/hex/صورة). */
     const items = allItems.slice(0, MAX_ITEMS).map(i => ({
       modelNo: i.modelNo,
       modelDesc: i.modelDesc,
@@ -107,6 +110,9 @@ export default async function handler(req, res) {
       avail: i.status === "available" ? i.avail : 0,
       expected: i.status === "soon" ? (i.expected || 0) : 0,
       price: i.sellPrice,
+      colors: Array.isArray(i.colors)
+        ? i.colors.map(c => ({ name: c.name || "", hex: c.hex || "", image: c.image || "" })).filter(c => c.name)
+        : [],
     }));
 
     return res.status(200).json({
