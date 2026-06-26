@@ -6984,9 +6984,13 @@ export default function App(){
           {/* V21.9.144: maxWidth 1500→1700 (less side padding on wide screens),
               gap 14→20 (~43% wider spacing between the 4 columns for a cleaner,
               more "اطراف منفصلة" professional look per user feedback). */}
-          {/* V21.27.108/109: على التابلت (768-1100) — شبكة 6 أعمدة بكامل عرض
-              الشاشة: صف علوي [إشعارات 2/6 (أصغر) | شبكة+أزرار 4/6 (أكبر)]، صف
-              سفلي [ملاحظات/نشاط 50% | مهام 50%]. الديسكتوب 4 أعمدة أفقية. */}
+          {/* V21.27.139: على التابلت (768-1100) — «أزرار فوق بكامل العرض،
+              والقوائم تحت» (أمر Ahmed). شبكة 6 أعمدة:
+                صف 1: شبكة التطبيقات + الأزرار (1/7 = كامل العرض) — الأزرار كبيرة
+                       والأسماء على سطر واحد (مفيش التفاف/مساحة حروف ضايعة).
+                صف 2: الإشعارات (1/3) | الملاحظات (3/5) | المهام (5/7) — ٣ قوائم
+                       جنب بعض تحت الأزرار.
+              الديسكتوب 4 أعمدة أفقية زي ما هو. */}
           {!isMob?<div style={{display:"grid",gridTemplateColumns:isTab?"repeat(6,minmax(0,1fr))":"20fr 50fr 15fr 15fr",gap:isTab?14:20,alignItems:"flex-start",...(isTab?{width:"100%"}:{maxWidth:1700,margin:"0 auto"})}}>
 
             {/* ═══════════════════════════════════════════════════════════
@@ -6995,7 +6999,7 @@ export default function App(){
                 included so the column doesn't look "missing" when there are
                 zero notifications.
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"1 / 3"}:{})}}>
+            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"1 / 3",gridRow:2}:{})}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"6px 12px",borderRadius:10,background:"#6366F112",border:"1px solid #6366F125"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                   <span style={{fontSize:FS+1,flexShrink:0}}>🔔</span>
@@ -7059,10 +7063,10 @@ export default function App(){
                 inside align to the SAME left edge → buttons start exactly
                 where the leftmost tile starts (per user request).
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={isTab?{gridColumn:"3 / 7"}:undefined}>
+            <div style={isTab?{gridColumn:"1 / 7",gridRow:1}:undefined}>
               <div style={{textAlign:"center"}}>
                 <div style={{display:isTab?"block":"inline-block",textAlign:"start"}}>
-                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(4, minmax(0, 1fr))":"repeat(6, minmax(0, 105px))",gap:isTab?12:24}}>
+                  <div style={{display:"grid",gridTemplateColumns:isTab?"repeat(auto-fill, minmax(120px, 1fr))":"repeat(6, minmax(0, 105px))",gap:isTab?14:24}}>
                     {visibleTabs.map(t=>{const perm=getTabPerm(t.key);
                       /* V21.9.147: dynamic label font size based on label length.
                          Tile usable width is ~95px (105 - 10 padding). Cairo Arabic
@@ -7079,7 +7083,7 @@ export default function App(){
                         <div style={{width:44,height:44,borderRadius:11,background:t.color+"12",display:"flex",alignItems:"center",justifyContent:"center",color:t.color,border:"1px solid "+t.color+"20"}}>
                           <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{t.svg}</svg>
                         </div>
-                        <div style={{fontSize:labelFs,fontWeight:800,color:T.text,lineHeight:1.15,width:"100%",maxWidth:"100%",...(isTab?{whiteSpace:"normal",wordBreak:"break-word",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}:{whiteSpace:"nowrap"})}} title={t.label}>{t.label}</div>
+                        <div style={{fontSize:labelFs,fontWeight:800,color:T.text,lineHeight:1.15,width:"100%",maxWidth:"100%",...(isTab?{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}:{whiteSpace:"nowrap"})}} title={t.label}>{t.label}</div>
                         {perm==="view"&&<div style={{position:"absolute",top:4,left:4,fontSize:8,padding:"1px 5px",borderRadius:4,background:T.warn+"18",color:T.warn,fontWeight:700}}>👁</div>}
                       </div>})}
                   </div>
@@ -7133,8 +7137,9 @@ export default function App(){
                 Sticky so it stays on-screen during scroll. Same tab-strip
                 logic as V21.9.134-141 (notes default, activity toggle).
                 V21.27.108: static على التابلت (بينزل للصف السفلي بدل الجنب).
+                V21.27.139: صف 2 العمود الأوسط (3/5).
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"1 / 4"}:{})}}>
+            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"3 / 5",gridRow:2}:{})}}>
               <div style={{display:"flex",gap:4,marginBottom:14,background:T.bg,padding:4,borderRadius:10,border:"1px solid "+T.brd}}>
                 <div onClick={()=>setSidebarTab("notes")} className={"sb-tab "+(sidebarTab==="notes"?"active":"")} style={{flex:1}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -7190,8 +7195,9 @@ export default function App(){
             {/* ═══════════════════════════════════════════════════════════
                 COL 4 (left in RTL — 15%) — TASKS (always visible)
                 V21.27.108: static على التابلت (بينزل للصف السفلي جنب الملاحظات).
+                V21.27.139: صف 2 العمود الأيسر (5/7).
                 ═══════════════════════════════════════════════════════════ */}
-            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"4 / 7"}:{})}}>
+            <div style={{position:isTab?"static":"sticky",top:12,...(isTab?{gridColumn:"5 / 7",gridRow:2}:{})}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:14,background:"#FEF9C3",padding:"8px 12px",borderRadius:10,border:"1px solid #EAB30840"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                   <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#92400E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
