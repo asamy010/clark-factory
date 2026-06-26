@@ -27,8 +27,10 @@ const C = {
 
 export function StockPortalPage({ params }) {
   const { sig, view } = params;
-  /* V21.27.134: وضع «معرض الصور» — صورة كبيرة لكل موديل في صف + المتاح بس. */
-  const showcase = view === "showcase" || view === "2";
+  /* V21.27.134: وضع «معرض الصور» — صورة كبيرة لكل موديل في صف.
+     V21.27.135: «catalog» = نفس المعرض + العدد وسعر الجملة ورقم الموديل. */
+  const showcase = view === "showcase" || view === "2" || view === "catalog";
+  const showcasePrice = view === "catalog";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
@@ -139,7 +141,7 @@ export function StockPortalPage({ params }) {
           : <div style={{ width: 44, height: 44, borderRadius: 10, background: C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🏭</div>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{factory.name || "المخزن المتاح"}</div>
-          <div style={{ fontSize: 12, color: C.mut, fontWeight: 600 }}>{"المعرض · " + fmt(kpis.models) + " موديل متاح"}</div>
+          <div style={{ fontSize: 12, color: C.mut, fontWeight: 600 }}>{(showcasePrice ? "معرض الأسعار · " : "المعرض · ") + fmt(kpis.models) + " موديل متاح"}</div>
         </div>
       </div>
       <div style={{ maxWidth: 620, margin: "0 auto", padding: 14 }}>
@@ -160,9 +162,14 @@ export function StockPortalPage({ params }) {
                       {soon ? "قريباً" : "متاح " + fmt(it.avail)}
                     </div>
                   </div>
-                  <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 17, fontWeight: 900, color: C.text, direction: "ltr" }}>{it.modelNo}</div>
-                    {it.modelDesc && <div style={{ fontSize: 13, color: C.sec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
+                    {showcasePrice
+                      ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          {!soon && <span style={{ fontSize: 14, fontWeight: 800, color: C.ok }}>{"متاح " + fmt(it.avail)}</span>}
+                          {it.price > 0 && <span style={{ fontSize: 16, fontWeight: 900, color: C.text, direction: "ltr" }}>{fmt(it.price)}<span style={{ fontSize: 11, color: C.mut, fontWeight: 700 }}> ج.م/جملة</span></span>}
+                        </div>
+                      : (it.modelDesc && <div style={{ fontSize: 13, color: C.sec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>)}
                   </div>
                 </div>;
               })}

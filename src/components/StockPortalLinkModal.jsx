@@ -49,6 +49,8 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
 
   /* V21.27.134: لينك «معرض الصور» = نفس اللينك + view=showcase (نفس التوقيع/الأمان). */
   const showcaseUrl = url ? (url + "&view=showcase") : "";
+  /* V21.27.135: لينك «معرض بالأسعار» = صورة كبيرة + العدد + سعر الجملة + رقم الموديل. */
+  const catalogUrl = url ? (url + "&view=catalog") : "";
 
   const copyUrl = async (u) => {
     try { await navigator.clipboard.writeText(u); showToast && showToast("✅ تم نسخ اللينك"); }
@@ -114,7 +116,7 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
       <div style={{ padding: isMob ? "14px 16px" : "16px 20px", borderBottom: "1px solid " + T.brd, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: FS + 2, fontWeight: 800, color: T.accent }}>🔗 لينك المخزن المتاح</div>
-          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>لينكين: تفصيلي (ألوان + أسعار) · معرض صور (صورة كبيرة + المتاح)</div>
+          <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 2 }}>٣ لينكات: تفصيلي · معرض صور (المتاح بس) · معرض بالأسعار</div>
         </div>
         <Btn ghost small onClick={onClose}>✕</Btn>
       </div>
@@ -134,6 +136,10 @@ export function StockPortalLinkModal({ T, FS, isMob, showToast, onClose }) {
               "🖼️ لينك معرض الصور",
               "صورة كبيرة لكل موديل في صف واحد + «متاح كام» بس — للعرض السريع (زي الكتالوج).",
               showcaseUrl, "#8B5CF6", "شوف معرض الموديلات المتاحة عندنا")}
+            {linkBlock(
+              "💰 لينك معرض بالأسعار",
+              "صورة كبيرة لكل موديل في صف واحد + العدد المتاح + سعر الجملة + رقم الموديل.",
+              catalogUrl, "#D97706", "شوف معرض الموديلات بالأسعار عندنا")}
 
             {/* WhatsApp receive phone */}
             <div style={{ fontSize: FS - 2, color: T.textSec, fontWeight: 700, marginBottom: 6 }}>رقم واتساب الاستلام (لزر «اطلب» في البورتال)</div>

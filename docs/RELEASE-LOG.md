@@ -12,6 +12,30 @@
 
 ---
 
+## V21.27.135 (2026-06-26) — 💰 لينك المخزن المتاح: لينك تالت «معرض بالأسعار»
+
+**الطلب (Ahmed):** لينك تاني (تالت) — الصورة كبيرة على صف واحد + العدد وسعر
+الجملة مع رقم الموديل.
+
+**التنفيذ:** نفس layout الـ showcase + إظهار العدد/سعر الجملة. وضع جديد
+`view=catalog`:
+- `src/components/StockPortalPage.jsx`: `showcase` بقى يشمل `catalog`؛ flag
+  جديد `showcasePrice = view==="catalog"`. الـ strip تحت الصورة: لو
+  `showcasePrice` بيعرض «متاح N» + «السعر ج.م/جملة» جنب رقم الموديل (بدل الوصف).
+  هيدر المعرض بيقول «معرض الأسعار · N موديل متاح».
+- `src/components/StockPortalLinkModal.jsx`: linkBlock تالت 💰 «معرض بالأسعار»
+  (`url + "&view=catalog"`، لون كهرماني) + تحديث العنوان الفرعي لـ«٣ لينكات».
+
+نفس التوقيع HMAC للـ٣ (view بيغيّر العرض client-side بس) → تدوير واحد بيلغّي
+الكل. build ✓ — كل الـ **٤٧١ اختبار ناجح**.
+
+**الملفات:** `src/components/StockPortalPage.jsx`،
+`src/components/StockPortalLinkModal.jsx`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`,
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.134 (2026-06-25) — 🛍️ لينك المخزن المتاح: ألوان بالصور + لينك «معرض الصور»
 
 **الطلب (Ahmed):** فيتشر «لينك المخزن المتاح» (تسليم العملاء):
