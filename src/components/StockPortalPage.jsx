@@ -162,14 +162,17 @@ export function StockPortalPage({ params }) {
                       {soon ? "قريباً" : "متاح " + fmt(it.avail)}
                     </div>
                   </div>
-                  <div style={{ padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 17, fontWeight: 900, color: C.text, direction: "ltr" }}>{it.modelNo}</div>
-                    {showcasePrice
-                      ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          {!soon && <span style={{ fontSize: 14, fontWeight: 800, color: C.ok }}>{"متاح " + fmt(it.avail)}</span>}
-                          {it.price > 0 && <span style={{ fontSize: 16, fontWeight: 900, color: C.text, direction: "ltr" }}>{fmt(it.price)}<span style={{ fontSize: 11, color: C.mut, fontWeight: 700 }}> ج.م/جملة</span></span>}
-                        </div>
-                      : (it.modelDesc && <div style={{ fontSize: 13, color: C.sec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>)}
+                  {/* V21.27.137: رقم الموديل + المقاسات + المتاح + السعر للينكات المعرض */}
+                  <div style={{ padding: "10px 16px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 17, fontWeight: 900, color: C.text, direction: "ltr" }}>{it.modelNo}</div>
+                      {it.price > 0 && <span style={{ fontSize: 17, fontWeight: 900, color: C.text, direction: "ltr" }}>{fmt(it.price)}<span style={{ fontSize: 11, color: C.mut, fontWeight: 700 }}> ج.م/جملة</span></span>}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
+                      {it.sizes ? <span style={{ color: C.sec, fontWeight: 600 }}>📏 المقاسات: <span style={{ direction: "ltr", fontWeight: 800, color: C.text }}>{it.sizes}</span></span> : <span />}
+                      {!soon && <span style={{ fontWeight: 800, color: C.ok }}>{"متاح " + fmt(it.avail)}</span>}
+                    </div>
+                    {it.modelDesc && <div style={{ fontSize: 12, color: C.mut, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
                   </div>
                 </div>;
               })}
@@ -229,6 +232,8 @@ export function StockPortalPage({ params }) {
                 <div style={{ flex: 1, minWidth: 0, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 7 }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: C.text, direction: "ltr", textAlign: "right" }}>{it.modelNo}</div>
                   {it.modelDesc && <div style={{ fontSize: 13, color: C.sec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
+                  {/* V21.27.137: المقاسات */}
+                  {it.sizes && <div style={{ fontSize: 12, color: C.sec, fontWeight: 600 }}>📏 المقاسات: <span style={{ direction: "ltr", fontWeight: 800, color: C.text }}>{it.sizes}</span></div>}
                   {/* V21.27.134: الألوان المتاحة تحت الموديل — swatch/صورة + اسم */}
                   {colorsRow(it)}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: "auto" }}>

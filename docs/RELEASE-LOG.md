@@ -12,6 +12,38 @@
 
 ---
 
+## V21.27.137 (2026-06-26) — 📏 لينكات المخزن الـ٣: رقم الموديل + المقاسات + المتاح + السعر
+
+**الطلب (Ahmed):** تعديل اللينكات الـ٣ تعرض: رقم الموديل + المقاسات + كمية
+المتاح + السعر.
+
+**التنفيذ:**
+- `api/stock-portal.js`: تمرير `sizeSets: config.sizeSets` لـ `buildStockCatalog`
+  (الـ util كان أصلاً بيدعم `opts.sizeSets` → `item.sizesLabel` عبر
+  `getSizesFromSet`) + إضافة `sizes: i.sizesLabel` للـ payload.
+- `src/components/StockPortalPage.jsx`:
+  - **تفصيلي:** سطر «📏 المقاسات: …» تحت الوصف وفوق الألوان (الرقم/المتاح/السعر
+    موجودين أصلاً).
+  - **المعرض (showcase + catalog):** الـ strip تحت الصورة بقى سطرين — (الرقم +
+    السعر) و(المقاسات + المتاح) — والمتاح كمان على الشارة الخضرا فوق الصورة.
+    العرضين بقوا متطابقين (كلاهما صورة كبيرة + الـ٤ حقول).
+- `src/utils/__tests__/stockCatalog.test.js`: +حالتين (sizeSets → sizesLabel،
+  وغيابها).
+
+تأكيد بصري بـ Chromium screenshot (تفصيلي + معرض بالمقاسات). build ✓ — كل الـ
+**٤٧٣ اختبار ناجح**.
+
+**ملاحظة معمارية (flagged للمستخدم):** «معرض الصور» و«معرض بالأسعار» بقوا
+يعرضوا نفس الحقول → متطابقين. عُرض على Ahmed تمييز واحد منهم (مثلاً قائمة أسعار
+بدون صور) لو حابب.
+
+**الملفات:** `api/stock-portal.js`، `src/components/StockPortalPage.jsx`،
+`src/utils/__tests__/stockCatalog.test.js`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`,
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.136 (2026-06-26) — 📐 اللينك التفصيلي: موديل واحد لكل صف
 
 **الطلب (Ahmed):** اللينك التفصيلي يعرض الصورة والوحدة على صف واحد (مش

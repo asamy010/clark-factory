@@ -95,8 +95,13 @@ export default async function handler(req, res) {
       : (config.salesOrders || []);
 
     /* V21.27.134: includeColors → ألوان كل موديل (اسم + hex swatch + صورة لو
-       متاحة) عشان البورتال التفصيلي يعرضها تحت الموديل. */
-    const allItems = buildStockCatalog({ orders, salesOrders }, { includeProduction: true, includeColors: true });
+       متاحة) عشان البورتال التفصيلي يعرضها تحت الموديل.
+       V21.27.137: sizeSets → مقاسات كل موديل (sizesLabel) للينكات الـ٣. */
+    const allItems = buildStockCatalog({ orders, salesOrders }, {
+      includeProduction: true,
+      includeColors: true,
+      sizeSets: Array.isArray(config.sizeSets) ? config.sizeSets : [],
+    });
     const kpis = buildStockKpis(allItems);
 
     /* تعقيم الـ payload — نطلّع بس اللي العميل المفروض يشوفه (مفيش id داخلي
@@ -110,6 +115,7 @@ export default async function handler(req, res) {
       avail: i.status === "available" ? i.avail : 0,
       expected: i.status === "soon" ? (i.expected || 0) : 0,
       price: i.sellPrice,
+      sizes: i.sizesLabel || "",
       colors: Array.isArray(i.colors)
         ? i.colors.map(c => ({ name: c.name || "", hex: c.hex || "", image: c.image || "" })).filter(c => c.name)
         : [],

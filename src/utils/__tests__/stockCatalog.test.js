@@ -166,3 +166,20 @@ describe("buildStockCatalog — includeColors من خامة المصدر", () =>
     expect(buildStockCatalog(data)[0].colors).toBeUndefined();
   });
 });
+
+/* ═══ V21.27.137: مقاسات الموديل (sizeSets) للينكات الـ٣ ═══ */
+describe("buildStockCatalog — sizeSets → sizesLabel", () => {
+  it("بيرجّع sizesLabel من الـ sizeSet المطابق لـ sizeSetId", () => {
+    const data = {
+      orders: [mkOrder({ id: "o1", confirmed: 50, _raw: { sizeSetId: 7 } })],
+      salesOrders: [],
+    };
+    const cat = buildStockCatalog(data, { sizeSets: [{ id: 7, label: "2-3-4-5", pcsPerSeries: 4 }] });
+    expect(cat[0].sizesLabel).toBe("2-3-4-5");
+  });
+
+  it("بدون sizeSets → مفيش sizesLabel", () => {
+    const data = { orders: [mkOrder({ id: "o1", confirmed: 50, _raw: { sizeSetId: 7 } })], salesOrders: [] };
+    expect(buildStockCatalog(data)[0].sizesLabel).toBeUndefined();
+  });
+});
