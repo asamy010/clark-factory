@@ -210,30 +210,32 @@ export function StockPortalPage({ params }) {
         ? <div style={{ padding: 40, textAlign: "center", color: C.mut, background: C.card, borderRadius: 14, border: "1px dashed " + C.brd }}>
             {q ? "مفيش موديل بالاسم ده" : "مفيش أصناف متاحة حالياً"}
           </div>
-        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12 }}>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 680, margin: "0 auto" }}>
+            {/* V21.27.136: موديل واحد لكل صف — الصورة على الجنب والتفاصيل (الرقم +
+               الألوان تحته + السعر) جنبها، مش كارتين في الصف. */}
             {items.map((it, idx) => {
               const soon = it.status === "soon";
-              return <div key={(it.modelNo || "") + idx} style={{ background: C.card, border: "1px solid " + C.brd, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                {/* Image (clickable → lightbox) */}
-                <div onClick={() => it.image && setLightbox({ image: it.image, label: it.modelNo || "" })} style={{ width: "100%", aspectRatio: "3/4", background: "#F1F5F9", position: "relative", cursor: it.image ? "zoom-in" : "default" }}>
+              return <div key={(it.modelNo || "") + idx} style={{ background: C.card, border: "1px solid " + C.brd, borderRadius: 14, overflow: "hidden", display: "flex", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                {/* Image (clickable → lightbox) — على الجنب بعرض ثابت */}
+                <div onClick={() => it.image && setLightbox({ image: it.image, label: it.modelNo || "" })} style={{ width: "38%", maxWidth: 200, flexShrink: 0, aspectRatio: "3/4", background: "#F1F5F9", position: "relative", cursor: it.image ? "zoom-in" : "default" }}>
                   {it.image
                     ? <img src={it.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: C.mut }}>👕</div>}
-                  <div style={{ position: "absolute", top: 8, insetInlineStart: 8, background: soon ? C.warn : C.ok, color: "#fff", fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 20 }}>
+                  <div style={{ position: "absolute", top: 8, insetInlineStart: 8, background: soon ? C.warn : C.ok, color: "#fff", fontSize: 12, fontWeight: 800, padding: "3px 10px", borderRadius: 20 }}>
                     {soon ? "قريباً" : "متاح " + fmt(it.avail)}
                   </div>
                 </div>
-                {/* Body */}
-                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelNo}</div>
-                  {it.modelDesc && <div style={{ fontSize: 12, color: C.sec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
-                  {/* V21.27.134: الألوان المتاحة — swatch/صورة + اسم (الصورة تتكبّر بالضغط) */}
+                {/* Body — التفاصيل جنب الصورة */}
+                <div style={{ flex: 1, minWidth: 0, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 7 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: C.text, direction: "ltr", textAlign: "right" }}>{it.modelNo}</div>
+                  {it.modelDesc && <div style={{ fontSize: 13, color: C.sec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.modelDesc}</div>}
+                  {/* V21.27.134: الألوان المتاحة تحت الموديل — swatch/صورة + اسم */}
                   {colorsRow(it)}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: "auto" }}>
-                    <span style={{ fontSize: 18, fontWeight: 900, color: C.text, direction: "ltr" }}>{fmt(it.price)}</span>
+                    <span style={{ fontSize: 20, fontWeight: 900, color: C.text, direction: "ltr" }}>{fmt(it.price)}</span>
                     <span style={{ fontSize: 11, color: C.mut, fontWeight: 700 }}>ج.م / جملة</span>
                   </div>
-                  {phoneDigits && <button onClick={() => orderWa(it)} style={{ marginTop: 4, width: "100%", padding: "8px 0", borderRadius: 10, border: "none", background: C.wa, color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                  {phoneDigits && <button onClick={() => orderWa(it)} style={{ marginTop: 2, alignSelf: "flex-start", padding: "8px 18px", borderRadius: 10, border: "none", background: C.wa, color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
                     💬 اطلب على واتساب
                   </button>}
                 </div>
