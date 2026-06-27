@@ -12,6 +12,45 @@
 
 ---
 
+## V21.27.146 (2026-06-27) — 🛟 استرجاع ملفات مساحة التخزين القديمة (إصلاح V145)
+
+**الطلب (Ahmed):** «الملفات القديمة مش موجودة خالص.»
+
+**سبب الـ regression في V145:** الـ merge كان `if(tasksDoc.documentsTree)
+merged.documentsTree = tasksDoc.documentsTree;`. والـ lazy-seed في `upDocs` كان
+بيقرا `configDocRef.current.documentsTree` — اللي ممكن يكون **stale/undefined**
+وقت أول كتابة (الـ ref مش متحدّث زي الـ state) → seed لقط `{folders:[],files:[]}`
+فاضي → `tasksDoc.documentsTree` بقى فاضي → الـ merge فضّله وغطّى على
+`configDoc.documentsTree` (اللي فيه الملفات القديمة) → اختفت. **الملفات
+ماتمسحتش — فضلت سليمة في config، بس متخفية بالـ merge.**
+
+**الحل (V146):**
+- `src/App.jsx` merge: بقى يعتمد على فلاج هجرة `_docsTreeMigV145`:
+  - قبل الهجرة → `merged.documentsTree = configDoc.documentsTree` **صراحةً**
+    (يضمن ظهور القديم فورًا حتى لو tasks فيه نسخة فاضية من V145) = استرجاع فوري.
+  - بعد الهجرة → `tasksDoc.documentsTree` (= الاتحاد).
+- `upDocs`: شِلنا الـ config-seed غير الموثوق (الـ ref الـ stale) — بقى بس
+  بيضمن البنية ويكتب لـ tasks.
+- **هجرة موثوقة (useEffect, one-time):** بتقرا `configDoc` (الـ **state**
+  المحمّل، مش الـ ref) وتعمل **union by id** لـ config القديم + أي حاجة في tasks
+  (lazy-seed/رفع V145) → `tasksDoc.documentsTree`، وتحط `_docsTreeMigV145`.
+  union = صفر فقدان (tasks بيكسب عند تعارض id فيحفظ الأحدث؛ والباقي من config).
+  بتستنى `configLoaded` + `tasksSplitLoaded` (وإلا upTasks يرفض)، وتعيد المحاولة
+  عبر الـ deps. الفلاج بيمنع التكرار.
+
+**أثر على حالة المستخدم:** config فيه القديم، tasks فيه نسخة فاضية (من V145).
+تحميل V146: merge بدون فلاج → القديم من config يظهر فورًا ✓. الهجرة:
+union(config، tasks-فاضي) = القديم → tasks + فلاج → القراءة تتحوّل لـ tasks ✓.
+أي رفع جديد عمله المستخدم على V145 (في tasks) بيتحفظ بالـ union.
+
+build ✓ — كل الـ **٤٧٣ اختبار ناجح**. (non-destructive — مفيش حذف؛ المستخدم
+يتأكد إن القديم رجع.)
+
+**الملفات:** `src/App.jsx`، `package.json`، `src/constants/index.js`،
+`public/changelog.json`، `public/sw.js`, `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.145 (2026-06-27) — 💾 إصلاح جذري: documentsTree اتنقل من config لـ tasks
 
 **الطلب (Ahmed):** «المجلد ظهر والملفات ظهرت لمدة ٥ ثواني وبعدين اختفت وظهر

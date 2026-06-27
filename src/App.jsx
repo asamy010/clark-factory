@@ -430,11 +430,14 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
-    /* V21.27.145: documentsTree (مساحة التخزين) اتنقل من factory/config لـ
-       factory/tasks عشان كان بيتجاوز حد 1MB لـ config → الرفع ماكانش بيتسجّل
-       (يظهر ثوانٍ ويختفي). لو tasksDoc فيه documentsTree (بعد seed-on-first-write)
-       يكون هو المصدر؛ وإلا config (البيانات القديمة) لحد أول كتابة. */
-    if(tasksDoc.documentsTree)merged.documentsTree=tasksDoc.documentsTree;
+    /* V21.27.145/146: documentsTree (مساحة التخزين) اتنقل من factory/config لـ
+       factory/tasks (config كان بيتجاوز 1MB → الرفع يختفي).
+       V146 FIX: نعتمد على فلاج الهجرة `_docsTreeMigV145`:
+       - بعد الهجرة → المصدر tasks (= اتحاد config القديم + أي جديد).
+       - قبل الهجرة → المصدر config صراحةً (يضمن ظهور الملفات القديمة حتى لو
+         الـ lazy-seed القديم كتب tasks فاضي بالغلط — كان بيخفي القديم في V145). */
+    if(tasksDoc._docsTreeMigV145)merged.documentsTree=tasksDoc.documentsTree||{folders:[],files:[]};
+    else merged.documentsTree=configDoc.documentsTree||{folders:[],files:[]};
     /* V16.74 + V19.49 → V19.59 BUGFIX: split collections override config equivalents.
        PRE-V19.59 the merge required `splitLoaded === true` (all listeners fired
        at least once). If a single listener stalled (slow network, permission
@@ -5421,20 +5424,38 @@ export default function App(){
      نسخة tasks (شوف useMemo فوق). */
   const upDocs=useCallback((mutate)=>{
     upTasks(t=>{
-      if(!t.documentsTree||typeof t.documentsTree!=="object"){
-        const src=(tasksDocRef.current&&tasksDocRef.current.documentsTree)
-               || (configDocRef.current&&configDocRef.current.documentsTree)
-               || {folders:[],files:[]};
-        t.documentsTree={
-          folders:Array.isArray(src.folders)?JSON.parse(JSON.stringify(src.folders)):[],
-          files:Array.isArray(src.files)?JSON.parse(JSON.stringify(src.files)):[],
-        };
-      }
+      if(!t.documentsTree||typeof t.documentsTree!=="object")t.documentsTree={folders:[],files:[]};
       if(!Array.isArray(t.documentsTree.folders))t.documentsTree.folders=[];
       if(!Array.isArray(t.documentsTree.files))t.documentsTree.files=[];
       mutate(t);
     });
   },[upTasks]);
+  /* V21.27.146: هجرة موثوقة (one-time) لـ documentsTree من config لـ tasks.
+     بتقرا configDoc (الـ state المحمّل بالكامل — مش الـ ref اللي ممكن يكون stale،
+     سبب bug V145 إن البيانات القديمة اختفت). بتعمل **اتحاد** (union by id) لـ
+     config القديم + أي حاجة في tasks (من lazy-seed أو رفع جديد) → صفر فقدان.
+     بتتحط flag _docsTreeMigV145 فتشتغل مرة واحدة. */
+  useEffect(()=>{
+    if(!user||!configLoaded)return;
+    if(!tasksDoc||tasksDoc._docsTreeMigV145)return;/* اتهاجرت قبل كده */
+    /* استنى بيانات المهام تتحمّل (وإلا upTasks هيرفض ويتأخّر) — الـ effect
+       هيعيد المحاولة لما tasksSplitLoaded يبقى true (في الـ deps). */
+    if(tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded)return;
+    const cfg=configDoc&&configDoc.documentsTree;
+    const cfgFolders=Array.isArray(cfg&&cfg.folders)?cfg.folders:[];
+    const cfgFiles=Array.isArray(cfg&&cfg.files)?cfg.files:[];
+    const unionById=(a,b)=>{const m=new Map();(a||[]).forEach(x=>{if(x&&x.id!=null)m.set(String(x.id),x)});(b||[]).forEach(x=>{if(x&&x.id!=null)m.set(String(x.id),x)});return[...m.values()];};
+    upTasks(t=>{
+      const tt=(t.documentsTree&&typeof t.documentsTree==="object")?t.documentsTree:{folders:[],files:[]};
+      /* tasks بيكسب عند تعارض الـ id (يحفظ أحدث تعديل)، والباقي من config */
+      t.documentsTree={
+        folders:unionById(cfgFolders,Array.isArray(tt.folders)?tt.folders:[]),
+        files:unionById(cfgFiles,Array.isArray(tt.files)?tt.files:[]),
+      };
+      t._docsTreeMigV145=true;
+    });
+    console.warn("[V21.27.146] documentsTree migrated to factory/tasks (union): config",cfgFolders.length+"/"+cfgFiles.length);
+  },[user,configLoaded,configDoc,tasksDoc,tasksSplitLoaded,upTasks]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale
