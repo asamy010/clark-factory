@@ -12,6 +12,50 @@
 
 ---
 
+## V21.27.148 (2026-06-27) — ⚙️ إعدادات الخزنة (تاب المالية) + إصلاح اختفاء البنود المضافة
+
+**الطلب (Ahmed):** (١) بضيف بنود منصرف جديدة في الإعدادات لكن مش بتظهر في قائمة
+«نوع الحركة» للمنصرف. (٢) عاوز انقل بنود الوارد/المنصرف/الشيكات من الإعدادات
+لتاب جديد جوّه الخزنة اسمه «إعدادات»، وتحته تاب «المالية» فيه البنود دي —
+وهنضيف تابات تانية بعدين.
+
+**السبب الجذري (البق):** قائمة الفئات (`SearchSel`) كانت `maxResults={30}` (و`{20}`
+في الإدخال السريع) مع `showAllOnFocus` — والـ `SearchSel` بيعمل `options.slice(0,limit)`.
+فلما عدد بنود المنصرف بقى 32+، البنود الجديدة (بتتضاف في **آخر** المصفوفة، رقم 31+)
+كانت بتتقص ومتظهرش عند فتح القائمة. مصدر البيانات سليم وreactive — المشكلة في الـ cap بس.
+
+**التنفيذ:**
+- **إصلاح البق** — رفع `maxResults` لـ 999 في ٣ قوائم فئات: فورم الحركة الجديدة
+  (`TreasuryPg.jsx:3529`)، فورم المتكررة (`TreasuryPg.jsx:5328`)، الإدخال السريع
+  (`QuickTreasuryModal.jsx:399`). القائمة محدودة + الـ dropdown ليه scroll خاص،
+  فعرض الكل آمن.
+- **مكوّن جديد** `src/components/TreasuryFinancialSettings.jsx` — محرّر بنود الوارد/
+  المنصرف/الشيكات (اتنقل من `SettingsPg`). persist فوري عبر `upConfig` لـ
+  `data.treasurySettings.{out,in,check}Categories`. البنود الموصولة (دفعة مورد/عميل،
+  تشغيل خارجي، مرتبات، تحويل داخلي) مقفولة 🔒 (سلوك hard-wired في الخزنة). render
+  helper (دالة مش component) عشان الـ `Inp` ما يفقدش الـ focus.
+- **تاب الخزنة** — `TreasuryPg.jsx`: تاب `settings` («⚙️ إعدادات») في شريط التابات،
+  state `settingsTab` (افتراضي `"financial"`)، sub-tab bar («💰 المالية») مبني للتوسعة،
+  وبلوك `view==="settings"` بيعرض `TreasuryFinancialSettings`. اتضاف `"settings"` لقائمة
+  استبعاد التولبار اليومي.
+- **صفحة الإعدادات** — `SettingsPg.jsx`: اتشال محرّر الفئات الثلاثي + الـ handlers
+  (`addOut/In/Check`, `removeOut/In/Check`, `persistCats`) + الـ states + الـ DEFAULT
+  constants + كتابة الفئات من `handleSave`/`buildSnapshot` (عشان snapshot قديم
+  ما يـ overwrite-ش تعديلات الخزنة). محلها مؤشّر بيوجّه للمكان الجديد. رصيد أول المدة
+  + ربط الموسم + أقفال التعديل/الحذف (admin) فضلوا في `SettingsPg`.
+
+**ليه نقل مش تكرار؟** المستخدم قال «انقل». والتكرار كان بيخلق مصدرين للكتابة
+على نفس الحقل (snapshot قديم في الإعدادات vs persist فوري في الخزنة) → خطر overwrite.
+
+**الملفات:** `src/components/TreasuryFinancialSettings.jsx` (جديد)،
+`src/pages/TreasuryPg.jsx`، `src/components/QuickTreasuryModal.jsx`،
+`src/pages/SettingsPg.jsx`، `package.json`، `src/constants/index.js`،
+`public/changelog.json`، `public/sw.js`، `docs/RELEASE-LOG.md`.
+
+build ✓ — صفر أخطاء.
+
+---
+
 ## V21.27.147 (2026-06-27) — 🗂️ منتقي صور المخزن: بحث بالمجلد + عدّ + فلتر تراكمي
 
 **الطلب (Ahmed):** في نافذة «اختر صورة من مساحة التخزين»: (١) فلتر باسم الملف

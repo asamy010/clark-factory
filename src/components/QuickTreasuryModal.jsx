@@ -396,7 +396,8 @@ export function QuickTreasuryModal({ open, onClose, data, upConfig, user, defaul
             options={categoryOptions}
             placeholder="اكتب أو اختر..."
             showAllOnFocus
-            maxResults={20}
+            /* V21.27.148: كان 20 — البنود المضافة بعد الـ20 ما كانتش بتظهر عند الفتح */
+            maxResults={999}
           />
         </div>
 

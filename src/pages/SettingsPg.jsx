@@ -87,15 +87,10 @@ export function PoMigConfirm({onConfirm,onCancel,T,FS}){
 
 export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Sel,Card,setDirty,userRole}){
   const isAdmin=userRole==="admin";
-  /* V16.61: DEFAULT_OUT/DEFAULT_IN must include the wired categories
-     ("دفعة مورد", "تحويل داخلي", "دفعة عميل") that trigger pickers in TreasuryPg.
-     Previously these were missing from DEFAULT_OUT, so the first time a user
-     saved their treasury settings the saved list would drop "دفعة مورد" and
-     the supplier-picker flow broke. Keeping the wired ones in defaults is
-     belt-and-braces alongside the union logic in TreasuryPg's resolvedOutCats. */
-  const DEFAULT_OUT=["تكلفة","مشتريات","مرتبات","قطع غيار","صيانة ماكينات","خيط","تشغيل خارجي","نقل","كهرباء","ايجار المصنع","نثريات","اكسسوار","مستلزمات تشغيل","ورق ماركر","خدمات","أصول ثابتة","تكاليف أخرى","دفعة مورد","تحويل داخلي"];
-  const DEFAULT_IN=["وارد","إيرادات","دفعة عميل","رأس مال","تحويل","تحويل داخلي"];
-  const DEFAULT_CHECK=["رصيد افتتاحي","دفعة عميل","دفعة مورد","تسوية مبالغ","تحويل بين الحسابات","أخرى"];
+  /* V21.27.148: بنود الوارد/المنصرف/الشيكات اتنقلت لتاب «⚙️ إعدادات → 💰 المالية»
+     داخل الخزنة (TreasuryFinancialSettings). الكارت ده بقى يدير: رصيد أول المدة،
+     ربط الموسم، وأقفال التعديل/الحذف (admin) فقط — البنود مش بتتكتب من هنا خالص
+     (عشان snapshot قديم متخزّن وقت فتح الكارت ما يـ overwrite-ش تعديلات الخزنة). */
   const savedTS=config.treasurySettings||{};
   /* V14.52: List of all non-admin users (candidates for whitelist) */
   const allUsers=(config.usersList||[]).filter(u=>u.role!=="admin");
@@ -103,9 +98,8 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
   const buildSnapshot=(ts)=>({
     openingBalance:Number(ts.openingBalance)||0,
     autoSeason:ts.autoSeason!==false,
-    outCategories:ts.outCategories||DEFAULT_OUT,
-    inCategories:ts.inCategories||DEFAULT_IN,
-    checkCategories:ts.checkCategories||DEFAULT_CHECK,
+    /* V21.27.148: outCategories/inCategories/checkCategories اتشالوا من الـ snapshot
+       — البنود دلوقتي بتتدار من تاب الخزنة فقط، ومش بتتكتب من هنا. */
     /* V14.52: default-on for locks (undefined → true), whitelists default to empty */
     lockEdit:ts.lockEdit===false?false:true,
     lockDelete:ts.lockDelete===false?false:true,
@@ -113,9 +107,6 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
     allowedDeleters:Array.isArray(ts.allowedDeleters)?[...ts.allowedDeleters]:[]
   });
   const[draft,setDraft]=useState(()=>buildSnapshot(savedTS));
-  const[newOutCat,setNewOutCat]=useState("");
-  const[newInCat,setNewInCat]=useState("");
-  const[newCheckCat,setNewCheckCat]=useState("");
   /* Sync from config when NOT dirty */
   const savedSnap=useMemo(()=>buildSnapshot(savedTS),[JSON.stringify(savedTS)]);
   useEffect(()=>{
@@ -130,9 +121,8 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
       if(!d.treasurySettings)d.treasurySettings={};
       d.treasurySettings.openingBalance=draft.openingBalance;
       d.treasurySettings.autoSeason=draft.autoSeason;
-      d.treasurySettings.outCategories=[...draft.outCategories];
-      d.treasurySettings.inCategories=[...draft.inCategories];
-      d.treasurySettings.checkCategories=[...draft.checkCategories];
+      /* V21.27.148: outCategories/inCategories/checkCategories مش بتتكتب من هنا
+         — بتتدار من تاب «الخزنة → إعدادات → المالية» (persist فوري). */
       /* Only admin can save lock changes */
       if(isAdmin){
         const oldLockEdit=savedTS.lockEdit===false?false:true;
@@ -180,51 +170,11 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
   const handleDiscard=async ()=>{
     if(!await ask("إلغاء التعديلات", "سيتم إلغاء كل التعديلات غير المحفوظة. هل تريد المتابعة؟", {danger:true,confirmText:"إلغاء التعديلات"}))return;
     setDraft(buildSnapshot(savedTS));
-    setNewOutCat("");setNewInCat("");setNewCheckCat("");
     showToast("↩️ تم إلغاء التعديلات");
   };
   const updateDraft=(fn)=>setDraft(prev=>{const next={...prev};fn(next);return next});
-  /* V16.64: add/remove of category lists now persists to config IMMEDIATELY
-     (not buffered in draft). Reason: users add categories one at a time and
-     don't think "I need to save this" — they expect the add to stick. With
-     the old draft-only approach, leaving the screen lost the additions and
-     they'd come back to find their list reset. Opening balance + autoSeason
-     + lock settings stay as draft because those genuinely benefit from a
-     "review before save" workflow. */
-  const persistCats=(fn)=>upConfig(d=>{
-    if(!d.treasurySettings)d.treasurySettings={};
-    fn(d.treasurySettings);
-  });
-  const removeOut=(c)=>{
-    const newList=draft.outCategories.filter(x=>x!==c);
-    updateDraft(d=>{d.outCategories=newList});
-    persistCats(ts=>{ts.outCategories=newList});
-  };
-  const removeIn=(c)=>{
-    const newList=draft.inCategories.filter(x=>x!==c);
-    updateDraft(d=>{d.inCategories=newList});
-    persistCats(ts=>{ts.inCategories=newList});
-  };
-  const removeCheck=(c)=>{
-    const newList=draft.checkCategories.filter(x=>x!==c);
-    updateDraft(d=>{d.checkCategories=newList});
-    persistCats(ts=>{ts.checkCategories=newList});
-  };
-  const addOut=()=>{const v=newOutCat.trim();if(!v)return;if(draft.outCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
-    const newList=[...draft.outCategories,v];
-    updateDraft(d=>{d.outCategories=newList});
-    persistCats(ts=>{ts.outCategories=newList});
-    setNewOutCat("");showToast("✓ تم الإضافة")};
-  const addIn=()=>{const v=newInCat.trim();if(!v)return;if(draft.inCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
-    const newList=[...draft.inCategories,v];
-    updateDraft(d=>{d.inCategories=newList});
-    persistCats(ts=>{ts.inCategories=newList});
-    setNewInCat("");showToast("✓ تم الإضافة")};
-  const addCheck=()=>{const v=newCheckCat.trim();if(!v)return;if(draft.checkCategories.includes(v)){showToast("⚠️ البند موجود بالفعل");return}
-    const newList=[...draft.checkCategories,v];
-    updateDraft(d=>{d.checkCategories=newList});
-    persistCats(ts=>{ts.checkCategories=newList});
-    setNewCheckCat("");showToast("✓ تم الإضافة")};
+  /* V21.27.148: add/remove handlers لبنود الوارد/المنصرف/الشيكات اتشالوا من هنا —
+     اتنقلوا لـ TreasuryFinancialSettings (تاب الخزنة → إعدادات → المالية). */
 
   return<Card title={"🏦 إعدادات الخزنة"+(isDirty?" ✨":"")} style={{marginBottom:16,...(isDirty?{border:"2px solid "+T.warn+"60",boxShadow:"0 0 0 3px "+T.warn+"15"}:{})}}>
     <CardSubtitle icon="💡">
@@ -252,42 +202,15 @@ export function TreasurySettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,B
           <Sel value={draft.autoSeason?"auto":"manual"} onChange={v=>updateDraft(d=>{d.autoSeason=v==="auto"})}>
             <option value="auto">تلقائي (الموسم الحالي)</option><option value="manual">يدوي</option></Sel></div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:12,marginTop:12}}>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.err,marginBottom:6}}>
-          بنود المنصرف ({draft.outCategories.length})
-          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل منصرف في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات موردين، تحويلات، إلخ) ولا يمكن حذفها.</HelpTip>
+      {/* V21.27.148: بنود الوارد/المنصرف/الشيكات اتنقلت لتاب «الخزنة → ⚙️ إعدادات
+          → 💰 المالية» — مكانها الطبيعي جنب الحركات اللي بتستخدمها. */}
+      <div style={{marginTop:14,padding:"12px 14px",borderRadius:10,background:T.accent+"08",border:"1px solid "+T.accent+"25",display:"flex",alignItems:"center",gap:10,lineHeight:1.6}}>
+        <span style={{fontSize:22}}>🗂️</span>
+        <div style={{fontSize:FS-1,color:T.textSec}}>
+          <b style={{color:T.text}}>بنود الوارد / المنصرف / الشيكات</b> اتنقلت لشاشة الخزنة →
+          تاب <b style={{color:T.accent}}>⚙️ إعدادات</b> → <b style={{color:T.accent}}>💰 المالية</b>.
+          أضف/احذف البنود من هناك — بتظهر فورًا في قائمة «نوع الحركة».
         </div>
-          {/* V16.61: WIRED categories cannot be deleted — they have hard-coded
-              behavior in TreasuryPg (party pickers, transfers wiring). Show a
-              lock icon instead of ✕ for these so the user understands why. */}
-          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.outCategories.map(c=>{
-            const wired=["دفعة مورد","تشغيل خارجي","مرتبات","تحويل داخلي"].includes(c);
-            return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.err+"08",color:T.err,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
-              {c}{wired?<span style={{fontSize:9,opacity:0.6}}>🔒</span>:<span onClick={()=>removeOut(c)} style={{cursor:"pointer",fontSize:10}}>✕</span>}
-            </span>;
-          })}</div>
-          <div style={{display:"flex",gap:4}}><Inp value={newOutCat} onChange={setNewOutCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={addOut}>+</Btn></div>
-        </div>
-        <div><div style={{fontSize:FS-1,fontWeight:700,color:T.ok,marginBottom:6}}>
-          بنود الوارد ({draft.inCategories.length})
-          <HelpTip>هذه البنود تظهر في قائمة "نوع الحركة" عند تسجيل وارد في الخزنة. البنود المعلّمة بـ🔒 مرتبطة بأنظمة أخرى (دفعات عملاء، تحويلات داخلية).</HelpTip>
-        </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.inCategories.map(c=>{
-            const wired=["دفعة عميل","تحويل داخلي"].includes(c);
-            return<span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:T.ok+"08",color:T.ok,display:"flex",alignItems:"center",gap:4}} title={wired?"بند مرتبط بنظام آخر — يفتح قائمة اختيار تلقائياً":""}>
-              {c}{wired?<span style={{fontSize:9,opacity:0.6}}>🔒</span>:<span onClick={()=>removeIn(c)} style={{cursor:"pointer",fontSize:10}}>✕</span>}
-            </span>;
-          })}</div>
-          <div style={{display:"flex",gap:4}}><Inp value={newInCat} onChange={setNewInCat} placeholder="بند جديد..." style={{flex:1}}/><Btn small onClick={addIn}>+</Btn></div>
-        </div>
-      </div>
-      <div style={{marginTop:12,padding:12,borderRadius:10,background:"#8B5CF608",border:"1px solid #8B5CF620"}}>
-        <div style={{fontSize:FS-1,fontWeight:700,color:"#8B5CF6",marginBottom:6}}>📝 بنود الشيكات ({draft.checkCategories.length})</div>
-        <div style={{fontSize:FS-3,color:T.textMut,marginBottom:8,lineHeight:1.6}}>تُستخدم في فورم الشيكات فقط (أوراق قبض/دفع). مثلاً "رصيد افتتاحي" لفتح موسم جديد.</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>{draft.checkCategories.map(c=><span key={c} style={{padding:"3px 8px",borderRadius:6,fontSize:FS-2,background:"#8B5CF612",color:"#8B5CF6",display:"flex",alignItems:"center",gap:4}}>
-          {c}<span onClick={()=>removeCheck(c)} style={{cursor:"pointer",fontSize:10}}>✕</span>
-        </span>)}</div>
-        <div style={{display:"flex",gap:4}}><Inp value={newCheckCat} onChange={setNewCheckCat} placeholder="بند جديد (مثلاً: رصيد افتتاحي)..." style={{flex:1}}/><Btn small onClick={addCheck}>+</Btn></div>
       </div>
 
       {/* ═══ V14.52: Lock Edit/Delete + Whitelist — admin only ═══ */}

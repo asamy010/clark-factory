@@ -19,6 +19,7 @@ import { htmlToPdfBase64 } from "../utils/htmlToPdf.js";
 import { getReferences } from "../utils/dataIntegrity.js";
 import { Spinner, InlineLoading, Btn, Inp, Sel, SearchSel, Card, useDebounced } from "../components/ui.jsx";
 import { ReviewRequestBanner } from "../components/ReviewRequestBanner.jsx";
+import { TreasuryFinancialSettings } from "../components/TreasuryFinancialSettings.jsx";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { calculatePending, buildTxFromRule, getNextDueDate, describeRecurrence } from "../utils/recurring.js";
 import { matchWorkshopFromDesc, matchPartyFromDesc } from "../utils/orders.js";
@@ -587,6 +588,9 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     } catch(_) {}
     return subAccKey;
   });
+  /* V21.27.148: sub-tab داخل تاب «⚙️ إعدادات» — حاليًا «المالية» بس، وهنضيف
+     تابات تانية بعدين (طلب Ahmed). */
+  const[settingsTab,setSettingsTab]=useState("financial");
   /* ── Odoo Sync ── */
   const[odooSyncing,setOdooSyncing]=useState(false);const[odooResult,setOdooResult]=useState(null);
   /* Selective sync popup state */
@@ -3017,6 +3021,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         baseTabs.push({k:"reports",l:"📈 تقارير"});
         baseTabs.push({k:"analysis",l:"📊 التحليل"});
         baseTabs.push({k:"accounts",l:"🏦 دفاتر اليومية"});
+        baseTabs.push({k:"settings",l:"⚙️ إعدادات"});/* V21.27.148 */
         /* V21.9.218: «محافظ إلكترونية» يفضل مميّز وأنا جوّه أي محفظة (acc_ view لحساب نوعه wallet). */
         const _isWalletAccView=view.startsWith("acc_")&&(accountsData.find(a=>a.id===view.slice(4))?.type==="wallet");
         return baseTabs.map(v=>{
@@ -3227,7 +3232,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
       </div>;
     })()}
 
-    {!["overview","transfers","checks","analysis","accounts","recurring","wallets","reports"].includes(view) && !view.startsWith("acc_") && (()=>{
+    {!["overview","transfers","checks","analysis","accounts","recurring","wallets","reports","settings"].includes(view) && !view.startsWith("acc_") && (()=>{
       /* Journal-view-only toolbar (date + actions). For acc_xxx views the toolbar
          lives inside the account summary card to save vertical space. */
       const currentAccName=null;const scopeLabel="الكل";
@@ -3539,7 +3544,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               if(v==="دفعة عميل"&&accountsData.find(a=>a&&typeof a==="object"&&a.name===txAccount&&a.type==="wallet"))setTxMethod("تحويل محفظة الكترونية");
             }}
             options={(txType==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c,label:c}))}
-            maxResults={30}
+            /* V21.27.148: كان 30 → بنود المستخدم المضافة (بعد البند الـ30) ما كانتش بتظهر عند الفتح. القائمة محدودة + للـ dropdown scroll خاص به فعرض الكل آمن. */
+            maxResults={999}
             showAllOnFocus={true}
             placeholder="اكتب أو اختر..."/>
           {txPartyId&&(txCategory==="دفعة عميل"||txCategory==="دفعة مورد"||txCategory==="تشغيل خارجي"||txCategory==="مرتبات")&&(()=>{const list=txPartyType==="customer"?customers:txPartyType==="supplier"?suppliers:txPartyType==="employee"?(data.employees||[]).filter(e=>!e.inactive):workshops;const p=list.find(x=>x.id===txPartyId||x.name===txPartyId);if(!p)return null;
@@ -5326,7 +5332,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
               value={recForm.category}
               onChange={v=>setRecForm({...recForm, category:v})}
               options={(recForm.type==="in"?resolvedInCats:resolvedOutCats).map(c=>({value:c, label:c}))}
-              maxResults={30} showAllOnFocus={true} placeholder="اكتب أو اختر..."/>
+              /* V21.27.148: كان 30 — بنود المستخدم بعد الـ30 ما كانتش بتظهر */
+              maxResults={999} showAllOnFocus={true} placeholder="اكتب أو اختر..."/>
           </div>
           <div style={{gridColumn:isMob?"1":"1 / -1"}}>
             <label style={{fontSize:FS-2, color:T.textSec, fontWeight:600, display:"block", marginBottom:4}}>البيان</label>
@@ -5826,6 +5833,21 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
           </div>
           <Btn onClick={()=>{setResetConfirmText("");setShowResetPopup(true)}} style={{background:T.err,color:"#fff",border:"none",fontWeight:700,padding:"10px 20px"}}>🗑️ مسح كل حركات الخزنة + سلف ومرتبات HR</Btn>
         </div>
+      </Card>}
+    </div>}
+
+    {/* ══ SETTINGS VIEW (V21.27.148) — إعدادات الخزنة + sub-tabs ══
+        تاب «المالية» = بنود الوارد/المنصرف/الشيكات (اتنقلت من صفحة الإعدادات
+        العامة). الـ sub-tab bar مبني للتوسعة — هنضيف تابات تانية بعدين. */}
+    {view==="settings"&&<div>
+      {(()=>{
+        const _subTabs=[{k:"financial",l:"💰 المالية"}];
+        return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
+          {_subTabs.map(s=><div key={s.k} onClick={()=>setSettingsTab(s.k)} style={{flex:isMob?"0 0 auto":1,padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:settingsTab===s.k?T.accent:"transparent",color:settingsTab===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
+        </div>;
+      })()}
+      {settingsTab==="financial"&&<Card title="💰 الإعدادات المالية — بنود الحركات">
+        <TreasuryFinancialSettings data={data} upConfig={upConfig} isMob={isMob}/>
       </Card>}
     </div>}
 
