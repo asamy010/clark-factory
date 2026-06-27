@@ -672,14 +672,33 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     }
 
     if (uploaded.length > 0 || newFolders.length > 0) {
-      upConfig(d => {
+      const res = upConfig(d => {
         if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
         if (!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
         if (!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
         d.documentsTree.folders.push(...newFolders);
         d.documentsTree.files.push(...uploaded);
       });
-      showToast(`✅ تم رفع ${uploaded.length} ملف في ${newFolders.length} مجلد`);
+      /* V21.27.144: لو الحفظ اترفض (gate/safety/أوفلاين) — بلّغ بصراحة بدل توست نجاح كاذب. */
+      if (res && res.ok === false) {
+        setUploading(false);
+        setUploadProgress({ total: 0, done: 0 });
+        tell("لم يُحفظ", "اترفعت الملفات للتخزين بس قائمة الملفات ماتسجّلتش (" + (res.error || "خطأ") + "). جرّب تاني أو ارفع عدد أقل في المرة.", { danger: true });
+        return;
+      }
+      /* V21.27.144 ROOT-CAUSE FIX: المشكلة اللي اشتكى منها Ahmed — رفع المجلد
+         بيخلّص بس «مفيش ملفات ظاهرة». السبب: الرفع بيتحط جوّه المجلد الجديد،
+         فالمستخدم بيفضل واقف على الجذر (الفاضي) ومش لاقي حاجة. الحل: نروح
+         تلقائيًا **جوّه المجلد المرفوع** + نلغي أي فلتر (بحث/سلة/أخيرة) ممكن
+         يكون مخفّي العرض. */
+      const topKeys = [...dirToId.keys()].filter(k => !k.includes("/"));
+      const topId = topKeys.length ? dirToId.get(topKeys[0]) : (currentFolderId || null);
+      const topName = topKeys.length ? topKeys[0] : "المجلد";
+      setSearch(""); setShowTrash(false); setRecentView(false);
+      setCurrentFolderId(topId);
+      showToast(`✅ تم رفع ${uploaded.length} ملف · ${newFolders.length} مجلد — فُتح مجلد «${topName}»`);
+    } else {
+      showToast("⚠️ مفيش ملفات اترفعت — جرّب تاني");
     }
 
     setUploading(false);
