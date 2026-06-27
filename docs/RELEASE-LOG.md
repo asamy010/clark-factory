@@ -12,6 +12,43 @@
 
 ---
 
+## V21.27.143 (2026-06-27) — 📁 مساحة التخزين: رفع مجلد كامل + شريط تقدّم مانع للتفاعل
+
+**الطلب (Ahmed):** في هَب مساحة التخزين، رفع فولدر كامل جواه فولدرات. لما يضغط
+على الفولدر ويضغط Upload بيفتح الفولدر (مش بيرفعه). + وقت الرفع يظهر شريط تقدّم
+والمستخدم مايقدرش يعمل حاجة لحد الانتهاء.
+
+**ليه كان بيفتح الفولدر:** مُدخل الرفع كان `<input type="file" multiple>` —
+بيقبل ملفات بس، فاختيار مجلد في حوار macOS بيفتحه بدل ما يرفعه.
+
+**التنفيذ (`src/pages/DocumentsPg.jsx`):**
+- مُدخل تاني `folderInputRef` بخصائص `webkitdirectory`/`directory`/`mozdirectory`
+  (متحطّة كمان عبر `setAttribute` في `useEffect` لضمان عدم strip من React) —
+  يخلّي الاختيار **للمجلد نفسه**. + زر «📁 رفع مجلد».
+- `handleFolderUpload`: كل ملف بييجي بـ `webkitRelativePath`
+  («مجلد/فرعي/ملف.ext»). `ensureDir(segments)` بيعيد بناء شجرة المجلدات تحت
+  المجلد الحالي — إنشاء اللي مش موجود مع dedup بالاسم+الأب (يشمل المجلدات
+  المُنشأة في نفس الباتش)، وبيرجّع leaf folderId. كل ملف بيترفع في مجلده
+  الورقي (نفس بنية `documents/{folderId}/{fileId}_{name}` + سجل في
+  `documentsTree.files`)، والمجلدات الجديدة بتتسجّل في `documentsTree.folders`
+  بنفس شكل `createFolder`. كله في `upConfig` واحد بعد ما الرفع يخلص.
+- **شاشة تقدّم blocking**: أوفرلاي `position:fixed inset:0 z-index:100000`
+  بـ backdrop معتم + بيمنع الـ click (مفيش dismiss) — كارت فيه progress bar
+  (`pct = done/total`) + العدّاد. بتطبّق على رفع الملفات والمجلدات (استبدلت
+  الكارت الـ inline القديم اللي ماكانش بيمنع التفاعل).
+
+تأكيد بصري بـ Chromium screenshot للأوفرلاي. build ✓ — كل الـ **٤٧٣ اختبار
+ناجح**.
+
+**ملاحظة توافق:** `webkitdirectory` مدعوم في Safari 11.1+ و Chrome (Mac).
+الرفع تسلسلي (ملف ورا ملف) فالشريط بيتقدّم بدقّة.
+
+**الملفات:** `src/pages/DocumentsPg.jsx`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`,
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.142 (2026-06-27) — 🧾 تقرير المبيعات: أزرار «حفظ PDF / طباعة» و«إغلاق»
 
 **الطلب (Ahmed):** «لما بفتح تقرير العملاء ده مفيش زر رجوع أو بي دي اف أو

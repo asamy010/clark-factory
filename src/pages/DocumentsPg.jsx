@@ -217,6 +217,14 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
   const [uploadProgress, setUploadProgress] = useState({ total: 0, done: 0 });
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);/* V21.27.143: رفع مجلد كامل بمجلداته الفرعية */
+  /* V21.27.143: نضمن خصائص اختيار المجلد على الـ input عبر setAttribute — React
+     ممكن يـ strip الـ attributes غير المعروفة، فبنحطّها يدويًا بعد الـ mount. */
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (!el) return;
+    try { el.setAttribute("webkitdirectory", ""); el.setAttribute("directory", ""); el.setAttribute("mozdirectory", ""); } catch (_) {}
+  }, []);
 
   /* ── V21.9.186 — Tree sidebar state ──
      `recentView` is a virtual folder: shows files from the last 30 days
@@ -583,6 +591,101 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     setUploadProgress({ total: 0, done: 0 });
   }, [canEdit, currentFolderId, upConfig, userEmail]);
 
+  /* V21.27.143: رفع مجلد كامل بمجلداته الفرعية (webkitdirectory).
+     كل ملف بييجي بـ webkitRelativePath = "المجلد/الفرعي/الملف.ext". بنعيد بناء
+     شجرة المجلدات تحت المجلد الحالي (إنشاء اللي مش موجود، dedup بالاسم+الأب)،
+     وبنرفع كل ملف في مجلده الورقي. أمر Ahmed: «اعمل ابلود لفولدر كامل جواه
+     فولدرات». */
+  const handleFolderUpload = useCallback(async (fileList) => {
+    if (!canEdit) {
+      tell("صلاحيات", "ما عندكش صلاحية رفع ملفات", { danger: true });
+      return;
+    }
+    const arr = Array.from(fileList || []).filter(f => f && f.name && !((f.name || "").startsWith(".")));
+    if (arr.length === 0) return;
+    /* Size check — نفس handleFiles */
+    const MAX = 100 * 1024 * 1024;
+    const oversized = arr.filter(f => f.size > MAX);
+    if (oversized.length) {
+      tell("ملفات كبيرة",
+        `${oversized.length} ملف أكبر من 100 MB — هـ يتـ skipped.`,
+        { danger: true });
+    }
+    const accepted = arr.filter(f => f.size <= MAX);
+    if (accepted.length === 0) return;
+
+    setUploading(true);
+    setUploadProgress({ total: accepted.length, done: 0 });
+
+    /* بناء شجرة المجلدات: relativeDir → folderId (إنشاء عند اللزوم). */
+    const newFolders = [];
+    const dirToId = new Map();
+    const ensureDir = (segments) => {
+      let parentId = currentFolderId || null;
+      let pathKey = "";
+      for (const segRaw of segments) {
+        const seg = String(segRaw || "").trim();
+        if (!seg) continue;
+        pathKey = pathKey ? pathKey + "/" + seg : seg;
+        if (dirToId.has(pathKey)) { parentId = dirToId.get(pathKey); continue; }
+        const sameSibling = (f) => (f.parentId || null) === (parentId || null) && (f.name || "").trim() === seg;
+        const existing = folders.find(sameSibling) || newFolders.find(sameSibling);
+        let id;
+        if (existing) { id = existing.id; }
+        else {
+          id = gid();
+          const nowIso = new Date().toISOString();
+          newFolders.push({ id, name: seg, icon: "📁", color: "#8B5CF6", parentId: parentId || null, orderIndex: 999, createdBy: userEmail, createdAt: nowIso, lastModifiedAt: nowIso });
+        }
+        dirToId.set(pathKey, id);
+        parentId = id;
+      }
+      return parentId;
+    };
+
+    const uploaded = [];
+    for (const file of accepted) {
+      const rel = file.webkitRelativePath || file.name;
+      const parts = String(rel).split("/").filter(Boolean);
+      const fileName = parts.pop();
+      const folderId = parts.length ? ensureDir(parts) : (currentFolderId || null);
+      try {
+        const fileId = gid();
+        const sanitized = sanitizeFilename(fileName);
+        const path = `documents/${folderId || "root"}/${fileId}_${sanitized}`;
+        const ref = storageRef(storage, path);
+        const snap = await uploadBytes(ref, file, { contentType: file.type || "application/octet-stream" });
+        const downloadURL = await getDownloadURL(snap.ref);
+        const nowIso = new Date().toISOString();
+        uploaded.push({
+          id: fileId, name: fileName, folderId: folderId || null,
+          storagePath: path, downloadURL,
+          contentType: file.type || "application/octet-stream",
+          size: file.size, uploadedBy: userEmail, uploadedAt: nowIso, lastModifiedAt: nowIso,
+          description: "", previewable: isPreviewable(file.type),
+        });
+      } catch (e) {
+        console.error("[DocumentsPg] folder upload failed:", file.name, e);
+        showToast(`⚠️ فشل رفع ${file.name}: ${friendlyStorageError(e)}`);
+      }
+      setUploadProgress(p => ({ ...p, done: p.done + 1 }));
+    }
+
+    if (uploaded.length > 0 || newFolders.length > 0) {
+      upConfig(d => {
+        if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
+        if (!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
+        if (!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
+        d.documentsTree.folders.push(...newFolders);
+        d.documentsTree.files.push(...uploaded);
+      });
+      showToast(`✅ تم رفع ${uploaded.length} ملف في ${newFolders.length} مجلد`);
+    }
+
+    setUploading(false);
+    setUploadProgress({ total: 0, done: 0 });
+  }, [canEdit, currentFolderId, folders, upConfig, userEmail]);
+
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -948,6 +1051,8 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
         extra={
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {!showTrash && !recentView && canEdit && <Btn small onClick={() => fileInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }}>📤 رفع ملف</Btn>}
+            {/* V21.27.143: رفع مجلد كامل بمجلداته الفرعية */}
+            {!showTrash && !recentView && canEdit && <Btn small onClick={() => folderInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }} title="ارفع مجلد كامل بكل ملفاته ومجلداته الفرعية">📁 رفع مجلد</Btn>}
             {!showTrash && !recentView && canEdit && <Btn small onClick={createFolder} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>➕ مجلد جديد</Btn>}
           </div>
         }
@@ -1091,6 +1196,21 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
             e.target.value = "";
           }}
         />
+        {/* V21.27.143: مُدخل رفع المجلد — webkitdirectory يخلّي الاختيار للمجلد
+            نفسه (بدل ما يفتحه) ويرفع كل ملفاته ومجلداته الفرعية. */}
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          webkitdirectory=""
+          directory=""
+          mozdirectory=""
+          style={{ display: "none" }}
+          onChange={(e) => {
+            handleFolderUpload(e.target.files);
+            e.target.value = "";
+          }}
+        />
 
         {/* V21.26.12: شريط التحديد المتعدد — حذف + إرسال واتساب */}
         {!showTrash && selectedIds.size > 0 && (
@@ -1181,14 +1301,27 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
           </div>
         )}
 
-        {uploading && (
-          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: T.accent + "08", border: "1px solid " + T.accent + "20", display: "flex", alignItems: "center", gap: 10 }}>
-            <Spinner size="small" />
-            <div style={{ fontSize: FS, fontWeight: 700, color: T.accent, flex: 1 }}>
-              جاري رفع {uploadProgress.done} من {uploadProgress.total}...
+        {/* V21.27.143: شاشة تقدّم تغطّي كل حاجة وتمنع أي تفاعل لحد ما الرفع يخلص
+            (أمر Ahmed). progress bar + العدّاد. مفيش زر إغلاق — بتختفي لوحدها. */}
+        {uploading && (() => {
+          const total = uploadProgress.total || 0;
+          const done = uploadProgress.done || 0;
+          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+          return (
+            <div style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(15,23,42,0.72)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 18, padding: "26px 28px", width: "100%", maxWidth: 430, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", textAlign: "center" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>📤</div>
+                <div style={{ fontSize: FS + 3, fontWeight: 800, color: T.text, marginBottom: 6 }}>جاري رفع الملفات...</div>
+                <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 16, lineHeight: 1.6 }}>من فضلك استنى لحد ما الرفع يخلص — متقفلش الصفحة ومتعملش حاجة تانية.</div>
+                <div style={{ height: 14, borderRadius: 8, background: T.bg, overflow: "hidden", border: "1px solid " + T.brd }}>
+                  <div style={{ height: "100%", width: pct + "%", minWidth: pct > 0 ? 8 : 0, background: "linear-gradient(90deg," + T.accent + "," + T.accent + "CC)", borderRadius: 8, transition: "width 0.25s ease" }} />
+                </div>
+                <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.accent, marginTop: 12, direction: "ltr" }}>{done} / {total} ({pct}%)</div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </Card>
 
       {showTrash && stats.trashCount > 0 && (
