@@ -197,7 +197,11 @@ function TreeNode({ folder, allFolders, depth, fileCounts, currentFolderId, expa
 /* V21.27.7: ستايل موحّد لأزرار أدوات الملف (صف واحد مضغوط) */
 const ACT_BTN = { padding: "2px 4px", minWidth: 0, fontSize: 13, lineHeight: 1, flex: "0 0 auto" };
 
-export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, replaceModel, updOrder }) {
+export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, models, replaceModel, updOrder }) {
+  /* V21.27.145: كل كتابات شجرة مساحة التخزين بتروح factory/tasks عبر upDocs
+     (بدل factory/config) عشان ما تتجاوزش حد 1MB لـ config. fallback لـ upConfig
+     لو upDocs مش متمرّر (توافق). */
+  const upTree = upDocs || upConfig;
   const tree = data.documentsTree || { folders: [], files: [] };
   const folders = Array.isArray(tree.folders) ? tree.folders : [];
   const files = Array.isArray(tree.files) ? tree.files : [];
@@ -338,7 +342,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     const ok = await ask("حذف الملفات المحددة", "هيتنقل " + ids.length + " ملف لسلة المهملات.", { danger: true });
     if (!ok) return;
     const nowIso = new Date().toISOString();
-    upConfig(d => { (d.documentsTree?.files || []).forEach(f => { if (ids.includes(f.id)) { f.deletedAt = nowIso; f.deletedBy = userEmail; } }); });
+    upTree(d => { (d.documentsTree?.files || []).forEach(f => { if (ids.includes(f.id)) { f.deletedAt = nowIso; f.deletedBy = userEmail; } }); });
     clearSel(); showToast("🗑️ تم نقل المحدد لسلة المهملات");
   };
   /* تطبيع رقم مصري لصيغة wa.me (12 رقم تبدأ بـ20). */
@@ -457,7 +461,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
       createdAt: nowIso,
       lastModifiedAt: nowIso,
     };
-    upConfig(d => {
+    upTree(d => {
       if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
       if (!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
       d.documentsTree.folders.push(newFolder);
@@ -474,7 +478,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     });
     if (!name || name === folder.name) return;
     const nowIso = new Date().toISOString();
-    upConfig(d => {
+    upTree(d => {
       const i = (d.documentsTree?.folders || []).findIndex(f => f.id === folder.id);
       if (i < 0) return;
       d.documentsTree.folders[i].name = name.trim();
@@ -501,7 +505,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
       if (!ok) return;
     }
     const nowIso = new Date().toISOString();
-    upConfig(d => {
+    upTree(d => {
       if (!d.documentsTree) return;
       /* Soft-delete affected files */
       (d.documentsTree.files || []).forEach(f => {
@@ -579,7 +583,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     }
 
     if (uploaded.length > 0) {
-      upConfig(d => {
+      upTree(d => {
         if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
         if (!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
         d.documentsTree.files.push(...uploaded);
@@ -672,7 +676,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     }
 
     if (uploaded.length > 0 || newFolders.length > 0) {
-      const res = upConfig(d => {
+      const res = upTree(d => {
         if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
         if (!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
         if (!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
@@ -723,7 +727,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
     });
     if (!name || name === file.name) return;
     const nowIso = new Date().toISOString();
-    upConfig(d => {
+    upTree(d => {
       const i = (d.documentsTree?.files || []).findIndex(f => f.id === file.id);
       if (i < 0) return;
       d.documentsTree.files[i].name = name.trim();
@@ -747,7 +751,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
       return;
     }
     const nowIso = new Date().toISOString();
-    upConfig(d => {
+    upTree(d => {
       const i = (d.documentsTree?.files || []).findIndex(f => f.id === file.id);
       if (i < 0) return;
       d.documentsTree.files[i].folderId = targetId || null;
@@ -764,7 +768,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
       { danger: true });
     if (!ok) return;
     const nowIso = new Date().toISOString();
-    upConfig(d => {
+    upTree(d => {
       const i = (d.documentsTree?.files || []).findIndex(f => f.id === file.id);
       if (i < 0) return;
       d.documentsTree.files[i].deletedAt = nowIso;
@@ -775,7 +779,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
 
   const restoreFile = async (file) => {
     if (!canEdit) return;
-    upConfig(d => {
+    upTree(d => {
       const i = (d.documentsTree?.files || []).findIndex(f => f.id === file.id);
       if (i < 0) return;
       delete d.documentsTree.files[i].deletedAt;
@@ -800,7 +804,7 @@ export function DocumentsPg({ data, upConfig, isMob, canEdit, user, models, repl
         return;
       }
     }
-    upConfig(d => {
+    upTree(d => {
       if (!d.documentsTree) return;
       d.documentsTree.files = (d.documentsTree.files || []).filter(f => f.id !== file.id);
     });

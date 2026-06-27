@@ -128,7 +128,10 @@ function ResultCard({ res, isMob, onDelete, onZoom, children }){
   );
 }
 
-export function AIStudioPg({ model, models, data, upConfig, user, isMob, replaceModel, updOrder, onClose }){
+export function AIStudioPg({ model, models, data, upConfig, upDocs, user, isMob, replaceModel, updOrder, onClose }){
+  /* V21.27.145: حفظ صور الاستوديو في «مساحة التخزين» بيروح factory/tasks عبر
+     upDocs (بدل config) — نفس سبب DocumentsPg (حد 1MB لـ config). */
+  const upTree = upDocs || upConfig;
   const lib = useMemo(() => mergePresets(data), [data]);
 
   const [curModel, setCurModel] = useState(model || null);
@@ -717,7 +720,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     const now = new Date().toISOString();
     const by = (user && (user.displayName || user.email)) || "";
     const fname = String(storageFolder || "").trim();
-    upConfig(d => { _initTree(d); const fid = _ensureAiFolder(d, fname, by, now); list.forEach(res => d.documentsTree.files.push(_fileRec(res, fid, by, now, fname))); });
+    upTree(d => { _initTree(d); const fid = _ensureAiFolder(d, fname, by, now); list.forEach(res => d.documentsTree.files.push(_fileRec(res, fid, by, now, fname))); });
     setSavedIds(prev => { const n = new Set(prev); list.forEach(r => n.add(r.id)); return n; });
     if(!silent) showToast("✓ اتحفظت " + (list.length > 1 ? list.length + " صور " : "") + "في " + _pathLabel(fname));
   };
@@ -749,7 +752,7 @@ export function AIStudioPg({ model, models, data, upConfig, user, isMob, replace
     setResults(prev => prev.filter(r => r.id !== res.id));
     setSavedIds(prev => { if(!prev.has(res.id)) return prev; const n = new Set(prev); n.delete(res.id); return n; });
     /* مساحة التخزين: شيل سجل/سجلات الملف المطابق (storagePath أولاً، وإلا الرابط) */
-    upConfig(d => {
+    upTree(d => {
       if(!d.documentsTree || !Array.isArray(d.documentsTree.files)) return;
       d.documentsTree.files = d.documentsTree.files.filter(f =>
         !(f && f.source === "ai-studio" && ((res.storagePath && f.storagePath === res.storagePath) || f.downloadURL === res.url)));

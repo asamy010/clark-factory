@@ -430,6 +430,11 @@ export default function App(){
     if(tasksDoc.tasks)merged.tasks=tasksDoc.tasks;
     if(tasksDoc.stickyNotes)merged.stickyNotes=tasksDoc.stickyNotes;
     if(tasksDoc.inventoryAudits)merged.inventoryAudits=tasksDoc.inventoryAudits;
+    /* V21.27.145: documentsTree (مساحة التخزين) اتنقل من factory/config لـ
+       factory/tasks عشان كان بيتجاوز حد 1MB لـ config → الرفع ماكانش بيتسجّل
+       (يظهر ثوانٍ ويختفي). لو tasksDoc فيه documentsTree (بعد seed-on-first-write)
+       يكون هو المصدر؛ وإلا config (البيانات القديمة) لحد أول كتابة. */
+    if(tasksDoc.documentsTree)merged.documentsTree=tasksDoc.documentsTree;
     /* V16.74 + V19.49 → V19.59 BUGFIX: split collections override config equivalents.
        PRE-V19.59 the merge required `splitLoaded === true` (all listeners fired
        at least once). If a single listener stalled (slow network, permission
@@ -5406,6 +5411,30 @@ export default function App(){
     /* V19.56: return the Tx promise so callers can await actual flush (see upConfig). */
     return upTasksTx(stripped,newTasksSplit,explicitTasksSplitBefore);
   },[upTasksTx,configLoaded,configError,tasksDoc,tasksSplitLoaded,registerPendingTasksSplitWrites]);
+  /* V21.27.145: كاتب «شجرة مساحة التخزين» (documentsTree) — بيكتب في
+     factory/tasks (مستند منفصل) بدل factory/config. السبب: documentsTree كان
+     حقل عادي في config، والرفع الكبير كان بيخلّي config يتجاوز 1MB → السيرفر
+     يرفض الكتابة → الملفات تظهر ثوانٍ (optimistic) وتختفي (revert). نقله لـ
+     tasks بيديله مساحته الخاصة.
+     seed-on-first-write: أول كتابة بتنسخ documentsTree الموجود (من config) جوّه
+     tasks — من غير أي حذف، فالبيانات القديمة محفوظة. بعد كده الـ merge بيفضّل
+     نسخة tasks (شوف useMemo فوق). */
+  const upDocs=useCallback((mutate)=>{
+    upTasks(t=>{
+      if(!t.documentsTree||typeof t.documentsTree!=="object"){
+        const src=(tasksDocRef.current&&tasksDocRef.current.documentsTree)
+               || (configDocRef.current&&configDocRef.current.documentsTree)
+               || {folders:[],files:[]};
+        t.documentsTree={
+          folders:Array.isArray(src.folders)?JSON.parse(JSON.stringify(src.folders)):[],
+          files:Array.isArray(src.files)?JSON.parse(JSON.stringify(src.files)):[],
+        };
+      }
+      if(!Array.isArray(t.documentsTree.folders))t.documentsTree.folders=[];
+      if(!Array.isArray(t.documentsTree.files))t.documentsTree.files=[];
+      mutate(t);
+    });
+  },[upTasks]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale
@@ -7358,7 +7387,7 @@ export default function App(){
         <ChunkErrorBoundary>
         <Suspense fallback={<PageLoader/>}>
         {tab==="db"&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
-        {tab==="aiStudio"&&<AIStudioPg model={null} models={models} data={data} upConfig={upConfig} user={user} isMob={isMob} replaceModel={replaceModel} updOrder={updOrder} onClose={goHome}/>}
+        {tab==="aiStudio"&&<AIStudioPg model={null} models={models} data={data} upConfig={upConfig} upDocs={upDocs} user={user} isMob={isMob} replaceModel={replaceModel} updOrder={updOrder} onClose={goHome}/>}
         {tab==="details"&&<div>
           {/* V21.21.99: hub التصنيع — ٣ أزرار رئيسية (الشريط يختفي وأمر مفتوح) */}
           {!sel&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
@@ -7368,7 +7397,7 @@ export default function App(){
             })}
           </div>}
           {(detView==="orders"||sel)&&<DetPg data={data} updOrder={updOrder} replaceOrder={replaceOrder} addOrder={addOrder} delOrder={delOrder} sel={sel} setSel={setSel} isMob={isMob} isTab={isTab} canEdit={canEditTab("details")} canEditWarehouse={canEditTab("warehouse")} statusCards={statusCards} goHome={goHome} upConfig={upConfig} user={user}/>}
-          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} user={user} updOrder={updOrder} importModelsFromOrders={importModelsFromOrders} propagateModelToOrders={propagateModelToOrders}/>}
+          {detView==="models"&&!sel&&<ModelsPg data={data} models={models} addModel={addModel} replaceModel={replaceModel} delModel={delModel} isMob={isMob} canEdit={canEditTab("details")} statusCards={statusCards} upConfig={upConfig} upDocs={upDocs} user={user} updOrder={updOrder} importModelsFromOrders={importModelsFromOrders} propagateModelToOrders={propagateModelToOrders}/>}
           {detView==="database"&&!sel&&<DBPg data={data} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("db")} statusCards={statusCards} initialSub={dbSub} onSubUsed={()=>setDbSub(null)} renameInOrders={renameInOrders}/>}
         </div>}
         {tab==="external"&&<ExtProdPg data={data} updOrder={updOrder} upConfig={upConfig} isMob={isMob} isTab={isTab} canEdit={canEditTab("external")} statusCards={statusCards} season={season} user={user} renameInOrders={renameInOrders}/>}
@@ -7411,7 +7440,7 @@ export default function App(){
         {tab==="accounting"&&canViewTab("accounting")&&<AccountingPg data={data} config={config} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("accounting")} user={user}/>}
         {tab==="fixedAssets"&&canViewTab("fixedAssets")&&<FixedAssetsPg data={data} config={config} isMob={isMob} canEdit={canEditTab("fixedAssets")} user={user}/>}
         {/* V21.9.95 — Documents Tree page */}
-        {tab==="documents"&&canViewTab("documents")&&<DocumentsPg data={data} upConfig={upConfig} isMob={isMob} canEdit={canEditTab("documents")} user={user} models={models} replaceModel={replaceModel} updOrder={updOrder}/>}
+        {tab==="documents"&&canViewTab("documents")&&<DocumentsPg data={data} upConfig={upConfig} upDocs={upDocs} isMob={isMob} canEdit={canEditTab("documents")} user={user} models={models} replaceModel={replaceModel} updOrder={updOrder}/>}
         </Suspense>
         </ChunkErrorBoundary>
       </div>}

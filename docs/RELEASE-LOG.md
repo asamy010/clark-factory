@@ -12,6 +12,51 @@
 
 ---
 
+## V21.27.145 (2026-06-27) — 💾 إصلاح جذري: documentsTree اتنقل من config لـ tasks
+
+**الطلب (Ahmed):** «المجلد ظهر والملفات ظهرت لمدة ٥ ثواني وبعدين اختفت وظهر
+المجلد صفر ملفات.»
+
+**السبب الجذري المؤكَّد:** الـ«٥ ثوانٍ ثم اختفاء» = نمط optimistic-ثم-revert.
+`documentsTree` (مجلدات/ملفات مساحة التخزين) كان **حقل عادي في `factory/config`**
+(مش split/partitioned — §10 anti-pattern، والـ comment في `tags.js` بيقول «will
+split»). الرفع بيكتب config (optimistic، الملفات تظهر)، لكن السيرفر **يرفض
+الكتابة لتجاوز حد 1MB** → الـ listener يرجّع نسخة السيرفر القديمة (من غير الرفع)
+→ الملفات تختفي بعد ~٥ث. (config متضخّم من بيانات تانية، فأي إضافة لـ documentsTree
+بتعدّي الحد.)
+
+**الحل (نقل لمستند منفصل — نمط `factory/sales`/`factory/tasks` الموجود):**
+documentsTree اتنقل لـ `factory/tasks` (مساحته الخاصة، بعيد عن زحام config).
+- `src/App.jsx`:
+  - merge: `if(tasksDoc.documentsTree) merged.documentsTree = tasksDoc.documentsTree;`
+    (قبل أول كتابة = config القديم ظاهر؛ بعدها = tasks).
+  - كاتب جديد `upDocs(mutate)` بيكتب عبر `upTasks` (factory/tasks) **بـ
+    seed-on-first-write**: أول كتابة بتنسخ documentsTree من
+    `configDocRef.current` (أو tasksDocRef لو موجود) — **من غير حذف** — فالبيانات
+    القديمة محفوظة. مرّر `upDocs` لـ DocumentsPg + AIStudioPg (+ ModelsPg threading).
+- `src/pages/DocumentsPg.jsx`: كل الـ 11 كتابة (`upConfig→upTree=upDocs`).
+- `src/pages/AIStudioPg.jsx`: كتابتَي حفظ/حذف صور الاستوديو في المستندات
+  (`upConfig→upTree`)؛ كتابات config التانية (usage/budget/presets) زي ما هي.
+- `src/pages/ModelsPg.jsx`: تمرير `upDocs` لـ AIStudioPg.
+
+**أمان البيانات (non-destructive):** الموجود في config بيفضل ظاهر طول الوقت
+(merge fallback)؛ أول كتابة بتـ seed نسخة منه في tasks (نسخ مش نقل) ثم تضيف؛
+بعدها كل القراءة/الكتابة من tasks. مفيش مسار حذف. config.documentsTree القديم
+بيفضل (dead weight ~47KB، مُتجاهَل) — مش بنحذفه عشان ما نعملش كتابة config
+إضافية محفوفة بالمخاطر.
+
+**ليه أقل مخاطرة:** أعدنا استخدام بنية `factory/tasks`/`upTasks` المُختبَرة
+(listener/writer/gating موجودين) بدل مستند+listener جديد. build ✓ — كل الـ
+**٤٧٣ اختبار ناجح**. (بدون local test — البيانات non-destructive، والمستخدم
+يتأكد إن ملفاته القديمة ظهرت بعد التحديث.)
+
+**الملفات:** `src/App.jsx`، `src/pages/DocumentsPg.jsx`،
+`src/pages/AIStudioPg.jsx`، `src/pages/ModelsPg.jsx`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`,
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.144 (2026-06-27) — 📁 رفع المجلد: يفتح المجلد المرفوع + تبليغ صادق
 
 **الطلب (Ahmed):** «عملت ابلود للفولدر واكتمل لكن مفيش أي ملفات ظاهرة» —

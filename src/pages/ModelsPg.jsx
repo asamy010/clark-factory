@@ -38,7 +38,7 @@ function modelColors(m){
   return out;
 }
 
-export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, user, updOrder, importModelsFromOrders, propagateModelToOrders }){
+export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob, canEdit, statusCards, upConfig, upDocs, user, updOrder, importModelsFromOrders, propagateModelToOrders }){
   const [editing, setEditing] = useState(null); /* null | "new" | modelObj */
   const [studio, setStudio] = useState(null); /* null | modelObj — استوديو الـ AI */
   const [q, setQ] = useState("");
@@ -59,7 +59,7 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
 
   /* استوديو الموديلات (AI) — view ملء الشاشة */
   if(studio){
-    return <AIStudioPg model={studio} models={models} data={data} upConfig={upConfig} user={user}
+    return <AIStudioPg model={studio} models={models} data={data} upConfig={upConfig} upDocs={upDocs} user={user}
       isMob={isMob} replaceModel={replaceModel} updOrder={updOrder} onClose={() => setStudio(null)}/>;
   }
 
