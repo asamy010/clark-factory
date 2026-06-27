@@ -1208,7 +1208,9 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {order.instructions&&<Card title="📝 تعليمات التشغيل" style={{marginBottom:16}}><div style={{whiteSpace:"pre-wrap",fontSize:FS+1,lineHeight:2}}>{order.instructions}</div></Card>}
       {/* V21.27.4: تفاصيل التشغيل المنسّقة (من الموديل) */}
       {order.prodDetails&&String(order.prodDetails).replace(/<[^>]*>/g,"").trim()&&<Card title="📋 تفاصيل التشغيل / تيك باك" style={{marginBottom:16}}><div style={{fontSize:FS+1,lineHeight:1.9}} dangerouslySetInnerHTML={{__html:sanitizeHtml(order.prodDetails)}}/></Card>}
-      <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
+      {/* V21.27.149: على التابلت (والموبايل) كرت الخامة بياخد عرض كامل (عمود واحد)
+          — العمودين كانوا بيتجبروا على min-width جدول الخامة فيطلعوا بره الحيز. */}
+      <div style={{display:"grid",gridTemplateColumns:(isMob||isTab)?"1fr":activeFabs.length>=3?"1fr 1fr 1fr":activeFabs.length===2?"1fr 1fr":"1fr",gap:14,marginBottom:16}}>
         {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];const fabP=gf(order,k,"Price");const fabU=gf(order,k,"Unit");
           /* V21.27.57: استهلاك/راق + استهلاك/قطعة في الشريط الملوّن — نفس معادلة جدول التكلفة (cons/pcsPerLayer) */
           const consL=gcons(order,k);const _ppl=(colors[0]||{}).pcsPerLayer||1;const consPc=consL>0?r2(consL/_ppl):0;
