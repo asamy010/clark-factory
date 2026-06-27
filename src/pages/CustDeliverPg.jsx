@@ -1702,7 +1702,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         tr:nth-child(even){background:#f8fafc}
         .num{text-align:center}.pos{color:#10b981;font-weight:700}.neg{color:#ef4444;font-weight:700}
         tfoot tr{background:#0ea5e9;color:#fff;font-weight:800}
-        @media print{body{margin:0}}</style></head><body>
+        @media print{body{margin:0}.no-print{display:none!important}}</style></head><body>
+        <div class="no-print" style="position:sticky;top:0;z-index:20;display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px 12px;background:#fff;border-bottom:1px solid #e2e8f0;box-shadow:0 2px 6px rgba(0,0,0,0.07);margin-bottom:10px">
+          <button onclick="window.print()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:none;background:#0ea5e9;color:#fff;font-family:'Cairo',Arial,sans-serif;font-size:13px;font-weight:800;cursor:pointer">📄 حفظ PDF / طباعة</button>
+          <button onclick="window.close()" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:9px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-family:'Cairo',Arial,sans-serif;font-size:13px;font-weight:800;cursor:pointer">✕ إغلاق</button>
+        </div>
         <div class="hdr">${logo?'<img src="'+logo+'"/>':'<div style="font-size:22px;font-weight:900;color:#0ea5e9">CLARK</div>'}
           <div style="text-align:left"><h1>📊 تقرير المبيعات الموسم: ${season}</h1><div style="font-size:10px;color:#64748b">تاريخ: ${cairoDateStr()} • <strong style="color:#0ea5e9">جميع الأرقام بعد تطبيق خصم كل عميل</strong></div></div></div>
         <div class="stats">
@@ -1741,7 +1745,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
           <td class="num">${fmt(r2(totalBalance))}</td>
           <td class="num">${totalPct===null?"—":totalPct+"%"}</td></tr></tfoot></table>
         </body></html>`;
-        w.document.write(html);w.document.close();setTimeout(()=>w.print(),300)};
+        /* V21.27.142: مفيش auto-print — التقرير بيظهر بشريط أدوات (حفظ PDF/طباعة
+           + إغلاق) والمستخدم يتحكّم. قبل كده كان بيفتح dialog الطباعة لوحده ومفيش
+           زر رجوع/PDF/إغلاق (شكوى Ahmed). */
+        w.document.write(html);w.document.close();try{w.focus()}catch(_){}};
       {/* V21.21.8: البطاقات الخمسة اتنقلت لأعلى نظرة عامة المبيعات (جنب «مبيعات الشهر»).
           هنا بقى زر طباعة تقرير المبيعات التفصيلي فقط (نفس الحساب محفوظ أعلاه). */}
       return<div style={{marginBottom:16}}>
