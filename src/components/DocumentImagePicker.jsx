@@ -19,7 +19,7 @@
    للحذف — لإن مستند المكتبة بيملك دورة حياته؛ المستدعي بيسيب storagePath فاضي.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { Btn } from "./ui.jsx";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
@@ -47,14 +47,83 @@ export function DocumentImagePicker({ data, onPick, onPickMany, onClose, imagesO
   const [limit, setLimit] = useState(60);
   const [sel, setSel] = useState({}); /* id → fileRec (multi mode) */
 
-  const folderName = useMemo(() => { const m = {}; folders.forEach(f => { m[f.id] = f.name; }); return m; }, [folders]);
+  const folderName = useMemo(() => { const m = {}; folders.forEach(f => { m[String(f.id)] = f.name; }); return m; }, [folders]);
+
+  /* V21.27.147: parentId → [أبناء] لبناء الشجرة + العدّ التراكمي. */
+  const childrenMap = useMemo(() => {
+    const m = {};
+    folders.forEach(f => { const p = String(f.parentId || ""); (m[p] = m[p] || []).push(f); });
+    return m;
+  }, [folders]);
+
+  /* كل المجلدات المتفرّعة من مجلد (شاملاً نفسه) — عشان فلتر/عدّ تراكمي. */
+  const descendantSet = useCallback((rootId) => {
+    const out = new Set([String(rootId)]);
+    const stack = [String(rootId)];
+    while (stack.length) {
+      const cur = stack.pop();
+      (childrenMap[cur] || []).forEach(c => { const cid = String(c.id); if (!out.has(cid)) { out.add(cid); stack.push(cid); } });
+    }
+    return out;
+  }, [childrenMap]);
+
+  /* مسار كل مجلد «أب / فرعي / الاسم» (lowercase) — للبحث باسم المجلد/المسار. */
+  const folderPath = useMemo(() => {
+    const byId = {}; folders.forEach(f => { byId[String(f.id)] = f; });
+    const cache = {};
+    const build = (id) => {
+      const k = String(id == null ? "" : id);
+      if (!k) return "";
+      if (cache[k] != null) return cache[k];
+      const f = byId[k]; if (!f) return "";
+      cache[k] = ""; /* guard against cycles */
+      const full = (build(f.parentId) ? build(f.parentId) + " / " : "") + (f.name || "");
+      cache[k] = full;
+      return full;
+    };
+    const m = {}; folders.forEach(f => { m[String(f.id)] = build(f.id).toLowerCase(); });
+    return m;
+  }, [folders]);
+
+  /* عدّ تراكمي لكل مجلد: عدد المجلدات الفرعية المباشرة + عدد الملفات (هو +
+     كل المتفرّعات منه) — عشان المجلد اللي جواه مجلدات ما يظهرش «صفر». */
+  const folderStats = useMemo(() => {
+    const filesByFolder = {};
+    allFiles.forEach(f => { const k = String(f.folderId == null ? "" : f.folderId); filesByFolder[k] = (filesByFolder[k] || 0) + 1; });
+    const stats = {};
+    folders.forEach(f => {
+      let files = 0;
+      descendantSet(f.id).forEach(id => { files += filesByFolder[id] || 0; });
+      stats[String(f.id)] = { sub: (childrenMap[String(f.id)] || []).length, files };
+    });
+    return stats;
+  }, [folders, allFiles, childrenMap, descendantSet]);
+
+  /* قائمة المجلدات مرتّبة هرمياً (للـ dropdown) مع عمق للمسافة البادئة. */
+  const orderedFolders = useMemo(() => {
+    const out = [];
+    const walk = (parentKey, depth) => {
+      (childrenMap[parentKey] || []).slice()
+        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0) || (a.name || "").localeCompare(b.name || "", "ar"))
+        .forEach(f => { out.push({ folder: f, depth }); walk(String(f.id), depth + 1); });
+    };
+    walk("", 0);
+    return out;
+  }, [childrenMap]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return allFiles.filter(f =>
-      (!folderId || String(f.folderId) === String(folderId)) &&
-      (!s || (f.name || "").toLowerCase().includes(s)));
-  }, [allFiles, folderId, q]);
+    /* V21.27.147: فلتر المجلد تراكمي — يشمل الملفات في المجلد ومجلداته الفرعية. */
+    const allowed = folderId ? descendantSet(folderId) : null;
+    return allFiles.filter(f => {
+      if (allowed && !allowed.has(String(f.folderId == null ? "" : f.folderId))) return false;
+      if (!s) return true;
+      /* بحث باسم الملف أو اسم/مسار المجلد. */
+      if ((f.name || "").toLowerCase().includes(s)) return true;
+      if ((folderPath[String(f.folderId)] || "").includes(s)) return true;
+      return false;
+    });
+  }, [allFiles, folderId, q, descendantSet, folderPath]);
 
   const shown = filtered.slice(0, limit);
   const selCount = Object.keys(sel).length;
@@ -83,12 +152,18 @@ export function DocumentImagePicker({ data, onPick, onPickMany, onClose, imagesO
 
         {/* filters */}
         {allFiles.length > 0 && <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderBottom: "1px solid " + T.brd, flexWrap: "wrap" }}>
-          <input value={q} onChange={e => { setQ(e.target.value); setLimit(60); }} placeholder="🔍 ابحث بالاسم..."
+          <input value={q} onChange={e => { setQ(e.target.value); setLimit(60); }} placeholder="🔍 ابحث باسم الملف أو المجلد..."
             style={{ flex: 1, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.bg, color: T.text, boxSizing: "border-box", outline: "none" }} />
+          {/* V21.27.147: المجلدات هرمياً + عدد المجلدات الفرعية والملفات (تراكمي) */}
           <select value={folderId} onChange={e => { setFolderId(e.target.value); setLimit(60); }}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.cardSolid, color: T.text, outline: "none" }}>
-            <option value="">📁 كل المجلدات</option>
-            {folders.map(f => <option key={f.id} value={f.id}>{(f.icon || "📁") + " " + f.name}</option>)}
+            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid " + T.brd, fontSize: FS - 1, fontFamily: "inherit", background: T.cardSolid, color: T.text, outline: "none", maxWidth: 320 }}>
+            <option value="">{"📁 كل المجلدات (" + allFiles.length + " صورة)"}</option>
+            {orderedFolders.map(({ folder: f, depth }) => {
+              const st = folderStats[String(f.id)] || { sub: 0, files: 0 };
+              const indent = "  ".repeat(depth);
+              const counts = (st.sub > 0 ? st.sub + " 📁" : "") + (st.sub > 0 && st.files > 0 ? " · " : "") + (st.files > 0 ? st.files + " 🖼️" : (st.sub > 0 ? "" : "0 🖼️"));
+              return <option key={f.id} value={f.id}>{indent + (f.icon || "📁") + " " + f.name + "  — " + counts}</option>;
+            })}
           </select>
         </div>}
 
@@ -121,7 +196,7 @@ export function DocumentImagePicker({ data, onPick, onPickMany, onClose, imagesO
                       <div style={{ padding: "6px 8px" }}>
                         <div style={{ fontSize: FS - 3, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
                         <div style={{ fontSize: FS - 4, color: T.textMut, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {f.folderId != null && folderName[f.folderId] ? "📁 " + folderName[f.folderId] : (f.size ? formatFileSize(f.size) : "")}
+                          {f.folderId != null && folderName[String(f.folderId)] ? "📁 " + folderName[String(f.folderId)] : (f.size ? formatFileSize(f.size) : "")}
                         </div>
                       </div>
                     </div>
