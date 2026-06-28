@@ -223,6 +223,8 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
   const [uploadProgress, setUploadProgress] = useState({ total: 0, done: 0 });
   const [recovering, setRecovering] = useState(false);/* V21.27.174: استرجاع الملفات الضائعة */
   const [recoverProgress, setRecoverProgress] = useState({ scanned: 0, recovered: 0 });
+  const [emptyingTrash, setEmptyingTrash] = useState(false);/* V21.27.177: تفريغ السلة */
+  const [emptyProgress, setEmptyProgress] = useState({ total: 0, done: 0 });
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);/* V21.27.143: رفع مجلد كامل بمجلداته الفرعية */
@@ -911,6 +913,34 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
     showToast("✓ تم الحذف النهائي");
   };
 
+  /* V21.27.177: تفريغ السلة — حذف نهائي لكل الملفات في سلة المحذوفات مرة واحدة
+     (مسح الـ binary من Storage + شيل الميتاداتا). أمر Ahmed. */
+  const emptyTrash = useCallback(async () => {
+    if (!canEdit) return;
+    const trashed = (files || []).filter(f => !!f.deletedAt);
+    if (trashed.length === 0) { showToast("السلة فاضية بالفعل"); return; }
+    const ok = await ask("تفريغ السلة نهائيًا",
+      `هيتم الحذف النهائي لـ ${trashed.length} ملف من السلة — يشمل مسح الملفات من التخزين (Storage). الإجراء **لا رجعة فيه**. متأكد؟`,
+      { danger: true, confirmText: "تفريغ السلة نهائيًا" });
+    if (!ok) return;
+    setEmptyingTrash(true);
+    setEmptyProgress({ total: trashed.length, done: 0 });
+    let failed = 0;
+    for (const f of trashed) {
+      try { if (f.storagePath) await deleteObject(storageRef(storage, f.storagePath)); }
+      catch (e) { if (e?.code !== "storage/object-not-found") { failed++; console.warn("[emptyTrash] storage delete failed:", f.storagePath, e?.message || e); } }
+      setEmptyProgress(p => ({ ...p, done: p.done + 1 }));
+    }
+    const trashedIds = new Set(trashed.map(f => f.id));
+    upTree(d => {
+      if (!d.documentsTree) return;
+      d.documentsTree.files = (d.documentsTree.files || []).filter(f => !trashedIds.has(f.id));
+    });
+    setEmptyingTrash(false);
+    setEmptyProgress({ total: 0, done: 0 });
+    showToast(`🗑️ تم تفريغ السلة — اتحذف ${trashed.length} ملف نهائيًا${failed ? ` (${failed} اتشال من القائمة بس فيه مشكلة في مسحه من التخزين)` : ""}`);
+  }, [canEdit, files, upTree]);
+
   const downloadFile = (file) => {
     if (!file.downloadURL) {
       showToast("⚠️ لا يوجد رابط للتحميل");
@@ -1448,6 +1478,18 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
             </div>
           );
         })()}
+        {/* V21.27.177: overlay تفريغ السلة */}
+        {emptyingTrash && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(15,23,42,0.72)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 18, padding: "26px 28px", width: "100%", maxWidth: 430, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>🗑️</div>
+              <div style={{ fontSize: FS + 3, fontWeight: 800, color: T.text, marginBottom: 6 }}>جاري تفريغ السلة...</div>
+              <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 14, lineHeight: 1.6 }}>بنحذف الملفات من التخزين نهائيًا — متقفلش الصفحة.</div>
+              <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.err, direction: "ltr" }}>{emptyProgress.done} / {emptyProgress.total}</div>
+            </div>
+          </div>
+        )}
         {/* V21.27.174: overlay استرجاع الملفات الضائعة */}
         {recovering && (
           <div style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(15,23,42,0.72)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
@@ -1464,8 +1506,12 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
 
       {showTrash && stats.trashCount > 0 && (
         <Card title="⚠️ ملاحظة" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: FS - 1, color: T.textSec, padding: "4px 0" }}>
-            الملفات المحذوفة بـ يتم delete نهائياً بعد 7 أيام. اضغط ↩️ لاسترجاع ملف أو ❌ لحذفه نهائياً الآن.
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: FS - 1, color: T.textSec, padding: "4px 0", flex: 1, minWidth: 200 }}>
+              الملفات المحذوفة بـ يتم delete نهائياً بعد 7 أيام. اضغط ↩️ لاسترجاع ملف أو ❌ لحذفه نهائياً الآن.
+            </div>
+            {/* V21.27.177: تفريغ السلة — حذف الكل نهائيًا مرة واحدة */}
+            {canEdit && <Btn small onClick={emptyTrash} disabled={emptyingTrash} style={{ background: T.err, color: "#fff", border: "none", fontWeight: 700, whiteSpace: "nowrap" }} title="حذف نهائي لكل الملفات في السلة دفعة واحدة">🗑️ تفريغ السلة ({stats.trashCount})</Btn>}
           </div>
         </Card>
       )}
