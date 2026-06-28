@@ -1217,41 +1217,50 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <div style={{fontSize:FS-1,color:T.textSec,marginBottom:14}}>{/* V18.25: Standalone 'تسليم مخزن جاهز' tab removed — workflow consolidated into each order's detail page */}لإدارة تسليم المخزن الجاهز، افتح صفحة الأوردر المطلوب من تبويبة "أوامر القص" واستخدم زر "+ تسليم" داخل قسم تسليم مخزن جاهز</div>
       </div>
       
-      {/* Finished goods summary table */}
-      {wStats.finished.count>0&&<div style={{marginTop:16}}>
-        <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 موديلات لها رصيد جاهز متاح</div>
-        <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
-            <thead><tr>
-              <th style={TH}>الموديل</th>
-              <th style={{...TH,textAlign:"center"}}>المقصوص</th>
-              <th style={{...TH,textAlign:"center"}} title="المستلم من الورشة في مخزن الجاهز">المستلم في المخزن</th>
-              <th style={{...TH,textAlign:"center"}} title="المباع للعميل (صافي بعد المرتجعات)">المباع للعميل</th>
-              <th style={{...TH,textAlign:"center"}}>محجوز بأوامر البيع</th>
-              <th style={{...TH,textAlign:"center"}} title="المتاح = المستلم − المباع − المحجوز">الرصيد المتاح</th>
-              <th style={{...TH,textAlign:"center"}}>الحالة</th>
-            </tr></thead>
-            <tbody>
-              {/* V21.27.94: الرصيد المتاح = المستلم في المخزن (getConfirmedStock) −
-                  صافي المباع (customerDeliveries − customerReturns) − المحجوز،
-                  عبر computeOrderAvail (نفس مصدر الحقيقة في المبيعات/كارت صنف).
-                  قبل V21.27.94 كان cutQty − getConfirmedStock − reserved = غلط
-                  (بيحسب شغل تحت التشغيل ويعكس الحقيقة). */}
-              {orders.filter(o=>{if(o.closed)return false;return computeOrderAvail(o,soReservedByOrder).avail>0}).map(o=>{const t=calcOrder(o);const{stockQty,avail,delivered,returned,reserved}=computeOrderAvail(o,soReservedByOrder);return{o,cut:t.cutQty||0,rcv:stockQty,sold:delivered-returned,reserved,bal:avail}}).sort((a,b)=>b.bal-a.bal).map(({o,cut,rcv,sold,reserved,bal})=>{
-                return<tr key={o.id} style={{borderBottom:"1px solid "+T.brd}}>
-                  <td style={{...TD,fontWeight:700}}>{o.modelNo||"—"}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(cut)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(rcv)}</td>
-                  <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(sold)}</td>
-                  <td style={{...TD,textAlign:"center",color:reserved>0?"#8B5CF6":T.textMut,fontWeight:reserved>0?700:400}}>{reserved>0?fmt(reserved):"—"}</td>
-                  <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(bal)}</td>
-                  <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{o.status||"—"}</td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>}
+      {/* V21.27.158: صف بطاقات إجماليات الجاهز (قطع + قيمة بالتكلفة + عدد موديلات) */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:4,marginTop:8}}>
+        {[["👕 إجمالي القطع المتاحة",fmt(wStats.finished.qty),T.ok],["💰 إجمالي القيمة (تكلفة)",fmt(r2(wStats.finished.value))+" ج.م",T.accent],["📋 عدد الموديلات",fmt(wStats.finished.count),"#8B5CF6"]].map(([l,v,c])=><div key={l} style={{flex:"1 1 150px",minWidth:140,padding:"10px 12px",borderRadius:10,background:c+"08",border:"1px solid "+c+"22"}}>
+          <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:3}}>{l}</div>
+          <div style={{fontSize:FS+3,fontWeight:800,color:c}}>{v}</div>
+        </div>)}
+      </div>
+      {/* Finished goods summary table — V21.27.158: pagination 50 + «عرض المزيد» */}
+      {wStats.finished.count>0&&(()=>{
+        /* V21.27.94: الرصيد المتاح = المستلم في المخزن (getConfirmedStock) −
+           صافي المباع (customerDeliveries − customerReturns) − المحجوز، عبر
+           computeOrderAvail (نفس مصدر الحقيقة في المبيعات/كارت صنف). */
+        const finList=orders.filter(o=>{if(o.closed)return false;return computeOrderAvail(o,soReservedByOrder).avail>0}).map(o=>{const t=calcOrder(o);const{stockQty,avail,delivered,returned,reserved}=computeOrderAvail(o,soReservedByOrder);return{o,cut:t.cutQty||0,rcv:stockQty,sold:delivered-returned,reserved,bal:avail}}).sort((a,b)=>b.bal-a.bal);
+        return<div style={{marginTop:12}}>
+          <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 موديلات لها رصيد جاهز متاح ({fmt(finList.length)})</div>
+          <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+              <thead><tr>
+                <th style={TH}>الموديل</th>
+                <th style={{...TH,textAlign:"center"}}>المقصوص</th>
+                <th style={{...TH,textAlign:"center"}} title="المستلم من الورشة في مخزن الجاهز">المستلم في المخزن</th>
+                <th style={{...TH,textAlign:"center"}} title="المباع للعميل (صافي بعد المرتجعات)">المباع للعميل</th>
+                <th style={{...TH,textAlign:"center"}}>محجوز بأوامر البيع</th>
+                <th style={{...TH,textAlign:"center"}} title="المتاح = المستلم − المباع − المحجوز">الرصيد المتاح</th>
+                <th style={{...TH,textAlign:"center"}}>الحالة</th>
+              </tr></thead>
+              <tbody>
+                {finList.slice(0,finLimit).map(({o,cut,rcv,sold,reserved,bal})=>{
+                  return<tr key={o.id} style={{borderBottom:"1px solid "+T.brd}}>
+                    <td style={{...TD,fontWeight:700}}>{o.modelNo||"—"}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textMut}}>{fmt(cut)}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(rcv)}</td>
+                    <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(sold)}</td>
+                    <td style={{...TD,textAlign:"center",color:reserved>0?"#8B5CF6":T.textMut,fontWeight:reserved>0?700:400}}>{reserved>0?fmt(reserved):"—"}</td>
+                    <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(bal)}</td>
+                    <td style={{...TD,textAlign:"center",fontSize:FS-2,color:T.textMut}}>{o.status||"—"}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          {finList.length>finLimit&&<div style={{display:"flex",justifyContent:"center",marginTop:12}}><Btn ghost onClick={()=>setFinLimit(finLimit+50)} style={{padding:"8px 20px",fontWeight:700}}>⬇️ عرض المزيد ({fmt(finList.length-finLimit)} متبقّي)</Btn></div>}
+        </div>;
+      })()}
 
       {/* V21.27.89/92: سجل حركات مخزن الجاهز الكامل — مكوّن مشترك مع هَب
           المبيعات (FinishedStockLog). كل الحركات على الموديلات (itemType:"order")
