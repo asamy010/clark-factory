@@ -37,6 +37,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[accLimit,setAccLimit]=useState(50);
   const[prodLimit,setProdLimit]=useState(50);
   const[finLimit,setFinLimit]=useState(50);
+  /* V21.27.163: أعمدة تقرير المخزن الجاهز الظاهرة (تشيك بوكس لكل عمود) */
+  const[finRepCols,setFinRepCols]=useState({image:true,modelNo:true,name:true,qty:true,cost:true,value:true});
   /* Fabric/Accessory filters */
   const[fabFilter,setFabFilter]=useState("");const fabFilterDeb=useDebounced(fabFilter,200);
   const[accFilter,setAccFilter]=useState("");const accFilterDeb=useDebounced(accFilter,200);
@@ -911,18 +913,49 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     w.document.write(html);w.document.close();
   };
 
-  /* ──────── V21.27.161: تقرير المخزن الجاهز (طباعة + Excel + PDF) ──────── */
+  /* ──────── V21.27.161/163: تقرير المخزن الجاهز (طباعة + Excel + PDF) ──────── */
+  const FIN_REP_COLS=[
+    {key:"image",label:"الصورة"},{key:"modelNo",label:"رقم الموديل"},{key:"name",label:"اسم الموديل"},
+    {key:"qty",label:"الكمية المتاحة"},{key:"cost",label:"التكلفة"},{key:"value",label:"القيمة"}
+  ];
   const _finRepEsc=(s)=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
   const _buildFinishedReportHtml=()=>{
     const rows=finishedReportRows;
     const totQty=rows.reduce((s,r)=>s+(Number(r.qty)||0),0);
     const totVal=rows.reduce((s,r)=>s+(Number(r.value)||0),0);
-    const body=rows.map(r=>"<tr><td class='center'>"+(r.image?"<img src='"+_finRepEsc(r.image)+"' style='width:40px;height:52px;object-fit:cover;border-radius:5px;border:1px solid #E2E8F0'/>":"—")+"</td><td><b>"+_finRepEsc(r.modelNo)+"</b></td><td>"+_finRepEsc(r.name)+"</td><td class='center'><b>"+fmt(r.qty)+"</b></td><td class='center'>"+fmt(r.cost)+"</td><td class='center'><b>"+fmt(r.value)+"</b></td></tr>").join("");
-    return "<html dir='rtl'><head><meta charset='UTF-8'><title>تقرير المخزن الجاهز</title><style>"+PRINT_CSS+".center{text-align:center}img{vertical-align:middle}</style></head><body>"+
+    const vis=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false);
+    /* V21.27.163: صورة 3:4 كبيرة + صف بتبادل أبيض/رمادي + أعمدة قابلة للإخفاء */
+    const cellHtml=(r,key)=>{
+      if(key==="image")return"<td class='imgcell'>"+(r.image?"<img src='"+_finRepEsc(r.image)+"'/>":"—")+"</td>";
+      if(key==="modelNo")return"<td><b>"+_finRepEsc(r.modelNo)+"</b>"+(r.kind==="رصيد افتتاحي"?" <span class='fbadge'>افتتاحي</span>":"")+"</td>";
+      if(key==="name")return"<td>"+_finRepEsc(r.name)+"</td>";
+      if(key==="qty")return"<td class='center'><b>"+fmt(r.qty)+"</b></td>";
+      if(key==="cost")return"<td class='center'>"+fmt(r.cost)+"</td>";
+      if(key==="value")return"<td class='center'><b>"+fmt(r.value)+"</b></td>";
+      return"<td></td>";
+    };
+    const thead="<tr>"+vis.map(c=>"<th"+(c.key==="image"?" class='imgcol'":"")+">"+c.label+"</th>").join("")+"</tr>";
+    const body=rows.map((r,i)=>"<tr class='"+(i%2?"odd":"even")+"'>"+vis.map(c=>cellHtml(r,c.key)).join("")+"</tr>").join("");
+    let labelPlaced=false;
+    const foot="<tr class='tot'>"+vis.map(c=>{
+      if(c.key==="qty")return"<td class='center'>"+fmt(totQty)+" قطعة</td>";
+      if(c.key==="value")return"<td class='center fval'>"+fmt(r2(totVal))+" ج.م</td>";
+      if(!labelPlaced){labelPlaced=true;return"<td>الإجماليات</td>";}
+      return"<td></td>";
+    }).join("")+"</tr>";
+    const REP_CSS=".center{text-align:center}img{vertical-align:middle}"+
+      "*{-webkit-print-color-adjust:exact;print-color-adjust:exact}"+
+      "th.imgcol{width:165px}td.imgcell{width:165px;text-align:center;padding:5px}"+
+      "td.imgcell img{width:150px;height:200px;object-fit:cover;border-radius:8px;border:1px solid #CBD5E1}"+
+      "tr.even td{background:#ffffff}tr.odd td{background:#F3F4F6}"+
+      "tr.tot td{background:#EFF6FF;font-weight:800}"+
+      ".fbadge{font-size:10px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#16A34A;font-weight:700}"+
+      ".fval{font-size:14px;color:#0284C7}";
+    return "<html dir='rtl'><head><meta charset='UTF-8'><title>تقرير المخزن الجاهز</title><style>"+PRINT_CSS+REP_CSS+"</style></head><body>"+
       "<div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>👕 الموديلات المتاحة في المخزن الجاهز</div><div class='hdr-info'><div>التاريخ: "+today+"</div><div>عدد الأصناف: <b>"+rows.length+"</b></div></div></div>"+
-      "<table><thead><tr><th>الصورة</th><th>رقم الموديل</th><th>اسم الموديل</th><th>الكمية المتاحة</th><th>التكلفة</th><th>القيمة</th></tr></thead><tbody>"+
-      (body||"<tr><td colspan='6' class='center' style='padding:20px;color:#94A3B8'>لا توجد موديلات متاحة</td></tr>")+
-      "<tr style='background:#EFF6FF;font-weight:800'><td colspan='3' style='text-align:left'>الإجماليات</td><td class='center'>"+fmt(totQty)+" قطعة</td><td></td><td class='center' style='font-size:14px;color:#0284C7'>"+fmt(r2(totVal))+" ج.م</td></tr>"+
+      "<table><thead>"+thead+"</thead><tbody>"+
+      (body||"<tr><td colspan='"+(vis.length||1)+"' class='center' style='padding:20px;color:#94A3B8'>لا توجد موديلات متاحة</td></tr>")+
+      foot+
       "</tbody></table><div class='foot'>CLARK ERP System — تقرير المخزن الجاهز — "+today+"</div></body></html>";
   };
   const printFinishedReport=()=>{const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}w.document.write(_buildFinishedReportHtml().replace("</body>","<script>setTimeout(function(){window.print()},500)</"+"script></body>"));w.document.close();};
@@ -935,13 +968,28 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     }catch(e){console.warn("[finishedReport pdf]",e);showToast("⛔ فشل توليد الـ PDF")}
   };
   const exportFinishedCSV=()=>{
-    const headers=["رقم الموديل","اسم الموديل","الكمية المتاحة","التكلفة","القيمة","النوع"];
-    const rows=finishedReportRows.map(r=>[r.modelNo,r.name,r.qty,r.cost,r.value,r.kind]);
+    /* CSV بيحترم الأعمدة الظاهرة (ما عدا الصورة — مش قابلة للتصدير كنص) */
+    const vis=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false&&c.key!=="image");
+    const headers=vis.map(c=>c.label);
+    const pick=(r,key)=>key==="modelNo"?r.modelNo:key==="name"?r.name:key==="qty"?r.qty:key==="cost"?r.cost:key==="value"?r.value:"";
+    const rows=finishedReportRows.map(r=>vis.map(c=>pick(r,c.key)));
     downloadCSV("finished-stock-"+today+".csv",headers,rows);
   };
   const renderFinishedStockReport=()=>{
     const totQty=finishedReportRows.reduce((s,r)=>s+(Number(r.qty)||0),0);
     const totVal=finishedReportRows.reduce((s,r)=>s+(Number(r.value)||0),0);
+    const visCols=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false);
+    const isCenter=(k)=>k!=="modelNo"&&k!=="name";
+    /* V21.27.163: صورة 3:4 بأربعة أضعاف الحجم (150×200) + عمود بعرض الصورة */
+    const cell=(r,key)=>{
+      if(key==="image")return<td key="image" style={{...TD,textAlign:"center",width:165,padding:6}}>{r.image?<img src={r.image} alt="" style={{width:150,height:200,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd,display:"inline-block"}}/>:<span style={{color:T.textMut}}>—</span>}</td>;
+      if(key==="modelNo")return<td key="modelNo" style={{...TD,fontWeight:700}}>{r.modelNo}{r.kind==="رصيد افتتاحي"&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,fontSize:FS-4,fontWeight:700,background:T.ok+"15",color:T.ok}}>افتتاحي</span>}</td>;
+      if(key==="name")return<td key="name" style={{...TD}}>{r.name||"—"}</td>;
+      if(key==="qty")return<td key="qty" style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(r.qty)}</td>;
+      if(key==="cost")return<td key="cost" style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r.cost)}</td>;
+      if(key==="value")return<td key="value" style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r.value)}</td>;
+      return<td key={key}></td>;
+    };
     return<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:12}}>
         <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>👕 الموديلات المتاحة في المخزن الجاهز <span style={{color:T.textMut,fontWeight:600,fontSize:FS-1}}>({finishedReportRows.length})</span></div>
@@ -950,6 +998,13 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           <Btn small onClick={exportFinishedCSV} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
           <Btn small onClick={pdfFinishedReport} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>📄 PDF</Btn>
         </div>
+      </div>
+      {/* V21.27.163: تحكّم في الأعمدة الظاهرة — تشيك بوكس لكل عمود */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",marginBottom:12,padding:"10px 12px",background:T.bg,borderRadius:10,border:"1px solid "+T.brd}}>
+        <span style={{fontSize:FS-2,fontWeight:700,color:T.textSec}}>👁️ الأعمدة الظاهرة:</span>
+        {FIN_REP_COLS.map(c=>{const on=finRepCols[c.key]!==false;return<label key={c.key} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:FS-2,fontWeight:600,color:on?T.text:T.textMut,padding:"4px 10px",borderRadius:8,background:on?T.ok+"12":"transparent",border:"1px solid "+(on?T.ok+"40":T.brd)}}>
+          <input type="checkbox" checked={on} onChange={()=>setFinRepCols(p=>({...p,[c.key]:!on}))} style={{cursor:"pointer",width:15,height:15}}/>{c.label}
+        </label>;})}
       </div>
       <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
         {[["👕 إجمالي القطع المتاحة",fmt(totQty),T.ok],["💰 إجمالي القيمة (تكلفة)",fmt(r2(totVal))+" ج.م",T.accent],["📋 عدد الأصناف",fmt(finishedReportRows.length),"#8B5CF6"]].map(([l,v,c])=><div key={l} style={{flex:"1 1 150px",minWidth:140,padding:"10px 12px",borderRadius:10,background:c+"08",border:"1px solid "+c+"22"}}>
@@ -960,28 +1015,20 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
           <thead><tr>
-            <th style={{...TH,textAlign:"center"}}>الصورة</th>
-            <th style={TH}>رقم الموديل</th>
-            <th style={TH}>اسم الموديل</th>
-            <th style={{...TH,textAlign:"center"}}>الكمية المتاحة</th>
-            <th style={{...TH,textAlign:"center"}}>التكلفة</th>
-            <th style={{...TH,textAlign:"center"}}>القيمة</th>
+            {visCols.map(c=><th key={c.key} style={isCenter(c.key)?{...TH,textAlign:"center"}:TH}>{c.label}</th>)}
           </tr></thead>
           <tbody>
-            {finishedReportRows.length===0?<tr><td colSpan={6} style={{...TD,textAlign:"center",padding:30,color:T.textMut}}>لا توجد موديلات متاحة في المخزن الجاهز</td></tr>:finishedReportRows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
-              <td style={{...TD,textAlign:"center"}}>{r.image?<img src={r.image} alt="" style={{width:40,height:52,objectFit:"cover",borderRadius:6,border:"1px solid "+T.brd}}/>:<span style={{color:T.textMut}}>—</span>}</td>
-              <td style={{...TD,fontWeight:700}}>{r.modelNo}{r.kind==="رصيد افتتاحي"&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,fontSize:FS-4,fontWeight:700,background:T.ok+"15",color:T.ok}}>افتتاحي</span>}</td>
-              <td style={{...TD}}>{r.name||"—"}</td>
-              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(r.qty)}</td>
-              <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r.cost)}</td>
-              <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r.value)}</td>
+            {finishedReportRows.length===0?<tr><td colSpan={visCols.length||1} style={{...TD,textAlign:"center",padding:30,color:T.textMut}}>لا توجد موديلات متاحة في المخزن الجاهز</td></tr>:finishedReportRows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd,background:i%2?T.bg:T.cardSolid}}>
+              {visCols.map(c=>cell(r,c.key))}
             </tr>)}
           </tbody>
-          {finishedReportRows.length>0&&<tfoot><tr style={{background:T.accent+"08",fontWeight:800}}>
-            <td style={{...TD}} colSpan={3}>الإجماليات</td>
-            <td style={{...TD,textAlign:"center",color:T.ok}}>{fmt(totQty)} قطعة</td>
-            <td style={{...TD}}></td>
-            <td style={{...TD,textAlign:"center",color:T.accent,fontSize:FS}}>{fmt(r2(totVal))} ج.م</td>
+          {finishedReportRows.length>0&&<tfoot><tr style={{background:T.accent+"12",fontWeight:800}}>
+            {(()=>{let labelPlaced=false;return visCols.map(c=>{
+              if(c.key==="qty")return<td key="qty" style={{...TD,textAlign:"center",color:T.ok}}>{fmt(totQty)} قطعة</td>;
+              if(c.key==="value")return<td key="value" style={{...TD,textAlign:"center",color:T.accent,fontSize:FS}}>{fmt(r2(totVal))} ج.م</td>;
+              if(!labelPlaced){labelPlaced=true;return<td key={c.key} style={{...TD}}>الإجماليات</td>;}
+              return<td key={c.key} style={{...TD}}></td>;
+            });})()}
           </tr></tfoot>}
         </table>
       </div>
