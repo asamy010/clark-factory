@@ -21,6 +21,7 @@ import { r2 } from "./format.js";
 import { computeSalesOverviewTotals, buildCustomerSummary, buildSupplierSummary } from "./accountSummary.js";
 import { calcOrder, getConfirmedStock, orderCostPerPiece } from "./orders.js";
 import { getCategoryById } from "./categories.js";
+import { computeStockNetMap, netStockOf } from "./stockLedger.js";
 
 export function computeDashboardKpis(data){
   const d = data || {};
@@ -86,6 +87,22 @@ export function computeDashboardKpis(data){
     const sval = r2(avail * sell);
     finishedVal += val; finishedSellVal += sval;
     finishedDetail.push({ name: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : ""), qty: avail, unitCost: r2(cost), value: val, unitSell: r2(sell), sellValue: sval });
+  });
+  /* V21.27.164: المنتجات الجاهزة الافتتاحية (مخزون قديم جاهز — مالهاش أمر إنتاج،
+     isFinishedGood) جزء من تقييم الجاهز — نفس مصدر الحقيقة في هَب المخازن
+     (WarehousePg.wStats.finished = موديلات الإنتاج + الجاهز الافتتاحي). قبل كده
+     كانت متغيّبة عن الداشبورد فبطاقة «تقييم مخزن جاهز» كانت أقل من تاب الجاهز
+     بقيمة الأصناف دي. الرصيد من الـ ledger (حركة opening) مش item.stock. */
+  const _finNetMap = computeStockNetMap(d.stockMovements);
+  (d.generalProducts || []).forEach(x => {
+    if(!x || !x.isFinishedGood) return;
+    const q = netStockOf(_finNetMap, x); if(q <= 0) return;
+    const uc = Number(x.avgCost) || Number(x.costPrice) || Number(x.price) || 0;
+    const val = r2(q * uc);
+    const sell = Number(x.price) || 0;      /* المنتج العام: price = سعر البيع */
+    const sval = r2(q * sell);
+    finishedVal += val; finishedSellVal += sval;
+    finishedDetail.push({ name: ((x.code ? x.code + " — " : "") + (x.name || "—")) + " (افتتاحي)", qty: q, unitCost: r2(uc), value: val, unitSell: r2(sell), sellValue: sval });
   });
   finishedVal = r2(finishedVal); finishedSellVal = r2(finishedSellVal);
   finishedDetail.sort((a, b) => b.value - a.value);

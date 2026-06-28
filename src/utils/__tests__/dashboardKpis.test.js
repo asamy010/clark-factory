@@ -41,6 +41,25 @@ describe("computeDashboardKpis — الأرقام الذهبية", () => {
     expect(k.inventory.total).toBe(870);
   });
 
+  it("V21.27.164: تقييم الجاهز يشمل المنتجات الجاهزة الافتتاحية (مخزون قديم بلا أمر)", () => {
+    const data = makeFactoryData();
+    /* منتج جاهز افتتاحي: رصيده من حركة opening في الـ ledger (مش item.stock)،
+       قيمته = 6 × avgCost 30 = 180 تتضاف فوق الجاهز 820 = 1000. */
+    data.generalProducts = [{ id: "fg1", name: "سوت قديم", isFinishedGood: true, stock: 0, avgCost: 30, price: 50 }];
+    data.stockMovements = [{ itemType: "general", itemId: "fg1", type: "opening", qty: 6, createdAt: "2026-06-01T00:00:00Z" }];
+    const k = computeDashboardKpis(data);
+    expect(k.inventory.finished).toBe(1000);/* 820 + 6×30 */
+    /* وبسعر البيع: 6 × 50 = 300 يتضاف لـ finishedSell */
+    expect(k.inventory.finishedDetail.some(r => r.name.includes("افتتاحي"))).toBe(true);
+  });
+
+  it("V21.27.164: منتج عام غير معلَّم جاهز لا يدخل تقييم الجاهز", () => {
+    const data = makeFactoryData();
+    data.generalProducts = [{ id: "gp1", name: "كرتونة", isFinishedGood: false, stock: 0, avgCost: 30 }];
+    data.stockMovements = [{ itemType: "general", itemId: "gp1", type: "opening", qty: 6, createdAt: "2026-06-01T00:00:00Z" }];
+    expect(computeDashboardKpis(data).inventory.finished).toBe(820);/* بدون تغيير */
+  });
+
   it("V21.21.1: مرآة التوزيعة لا تحجز مخزوناً (so2 كميتها 5 متجاهَلة)", () => {
     const data = makeFactoryData();
     /* لو المرآة اتحسبت في الحجز: متاح = 50 − (8 + 6) = 36 × 20 = 720 ≠ 820 */
