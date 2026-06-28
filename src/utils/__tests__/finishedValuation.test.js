@@ -29,6 +29,18 @@ describe("computeFinishedValuation — مصدر الحقيقة الموحّد ل
     expect(fin.models.count).toBe(0);
   });
 
+  it("V21.27.167: مع خليط مفتوح+مقفول — المقفول وحده مُستبعَد (قاعدة «المتاح» الموحّدة)", () => {
+    const data = makeFactoryData();
+    /* نسخة مقفولة من الأمر بنفس المخزون — المفروض متتحسبش (المتاح يفضل 41 من المفتوح). */
+    const open = data.orders[0];
+    const closedClone = JSON.parse(JSON.stringify(open));
+    closedClone.id = "ord-closed"; closedClone.closed = true;
+    data.orders.push(closedClone);
+    const fin = computeFinishedValuation(data);
+    expect(fin.models.count).toBe(1);   /* المفتوح بس */
+    expect(fin.models.qty).toBe(41);    /* المقفول مُستبعَد — نفس قاعدة هب المبيعات بعد V167 */
+  });
+
   it("الجاهز الافتتاحي (isFinishedGood) من الـ ledger يدخل الإجمالي والتقسيمة", () => {
     const data = makeFactoryData();
     data.generalProducts = [{ id: "fg1", name: "سوت قديم", isFinishedGood: true, stock: 0, avgCost: 30, price: 50 }];
