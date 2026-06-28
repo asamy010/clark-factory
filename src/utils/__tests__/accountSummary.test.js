@@ -177,12 +177,15 @@ describe("computeSalesOverviewTotals — إجماليات نظرة عامة ال
     expect(t.totalSales).toBe(950);/* 900 + round(100 × 0.5) */
   });
 
-  it("دفعة بطريقة شيك تُجمع في بند الشيكات لا الكاش", () => {
+  it("custPayments بـ method شيك مستبعدة — الشيكات من data.checks بس (V21.27.153)", () => {
+    /* الكنوني (statement.js/buildCustomerSummary/customer-portal) بيستبعد
+       custPayments-شيك ويعدّ الشيكات من data.checks بس (منع تكرار). البطاقة
+       والتقرير اتوحّدوا معاه. فالدفعة دي لا في الكاش ولا بتتعدّ شيك تاني. */
     const data = makeFactoryData();
     data.custPayments.push({ id: "p3", custId: "c1", amount: 150, method: "شيك بنكي", date: "2026-06-06" });
     const t = computeSalesOverviewTotals(data);
-    expect(t.totalCashPay).toBe(300);
-    expect(t.totalCheckPay).toBe(350);
+    expect(t.totalCashPay).toBe(300);   /* مش بتتعدّ كاش */
+    expect(t.totalCheckPay).toBe(200);  /* data.checks بس (مش 350) */
   });
 });
 

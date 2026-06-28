@@ -1630,9 +1630,11 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          removed from the printed report (was a 3rd bucket: not-cash &
          not-check). Keeping only `cash` + `check` in perCust[]. */
       (config.custPayments||[]).forEach(p=>{const amt=Number(p.amount)||0;const m=(p.method||"").toLowerCase();
-        const isCheck=m.includes("شيك")||m.includes("check");
+        /* V21.27.153: استبعاد custPayments-شيك — الشيكات من data.checks بس (نفس
+           الكنوني statement.js/buildCustomerSummary) لمنع تكرار الشيك. */
+        if(m.includes("شيك")||m.includes("check"))return;
         if(!perCust[p.custId])perCust[p.custId]=initPerCust();
-        if(isCheck)perCust[p.custId].check+=amt;else perCust[p.custId].cash+=amt});
+        perCust[p.custId].cash+=amt});
       /* V18.23+V18.24: Include receivable checks ONLY when category = 'دفعة عميل' (real customer payment).
          Excludes: رصيد افتتاحي (carried from old season), تسوية مبالغ, تحويل بين الحسابات, أخرى — none of these are sales-related.
          Empty category defaults to 'دفعة عميل' for receivable checks (matches the helper default). */

@@ -46,9 +46,13 @@ export function computeSalesOverviewTotals(data){
   });
   (data.custPayments || []).forEach(p => {
     const amt = Number(p.amount) || 0; const m = (p.method || "").toLowerCase();
-    const isCheck = m.includes("شيك") || m.includes("check");
+    /* V21.27.153: استبعاد custPayments بـ method «شيك» — الشيكات بتتعدّ من
+       data.checks تحت (نفس المصدر الكنوني: statement.js gatherCustomerPayments
+       + buildCustomerSummary + api/customer-portal.js). عدّها هنا كمان كان خطر
+       تكرار للشيك (custPayments-شيك + data.checks لنفس الشيك). */
+    if(m.includes("شيك") || m.includes("check")) return;
     if(!perCust[p.custId]) perCust[p.custId] = init();
-    if(isCheck) perCust[p.custId].check += amt; else perCust[p.custId].cash += amt;
+    perCust[p.custId].cash += amt;
   });
   (data.checks || []).filter(c => c.type === "receivable" && c.status !== "مرتد" && c.status !== "ملغي" && ((c.category || "دفعة عميل") === "دفعة عميل")).forEach(c => {
     const amt = Number(c.amount) || 0;
