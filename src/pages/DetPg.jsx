@@ -36,7 +36,7 @@ import { ColorSizeMatrixTab } from "../components/order/ColorSizeMatrixTab.jsx";
 import { auth } from "../firebase.js";
 import { fetchPortalReservations, reservedQtyForOrder } from "../utils/sales/portalReservations.js";
 
-export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,canEdit,canEditWarehouse,statusCards,goHome,upConfig,user}){
+export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,isMob,isTab,isTabHome,canEdit,canEditWarehouse,statusCards,goHome,upConfig,user}){
   /* V21.9.59 (Reported Bug — أمين المخزن مش بـ يقدر يسجل استلامات):
      `canEditWarehouse` is the warehouse-tab edit permission (separate from
      `canEdit` which is the details-tab edit permission). Used to allow
@@ -576,7 +576,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
       {/* ═══════════════════════════════════════════════════════════════
           6B. CARDS VIEW — Modern minimal
          ═══════════════════════════════════════════════════════════════ */}
-      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":"repeat(5,minmax(0,1fr))",gap:12}}>
+      {/* V21.27.175: التابلت بالعرض (isTabHome، ~1100-1300) → 3 بطاقات في الصف (مش 5) */}
+      {filtered.length>0&&detView==="cards"&&<div style={{display:"grid",gridTemplateColumns:isMob?"1fr":isTab?"repeat(2,1fr)":isTabHome?"repeat(3,minmax(0,1fr))":"repeat(5,minmax(0,1fr))",gap:12}}>
         {sortOrders(filtered,detSort).slice(0,detVis).map(o=>{const t=calcOrder(o);
           const wds=o.workshopDeliveries||[];const hasData=wds.length>0||(o.deliveries||[]).length>0;
           /* Progress */
