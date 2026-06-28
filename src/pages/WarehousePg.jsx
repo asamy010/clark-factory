@@ -392,6 +392,56 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     </div>;
   };
 
+  /* V21.27.157: جدول حركات مشترك (نفس شكل تاب «سجل الحركات») — مستخدَم في سجل
+     كل تاب. showType=false لأن السجل بقى مفلتر على نوع التاب أصلاً. */
+  const _movInfo=(m)=>m.type==="in"?{icon:"↓",color:T.ok,label:"دخول"}:m.type==="out"?{icon:"↑",color:T.err,label:"خروج"}:m.type==="opening"?{icon:"◉",color:T.accent,label:"رصيد ابتدائي"}:{icon:"⟲",color:T.warn,label:"تسوية"};
+  const renderMovementsTable=(movs,showType)=>{
+    if(!movs||movs.length===0)return<div style={{padding:24,textAlign:"center",color:T.textMut,fontSize:FS-1}}>لا توجد حركات</div>;
+    return<div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+        <thead><tr>
+          <th style={TH}>التاريخ</th>
+          {showType&&<th style={TH}>نوع الصنف</th>}
+          <th style={TH}>الحركة</th>
+          <th style={TH}>الصنف</th>
+          <th style={{...TH,textAlign:"center"}}>الكمية</th>
+          <th style={{...TH,textAlign:"center"}}>السعر</th>
+          <th style={TH}>المرجع</th>
+          <th style={TH}>بواسطة</th>
+        </tr></thead>
+        <tbody>
+          {movs.map(m=>{const info=_movInfo(m);
+            const typeIcon=m.itemType==="fabric"?"🧵 خامة":m.itemType==="accessory"?"🪡 إكسسوار":m.itemType==="general"?"➕ منتج":"👕 جاهز";
+            const typeColor=m.itemType==="fabric"?T.accent:m.itemType==="accessory"?"#8B5CF6":m.itemType==="general"?"#EC4899":T.ok;
+            return<tr key={m.id} style={{borderBottom:"1px solid "+T.brd}}>
+              <td style={{...TD,fontSize:FS-2,color:T.textMut,whiteSpace:"nowrap"}}>{m.date}</td>
+              {showType&&<td style={{...TD}}><span style={{padding:"2px 6px",borderRadius:6,fontSize:FS-3,fontWeight:600,background:typeColor+"15",color:typeColor}}>{typeIcon}</span></td>}
+              <td style={{...TD}}><span style={{padding:"2px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:info.color+"15",color:info.color}}>{info.icon+" "+info.label}</span></td>
+              <td style={{...TD,fontWeight:700}}>{m.itemName||"—"}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:info.color}}>{(m.type==="out"?"-":"+")+fmt(Math.abs(m.qty))+" "+(m.unit||"")}</td>
+              <td style={{...TD,textAlign:"center",color:T.textSec}}>{m.price?fmt(r2(m.price)):"—"}</td>
+              <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.notes||m.sourceType||"—"}</td>
+              <td style={{...TD,fontSize:FS-2,color:T.textMut}}>{m.createdBy||"—"}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>;
+  };
+  /* V21.27.157: سجل حركات التاب الحالي فقط — مفلتر على نوع الصنف، وبيتفلتر كمان
+     على بحث التاب (لما تبحث عن صنف، يظهر الصنف وحركاته بس). */
+  const renderTabMovements=(itemType,searchDeb,label)=>{
+    const q=(searchDeb||"").trim().toLowerCase();
+    let movs=stockMovements.filter(m=>m&&m.itemType===itemType);
+    if(q)movs=movs.filter(m=>(m.itemName||"").toLowerCase().includes(q));
+    movs=movs.slice().sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+    const cap=200;const shown=movs.slice(0,cap);
+    return<Card title={"📊 سجل حركات "+label+(q?" — «"+searchDeb.trim()+"»":"")+" ("+fmt(movs.length)+")"} style={{marginTop:12}}>
+      {renderMovementsTable(shown,false)}
+      {movs.length>cap&&<div style={{textAlign:"center",color:T.textMut,fontSize:FS-2,marginTop:8}}>عرض أحدث {cap} حركة من {fmt(movs.length)}</div>}
+    </Card>;
+  };
+
   /* ──────── GENERAL PRODUCT CRUD ──────── */
   const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{}});setShowProdForm(true)};
   const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:p.costPrice??"",sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices)});setShowProdForm(true)};
@@ -1126,6 +1176,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {renderItemTable(filteredFab.slice(0,fabLimit),"fabric")}
         {renderShowMore(filteredFab,fabLimit,setFabLimit)}
       </Card>
+      {renderTabMovements("fabric",fabFilterDeb,"الخامات")}
     </>}
 
     {/* ════ ACCESSORY SUB-TAB ════ */}
@@ -1155,6 +1206,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {renderItemTable(filteredAcc.slice(0,accLimit),"accessory")}
         {renderShowMore(filteredAcc,accLimit,setAccLimit)}
       </Card>
+      {renderTabMovements("accessory",accFilterDeb,"الإكسسوار")}
     </>}
     
     {/* ════ FINISHED SUB-TAB ════ */}
@@ -1266,6 +1318,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           {renderShowMore(filteredProd,prodLimit,setProdLimit)}
         </>}
       </Card>
+      {renderTabMovements("general",prodFilterDeb,"المنتجات العامة")}
     </>}
     
     {/* ════ UNITS SUB-TAB (V16.59) ════
