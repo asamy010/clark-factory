@@ -30,6 +30,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const userName=user?.displayName||(user?.email||"").split("@")[0];
   const today=new Date().toISOString().split("T")[0];
   const[subTab,setSubTab]=useState("overview");
+  /* V21.27.156: pagination per-tab (50 ثم «عرض المزيد») */
+  const[fabLimit,setFabLimit]=useState(50);
+  const[accLimit,setAccLimit]=useState(50);
+  const[prodLimit,setProdLimit]=useState(50);
+  const[finLimit,setFinLimit]=useState(50);
   /* Fabric/Accessory filters */
   const[fabFilter,setFabFilter]=useState("");const fabFilterDeb=useDebounced(fabFilter,200);
   const[accFilter,setAccFilter]=useState("");const accFilterDeb=useDebounced(accFilter,200);
@@ -353,6 +358,39 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     else if(sortBy==="value")list.sort((a,b)=>b._value-a._value);
     return list;
   },[generalProducts,hideZero,prodFilterDeb,prodCategoryF,sortBy,stockNetMap]);
+
+  /* V21.27.156: لما الفلتر/البحث/الترتيب يتغيّر، رجّع العرض لأول 50 (عشان البحث
+     عن صنف يبان من غير ما تضغط «عرض المزيد»). */
+  useEffect(()=>{setFabLimit(50)},[fabFilterDeb,hideZero,sortBy]);
+  useEffect(()=>{setAccLimit(50)},[accFilterDeb,hideZero,sortBy]);
+  useEffect(()=>{setProdLimit(50)},[prodFilterDeb,prodCategoryF,hideZero,sortBy]);
+
+  /* V21.27.156: صف بطاقات إجماليات لكل تاب — إجمالي الرصيد **لكل وحدة على حدة**
+     (الأمتار لوحدها، الكيلو لوحده…) + إجمالي القيمة. بيتحسب على القائمة المفلترة
+     الحالية فبيتجاوب مع البحث/الفلتر. */
+  const renderUnitTotals=(list,color)=>{
+    const byUnit={};let totalValue=0;
+    (list||[]).forEach(x=>{const u=((x.unit||"")+"").trim()||"—";byUnit[u]=(byUnit[u]||0)+(Number(x._stock)||0);totalValue+=(Number(x._value)||0);});
+    const units=Object.keys(byUnit).sort((a,b)=>a.localeCompare(b,"ar"));
+    const card=(label,val,c)=><div key={label} style={{flex:"1 1 130px",minWidth:120,padding:"10px 12px",borderRadius:10,background:c+"08",border:"1px solid "+c+"22"}}>
+      <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
+      <div style={{fontSize:FS+3,fontWeight:800,color:c}}>{val}</div>
+    </div>;
+    return<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+      {units.map(u=>card("إجمالي "+u,fmt(r2(byUnit[u])),color))}
+      {card("💰 إجمالي القيمة",fmt(r2(totalValue))+" ج.م",T.ok)}
+    </div>;
+  };
+
+  /* V21.27.156: زر «عرض المزيد» موحّد لتابات الأصناف. */
+  const renderShowMore=(list,limit,setLimit)=>{
+    if(!list||list.length<=limit)return null;
+    return<div style={{display:"flex",justifyContent:"center",marginTop:12}}>
+      <Btn ghost onClick={()=>setLimit(limit+50)} style={{padding:"8px 20px",fontWeight:700}}>
+        ⬇️ عرض المزيد ({fmt(list.length-limit)} متبقّي)
+      </Btn>
+    </div>;
+  };
 
   /* ──────── GENERAL PRODUCT CRUD ──────── */
   const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{}});setShowProdForm(true)};
@@ -1084,10 +1122,12 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </label>
           {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setFabForm({name:"",unit:"كيلو",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:false,purchasable:true,productType:"goods",prices:{},image:"",_eid:null})}}>+ قماش جديد</Btn>}
         </div>
-        {renderItemTable(filteredFab,"fabric")}
+        {renderUnitTotals(filteredFab,T.accent)}
+        {renderItemTable(filteredFab.slice(0,fabLimit),"fabric")}
+        {renderShowMore(filteredFab,fabLimit,setFabLimit)}
       </Card>
     </>}
-    
+
     {/* ════ ACCESSORY SUB-TAB ════ */}
     {subTab==="accessory"&&<>
       <Card>
@@ -1111,7 +1151,9 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </label>
           {canEdit&&<Btn primary small onClick={()=>{setCardTab("general");setAccForm({name:"",unit:"قطعة",price:"",unit2:"",unit2Rate:"",code:"",salePrice:"",sellable:false,purchasable:true,productType:"goods",prices:{},image:"",_eid:null})}}>+ اكسسوار جديد</Btn>}
         </div>
-        {renderItemTable(filteredAcc,"accessory")}
+        {renderUnitTotals(filteredAcc,"#8B5CF6")}
+        {renderItemTable(filteredAcc.slice(0,accLimit),"accessory")}
+        {renderShowMore(filteredAcc,accLimit,setAccLimit)}
       </Card>
     </>}
     
@@ -1218,7 +1260,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           <div style={{fontSize:FS+1,marginBottom:6}}>لا توجد منتجات عامة بعد</div>
           <div style={{fontSize:FS-2,marginBottom:12}}>أضف منتج (زيت ماكينات، كرتون، مستلزمات، إلخ)</div>
           {canEdit&&<Btn primary onClick={openNewProd}>➕ أضف أول منتج</Btn>}
-        </div>:renderItemTable(filteredProd,"general")}
+        </div>:<>
+          {renderUnitTotals(filteredProd,"#EC4899")}
+          {renderItemTable(filteredProd.slice(0,prodLimit),"general")}
+          {renderShowMore(filteredProd,prodLimit,setProdLimit)}
+        </>}
       </Card>
     </>}
     
@@ -1353,7 +1399,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       
       {filteredMovements.length===0?<div style={{padding:40,textAlign:"center",color:T.textMut}}>
         {stockMovements.length===0?"لا توجد حركات بعد":"لا توجد نتائج لهذه الفلاتر"}
-      </div>:<div style={{overflowX:"auto",maxHeight:"60vh",overflowY:"auto"}}>
+      </div>:<div style={{overflowX:"auto"}}>{/* V21.27.156: شِيل maxHeight:60vh — كان بيقصّ سجل الحركات؛ دلوقتي بيمتد لآخر الصفحة (الصفحة نفسها بتعمل scroll) */}
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
           <thead style={{position:"sticky",top:0,background:T.cardSolid,zIndex:1}}><tr>
             <th style={TH}>التاريخ</th>
