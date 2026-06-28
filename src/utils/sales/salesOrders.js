@@ -77,6 +77,19 @@ export function checkStockForItems(d, items){
     const have = Number(it?.stock) || 0;
     if(have < need) short.push({ itemId, name: it?.name || itemId, need, have });
   }
+  /* V21.27.160: نفس الفحص للمنتجات الجاهزة الافتتاحية (generalProduct + isFinishedGood). */
+  const gpNeeds = new Map();
+  (items || []).forEach(it => {
+    if(it && it.sourceType === "generalProduct" && it.sourceId){
+      const gp = (d.generalProducts || []).find(p => String(p.id) === String(it.sourceId));
+      if(gp && gp.isFinishedGood){ const q = Number(it.qty) || 0; if(q > 0) gpNeeds.set(it.sourceId, (gpNeeds.get(it.sourceId) || 0) + q); }
+    }
+  });
+  for(const [itemId, need] of gpNeeds){
+    const gp = (d.generalProducts || []).find(p => String(p.id) === String(itemId));
+    const have = Number(gp?.stock) || 0;
+    if(have < need) short.push({ itemId, name: gp?.name || itemId, need, have });
+  }
   return short;
 }
 
@@ -105,6 +118,32 @@ function _applySalesOrderStock(d, so, items, opts, userName, nowIso){
       qty: -qty, unit: it.unit || "", price: unitCost, date: so.date,
       sourceType: "sales_order", sourceId: so.id,
       notes: "خصم أمر بيع " + so.orderNo, createdBy: userName || "", createdAt: nowIso,
+    });
+  }
+  /* (1b) V21.27.160: المنتجات الجاهزة الافتتاحية (generalProduct + isFinishedGood)
+     — خصم فعلي من d.generalProducts عبر applyStockDelta(categoryId:"general").
+     قاصرناه على isFinishedGood عشان مانغيّرش سلوك بيع المنتجات العامة العادية. */
+  const gpNeeds = new Map();
+  for(const it of items){
+    if(it && it.sourceType === "generalProduct" && it.sourceId){
+      const gp = (d.generalProducts || []).find(p => String(p.id) === String(it.sourceId));
+      if(gp && gp.isFinishedGood){ const q = Number(it.qty) || 0; if(q > 0) gpNeeds.set(it.sourceId, (gpNeeds.get(it.sourceId) || 0) + q); }
+    }
+  }
+  for(const [itemId, qty] of gpNeeds){
+    const gp = (d.generalProducts || []).find(p => String(p.id) === String(itemId));
+    if(!gp) continue;
+    const unitCost = Number(gp.avgCost) || Number(gp.price) || 0;
+    const ok = applyStockDelta(d, "general", itemId, -qty, null);
+    if(!ok) continue;
+    const mvId = _mid();
+    so.stockDeductions.push({ itemId, categoryId: "general", qty, itemName: gp.name || "", unit: gp.unit || "", unitCost });
+    so.stockMovementIds.push(mvId);
+    d.stockMovements.push({
+      id: mvId, type: "out", itemType: "general", itemId, itemName: gp.name || "",
+      qty: -qty, unit: gp.unit || "", price: unitCost, date: so.date,
+      sourceType: "sales_order", sourceId: so.id,
+      notes: "خصم أمر بيع " + so.orderNo + " — منتج جاهز افتتاحي", createdBy: userName || "", createdAt: nowIso,
     });
   }
   /* (2) order models — حركة رقابية فقط (V21.10.7 #5) */
@@ -792,7 +831,9 @@ export function returnFromDirectSalesOrderMutator(d, payload = {}, userName){
       const take = Math.min(remaining, avail);
       if(take <= 0) continue;
       const item = (so.items || []).find(it => _retable(it) && soItemKey(it) === sourceId) || {};
-      const isInv = item.sourceType === "inventoryItem";
+      /* V21.27.160: المنتج الجاهز الافتتاحي (generalProduct) بيرجع للمخزون زي صنف
+         المخزون بالظبط — الاسترجاع عبر applyStockDelta(ded.categoryId="general"). */
+      const isInv = item.sourceType === "inventoryItem" || item.sourceType === "generalProduct";
       const date = new Date().toISOString().split("T")[0];
       const retId = "soret_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
       /* إشعار دائن مسودة بسعر/خصم بند الأمر الفعلي (المستند المحاسبي) */

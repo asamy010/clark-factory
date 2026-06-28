@@ -190,6 +190,26 @@ export function deleteInventoryItem(d,itemId){
    (الرصيد فضل صفر رغم الاستلام). Every other id comparison in the stock code
    already uses String() — this was the lone outlier. */
 export function applyStockDelta(d,categoryId,itemId,delta,unitCost){
+  /* V21.27.160: سنتينل "general" → d.generalProducts (المنتجات العامة + الجاهز
+     الافتتاحي). بيخلّي خصم/عكس/مرتجع أمر البيع يشتغل uniform عبر نفس مسار
+     stockDeductions (اللي بيستدعي applyStockDelta بـ ded.categoryId). مفيش
+     caller حالي بيبعت "general" فالإضافة دفاعية (additive، مش بتغيّر التوجيه). */
+  if(categoryId==="general"){
+    const p=(d.generalProducts||[]).find(x=>String(x.id)===String(itemId));
+    if(!p)return false;
+    const oldStock=Number(p.stock)||0;
+    const oldAvg=Number(p.avgCost)||Number(p.price)||0;
+    const newStock=oldStock+delta;
+    if(delta>0&&unitCost!=null){
+      const totalOldVal=oldStock*oldAvg;
+      const newVal=delta*Number(unitCost);
+      p.avgCost=newStock>0?(totalOldVal+newVal)/newStock:Number(unitCost);
+    } else if(delta<0 && newStock<=0){
+      p.avgCost=0;
+    }
+    p.stock=newStock;
+    return true;
+  }
   const cat=getCategoryById(d,categoryId);
   if(!cat)return false;
   if(cat.legacy==="fabric"){

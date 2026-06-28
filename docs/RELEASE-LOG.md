@@ -12,6 +12,45 @@
 
 ---
 
+## V21.27.160 (2026-06-28) — 🛒 بيع المنتج الجاهز الافتتاحي (مرحلة 4ب — اكتملت الميزة)
+
+**الطلب (Ahmed):** «ابيعها عادي» — المنتج الجاهز الافتتاحي ينباع وينزل رصيده.
+
+**اكتشاف:** المنتجات الجاهزة (`generalProduct`) **بتظهر أصلاً** في منتقي أصناف
+أمر البيع/عرض السعر (`QuotationFormModal` — `sourceType:"generalProduct"`). الفجوة
+الوحيدة: البيع مكنش **بيخصم** رصيدها (`_aggregateInventoryNeeds` كان `inventoryItem`
+بس). فالـ 4ب = الخصم/الاسترجاع.
+
+**التنفيذ (٤ تعديلات + اختبارات):**
+1. `categories.js` — `applyStockDelta` بقى يدعم سنتينل `categoryId:"general"` →
+   `d.generalProducts` (additive؛ مفيش caller حالي بيبعت "general"). بكده كل
+   مسارات العكس/الإلغاء/المرتجع اللي بتلفّ `stockDeductions` وتستدعي
+   `applyStockDelta(ded.categoryId)` بتشتغل uniform للجاهز.
+2. `salesOrders._applySalesOrderStock` — خصم فعلي للمنتجات الجاهزة الافتتاحية
+   (`generalProduct` + `isFinishedGood`): `applyStockDelta("general",-qty)` +
+   قيد في `stockDeductions{categoryId:"general"}` + حركة `itemType:"general"`.
+   **مقصور على `isFinishedGood`** فبيع العام العادي ما اتغيّرش.
+3. `salesOrders.checkStockForItems` — فحص نفس المنتجات لـ
+   `blockOnInsufficientStock`.
+4. `salesOrders` return logic — `isInv` بقى يشمل `generalProduct` → المرتجع
+   بيرجّع الرصيد عبر `applyStockDelta(ded.categoryId="general")`. (`computeSoReserved`
+   بيتخطّى مرتجعات `itemSourceType!=="order"` فمفيش double-restore.)
+
+   الإلغاء (`cancelSalesOrderMutator`) والتعديل (`editSalesOrder`) بيشتغلوا تلقائيًا
+   (بيلفّوا `stockDeductions` بنفس النمط — صفر تعديل إضافي).
+
+**الاختبارات (`finishedProductSale.test.js` — 5):** البيع يخصم + قيد general،
+العادي مش بيتخصم (لا regression)، منع نقص المخزون، المرتجع يرجّع ويقلّل deduction،
+الإلغاء يرجّع الكل. **478 اختبار كلهم ناجح.** build ✓.
+
+⚠️ ميزة مالية بدون بيئة اختبار محلية — موصى به تأكيد يدوي (بيع منتج جاهز → تأكد
+الرصيد نزل صح، ومرتجع → رجع صح) قبل الاعتماد الكامل.
+
+**الملفات:** `src/utils/categories.js`، `src/utils/sales/salesOrders.js`،
+`src/utils/sales/__tests__/finishedProductSale.test.js` + ملفات النسخة.
+
+---
+
 ## V21.27.159 (2026-06-28) — 👕 الرصيد الافتتاحي للجاهز (مرحلة 4أ: إدخال + جرد + تقييم)
 
 **الطلب (Ahmed):** إدخال أصناف جاهزة (مخزون قديم مش متصنّع في المصنع) كرصيد
