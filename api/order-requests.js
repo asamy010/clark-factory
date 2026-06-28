@@ -15,7 +15,7 @@
    باستخدام نظام أوامر البيع الموجود — الـ endpoint ده بيحدّث الحالة بس.
    ═══════════════════════════════════════════════════════════════ */
 
-import { getDb, setCors, readSplitCollection, verifyAdminToken } from "./_firebase.js";
+import { getDb, setCors, readSplitCollection, verifyPortalRequestsToken } from "./_firebase.js";
 import { buildStockCatalog } from "../src/utils/stockCatalog.js";
 import { validateOrderRequest } from "../src/utils/orderRequests.js";
 
@@ -63,7 +63,11 @@ export default async function handler(req, res) {
     const body = (typeof req.body === "string") ? JSON.parse(req.body || "{}") : (req.body || {});
     const { adminToken, action } = body;
 
-    const auth = await verifyAdminToken(adminToken);
+    /* V21.27.152: «list» قراءة → صلاحية عرض المبيعات تكفي؛ باقي العمليات
+       (confirm/update/reopen/reject) تعديل → تتطلب صلاحية تعديل المبيعات.
+       admin/manager مسموح دايمًا (داخل الـ helper). */
+    const needEdit = action !== "list";
+    const auth = await verifyPortalRequestsToken(adminToken, { needEdit });
     if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
 
     const db = getDb();

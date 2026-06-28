@@ -12,6 +12,47 @@
 
 ---
 
+## V21.27.152 (2026-06-28) — 🔐 محاسب المبيعات يشوف «طلبات البورتال» (إصلاح صلاحية)
+
+**الطلب (Ahmed):** محاسب المبيعات مش بيقدر يشوف طلبات البورتال الجاية من العملاء،
+وبتظهر رسالة «مشكلة في الصلاحية» — رغم إنه واخد صلاحية كاملة على المبيعات.
+
+**السبب الجذري:** الواجهة (`SalesHubPg`) بتوري تاب «🛒 طلبات بورتال» لأي دور عنده
+صلاحية عرض أوامر البيع/تسليم العملاء (`portalBase`). لكن لما الصفحة تجيب البيانات
+من `/api/order-requests`، الـ endpoint كان بيستخدم **`verifyAdminToken`** اللي
+بيرفض أي دور **غير admin/manager** ويرجّع «صلاحيات غير كافية — مدير فقط». فمحاسب
+المبيعات (دوره `sales_accountant`، عنده `salesOrders:"edit"` و`custDeliver:"edit"`)
+كان بيتحجب على مستوى السيرفر. نفس صنف bug الـ AI Studio (V21.26.7) — السيرفر
+بيبوّب بالدور الخشن مش بالصلاحية الدقيقة.
+
+**التنفيذ:**
+- **`api/_firebase.js`:**
+  - استيراد helpers الصلاحيات النقية من `../src/utils/permissions.js`
+    (`canViewPermForUser`, `canEditPermForUser`, `canViewSubForUser`,
+    `canEditSubForUser`).
+  - `verifyUserToken` بقى يحسب كمان `portalView`/`portalEdit` بنفس منطق الواجهة
+    بالظبط: base = صلاحية `salesOrders` أو `custDeliver`، ثم تجاوز الـ sub
+    «`portalRequests`» (يدعم تجاوزات المستخدم/الدور + custom roles عبر
+    `resolveUserRole`). أي خطأ → `false` (آمن).
+  - دالة جديدة `verifyPortalRequestsToken(token, {needEdit})`: admin/manager
+    مسموح دايمًا؛ غيرهم لو `portalView` (للقراءة) أو `portalEdit` (للعمليات).
+- **`api/order-requests.js`:** استبدال `verifyAdminToken` بـ
+  `verifyPortalRequestsToken`. `action==="list"` (قراءة) → عرض يكفي؛ باقي
+  العمليات (confirm/update/reopen/reject) → تتطلب تعديل.
+
+**الأمان (§0.1):** مش توسيع غير مقصود — ده بالظبط نفس بوابة الواجهة، والأدمن
+لسه يقدر يخفي «أوامر البيع»/«تسليم العملاء» أو الـ sub «طلبات البورتال» عن أي
+دور فيتحجب على الواجهة والسيرفر سوا. نفس باترن `verifyAiStudioToken` (V21.26.7).
+
+**التحقق:** build ✓ · كل الـ **٤٧٣ اختبار** ناجحة. (الـ endpoints serverless مفيش
+لها unit tests، لكن منطق الصلاحية بيعيد استخدام helpers permissions.js المختبَرة.)
+
+**الملفات:** `api/_firebase.js`، `api/order-requests.js`، `package.json`،
+`src/constants/index.js`، `public/changelog.json`، `public/sw.js`,
+`docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.151 (2026-06-28) — ⚖️ «رصيد عند العملاء»: بطاقة هَب المبيعات تطابق التقرير
 
 **الطلب (Ahmed):** «رصيد عند العملاء» مختلف بين البطاقة (نظرة عامة هَب المبيعات =

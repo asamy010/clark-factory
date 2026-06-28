@@ -6,6 +6,9 @@
 
 import admin from "firebase-admin";
 import crypto from "crypto";
+/* V21.27.152: helpers صلاحيات نقية (نفس اللي بتستخدمها الواجهة) — عشان
+   endpoints المبيعات تبوّب بالصلاحية الدقيقة مش بدور admin/manager بس. */
+import { canViewPermForUser, canEditPermForUser, canViewSubForUser, canEditSubForUser } from "../src/utils/permissions.js";
 
 let _app = null;
 
@@ -295,6 +298,11 @@ export async function verifyUserToken(token) {
   /* Look up role from config — same shape as getUserRole() in App.jsx */
   let role = "viewer";
   let aiStudio = null;
+  /* V21.27.152: صلاحية «طلبات البورتال» الدقيقة — نفس بوابة الواجهة في
+     SalesHubPg بالظبط (portalBase = salesOrders/custDeliver، ثم تجاوز الـ
+     sub «portalRequests»). بنحسبها هنا عشان verifyPortalRequestsToken
+     يسمح لمحاسب المبيعات (مش admin/manager بس). */
+  let portalView = false, portalEdit = false;
   try {
     const cfgSnap = await getDb().collection("factory").doc("config").get();
     if (cfgSnap.exists) {
@@ -309,11 +317,20 @@ export async function verifyUserToken(token) {
       /* aiStudio permission override (admin can hide AI Studio per role) */
       const perms = (cfg.permissions && cfg.permissions[role]) || {};
       if (Object.prototype.hasOwnProperty.call(perms, "aiStudio")) aiStudio = perms.aiStudio;
+      /* طلبات البورتال — نفس منطق SalesHubPg (helpers نقية → resolveUserRole
+         + تجاوزات المستخدم/الدور + custom roles). آمن: أي فشل = false. */
+      try {
+        const u = { email: decoded.email, uid: decoded.uid };
+        const baseView = canViewPermForUser(cfg, u, "salesOrders") || canViewPermForUser(cfg, u, "custDeliver");
+        const baseEdit = canEditPermForUser(cfg, u, "salesOrders") || canEditPermForUser(cfg, u, "custDeliver");
+        portalView = canViewSubForUser(cfg, u, "portalRequests", baseView ? "view" : "hide");
+        portalEdit = canEditSubForUser(cfg, u, "portalRequests", baseEdit ? "edit" : "view");
+      } catch (_) { /* احتفظ بـ false عند أي خطأ */ }
     }
   } catch (e) {
     return { ok: false, status: 500, error: "تعذر التحقق من الصلاحيات" };
   }
-  return { ok: true, uid: decoded.uid, email: decoded.email, role, aiStudio };
+  return { ok: true, uid: decoded.uid, email: decoded.email, role, aiStudio, portalView, portalEdit };
 }
 
 export async function verifyAdminToken(token) {
@@ -334,4 +351,22 @@ export async function verifyAiStudioToken(token) {
   if (r.role === "viewer") return { ok: false, status: 403, error: "AI Studio غير متاح لدور «عرض فقط»" };
   if (r.aiStudio === "hide") return { ok: false, status: 403, error: "AI Studio مخفي عن دورك — كلّم مدير النظام" };
   return r;
+}
+
+/* V21.27.152 ROOT-CAUSE FIX (شكوى Ahmed: محاسب المبيعات مش بيشوف «طلبات
+   البورتال» ويظهر «صلاحيات غير كافية — مدير فقط»):
+   endpoint طلبات البورتال (/api/order-requests) كان بيستخدم verifyAdminToken
+   اللي بيرفض أي دور غير admin/manager — رغم إن محاسب المبيعات عنده صلاحية
+   مبيعات كاملة والواجهة (SalesHubPg) بتوريه التاب. نفس صنف bug الـ AI Studio
+   (V21.26.7). الحل: بوّابة بالصلاحية الدقيقة (portalView/portalEdit المحسوبة
+   في verifyUserToken بنفس منطق الواجهة) — admin/manager مسموح دايمًا، وغيرهم
+   لو عنده صلاحية المبيعات. needEdit=true للعمليات (تأكيد/رفض/تعديل) — تتطلب
+   صلاحية تعديل؛ والقراءة (list) تتطلب عرض فقط. */
+export async function verifyPortalRequestsToken(token, opts = {}) {
+  const r = await verifyUserToken(token);
+  if (!r.ok) return r;
+  if (r.role === "admin" || r.role === "manager") return r;
+  const ok = opts.needEdit ? r.portalEdit : r.portalView;
+  if (ok) return r;
+  return { ok: false, status: 403, error: "صلاحيات غير كافية — محتاج صلاحية المبيعات" };
 }
