@@ -141,8 +141,30 @@ export function SalesHubPg(props){
     let unpaidCount = 0, unpaidTotal = 0;
     for(const i of posted){ const b = invoiceBalance(i); if(b > 0.01){ unpaidCount++; unpaidTotal += b; } }
     const fin = computeSalesOverviewTotals(data); /* V21.21.8: الإجماليات المالية للموسم (نفس أرقام كشف التسليمات) */
+    /* V21.27.151 ROOT-CAUSE FIX (شكوى Ahmed: «رصيد عند العملاء» في البطاقة مختلف
+       عن التقرير الموسمي):
+       computeSalesOverviewTotals بتحسب المبيعات من التوزيعات (customerDeliveries)
+       **بس** وبتتجاهل أوامر البيع المباشرة (data.salesOrders) — في حين إن التقرير
+       (CustDeliverPg.printSalesReport منذ V21.27.141) وأرصدة العملاء الفعلية
+       (buildCustomerSummary) بيعدّوها كبيع تشغيلي («أمر البيع = البيع»). فالبطاقة
+       كانت بتقلّ عن التقرير بصافي الأوامر المباشرة.
+       الإصلاح مقصور على البطاقة دي (مش في الدالة المشتركة — عشان مانأثرش على
+       حساب الربح/COGS اللي بيستخدمها الداشبورد). نضيف نفس دلتا التقرير بالظبط:
+       صافي الأمر = so.total − صافي مرتجعاته، مع تخطّي المرايا/الملغي/بدون عميل.
+       النتيجة: المبيعات + الرصيد على البطاقة = التقرير الموسمي بالضبط. */
+    let soSalesNet = 0;
+    for(const so of orders){
+      if(!so || so.status === "cancelled") continue;
+      if(so.sourceDistributionId || so.isDistributionMirror) continue; /* مرآة توزيعة — محتسبة من التوزيعة */
+      if(so.customerId == null || so.customerId === "") continue;       /* أمر بدون عميل مسجّل */
+      const retVal = (so.returns || []).reduce((s, rr) => s + (Number(rr && rr.net) || 0), 0);
+      soSalesNet += (Number(so.total) || 0) - retVal;
+    }
+    const finCard = { ...fin,
+      totalSales: (fin.totalSales || 0) + soSalesNet,
+      totalBalance: (fin.totalBalance || 0) + soSalesNet };
     return { openQ, openQVal, expiring, ordCount: confirmed.length, postedCount: posted.length, monthSales,
-      unpaidCount, unpaidTotal, cnMonth: cnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length, ...fin };
+      unpaidCount, unpaidTotal, cnMonth: cnotes.filter(c => (c.date || "").startsWith(monthPrefix)).length, ...finCard };
   }, [data.salesQuotations, data.salesOrders, data.salesInvoices, data.salesCreditNotes, data.orders, data.customers, data.custPayments, data.checks]);
 
   const subBtn = (on) => ({ padding: "8px 13px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, cursor: "pointer",
