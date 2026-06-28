@@ -104,9 +104,9 @@ function _purchasesSection(data, date) {
 }
 
 /* ── 3. Treasury section ──
-   V21.18.1 (طلب Ahmed): تفصيل كل خزينة/بنك/محفظة لوحده — حركات اليوم
-   (محصّلات/مدفوعات بالفئة) + صافي اليوم + رصيد الإقفال لكل حساب على حدة،
-   بدل التجميع العام. الإقفال = صافي كل الحركات حتى تاريخ التقرير شاملاً. */
+   V21.27.169 (طلب Ahmed): لكل خزنة — وارد اليوم / منصرف اليوم / رصيد حالي.
+   الخزنة اللي رصيدها صفر متتعرضش. + سطر «إجمالي حركات المحافظ الإلكترونية».
+   رصيد حالي = صافي كل الحركات حتى تاريخ التقرير شاملاً. */
 function _treasurySection(data, date) {
   const lines = [];
   lines.push("💵 *الخزنة*");
@@ -118,72 +118,63 @@ function _treasurySection(data, date) {
     if(nm) accMeta[nm] = { type: (a && a.type) || "cash" };
   });
 
-  /* تجميع الحركات per-account: حركات اليوم بالفئة + رصيد الإقفال حتى التاريخ */
+  /* تجميع per-account: وارد/منصرف اليوم + الرصيد الحالي حتى التاريخ */
   const acc = {};
-  const ensure = (nm) => { if(!acc[nm]) acc[nm] = { inCat: {}, outCat: {}, totalIn: 0, totalOut: 0, closing: 0 }; return acc[nm]; };
+  const ensure = (nm) => { if(!acc[nm]) acc[nm] = { totalIn: 0, totalOut: 0, closing: 0 }; return acc[nm]; };
   (data.treasury || []).forEach(t => {
     if(!t) return;
     const nm = (t.account || "").trim() || "غير محدد";
     const a = ensure(nm);
     const amt = Number(t.amount) || 0;
     const txDate = String(t.date || t.createdAt || "").slice(0, 10);
-    /* رصيد الإقفال = صافي كل الحركات حتى يوم التقرير (شاملاً) */
     if(txDate && txDate <= date){
       if(t.type === "in") a.closing += amt;
       else if(t.type === "out") a.closing -= amt;
     }
-    /* حركات اليوم نفسه بالفئة */
     if(txDate === date && amt > 0){
-      const cat = (t.category || "").trim() || (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
-      if(t.type === "in"){ a.totalIn += amt; (a.inCat[cat] = a.inCat[cat] || { total: 0, count: 0 }); a.inCat[cat].total += amt; a.inCat[cat].count++; }
-      else if(t.type === "out"){ a.totalOut += amt; (a.outCat[cat] = a.outCat[cat] || { total: 0, count: 0 }); a.outCat[cat].total += amt; a.outCat[cat].count++; }
+      if(t.type === "in") a.totalIn += amt;
+      else if(t.type === "out") a.totalOut += amt;
     }
   });
+
+  const names = Object.keys(acc);
+  if(names.length === 0){ lines.push(""); lines.push("• لا توجد حسابات خزينة"); return lines.join("\n"); }
 
   const TYPE_ICON = { cash: "💵", bank: "🏦", wallet: "📱" };
   const TYPE_LABEL = { cash: "خزينة", bank: "بنك", wallet: "محفظة" };
   const TYPE_ORDER = { cash: 0, bank: 1, wallet: 2 };
+  const typeOf = (nm) => (accMeta[nm] && accMeta[nm].type) || "cash";
 
-  /* ترتيب: خزائن ثم بنوك ثم محافظ، وداخل كل نوع بالإقفال تنازلياً */
-  const names = Object.keys(acc).sort((x, y) => {
-    const tx = (accMeta[x] && accMeta[x].type) || "cash", ty = (accMeta[y] && accMeta[y].type) || "cash";
-    if(TYPE_ORDER[tx] !== TYPE_ORDER[ty]) return (TYPE_ORDER[tx] ?? 9) - (TYPE_ORDER[ty] ?? 9);
+  /* ترتيب: خزائن ثم بنوك ثم محافظ، وداخل كل نوع بالرصيد تنازلياً */
+  const sorted = names.sort((x, y) => {
+    const ox = (TYPE_ORDER[typeOf(x)] ?? 9), oy = (TYPE_ORDER[typeOf(y)] ?? 9);
+    if(ox !== oy) return ox - oy;
     return acc[y].closing - acc[x].closing;
   });
 
-  if(names.length === 0){ lines.push(""); lines.push("• لا توجد حسابات خزينة"); return lines.join("\n"); }
-
-  let grandClosing = 0;
-  const catLines = (obj) => Object.entries(obj).sort((p, q) => q[1].total - p[1].total)
-    .map(([cat, v]) => `      ◦ ${cat}: ${_money(v.total)}${v.count > 1 ? ` (${v.count} عمليات)` : ""}`);
-
-  names.forEach(nm => {
+  let grandClosing = 0, walletIn = 0, walletOut = 0, hasWallet = false;
+  sorted.forEach(nm => {
     const a = acc[nm];
     grandClosing += a.closing;
-    const type = (accMeta[nm] && accMeta[nm].type) || "cash";
+    const type = typeOf(nm);
+    if(type === "wallet"){ walletIn += a.totalIn; walletOut += a.totalOut; hasWallet = true; }
+    /* الخزنة اللي رصيدها صفر متتعرضش (طلب Ahmed) */
+    if(Math.round(a.closing) === 0) return;
     lines.push("");
     lines.push(`${TYPE_ICON[type] || "💵"} *${nm}* — ${TYPE_LABEL[type] || "خزينة"}`);
-    if(a.totalIn > 0){
-      lines.push(`   • محصّلات اليوم: ${_money(a.totalIn)}`);
-      catLines(a.inCat).forEach(l => lines.push(l));
-    }
-    if(a.totalOut > 0){
-      lines.push(`   • مدفوعات اليوم: ${_money(a.totalOut)}`);
-      catLines(a.outCat).forEach(l => lines.push(l));
-    }
-    if(a.totalIn > 0 || a.totalOut > 0){
-      const net = a.totalIn - a.totalOut;
-      lines.push(`   • صافي اليوم: ${net > 0 ? "▲" : net < 0 ? "▼" : "—"} ${_money(Math.abs(net))}`);
-    } else {
-      lines.push("   • لا حركة اليوم");
-    }
-    lines.push(`   • *رصيد الإقفال: ${_money(a.closing)}*`);
+    lines.push(`   • وارد اليوم: ${_money(a.totalIn)}`);
+    lines.push(`   • منصرف اليوم: ${_money(a.totalOut)}`);
+    lines.push(`   • *رصيد حالي: ${_money(a.closing)}*`);
   });
 
-  if(names.length > 1){
+  /* إجمالي حركات المحافظ الإلكترونية (وارد/منصرف اليوم) */
+  if(hasWallet){
     lines.push("");
-    lines.push(`• *إجمالي أرصدة الإقفال: ${_money(grandClosing)}*`);
+    lines.push(`📱 *إجمالي حركات المحافظ* — وارد: ${_money(walletIn)} · منصرف: ${_money(walletOut)}`);
   }
+
+  lines.push("");
+  lines.push(`• *إجمالي الرصيد الحالي: ${_money(grandClosing)}*`);
   return lines.join("\n");
 }
 
@@ -372,16 +363,15 @@ export function buildDailyReport(data, opts) {
     production: true, alerts: true, tasks: true, comparison: false,
   };
   const date = opts?.date || new Date().toISOString().slice(0, 10);
-  const factoryName = (data.factoryName || "CLARK Factory");
 
   const parts = [];
-  /* Header */
+  /* Header — V21.27.169: العلامة «CLARK ERP System» + فاصل أقصر (ماينعملش راب) */
   const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("ar-EG", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
-  parts.push(`🏭 *${factoryName} — التقرير اليومي*`);
+  parts.push(`🏭 *CLARK ERP System — التقرير اليومي*`);
   parts.push(`📅 ${dateLabel}`);
-  parts.push("━━━━━━━━━━━━━━━━━━━━");
+  parts.push("━━━━━━━━━━");
 
   if (sections.sales)      parts.push(_salesSection(data, date));
   if (sections.purchases)  parts.push(_purchasesSection(data, date));
@@ -391,8 +381,8 @@ export function buildDailyReport(data, opts) {
   if (sections.tasks)      parts.push(_tasksSection(data));
   if (sections.comparison) parts.push(_comparisonSection(data, date));
 
-  parts.push("━━━━━━━━━━━━━━━━━━━━");
-  parts.push("🤖 _تم الإرسال تلقائياً من نظام CLARK_");
+  parts.push("━━━━━━━━━━");
+  parts.push("🤖 _تم الإرسال تلقائياً من CLARK ERP System_");
 
   return {
     date,

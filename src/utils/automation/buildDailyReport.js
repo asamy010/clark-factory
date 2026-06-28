@@ -132,8 +132,9 @@ function _purchasesSection(data, date) {
    group by category. The report shows EVERY category that had movement today
    instead of fixed cash/transfer/checks columns. */
 function _treasurySection(data, date) {
-  /* V21.18.1 (طلب Ahmed): كل خزينة/بنك/محفظة لوحده — حركات اليوم بالفئة +
-     صافي اليوم + رصيد الإقفال لكل حساب. (موحّد مع api/_buildDailyReport.js). */
+  /* V21.27.169 (طلب Ahmed): لكل خزنة — وارد اليوم / منصرف اليوم / رصيد حالي.
+     الخزنة اللي رصيدها صفر متتعرضش. + سطر إجمالي حركات المحافظ الإلكترونية.
+     (موحّد مع api/_buildDailyReport.js). */
   const lines = [];
   lines.push("💵 *الخزنة*");
 
@@ -144,7 +145,7 @@ function _treasurySection(data, date) {
   });
 
   const acc = {};
-  const ensure = (nm) => { if(!acc[nm]) acc[nm] = { inCat: {}, outCat: {}, totalIn: 0, totalOut: 0, closing: 0 }; return acc[nm]; };
+  const ensure = (nm) => { if(!acc[nm]) acc[nm] = { totalIn: 0, totalOut: 0, closing: 0 }; return acc[nm]; };
   (data.treasury || []).forEach(t => {
     if(!t) return;
     const nm = (t.account || "").trim() || "غير محدد";
@@ -156,44 +157,46 @@ function _treasurySection(data, date) {
       else if(t.type === "out") a.closing -= amt;
     }
     if(txDate === date && amt > 0){
-      const cat = (t.category || "").trim() || (t.type === "in" ? "إيراد عام" : t.type === "out" ? "مصروف عام" : "غير مصنف");
-      if(t.type === "in"){ a.totalIn += amt; (a.inCat[cat] = a.inCat[cat] || { total: 0, count: 0 }); a.inCat[cat].total += amt; a.inCat[cat].count++; }
-      else if(t.type === "out"){ a.totalOut += amt; (a.outCat[cat] = a.outCat[cat] || { total: 0, count: 0 }); a.outCat[cat].total += amt; a.outCat[cat].count++; }
+      if(t.type === "in") a.totalIn += amt;
+      else if(t.type === "out") a.totalOut += amt;
     }
   });
+
+  const names = Object.keys(acc);
+  if(names.length === 0){ lines.push(""); lines.push("• لا توجد حسابات خزينة"); return lines.join("\n"); }
 
   const TYPE_ICON = { cash: "💵", bank: "🏦", wallet: "📱" };
   const TYPE_LABEL = { cash: "خزينة", bank: "بنك", wallet: "محفظة" };
   const TYPE_ORDER = { cash: 0, bank: 1, wallet: 2 };
+  const typeOf = (nm) => (accMeta[nm] && accMeta[nm].type) || "cash";
 
-  const names = Object.keys(acc).sort((x, y) => {
-    const tx = (accMeta[x] && accMeta[x].type) || "cash", ty = (accMeta[y] && accMeta[y].type) || "cash";
-    if(TYPE_ORDER[tx] !== TYPE_ORDER[ty]) return (TYPE_ORDER[tx] ?? 9) - (TYPE_ORDER[ty] ?? 9);
+  const sorted = names.sort((x, y) => {
+    const ox = (TYPE_ORDER[typeOf(x)] ?? 9), oy = (TYPE_ORDER[typeOf(y)] ?? 9);
+    if(ox !== oy) return ox - oy;
     return acc[y].closing - acc[x].closing;
   });
 
-  if(names.length === 0){ lines.push(""); lines.push("• لا توجد حسابات خزينة"); return lines.join("\n"); }
-
-  let grandClosing = 0;
-  const catLines = (obj) => Object.entries(obj).sort((p, q) => q[1].total - p[1].total)
-    .map(([cat, v]) => `      ◦ ${cat}: ${_money(v.total)}${v.count > 1 ? ` (${v.count} عمليات)` : ""}`);
-
-  names.forEach(nm => {
+  let grandClosing = 0, walletIn = 0, walletOut = 0, hasWallet = false;
+  sorted.forEach(nm => {
     const a = acc[nm];
     grandClosing += a.closing;
-    const type = (accMeta[nm] && accMeta[nm].type) || "cash";
+    const type = typeOf(nm);
+    if(type === "wallet"){ walletIn += a.totalIn; walletOut += a.totalOut; hasWallet = true; }
+    if(Math.round(a.closing) === 0) return;/* الخزنة اللي رصيدها صفر متتعرضش */
     lines.push("");
     lines.push(`${TYPE_ICON[type] || "💵"} *${nm}* — ${TYPE_LABEL[type] || "خزينة"}`);
-    if(a.totalIn > 0){ lines.push(`   • محصّلات اليوم: ${_money(a.totalIn)}`); catLines(a.inCat).forEach(l => lines.push(l)); }
-    if(a.totalOut > 0){ lines.push(`   • مدفوعات اليوم: ${_money(a.totalOut)}`); catLines(a.outCat).forEach(l => lines.push(l)); }
-    if(a.totalIn > 0 || a.totalOut > 0){
-      const net = a.totalIn - a.totalOut;
-      lines.push(`   • صافي اليوم: ${net > 0 ? "▲" : net < 0 ? "▼" : "—"} ${_money(Math.abs(net))}`);
-    } else { lines.push("   • لا حركة اليوم"); }
-    lines.push(`   • *رصيد الإقفال: ${_money(a.closing)}*`);
+    lines.push(`   • وارد اليوم: ${_money(a.totalIn)}`);
+    lines.push(`   • منصرف اليوم: ${_money(a.totalOut)}`);
+    lines.push(`   • *رصيد حالي: ${_money(a.closing)}*`);
   });
 
-  if(names.length > 1){ lines.push(""); lines.push(`• *إجمالي أرصدة الإقفال: ${_money(grandClosing)}*`); }
+  if(hasWallet){
+    lines.push("");
+    lines.push(`📱 *إجمالي حركات المحافظ* — وارد: ${_money(walletIn)} · منصرف: ${_money(walletOut)}`);
+  }
+
+  lines.push("");
+  lines.push(`• *إجمالي الرصيد الحالي: ${_money(grandClosing)}*`);
   return lines.join("\n");
 }
 
@@ -528,9 +531,9 @@ function _squeezeBlanks(s) {
    pre-V19.80.15 hardcoded layout so existing reports look identical until
    the user customizes. */
 export const DEFAULT_DAILY_TEMPLATE = [
-  "🏭 *{factoryName} — التقرير اليومي*",
+  "🏭 *CLARK ERP System — التقرير اليومي*",
   "📅 {date}",
-  "━━━━━━━━━━━━━━━━━━━━",
+  "━━━━━━━━━━",
   "",
   "{salesSection}",
   "",
@@ -544,8 +547,8 @@ export const DEFAULT_DAILY_TEMPLATE = [
   "",
   "{tasksSection}",
   "",
-  "━━━━━━━━━━━━━━━━━━━━",
-  "🤖 _تم الإرسال تلقائياً من نظام CLARK_",
+  "━━━━━━━━━━",
+  "🤖 _تم الإرسال تلقائياً من CLARK ERP System_",
 ].join("\n");
 
 /* List of available variable names — used by the AutomationPg UI to render
