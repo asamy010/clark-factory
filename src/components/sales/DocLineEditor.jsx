@@ -12,6 +12,7 @@
      isMob, accent
    ═══════════════════════════════════════════════════════════════════════ */
 
+import { useRef, useState, useEffect } from "react";
 import { Btn, Inp, SearchSel, Sel } from "../ui.jsx";
 import { T } from "../../theme.js";
 import { FS } from "../../constants/index.js";
@@ -31,6 +32,24 @@ const emptyProduct = () => ({ sourceType: "service", sourceId: "", modelNo: "", 
 const emptySection = () => ({ isSection: true, title: "" });
 
 export function DocLineEditor({ items, setItems, productOptions = [], resolveProduct, isMob, accent = "#0EA5E9", stockInfo }){
+  /* V21.27.172: شبكة الديسكتوب (7 أعمدة) عرضها الأدنى ~742px. جوّه مودال ضيّق
+     (تابلت بورتريه) كانت بتفيض فتبان الحقول «راكبة فوق بعضها». بنقيس العرض الفعلي
+     للحاوية (مش الويندو — لأن المودال أضيق) ونرجع لتخطيط الكروت لو ضيّق. بيصلّح كل
+     الفورمات اللي بتستخدم DocLineEditor دفعة واحدة (عرض سعر/أمر بيع/RFQ/أمر شراء/
+     فاتورة خدمية/مرتجع مورد). */
+  const wrapRef = useRef(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if(!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0] && entries[0].contentRect ? entries[0].contentRect.width : 0;
+      setNarrow(w > 0 && w < 760);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const useCards = isMob || narrow;/* تابلت/مودال ضيّق → كروت بدل شبكة الديسكتوب */
   /* V21.27.87: شارة الكمية المتاحة بقت **جنب** خانة المنتج (inline) بدل ما
      كانت سطر تحتها — السطر التحتاني كان بيزوّد ارتفاع الخانة فيبان المستطيل
      «طايح لفوق» وغير متّسق مع باقي الأعمدة. stockInfo(it) → {qty,unit,label?}|null */
@@ -134,13 +153,13 @@ export function DocLineEditor({ items, setItems, productOptions = [], resolvePro
   );
 
   return (
-    <div>
+    <div ref={wrapRef}>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <Btn ghost small onClick={addProduct} style={{ color: accent }}>+ إضافة منتج</Btn>
         <Btn ghost small onClick={addSection} style={{ color: accent }}>+ إضافة قسم</Btn>
       </div>
 
-      {isMob ? (
+      {useCards ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {items.length === 0 ? <div style={{ color: T.textMut, fontSize: FS - 2, padding: 12, textAlign: "center" }}>اضغط «+ إضافة منتج»</div> : items.map(rowMobile)}
         </div>
