@@ -147,8 +147,13 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     fabrics.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;f.value+=s*c;if(s===0)f.zero++;else if(x.minStock&&s<=x.minStock)f.low++});
     const a={count:accessories.length,value:0,low:0,zero:0};
     accessories.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;a.value+=s*c;if(s===0)a.zero++;else if(x.minStock&&s<=x.minStock)a.low++});
-    const g={count:generalProducts.length,value:0,low:0,zero:0};
-    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
+    /* V21.27.159: المنتجات الجاهزة الافتتاحية (isFinishedGood) بتتشال من جردِ
+       «المنتجات العامة» وبتتحسب في تجميعة الجاهز (مخزون قديم جاهز). */
+    const g={count:0,value:0,low:0,zero:0};
+    const fo={count:0,qty:0,value:0};/* finished-opening = منتجات جاهزة افتتاحية */
+    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;
+      if(x.isFinishedGood){if(s>0){fo.count++;fo.qty+=s;fo.value+=s*c}return;}
+      g.count++;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
     /* V21.27.94: الجاهز = «المتاح الفعلي» (المستلم من الورشة − صافي المبيعات −
        المحجوز) عبر computeOrderAvail — نفس مصدر الحقيقة في هَب المبيعات/كارت
        صنف. قبل كده كان cutQty − getConfirmedStock − reserved (= شغل تحت التشغيل،
@@ -159,7 +164,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
        مكان القيمة والإجمالي مكنش بيشملها → «تقييم الجاهز غلط كليًا». */
     let finishedQty=0,finishedModels=0,finishedVal=0;
     orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){finishedQty+=avail;finishedModels++;let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}finishedVal+=avail*cp;}});
-    return{fabric:f,accessory:a,general:g,finished:{count:finishedModels,qty:finishedQty,value:r2(finishedVal)}};
+    /* V21.27.159: إجمالي الجاهز = موديلات الإنتاج + المنتجات الجاهزة الافتتاحية. */
+    return{fabric:f,accessory:a,general:g,finishedOpening:{count:fo.count,qty:fo.qty,value:r2(fo.value)},finished:{count:finishedModels+fo.count,qty:finishedQty+fo.qty,value:r2(finishedVal+fo.value)}};
   },[fabrics,accessories,generalProducts,orders,soReservedByOrder,stockNetMap]);
   
   /* ──────── OPEN PRODUCT FROM QR SCAN ──────── */
@@ -347,7 +353,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   },[accessories,hideZero,accFilterDeb,sortBy,stockNetMap]);
 
   const filteredProd=useMemo(()=>{
-    let list=generalProducts.map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
+    /* V21.27.159: المنتجات الجاهزة الافتتاحية بتظهر في تاب «الجاهز» مش هنا. */
+    let list=generalProducts.filter(x=>!x.isFinishedGood).map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
     list=list.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)list=list.filter(x=>x._stock>0);
     const q=prodFilterDeb.trim().toLowerCase();
@@ -358,6 +365,14 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     else if(sortBy==="value")list.sort((a,b)=>b._value-a._value);
     return list;
   },[generalProducts,hideZero,prodFilterDeb,prodCategoryF,sortBy,stockNetMap]);
+
+  /* V21.27.159: المنتجات الجاهزة الافتتاحية (isFinishedGood) — تُعرض في تاب الجاهز
+     بنفس جدول الأصناف (صورة + رصيد + تكلفة + قيمة + تعديل/حركة/حذف). */
+  const finishedProd=useMemo(()=>{
+    const list=generalProducts.filter(x=>x.isFinishedGood).map(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;return{...x,_stock:s,_cost:c,_value:s*c}});
+    list.sort((a,b)=>b._value-a._value);
+    return list;
+  },[generalProducts,stockNetMap]);
 
   /* V21.27.156: لما الفلتر/البحث/الترتيب يتغيّر، رجّع العرض لأول 50 (عشان البحث
      عن صنف يبان من غير ما تضغط «عرض المزيد»). */
@@ -443,8 +458,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
 
   /* ──────── GENERAL PRODUCT CRUD ──────── */
-  const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{}});setShowProdForm(true)};
-  const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:p.costPrice??"",sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices)});setShowProdForm(true)};
+  const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{},isFinishedGood:false});setShowProdForm(true)};
+  const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:p.costPrice??"",sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices),isFinishedGood:!!p.isFinishedGood});setShowProdForm(true)};
   /* V21.21.53: كود الصنف لازم يكون فريد عبر كل الأصناف (قماش/إكسسوار/منتج عام).
      اختياري — بس لو اتكتب لازم ميكونش مكرّر. selfId يستثني الصنف اللي بنعدّله. */
   const itemCodeError=(code,selfId)=>{
@@ -534,6 +549,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         sellable:prodForm.sellable!==false,         /* V21.21.53 */
         purchasable:prodForm.purchasable!==false,   /* V21.21.53 */
         productType:prodForm.productType||"goods",  /* V21.21.53: goods | service */
+        isFinishedGood:!!prodForm.isFinishedGood,   /* V21.27.159: منتج جاهز (رصيد افتتاحي) */
         prices:pricesMapToArr(prodForm.prices),     /* V21.21.54: أسعار متعددة [{tier,value}] */
         image:String(prodForm.image||""),           /* V21.21.95: صورة الصنف (تظهر في الكارت) */
         notes:prodForm.notes||"",
@@ -1265,6 +1281,15 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       {/* V21.27.89/92: سجل حركات مخزن الجاهز الكامل — مكوّن مشترك مع هَب
           المبيعات (FinishedStockLog). كل الحركات على الموديلات (itemType:"order")
           مع بحث بالكود/الاسم/الوصف + الأحدث فوق + «عرض المزيد» + طباعة. */}
+      {/* V21.27.159: المنتجات الجاهزة الافتتاحية (مخزون قديم جاهز · غير منتج). */}
+      {(finishedProd.length>0||canEdit)&&<div style={{marginTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
+          <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}>📦 منتجات جاهزة (رصيد افتتاحي)<span style={{padding:"1px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:T.ok+"15",color:T.ok}}>غير منتجة في المصنع</span>{finishedProd.length>0?<span style={{color:T.textMut,fontWeight:600}}>({finishedProd.length})</span>:null}</div>
+          {canEdit&&<Btn primary small onClick={()=>{openNewProd();setProdForm(p=>({...(p||{}),isFinishedGood:true,unit:"قطعة"}))}}>➕ منتج جاهز</Btn>}
+        </div>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,lineHeight:1.6}}>أصناف جاهزة مخزون قديم مش متصنّعة في المصنع. أضف المنتج بالصور والتفاصيل، وسجّل رصيده الافتتاحي بزر «⇅ حركة» (داخل). بيظهر في التقييم والجرد وقابل للبيع.</div>
+        {finishedProd.length>0?renderItemTable(finishedProd,"general"):<div style={{padding:24,textAlign:"center",color:T.textMut,fontSize:FS-1,border:"1px dashed "+T.brd,borderRadius:10}}>لا توجد منتجات جاهزة افتتاحية بعد — اضغط «➕ منتج جاهز»</div>}
+      </div>}
       <Card title="📊 سجل حركات مخزن الجاهز" style={{marginTop:12}}>
         <FinishedStockLog stockMovements={stockMovements} orders={orders} isMob={isMob} factoryName={data.factoryName} logo={data.logo}/>
       </Card>
@@ -1615,6 +1640,13 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
               </label>
             </div>
           </div>
+          {/* V21.27.159: علامة «منتج جاهز» — مخزون قديم جاهز مش متصنّع في المصنع
+              (رصيد افتتاحي). بيتنقل من تاب «منتجات عامة» لتاب «الجاهز» بعلامته،
+              ورصيده الافتتاحي بيتسجّل عبر الإذن المخزني (داخل ➕). */}
+          <label style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",fontSize:FS-1,fontWeight:700,color:T.ok,padding:"9px 12px",background:T.ok+"0A",borderRadius:10,border:"1px solid "+T.ok+"25"}}>
+            <input type="checkbox" checked={!!prodForm.isFinishedGood} onChange={e=>setProdForm(p=>({...p,isFinishedGood:e.target.checked}))}/>
+            <span>👕 منتج جاهز (رصيد افتتاحي · غير مُنتَج في المصنع) — يظهر في تاب «الجاهز» وقابل للبيع</span>
+          </label>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div>
               <label style={{fontSize:FS-2,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>الفئة</label>
