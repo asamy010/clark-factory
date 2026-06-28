@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Btn, Card, Inp, Sel, useDebounced } from "../components/ui.jsx";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
-import { fmt, gid, r2 } from "../utils/format.js";
+import { fmt, gid, r2, getSizesFromSet } from "../utils/format.js";
 import { calcOrder, orderCostPerPiece } from "../utils/orders.js";
 import { computeSoReserved, computeOrderAvail, computeFinishedValuation } from "../utils/stockCatalog.js";
 import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
@@ -37,8 +37,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const[accLimit,setAccLimit]=useState(50);
   const[prodLimit,setProdLimit]=useState(50);
   const[finLimit,setFinLimit]=useState(50);
-  /* V21.27.163: أعمدة تقرير المخزن الجاهز الظاهرة (تشيك بوكس لكل عمود) */
-  const[finRepCols,setFinRepCols]=useState({image:true,modelNo:true,name:true,qty:true,cost:true,value:true});
+  /* V21.27.163/166: أعمدة تقرير المخزن الجاهز الظاهرة (تشيك بوكس لكل عمود).
+     V166: «الموديل» عمود واحد مدموج (رقم + اسم + مقاسات)، و«المقاسات» تتحكّم في
+     ظهور سطر المقاسات جوّه العمود ده. */
+  const[finRepCols,setFinRepCols]=useState({image:true,model:true,sizes:true,qty:true,cost:true,value:true});
   /* Fabric/Accessory filters */
   const[fabFilter,setFabFilter]=useState("");const fabFilterDeb=useDebounced(fabFilter,200);
   const[accFilter,setAccFilter]=useState("");const accFilterDeb=useDebounced(accFilter,200);
@@ -377,11 +379,11 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
      (المتاح من الورشة − المباع − المحجوز) + المنتجات الجاهزة الافتتاحية. */
   const finishedReportRows=useMemo(()=>{
     const rows=[];
-    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});
-    generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
+    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}let sizes="";try{const sz=getSizesFromSet(o,data);sizes=(sz.sizes&&sz.sizes.length?sz.sizes.join(" · "):(sz.label||""))}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",sizes,qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});
+    generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",sizes:"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
     rows.sort((a,b)=>b.value-a.value);
     return rows;
-  },[orders,soReservedByOrder,generalProducts,stockNetMap]);
+  },[orders,soReservedByOrder,generalProducts,stockNetMap,data]);
 
   /* V21.27.156: لما الفلتر/البحث/الترتيب يتغيّر، رجّع العرض لأول 50 (عشان البحث
      عن صنف يبان من غير ما تضغط «عرض المزيد»). */
@@ -909,8 +911,10 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   };
 
   /* ──────── V21.27.161/163: تقرير المخزن الجاهز (طباعة + Excel + PDF) ──────── */
+  /* V21.27.166: «الموديل» عمود واحد مدموج (رقم فوق الاسم فوق المقاسات). «المقاسات»
+     مفتاح بيتحكّم في ظهور سطر المقاسات جوّه عمود الموديل (مش عمود مستقل). */
   const FIN_REP_COLS=[
-    {key:"image",label:"الصورة"},{key:"modelNo",label:"رقم الموديل"},{key:"name",label:"اسم الموديل"},
+    {key:"image",label:"الصورة"},{key:"model",label:"الموديل (رقم+اسم)"},{key:"sizes",label:"المقاسات"},
     {key:"qty",label:"الكمية المتاحة"},{key:"cost",label:"التكلفة"},{key:"value",label:"القيمة"}
   ];
   const _finRepEsc=(s)=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -918,12 +922,12 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const rows=finishedReportRows;
     const totQty=rows.reduce((s,r)=>s+(Number(r.qty)||0),0);
     const totVal=rows.reduce((s,r)=>s+(Number(r.value)||0),0);
-    const vis=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false);
-    /* V21.27.163: صورة 3:4 كبيرة + صف بتبادل أبيض/رمادي + أعمدة قابلة للإخفاء */
+    const showSizes=finRepCols.sizes!==false;
+    const vis=FIN_REP_COLS.filter(c=>c.key!=="sizes"&&finRepCols[c.key]!==false);
+    /* V21.27.163/166: صورة 3:4 كبيرة + صف متبادل + عمود «الموديل» مدموج (رقم/اسم/مقاسات) */
     const cellHtml=(r,key)=>{
       if(key==="image")return"<td class='imgcell'>"+(r.image?"<img src='"+_finRepEsc(r.image)+"'/>":"—")+"</td>";
-      if(key==="modelNo")return"<td><b>"+_finRepEsc(r.modelNo)+"</b>"+(r.kind==="رصيد افتتاحي"?" <span class='fbadge'>افتتاحي</span>":"")+"</td>";
-      if(key==="name")return"<td>"+_finRepEsc(r.name)+"</td>";
+      if(key==="model"){let h="<td class='modelcell'><div class='mno'>"+_finRepEsc(r.modelNo)+(r.kind==="رصيد افتتاحي"?" <span class='fbadge'>افتتاحي</span>":"")+"</div>";if(r.name)h+="<div class='mname'>"+_finRepEsc(r.name)+"</div>";if(showSizes&&r.sizes)h+="<div class='msizes'>📏 "+_finRepEsc(r.sizes)+"</div>";return h+"</td>";}
       if(key==="qty")return"<td class='center'><b>"+fmt(r.qty)+"</b></td>";
       if(key==="cost")return"<td class='center'>"+fmt(r.cost)+"</td>";
       if(key==="value")return"<td class='center'><b>"+fmt(r.value)+"</b></td>";
@@ -935,6 +939,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const foot="<tr class='tot'>"+vis.map(c=>{
       if(c.key==="qty")return"<td class='center'>"+fmt(totQty)+" قطعة</td>";
       if(c.key==="value")return"<td class='center fval'>"+fmt(r2(totVal))+" ج.م</td>";
+      if(c.key==="image")return"<td></td>";
       if(!labelPlaced){labelPlaced=true;return"<td>الإجماليات</td>";}
       return"<td></td>";
     }).join("")+"</tr>";
@@ -942,6 +947,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       "*{-webkit-print-color-adjust:exact;print-color-adjust:exact}"+
       "th.imgcol{width:165px}td.imgcell{width:165px;text-align:center;padding:5px}"+
       "td.imgcell img{width:150px;height:200px;object-fit:cover;border-radius:8px;border:1px solid #CBD5E1}"+
+      "td.modelcell{text-align:right}.mno{font-weight:800;font-size:13px}.mname{color:#475569;font-size:12px;margin-top:2px}.msizes{color:#0284C7;font-size:11px;margin-top:3px;font-weight:700}"+
       "tr.even td{background:#ffffff}tr.odd td{background:#F3F4F6}"+
       "tr.tot td{background:#EFF6FF;font-weight:800}"+
       ".fbadge{font-size:10px;padding:1px 6px;border-radius:6px;background:#DCFCE7;color:#16A34A;font-weight:700}"+
@@ -963,23 +969,33 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     }catch(e){console.warn("[finishedReport pdf]",e);showToast("⛔ فشل توليد الـ PDF")}
   };
   const exportFinishedCSV=()=>{
-    /* CSV بيحترم الأعمدة الظاهرة (ما عدا الصورة — مش قابلة للتصدير كنص) */
-    const vis=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false&&c.key!=="image");
-    const headers=vis.map(c=>c.label);
-    const pick=(r,key)=>key==="modelNo"?r.modelNo:key==="name"?r.name:key==="qty"?r.qty:key==="cost"?r.cost:key==="value"?r.value:"";
-    const rows=finishedReportRows.map(r=>vis.map(c=>pick(r,c.key)));
+    /* CSV: عمود «الموديل» بيتفكّ لرقم + اسم (أوضح في إكسل)، والمقاسات عمود مستقل.
+       الصورة مستبعَدة (مش قابلة للتصدير كنص). */
+    const showSizes=finRepCols.sizes!==false;
+    const cols=[];
+    if(finRepCols.model!==false){cols.push(["رقم الموديل",r=>r.modelNo],["اسم الموديل",r=>r.name||""]);}
+    if(showSizes)cols.push(["المقاسات",r=>r.sizes||""]);
+    if(finRepCols.qty!==false)cols.push(["الكمية المتاحة",r=>r.qty]);
+    if(finRepCols.cost!==false)cols.push(["التكلفة",r=>r.cost]);
+    if(finRepCols.value!==false)cols.push(["القيمة",r=>r.value]);
+    const headers=cols.map(c=>c[0]);
+    const rows=finishedReportRows.map(r=>cols.map(c=>c[1](r)));
     downloadCSV("finished-stock-"+today+".csv",headers,rows);
   };
   const renderFinishedStockReport=()=>{
     const totQty=finishedReportRows.reduce((s,r)=>s+(Number(r.qty)||0),0);
     const totVal=finishedReportRows.reduce((s,r)=>s+(Number(r.value)||0),0);
-    const visCols=FIN_REP_COLS.filter(c=>finRepCols[c.key]!==false);
-    const isCenter=(k)=>k!=="modelNo"&&k!=="name";
-    /* V21.27.163: صورة 3:4 بأربعة أضعاف الحجم (150×200) + عمود بعرض الصورة */
+    const showSizes=finRepCols.sizes!==false;
+    const visCols=FIN_REP_COLS.filter(c=>c.key!=="sizes"&&finRepCols[c.key]!==false);
+    const isCenter=(k)=>k!=="model";
+    /* V21.27.163/166: صورة 3:4 كبيرة + عمود «الموديل» مدموج (رقم فوق الاسم فوق المقاسات) */
     const cell=(r,key)=>{
       if(key==="image")return<td key="image" style={{...TD,textAlign:"center",width:165,padding:6}}>{r.image?<img src={r.image} alt="" style={{width:150,height:200,objectFit:"cover",borderRadius:8,border:"1px solid "+T.brd,display:"inline-block"}}/>:<span style={{color:T.textMut}}>—</span>}</td>;
-      if(key==="modelNo")return<td key="modelNo" style={{...TD,fontWeight:700}}>{r.modelNo}{r.kind==="رصيد افتتاحي"&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,fontSize:FS-4,fontWeight:700,background:T.ok+"15",color:T.ok}}>افتتاحي</span>}</td>;
-      if(key==="name")return<td key="name" style={{...TD}}>{r.name||"—"}</td>;
+      if(key==="model")return<td key="model" style={{...TD}}>
+        <div style={{fontWeight:800,fontSize:FS}}>{r.modelNo}{r.kind==="رصيد افتتاحي"&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,fontSize:FS-4,fontWeight:700,background:T.ok+"15",color:T.ok}}>افتتاحي</span>}</div>
+        {r.name&&<div style={{color:T.textSec,fontSize:FS-1,marginTop:2}}>{r.name}</div>}
+        {showSizes&&r.sizes&&<div style={{color:T.accent,fontSize:FS-2,marginTop:3,fontWeight:700}}>📏 {r.sizes}</div>}
+      </td>;
       if(key==="qty")return<td key="qty" style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(r.qty)}</td>;
       if(key==="cost")return<td key="cost" style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r.cost)}</td>;
       if(key==="value")return<td key="value" style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r.value)}</td>;
@@ -1021,6 +1037,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
             {(()=>{let labelPlaced=false;return visCols.map(c=>{
               if(c.key==="qty")return<td key="qty" style={{...TD,textAlign:"center",color:T.ok}}>{fmt(totQty)} قطعة</td>;
               if(c.key==="value")return<td key="value" style={{...TD,textAlign:"center",color:T.accent,fontSize:FS}}>{fmt(r2(totVal))} ج.م</td>;
+              if(c.key==="image")return<td key="image" style={{...TD}}></td>;
               if(!labelPlaced){labelPlaced=true;return<td key={c.key} style={{...TD}}>الإجماليات</td>;}
               return<td key={c.key} style={{...TD}}></td>;
             });})()}
