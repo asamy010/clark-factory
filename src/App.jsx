@@ -397,7 +397,6 @@ export default function App(){
      من listener منفصل بيستعلم عن مستندات df_* ويبنيها كـ array افتراضي. */
   const[docFilesData,setDocFilesData]=useState(null);/* null = listener لسه ما اشتغلش */
   const docFilesDataRef=useRef(null);
-  const upDocFilesWriteQueueRef=useRef(Promise.resolve());
   const filesSplitMigratingRef=useRef(false);/* V21.27.178: قفل ضد تكرار الهجرة */
   /* V19.55 CRITICAL FIX: Write-queue refs to serialize Firestore writes per doc.
      ════════════════════════════════════════════════════════════════════════════
@@ -5486,42 +5485,46 @@ export default function App(){
     upDocsTreeWriteQueueRef.current=myWrite.catch(()=>{});
     return myWrite;
   },[markSynced]);
-  /* V21.27.178: كاتب مستندات الملفات المستقلة factory/df_<id>. بياخد ناتج
-     diffDocFiles ({sets,dels}) ويكتبه في batches (≤400 عملية/batch — تحت حد
-     Firestore وهو 500). serialized عبر queue + retries. بيرجّع true لو نجح كله،
-     false لو batch فشل (الهجرة بتعتمد على ده عشان ما تزوّدش الفلاج لو فشلت). */
+  /* V21.27.178 (مُحدَّث V21.27.179): كاتب مستندات الملفات المستقلة factory/df_<id>.
+     بياخد ناتج diffDocFiles ({sets,dels}) ويكتب **كل ملف لوحده** (setDoc/deleteDoc
+     مستقل) عبر pool محدود التزامن + retries لكل ملف.
+
+     ليه مش batch واحد؟ الـ writeBatch **ذرّي** — لو ملف واحد في المجموعة عمل
+     مشكلة (أو rate-limit لحظي)، الـ commit كله بيترفض → كل الملفات تختفي (الـ
+     optimistic بيترجّع لما الكتابة تترفض). ده كان سبب «رفع ملف واحد تمام بس
+     مجموعة ملفات ماتظهرش» — الملف الواحد batch من عملية واحدة بينجح، والمجموعة
+     batch ذرّي بيفشل كله لو في أي عقبة. الكتابة المستقلة بتعزل كل ملف: العقبة
+     في ملف ما بتأثرش على الباقي، والـ rate-limit بيتوزّع وبيعيد المحاولة لكل ملف.
+
+     بيرجّع true لو **كل** العمليات نجحت (الهجرة بتعتمد على ده). */
   const upDocFilesWrite=useCallback(async({sets,dels})=>{
     const ops=[];
     (sets||[]).forEach(s=>{ if(s&&s.id!=null)ops.push({type:"set",id:String(s.id),file:s.file}); });
     (dels||[]).forEach(id=>{ if(id!=null)ops.push({type:"del",id:String(id)}); });
     if(!ops.length)return true;
-    const _doWrite=async()=>{
-      let ok=true;
-      for(let i=0;i<ops.length;i+=400){
-        const chunk=ops.slice(i,i+400);
-        let lastErr=null,done=false;
-        for(let attempt=0;attempt<5&&!done;attempt++){
-          try{
-            const batch=writeBatch(db);
-            for(const op of chunk){
-              const ref=doc(db,"factory","df_"+op.id);
-              if(op.type==="set")batch.set(ref,{f:op.file},{merge:false});
-              else batch.delete(ref);
-            }
-            await batch.commit(); done=true;
-          }catch(e){
-            lastErr=e; const code=e?.code||""; const retriable=code==="aborted"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
-            if(!retriable||attempt===4)break; await _sleep(100*Math.pow(2,attempt));
-          }
+    let failCount=0;
+    const runOp=async(op)=>{
+      const ref=doc(db,"factory","df_"+op.id);
+      for(let attempt=0;attempt<6;attempt++){
+        try{
+          if(op.type==="set")await setDoc(ref,{f:op.file});
+          else await deleteDoc(ref);
+          return true;
+        }catch(e){
+          const code=e?.code||""; const retriable=code==="aborted"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||code==="resource-exhausted"||!code;
+          if(!retriable||attempt===5){ console.error("[V21.27.178] df "+op.type+" failed id="+op.id,e); return false; }
+          await _sleep(150*Math.pow(2,attempt));
         }
-        if(!done){ ok=false; const cat=categorizeWriteError(lastErr); console.error("[V21.27.178] df batch write failed:",lastErr); showToast("⛔ فشل حفظ ملفات التخزين: "+(cat.arabic||"خطأ غير معروف")); break; }
       }
-      if(ok)markSynced();
-      return ok;
+      return false;
     };
-    const myWrite=upDocFilesWriteQueueRef.current.then(_doWrite);
-    upDocFilesWriteQueueRef.current=myWrite.catch(()=>false);
-    return myWrite;
+    /* pool محدود التزامن (16) — يكتب بسرعة من غير ما يضرب rate-limit */
+    const POOL=Math.min(16,ops.length); let idx=0;
+    const worker=async()=>{ while(idx<ops.length){ const op=ops[idx++]; const ok=await runOp(op); if(!ok)failCount++; } };
+    await Promise.all(Array.from({length:POOL},()=>worker()));
+    if(failCount){ console.error("[V21.27.178] df writes: "+failCount+"/"+ops.length+" failed"); showToast("⚠️ فشل حفظ "+failCount+" من "+ops.length+" ملف — جرّب تاني (الباقي اتحفظ)"); }
+    else markSynced();
+    return failCount===0;
   },[markSynced]);
   const upDocs=useCallback((mutate)=>{
     if(!isOnlineRef.current){ showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع"); return; }
@@ -5544,10 +5547,14 @@ export default function App(){
     next.documentsTree.files=JSON.parse(JSON.stringify(prevFiles));
     try{ mutate(next); }catch(e){ console.error("[upDocs] mutate threw, aborting:",e); return; }
     const nextFiles=Array.isArray(next.documentsTree.files)?next.documentsTree.files:[];
-    /* (1) diff الملفات → كتابات/حذف لكل مستند ملف على حدة */
+    /* (1) diff الملفات → كتابات/حذف لكل مستند ملف على حدة.
+       الـ ref بنحدّثه optimistic عشان أي upDocs تاني بسرعة يـ diff على أساس
+       صحيح. لكن العرض (docFilesData state) بنسيبه للـ u5 listener — بيظهر كل
+       ملف أول ما كتابته تـ commit (تصاعدي، بدون وميض هابط لو فشل ملف منهم).
+       (الكتابة المستقلة + u5 بيرجّع أي ملف فشل لإنه بيترفض من الـ cache.) */
     const diff=diffDocFiles(prevFiles,nextFiles);
     if(diff.sets.length||diff.dels.length){
-      setDocFilesData(nextFiles); docFilesDataRef.current=nextFiles;/* optimistic */
+      docFilesDataRef.current=nextFiles;/* optimistic ref (للـ diff الصحيح) */
       upDocFilesWrite(diff);
     }
     /* (2) المجلدات (وأي أعلام أخرى على documentsTree) → المستند المخصّص، مع
