@@ -17,6 +17,8 @@ import { analyzeStockReconciliation, relinkOrphanMovements, syncStoredStockFromL
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
 import { loadQR } from "../utils/qr.js";
 import { openPrintWindow } from "../utils/print.js";
+import { htmlToPdfBase64 } from "../utils/htmlToPdf.js";
+import { ReportsHub } from "../components/reports/ReportsHub.jsx";
 import { countUnitUsage, DEFAULT_UNITS, getUnits, hasDualUnit, baseToSecondary } from "../utils/units.js";
 import { getPriceTiers, pricesArrToMap, pricesMapToArr } from "../utils/pricing.js";
 import { uploadImageToStorage } from "../utils/imageStorage.js";
@@ -373,6 +375,16 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     list.sort((a,b)=>b._value-a._value);
     return list;
   },[generalProducts,stockNetMap]);
+
+  /* V21.27.161: صفوف تقرير «الموديلات المتاحة في المخزن الجاهز» — موديلات الإنتاج
+     (المتاح من الورشة − المباع − المحجوز) + المنتجات الجاهزة الافتتاحية. */
+  const finishedReportRows=useMemo(()=>{
+    const rows=[];
+    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});
+    generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
+    rows.sort((a,b)=>b.value-a.value);
+    return rows;
+  },[orders,soReservedByOrder,generalProducts,stockNetMap]);
 
   /* V21.27.156: لما الفلتر/البحث/الترتيب يتغيّر، رجّع العرض لأول 50 (عشان البحث
      عن صنف يبان من غير ما تضغط «عرض المزيد»). */
@@ -898,7 +910,84 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>جرد المخزن</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📦 جرد المخزن الشامل</div><div class='hdr-info'><div>تاريخ الجرد: "+today+"</div><div>إجمالي القيمة: <b style='color:#0284C7'>"+fmt(r2(totalValue))+" ج.م</b></div></div></div><h3>أرصدة الأصناف</h3><table><thead><tr><th>النوع</th><th>الفئة</th><th>الاسم</th><th>الرصيد</th><th>الحد الأدنى</th><th>متوسط التكلفة</th><th>القيمة</th><th>الحالة</th></tr></thead><tbody>"+(allRows||"<tr><td colspan='8' class='center' style='padding:20px;color:#94A3B8'>لا توجد أصناف</td></tr>")+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='6' style='text-align:left'>الإجمالي الكلي لقيمة المخزن</td><td class='center info' style='font-size:14px'>"+fmt(r2(totalValue))+" ج.م</td><td></td></tr></tbody></table><div class='sig'><div class='sig-box'>مسؤول المخزن</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — جرد المخزن بتاريخ "+today+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
-  
+
+  /* ──────── V21.27.161: تقرير المخزن الجاهز (طباعة + Excel + PDF) ──────── */
+  const _finRepEsc=(s)=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  const _buildFinishedReportHtml=()=>{
+    const rows=finishedReportRows;
+    const totQty=rows.reduce((s,r)=>s+(Number(r.qty)||0),0);
+    const totVal=rows.reduce((s,r)=>s+(Number(r.value)||0),0);
+    const body=rows.map(r=>"<tr><td class='center'>"+(r.image?"<img src='"+_finRepEsc(r.image)+"' style='width:40px;height:52px;object-fit:cover;border-radius:5px;border:1px solid #E2E8F0'/>":"—")+"</td><td><b>"+_finRepEsc(r.modelNo)+"</b></td><td>"+_finRepEsc(r.name)+"</td><td class='center'><b>"+fmt(r.qty)+"</b></td><td class='center'>"+fmt(r.cost)+"</td><td class='center'><b>"+fmt(r.value)+"</b></td></tr>").join("");
+    return "<html dir='rtl'><head><meta charset='UTF-8'><title>تقرير المخزن الجاهز</title><style>"+PRINT_CSS+".center{text-align:center}img{vertical-align:middle}</style></head><body>"+
+      "<div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>👕 الموديلات المتاحة في المخزن الجاهز</div><div class='hdr-info'><div>التاريخ: "+today+"</div><div>عدد الأصناف: <b>"+rows.length+"</b></div></div></div>"+
+      "<table><thead><tr><th>الصورة</th><th>رقم الموديل</th><th>اسم الموديل</th><th>الكمية المتاحة</th><th>التكلفة</th><th>القيمة</th></tr></thead><tbody>"+
+      (body||"<tr><td colspan='6' class='center' style='padding:20px;color:#94A3B8'>لا توجد موديلات متاحة</td></tr>")+
+      "<tr style='background:#EFF6FF;font-weight:800'><td colspan='3' style='text-align:left'>الإجماليات</td><td class='center'>"+fmt(totQty)+" قطعة</td><td></td><td class='center' style='font-size:14px;color:#0284C7'>"+fmt(r2(totVal))+" ج.م</td></tr>"+
+      "</tbody></table><div class='foot'>CLARK ERP System — تقرير المخزن الجاهز — "+today+"</div></body></html>";
+  };
+  const printFinishedReport=()=>{const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}w.document.write(_buildFinishedReportHtml().replace("</body>","<script>setTimeout(function(){window.print()},500)</"+"script></body>"));w.document.close();};
+  const pdfFinishedReport=async()=>{
+    showToast("⏳ جاري تجهيز الـ PDF...");
+    try{const b64=await htmlToPdfBase64(_buildFinishedReportHtml(),{fontFamily:"Cairo, sans-serif"});
+      if(!b64){showToast("⛔ فشل توليد الـ PDF");return}
+      const a=document.createElement("a");a.href="data:application/pdf;base64,"+b64;a.download="finished-stock-"+today+".pdf";document.body.appendChild(a);a.click();a.remove();
+      showToast("✅ تم تنزيل الـ PDF");
+    }catch(e){console.warn("[finishedReport pdf]",e);showToast("⛔ فشل توليد الـ PDF")}
+  };
+  const exportFinishedCSV=()=>{
+    const headers=["رقم الموديل","اسم الموديل","الكمية المتاحة","التكلفة","القيمة","النوع"];
+    const rows=finishedReportRows.map(r=>[r.modelNo,r.name,r.qty,r.cost,r.value,r.kind]);
+    downloadCSV("finished-stock-"+today+".csv",headers,rows);
+  };
+  const renderFinishedStockReport=()=>{
+    const totQty=finishedReportRows.reduce((s,r)=>s+(Number(r.qty)||0),0);
+    const totVal=finishedReportRows.reduce((s,r)=>s+(Number(r.value)||0),0);
+    return<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:12}}>
+        <div style={{fontSize:FS+1,fontWeight:800,color:T.text}}>👕 الموديلات المتاحة في المخزن الجاهز <span style={{color:T.textMut,fontWeight:600,fontSize:FS-1}}>({finishedReportRows.length})</span></div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <Btn small onClick={printFinishedReport} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>🖨️ طباعة</Btn>
+          <Btn small onClick={exportFinishedCSV} style={{background:T.ok+"12",color:T.ok,border:"1px solid "+T.ok+"30"}}>📊 Excel</Btn>
+          <Btn small onClick={pdfFinishedReport} style={{background:T.err+"12",color:T.err,border:"1px solid "+T.err+"30"}}>📄 PDF</Btn>
+        </div>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+        {[["👕 إجمالي القطع المتاحة",fmt(totQty),T.ok],["💰 إجمالي القيمة (تكلفة)",fmt(r2(totVal))+" ج.م",T.accent],["📋 عدد الأصناف",fmt(finishedReportRows.length),"#8B5CF6"]].map(([l,v,c])=><div key={l} style={{flex:"1 1 150px",minWidth:140,padding:"10px 12px",borderRadius:10,background:c+"08",border:"1px solid "+c+"22"}}>
+          <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,marginBottom:3}}>{l}</div>
+          <div style={{fontSize:FS+3,fontWeight:800,color:c}}>{v}</div>
+        </div>)}
+      </div>
+      <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:FS-1}}>
+          <thead><tr>
+            <th style={{...TH,textAlign:"center"}}>الصورة</th>
+            <th style={TH}>رقم الموديل</th>
+            <th style={TH}>اسم الموديل</th>
+            <th style={{...TH,textAlign:"center"}}>الكمية المتاحة</th>
+            <th style={{...TH,textAlign:"center"}}>التكلفة</th>
+            <th style={{...TH,textAlign:"center"}}>القيمة</th>
+          </tr></thead>
+          <tbody>
+            {finishedReportRows.length===0?<tr><td colSpan={6} style={{...TD,textAlign:"center",padding:30,color:T.textMut}}>لا توجد موديلات متاحة في المخزن الجاهز</td></tr>:finishedReportRows.map((r,i)=><tr key={i} style={{borderBottom:"1px solid "+T.brd}}>
+              <td style={{...TD,textAlign:"center"}}>{r.image?<img src={r.image} alt="" style={{width:40,height:52,objectFit:"cover",borderRadius:6,border:"1px solid "+T.brd}}/>:<span style={{color:T.textMut}}>—</span>}</td>
+              <td style={{...TD,fontWeight:700}}>{r.modelNo}{r.kind==="رصيد افتتاحي"&&<span style={{marginInlineStart:6,padding:"1px 6px",borderRadius:6,fontSize:FS-4,fontWeight:700,background:T.ok+"15",color:T.ok}}>افتتاحي</span>}</td>
+              <td style={{...TD}}>{r.name||"—"}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:800,color:T.ok,fontSize:FS}}>{fmt(r.qty)}</td>
+              <td style={{...TD,textAlign:"center",color:T.textSec}}>{fmt(r.cost)}</td>
+              <td style={{...TD,textAlign:"center",fontWeight:700,color:T.accent}}>{fmt(r.value)}</td>
+            </tr>)}
+          </tbody>
+          {finishedReportRows.length>0&&<tfoot><tr style={{background:T.accent+"08",fontWeight:800}}>
+            <td style={{...TD}} colSpan={3}>الإجماليات</td>
+            <td style={{...TD,textAlign:"center",color:T.ok}}>{fmt(totQty)} قطعة</td>
+            <td style={{...TD}}></td>
+            <td style={{...TD,textAlign:"center",color:T.accent,fontSize:FS}}>{fmt(r2(totVal))} ج.م</td>
+          </tr></tfoot>}
+        </table>
+      </div>
+    </div>;
+  };
+
   /* ──────── PRINT QR LABEL for a general product ──────── */
   const printProductQR=async(product)=>{
     let qrData="";
@@ -1014,7 +1103,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         {key:"movements",label:"📊 سجل الحركات",count:stockMovements.length},
         {key:"reconcile",label:"🔧 مطابقة المخزون",count:recon.counts.orphanGroups+recon.counts.drift,alert:recon.hasIssues},
         {key:"permits",label:"📋 إذونات مخزنية",count:(data.stockPermitTypes||[]).length},
-        {key:"units",label:"📏 الوحدات",count:getUnits(data).length}
+        {key:"units",label:"📏 الوحدات",count:getUnits(data).length},
+        {key:"reports",label:"📈 التقارير"}
       ].map(st=>{const active=subTab===st.key;return<div key={st.key} onClick={()=>setSubTab(st.key)} style={{padding:"8px 14px",cursor:"pointer",borderBottom:active?"3px solid "+(st.alert?T.err:T.accent):"3px solid transparent",marginBottom:-2,fontWeight:active?800:600,color:active?(st.alert?T.err:T.accent):(st.alert?T.err:T.textSec),fontSize:FS-1,display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
         <span>{st.alert?"⚠️ "+st.label.replace(/^🔧 /,""):st.label}</span>
         {st.count!==undefined&&<span style={{fontSize:FS-3,padding:"1px 6px",borderRadius:10,background:st.alert?T.err+"18":active?T.accent+"15":T.bg,color:st.alert?T.err:active?T.accent:T.textMut}}>{st.count}</span>}
@@ -1438,7 +1528,12 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           </div>}
       </Card>;
     })()}
-    
+
+    {/* ════ REPORTS SUB-TAB (V21.27.161) ════ */}
+    {subTab==="reports"&&<ReportsHub isMob={isMob} reports={[
+      {id:"finished-stock",icon:"👕",title:"الموديلات المتاحة في المخزن الجاهز",desc:"صورة + رقم + اسم الموديل + الكمية المتاحة + التكلفة + إجماليات · طباعة / Excel / PDF",color:T.ok,render:renderFinishedStockReport}
+    ]}/>}
+
     {/* ════ MOVEMENTS SUB-TAB ════ */}
     {subTab==="movements"&&<Card>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:10}}>
