@@ -46,7 +46,7 @@ const Loading = () => (
 );
 
 export function PurchaseHubPg(props){
-  const { tab, data, canViewTab, canEditTab, isMob } = props;
+  const { tab, data, canViewTab, canEditTab, isMob, isTab } = props;
 
   const canPurch = canViewTab("purchase");        // أوامر/استلام/موردون/مخزن/أصناف
   const canInv   = canViewTab("purchaseInvoices");
@@ -119,7 +119,7 @@ export function PurchaseHubPg(props){
   const subBtn = (on) => ({ padding: "8px 13px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, cursor: "pointer",
     color: on ? T.warn : T.textSec, background: on ? T.cardSolid : "transparent",
     border: "1px solid " + (on ? T.brd : "transparent"), boxShadow: on ? T.shadow : "none",
-    display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" });
+    display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 });
   const cntChip = (on) => ({ background: on ? "#FEF3C7" : T.brd, color: on ? "#D97706" : T.textSec, fontSize: FS - 3, padding: "1px 7px", borderRadius: 20, fontWeight: 800 });
 
   return (
@@ -130,8 +130,9 @@ export function PurchaseHubPg(props){
       </div>
 
       {/* V21.21.15: على الموبايل بنخفي شريط تابات الهَب (الشريط العلوي الثابت كفاية) —
-          التنقّل بين الأقسام عبر شبكة «الأقسام» في نظرة عامة + زر رجوع. */}
-      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
+          التنقّل بين الأقسام عبر شبكة «الأقسام» في نظرة عامة + زر رجوع.
+          V21.27.150: على التابلت فقط → صف واحد بسكرول أفقي (nowrap) بدل الالتفاف. */}
+      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: isTab ? "nowrap" : "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}>
         {tabs.map(t => (
           <div key={t.id} style={subBtn(active === t.id)} onClick={() => setActive(t.id)}>
             <span>{t.label}</span>

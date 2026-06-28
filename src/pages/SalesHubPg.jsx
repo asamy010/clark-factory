@@ -54,7 +54,7 @@ const Loading = () => (
 );
 
 export function SalesHubPg(props){
-  const { tab, data, canViewTab, canEditTab, isMob } = props;
+  const { tab, data, canViewTab, canEditTab, isMob, isTab } = props;
 
   const canDoc = (k) => canViewTab(k);
   const canOps = canViewTab("custDeliver"); // أقسام التسليمات/الجرد/الراكدة
@@ -148,7 +148,7 @@ export function SalesHubPg(props){
   const subBtn = (on) => ({ padding: "8px 13px", borderRadius: 9, fontSize: FS - 1, fontWeight: 700, cursor: "pointer",
     color: on ? T.accent : T.textSec, background: on ? T.cardSolid : "transparent",
     border: "1px solid " + (on ? T.brd : "transparent"), boxShadow: on ? T.shadow : "none",
-    display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" });
+    display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 });
   const cntChip = (on) => ({ background: on ? T.accentBg : T.brd, color: on ? T.accent : T.textSec, fontSize: FS - 3, padding: "1px 7px", borderRadius: 20, fontWeight: 800 });
 
   return (
@@ -159,8 +159,10 @@ export function SalesHubPg(props){
         <div style={{ fontSize: isMob ? 18 : 20, fontWeight: 800, color: T.text }}>المبيعات</div>
       </div>
 
-      {/* tab bar — V21.21.15: مخفي على الموبايل (الشريط العلوي الثابت كفاية؛ التنقّل عبر شبكة الأقسام + زر رجوع) */}
-      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto" }}>
+      {/* tab bar — V21.21.15: مخفي على الموبايل (الشريط العلوي الثابت كفاية؛ التنقّل عبر شبكة الأقسام + زر رجوع)
+          V21.27.150: على التابلت فقط → صف واحد بسكرول أفقي (nowrap) بدل ما يلتفّ
+          لأكتر من سطر. الديسكتوب يفضل wrap (التابات بتدخل في سطر أصلاً). */}
+      {!isMob && <div style={{ display: "flex", gap: 6, flexWrap: isTab ? "nowrap" : "wrap", padding: "6px 2px", borderBottom: "1px solid " + T.brd, marginBottom: 14, overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}>
         {tabs.map(t => (
           <div key={t.id} style={subBtn(active === t.id)} onClick={() => setActive(t.id)}>
             <span>{t.label}</span>
