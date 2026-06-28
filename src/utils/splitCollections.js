@@ -387,7 +387,45 @@ export async function syncSplitCollection(collectionName, oldArr, newArr) {
     if (!removesByDay.has(oldDate)) removesByDay.set(oldDate, new Set());
     removesByDay.get(oldDate).add(id);
   }
-  
+
+  /* ════════════════════════════════════════════════════════════════════════
+     V21.27.154 ROOT-CAUSE FIX — «حذف الاستلامات/فواتير المشتريات/أوامر الشراء
+     بيتحذف ويرجع تاني».
+     ──────────────────────────────────────────────────────────────────────
+     الحذف فوق بيتوجّه لـ day-doc واحد محسوب من **تاريخ العنصر**. لكن العنصر
+     ممكن يكون متخزّن فعليًا في day-doc بتاريخ تاني:
+       • نسخة مكررة عبر يومين من تعديل تاريخ قديم فشل جزئيًا (V19.48 dup)،
+       • أو أي drift بين تاريخ العنصر واليوم اللي اتكتب فيه.
+     وقتها الـ tx بيخبط في اليوم الغلط، **بينجح من غير ما يشيل حاجة** (بصمت)،
+     العنصر يفضل في يومه الحقيقي → يرجع يظهر بعد ما الـ optimistic
+     pending-delete يتمسح. (treasury كان معالَج بـ tombstone خاص V21.10.6؛
+     باقي المجموعات — زي المشتريات — مكنوش.)
+
+     الحل الجذري العام: لما يكون فيه removes، نمسح **كل** day-docs المجموعة
+     ونلاقي كل يوم فيه أي id متحذف، ونضيفه لـ removesByDay — فالحذف يلحق العنصر
+     مهما كان مكانه، وكمان بيشيل النسخ المكررة عبر الأيام في نفس العملية.
+     دفاعي بالكامل: (1) بيشتغل بس لما فيه removes، (2) بيضيف أيام للحذف فقط
+     (مبيلمسش الإضافات)، (3) بيشيل بس ids اتقرّر حذفها في الـ diff، (4) try/catch
+     — أي فشل بيرجع للسلوك القديم (الحذف بالتاريخ). */
+  if (removedIds.size > 0) {
+    try {
+      const allSnap = await getDocs(collection(db, collectionName));
+      allSnap.forEach(docSnap => {
+        const dayKey = docSnap.id;
+        const ents = Array.isArray(docSnap.data()?.entries) ? docSnap.data().entries : [];
+        for (const e of ents) {
+          const eid = String(e?.id || "");
+          if (eid && removedIds.has(eid)) {
+            if (!removesByDay.has(dayKey)) removesByDay.set(dayKey, new Set());
+            removesByDay.get(dayKey).add(eid);
+          }
+        }
+      });
+    } catch (e) {
+      console.warn(`[splitCollections] ${collectionName}: full-scan for deletes failed — falling back to date-routed removal:`, e?.message || e);
+    }
+  }
+
   const allDays = new Set([...addsByDay.keys(), ...removesByDay.keys()]);
 
   /* For each affected day: atomic read-modify-write via runTransaction.

@@ -4917,6 +4917,18 @@ export default function App(){
           splitFieldsActive.push(f);
         }
       }
+      /* V21.27.154 CRITICAL HYDRATION — purchaseRfqs (طلب عروض أسعار، V21.12.1).
+         نفس صنف bug الـ V21.9.39: الترطيب كان واقف عند V21101 فـ purchaseRfqs
+         (موجود في SPLIT_FIELDS) ما كانش بيتحطّ في next قبل fn() → newSplit
+         مكنش بيشمله → syncAllSplitChanges بيشوف oldArr=بيانات الـlistener مقابل
+         newArr=[] فيمسح purchaseRfqsDays مع كل حفظة (كان مستتر لأن RFQs غالبًا
+         فاضية لسه). الترطيب هنا بيمنع المسح. */
+      if(prev[SPLIT_FLAG_V21120]){
+        for(const f of SPLIT_FIELDS_V21120){
+          next[f]=JSON.parse(JSON.stringify(explicitSplitBefore[f]||[]));
+          splitFieldsActive.push(f);
+        }
+      }
       const splitActive=splitFieldsActive.length>0;
       /* V19.57: hydrate partitioned fields based on per-group flags. Pre-migration
          fields stay in config (no hydration needed), same gating as splitFields. */
