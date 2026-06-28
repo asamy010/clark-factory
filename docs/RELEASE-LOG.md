@@ -12,6 +12,67 @@
 
 ---
 
+## V21.27.178 (2026-06-29) — 🗄️ مساحة التخزين: كل ملف مستند مستقل (سعة بلا حدود)
+
+**الطلب (Ahmed):** «ممكن نحل مشكلة الملفات عشان هارفع اكتر من ١٣٠٠ ملف اكيد
+المهم خد وقتك للحل عشان الامان.»
+
+**السبب الجذري (تكملة لسلسلة V145→V173):** ملفات مساحة التخزين كانت كلها في
+**مصفوفة واحدة** (`documentsTree.files`) داخل مستند Firestore واحد. المستند له
+حد صارم **1 ميجابايت**. V173 نقل الشجرة لمستند مخصّص (`factory/documentsTree`)
+فاداها مساحتها الكاملة (~1300 ملف)، بس ده سقف، مش حل نهائي. مع رفع أكتر من
+١٣٠٠ ملف، نفس المشكلة هترجع: الكتابة تترفض → الملفات تظهر (optimistic) وتختفي
+(revert).
+
+**الحل الجذري النهائي:** **كل ملف بقى مستنده الخاص** `factory/df_<id>` (شكل
+المستند `{ f: <metadata> }`). مفيش أي مصفوفة بتكبر في مستند واحد → **سعة عملية
+بلا حدود** (Firestore collections غير محدودة). المجلدات فضلت في
+`factory/documentsTree` (عددها قليل وثابت تقريبًا).
+
+**المعمارية (نفس نمط split الموجود — §2):**
+- **`src/utils/docFilesDiff.js` (جديد):** دالة نقية `diffDocFiles(prev, next)`
+  بترجّع `{sets:[{id,file}], dels:[id]}` — الجزء الأخطر، فاتغطّى بـ٩ اختبارات
+  (`src/utils/__tests__/docFilesDiff.test.js`).
+- **`src/App.jsx`:**
+  - import `query, where, documentId` + `diffDocFiles`.
+  - state جديدة: `docFilesData` + `docFilesDataRef` + `upDocFilesWriteQueueRef`
+    + `filesSplitMigratingRef` (قفل ضد تكرار الهجرة).
+  - listener جديد **u5**: `query(collection(factory), documentId() ∈ [df_, df_))`
+    — بيبني مصفوفة الملفات من كل مستندات df_*. **مبيتجاهلش pending writes**
+    عشان الـ optimistic UI يبان فورًا (idempotent rebuild من الـ snapshot).
+  - **merge:** لما الفلاج `_filesSplitV178Done` مزوّد → الملفات مصدرها
+    `docFilesData`، والمجلدات من المستند المخصّص.
+  - **`upDocFilesWrite({sets,dels})`:** كاتب batched (≤400 عملية/batch، تحت حد
+    Firestore 500) + serialized queue + retries. بيرجّع `true/false`.
+  - **`upDocs`:** نفس واجهة الـ mutate القديمة (DocumentsPg/AIStudioPg
+    **مالهومش أي تغيير**) — بعد الـ mutate بيعمل diff بين الملفات القديمة
+    (`docFilesDataRef`) والجديدة، يكتب الفرق لمستندات df_*، والمجلدات للمستند
+    المخصّص (مع تفريغ مصفوفة الملفات منه). gate الأمان دلوقتي بيطلب
+    `_docsTreeDedicatedV173` **و** `_filesSplitV178Done`.
+  - **هجرة V178 (one-time, آمنة):** لما V173 خلصت والـ split لسه — بتستنّى
+    listener الملفات يشتغل (idempotent لو هجرة سابقة وقفت في النص)، تكتب
+    مستندات الملفات **الأول**، وبس لما تتأكد إنها نجحت (`ok===true`) تزوّد الفلاج
+    وتفرّغ المصفوفة من المستند المخصّص. **فلو الكتابة اتقطعت → مفيش ملف بيضيع**
+    (المصدر يفضل سليم لحد التأكيد) والهجرة بتكمّل في التحميل الجاي.
+
+**ليه آمن (الجواب على «خد وقتك للحل عشان الامان»):**
+1. **مفيش تغيير في firestore.rules** — قاعدة `match /factory/{docId}` الموجودة
+   (read: isAnyUser · write: isManagerPlus && docId∉{config,roleScopes}) بتغطّي
+   مستندات `df_<id>` بالظبط. صفر deploy للقواعد = صفر مخاطر default-deny.
+2. **ترتيب الكتابة آمن ضد الانقطاع:** اكتب الملفات الأول، الفلاج آخر حاجة.
+3. **تدهور رشيق:** لو listener الـ df_ فشل (مستبعد — نفس auth الـ config)، الفلاج
+   ما يتزوّدش والـ merge يفضل على مسار V173 (الملفات في المستند المخصّص) —
+   مفيش اختفاء.
+4. **DocumentsPg.jsx ما اتغيّرش** — صفر مخاطر regression في الـ UI/upload paths.
+5. build ✓ — **496 اختبار ناجح** (487 + 9 جداد).
+
+**ملفات:** `src/utils/docFilesDiff.js` (جديد)،
+`src/utils/__tests__/docFilesDiff.test.js` (جديد)، `src/App.jsx`،
+`package.json`، `src/constants/index.js`، `public/sw.js`،
+`public/changelog.json`، `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.177 (2026-06-29) — 🗑️ زر «تفريغ السلة» في مساحة التخزين
 
 **الطلب (Ahmed):** «عاوز زر تفريغ السلة في سلة المحذوفات يحذف كله مرة واحدة.»

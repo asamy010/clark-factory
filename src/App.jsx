@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { auth, db, getSecondaryAuth } from "./firebase";
 import { signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc, writeBatch } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, getDocs, runTransaction, getDoc, writeBatch, query, where, documentId } from "firebase/firestore";
 
 /* ─── V15.0 Module imports (refactored from monolith) ─── */
 import { APP_VERSION, FKEYS, FCOL, WS_TYPES, COLORS_DB, THEMES, DEFAULT_STATUSES, INIT_CONFIG, GARMENT_ICONS, QUALITY_MAP, FS, PRINT_CSS } from "./constants/index.js";
@@ -36,6 +36,7 @@ import { findOrphanCustTreasury, syncOrphanCustTreasuryMutator } from "./utils/t
 /* V21.21.41: حارس المسح الجماعي (مستخرَج للاختبار) + خيار allowEmptyFields */
 import { collectMassWipes } from "./utils/massWipeGuard.js";
 import { isSafeWrite } from "./utils/dataIntegrity.js";
+import { diffDocFiles } from "./utils/docFilesDiff.js";/* V21.27.178: split ملفات التخزين لمستندات مستقلة */
 /* V19.48: Forensic helpers for write fallbacks — categorize errors, estimate
    doc size, build copy-paste forensic lines for bug reports. */
 import {
@@ -391,6 +392,13 @@ export default function App(){
   const[docsTreeDoc,setDocsTreeDoc]=useState(null);/* null = listener لسه ما اشتغلش */
   const docsTreeDocRef=useRef(null);
   const upDocsTreeWriteQueueRef=useRef(Promise.resolve());
+  /* V21.27.178: كل ملف بقى مستند مستقل (factory/df_<id>) → سعة بلا حدود (>1300
+     ملف). المجلدات تفضل في factory/documentsTree (عددها قليل). الملفات بتتجمّع
+     من listener منفصل بيستعلم عن مستندات df_* ويبنيها كـ array افتراضي. */
+  const[docFilesData,setDocFilesData]=useState(null);/* null = listener لسه ما اشتغلش */
+  const docFilesDataRef=useRef(null);
+  const upDocFilesWriteQueueRef=useRef(Promise.resolve());
+  const filesSplitMigratingRef=useRef(false);/* V21.27.178: قفل ضد تكرار الهجرة */
   /* V19.55 CRITICAL FIX: Write-queue refs to serialize Firestore writes per doc.
      ════════════════════════════════════════════════════════════════════════════
      Why this exists:
@@ -447,6 +455,15 @@ export default function App(){
     if(docsTreeDoc&&docsTreeDoc._docsTreeDedicatedV173)merged.documentsTree=docsTreeDoc.documentsTree||{folders:[],files:[]};
     else if(tasksDoc._docsTreeMigV145)merged.documentsTree=tasksDoc.documentsTree||{folders:[],files:[]};
     else merged.documentsTree=configDoc.documentsTree||{folders:[],files:[]};
+    /* V21.27.178: بعد split-الملفات، الملفات مصدرها مستندات df_* المستقلة (مش
+       array داخل documentsTree). المجلدات تفضل من المستند المخصّص. ده بيدّي
+       سعة بلا حدود (مفيش array بيكبر في مستند واحد). الفلاج على المستند المخصّص. */
+    if(docsTreeDoc&&docsTreeDoc._filesSplitV178Done){
+      merged.documentsTree={
+        folders:Array.isArray(merged.documentsTree?.folders)?merged.documentsTree.folders:[],
+        files:Array.isArray(docFilesData)?docFilesData:[],
+      };
+    }
     /* V16.74 + V19.49 → V19.59 BUGFIX: split collections override config equivalents.
        PRE-V19.59 the merge required `splitLoaded === true` (all listeners fired
        at least once). If a single listener stalled (slow network, permission
@@ -580,7 +597,7 @@ export default function App(){
       const _deadTx=new Set(configDoc._deletedTreasuryIds.map(String));
       merged.treasury=merged.treasury.filter(t=>!_deadTx.has(String(t&&t.id)));
     }
-    return merged},[configDoc,salesDoc,tasksDoc,docsTreeDoc,splitData,partitionedData,salesSplitData,tasksSplitData]);
+    return merged},[configDoc,salesDoc,tasksDoc,docsTreeDoc,docFilesData,splitData,partitionedData,salesSplitData,tasksSplitData]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -1827,7 +1844,13 @@ export default function App(){
     /* V21.27.173: مستند «شجرة مساحة التخزين» المخصّص. لو مش موجود لسه → {} (تشغّل
        الهجرة). بنتجاهل الكتابات المحلية المعلّقة زي باقي الـ listeners. */
     const u4=onSnapshot(doc(db,"factory","documentsTree"),snap=>{if(snap.metadata.hasPendingWrites)return;const d=snap.exists()?snap.data():{};setDocsTreeDoc(d);docsTreeDocRef.current=d;},err=>{console.error("[V21.27.173] documentsTree listener error:",err);setListenerStatus(s=>({...s,lastError:"documentsTree: "+(err?.code||err?.message||"unknown")}))});
-    return()=>{u1();u2();u3();u4()}},[user]);
+    /* V21.27.178: مستندات الملفات المستقلة factory/df_<id>. استعلام prefix على
+       الـ documentId. مبنبيتجاهلش pending writes (عشان الـ optimistic UI يبان
+       فورًا)؛ كل snapshot بنبني منه الـ array كاملاً من جديد (idempotent). الـ
+       rule `match /factory/{docId}` بيسمح بالقراءة لأي مستخدم → الاستعلام مسموح. */
+    const filesQ=query(collection(db,"factory"),where(documentId(),">=","df_"),where(documentId(),"<","df_"));
+    const u5=onSnapshot(filesQ,snap=>{const files=[];snap.forEach(ds=>{const d=ds.data();if(d&&d.f)files.push(d.f);});setDocFilesData(files);docFilesDataRef.current=files;},err=>{console.error("[V21.27.178] documentFiles listener error:",err);setListenerStatus(s=>({...s,lastError:"documentFiles: "+(err?.code||err?.message||"unknown")}))});
+    return()=>{u1();u2();u3();u4();u5()}},[user]);
 
   /* ═══ V16.11: Migration 6 (split-phase-2 cleanup) — moved out of the config
      snapshot callback. Watches React state for all 3 docs to be ready, then
@@ -5463,23 +5486,83 @@ export default function App(){
     upDocsTreeWriteQueueRef.current=myWrite.catch(()=>{});
     return myWrite;
   },[markSynced]);
+  /* V21.27.178: كاتب مستندات الملفات المستقلة factory/df_<id>. بياخد ناتج
+     diffDocFiles ({sets,dels}) ويكتبه في batches (≤400 عملية/batch — تحت حد
+     Firestore وهو 500). serialized عبر queue + retries. بيرجّع true لو نجح كله،
+     false لو batch فشل (الهجرة بتعتمد على ده عشان ما تزوّدش الفلاج لو فشلت). */
+  const upDocFilesWrite=useCallback(async({sets,dels})=>{
+    const ops=[];
+    (sets||[]).forEach(s=>{ if(s&&s.id!=null)ops.push({type:"set",id:String(s.id),file:s.file}); });
+    (dels||[]).forEach(id=>{ if(id!=null)ops.push({type:"del",id:String(id)}); });
+    if(!ops.length)return true;
+    const _doWrite=async()=>{
+      let ok=true;
+      for(let i=0;i<ops.length;i+=400){
+        const chunk=ops.slice(i,i+400);
+        let lastErr=null,done=false;
+        for(let attempt=0;attempt<5&&!done;attempt++){
+          try{
+            const batch=writeBatch(db);
+            for(const op of chunk){
+              const ref=doc(db,"factory","df_"+op.id);
+              if(op.type==="set")batch.set(ref,{f:op.file},{merge:false});
+              else batch.delete(ref);
+            }
+            await batch.commit(); done=true;
+          }catch(e){
+            lastErr=e; const code=e?.code||""; const retriable=code==="aborted"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code;
+            if(!retriable||attempt===4)break; await _sleep(100*Math.pow(2,attempt));
+          }
+        }
+        if(!done){ ok=false; const cat=categorizeWriteError(lastErr); console.error("[V21.27.178] df batch write failed:",lastErr); showToast("⛔ فشل حفظ ملفات التخزين: "+(cat.arabic||"خطأ غير معروف")); break; }
+      }
+      if(ok)markSynced();
+      return ok;
+    };
+    const myWrite=upDocFilesWriteQueueRef.current.then(_doWrite);
+    upDocFilesWriteQueueRef.current=myWrite.catch(()=>false);
+    return myWrite;
+  },[markSynced]);
   const upDocs=useCallback((mutate)=>{
     if(!isOnlineRef.current){ showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع"); return; }
     if(!configLoaded){ showToast("⏳ البيانات لسه بتتحمّل — حاول تاني بعد ثانيتين"); return; }
-    /* V21.27.173 SAFETY: ما نكتبش قبل ما الهجرة تخلّص — وإلا نبدأ من فاضي
-       فنمسح الـ32 ملف الموجودين. الهجرة بتخلّص خلال ثانية من التحميل. */
-    if(!docsTreeDocRef.current||!docsTreeDocRef.current._docsTreeDedicatedV173){
+    /* V21.27.173+178 SAFETY: ما نكتبش قبل ما الهجرتين يخلّصوا — وإلا نبدأ من
+       فاضي فنمسح الملفات الموجودة. الهجرة بتخلّص خلال ثانية من التحميل. */
+    if(!docsTreeDocRef.current||!docsTreeDocRef.current._docsTreeDedicatedV173||!docsTreeDocRef.current._filesSplitV178Done){
       showToast("⏳ مساحة التخزين لسه بتتحمّل — حاول تاني بعد ثانية"); return;
     }
-    const next=JSON.parse(JSON.stringify(docsTreeDocRef.current));
+    if(docFilesDataRef.current===null){
+      showToast("⏳ ملفات التخزين لسه بتتحمّل — حاول تاني بعد ثانية"); return;
+    }
+    /* نبني نسخة العمل: المجلدات + الأعلام من المستند المخصّص، والملفات الحقيقية
+       من مستندات df_* (مش من المستند المخصّص اللي ملفاته اتفرّغت بعد الـ split). */
+    const baseTree=docsTreeDocRef.current;
+    const next=JSON.parse(JSON.stringify(baseTree));
     if(!next.documentsTree||typeof next.documentsTree!=="object")next.documentsTree={folders:[],files:[]};
     if(!Array.isArray(next.documentsTree.folders))next.documentsTree.folders=[];
-    if(!Array.isArray(next.documentsTree.files))next.documentsTree.files=[];
+    const prevFiles=Array.isArray(docFilesDataRef.current)?JSON.parse(JSON.stringify(docFilesDataRef.current)):[];
+    next.documentsTree.files=JSON.parse(JSON.stringify(prevFiles));
     try{ mutate(next); }catch(e){ console.error("[upDocs] mutate threw, aborting:",e); return; }
-    next._docsTreeDedicatedV173=true;
-    setDocsTreeDoc(next); docsTreeDocRef.current=next;/* optimistic */
-    return upDocsTreeTx(next);
-  },[configLoaded,upDocsTreeTx]);
+    const nextFiles=Array.isArray(next.documentsTree.files)?next.documentsTree.files:[];
+    /* (1) diff الملفات → كتابات/حذف لكل مستند ملف على حدة */
+    const diff=diffDocFiles(prevFiles,nextFiles);
+    if(diff.sets.length||diff.dels.length){
+      setDocFilesData(nextFiles); docFilesDataRef.current=nextFiles;/* optimistic */
+      upDocFilesWrite(diff);
+    }
+    /* (2) المجلدات (وأي أعلام أخرى على documentsTree) → المستند المخصّص، مع
+       تفريغ مصفوفة الملفات منه (الملفات بقت في df_*). نكتبه بس لو اتغيّر فعلاً. */
+    const treeNext=JSON.parse(JSON.stringify(next));
+    treeNext.documentsTree.files=[];
+    treeNext._docsTreeDedicatedV173=true;
+    treeNext._filesSplitV178Done=true;
+    const prevTreeCmp=JSON.parse(JSON.stringify(baseTree));
+    if(prevTreeCmp.documentsTree&&Array.isArray(prevTreeCmp.documentsTree.files))prevTreeCmp.documentsTree.files=[];
+    if(JSON.stringify(prevTreeCmp)!==JSON.stringify(treeNext)){
+      setDocsTreeDoc(treeNext); docsTreeDocRef.current=treeNext;/* optimistic */
+      upDocsTreeTx(treeNext);
+    }
+  },[configLoaded,upDocsTreeTx,upDocFilesWrite]);
   /* V21.27.173: هجرة (one-time) لـ documentsTree لمستندها المخصّص. المصدر: tasks
      (لو V145 اتعمل) وإلا config. union by id (صفر فقدان) + أي حاجة موجودة بالفعل
      في المستند المخصّص. flag _docsTreeDedicatedV173 فتشتغل مرة واحدة. */
@@ -5497,6 +5580,58 @@ export default function App(){
     upDocsTreeTx(next);
     console.warn("[V21.27.173] documentsTree → dedicated factory/documentsTree:",next.documentsTree.folders.length+"f/"+next.documentsTree.files.length+"files");
   },[user,configLoaded,docsTreeDoc,tasksDoc,configDoc,upDocsTreeTx]);
+  /* V21.27.178: هجرة (one-time) لملفات documentsTree لمستندات مستقلة factory/df_<id>.
+     السبب الجذري: مصفوفة `files` كانت بتكبر بلا حدود في مستند واحد → تتخطّى حد
+     Firestore (1MB) فالكتابة تترفض → الملفات تظهر (optimistic) وتختفي (revert).
+     كل ملف بقى مستنده الخاص → سعة بلا حدود (يدعم >1300 ملف زي ما طلب أحمد).
+     شرط: هجرة V173 خلصت (_docsTreeDedicatedV173) والـ split لسه (مفيش
+     _filesSplitV178Done). بنستنّى listener الملفات (docFilesData!==null) عشان
+     الـ union يبقى idempotent لو هجرة سابقة وقفت في النص. الترتيب الآمن: نكتب
+     مستندات الملفات الأول، وبس لما تنجح بنزوّد الفلاج ونفرّغ الـ array من المستند
+     المخصّص — فلو الكتابة فشلت ما نخسرش أي ملف (المصدر يفضل سليم لحد ما نتأكد). */
+  useEffect(()=>{
+    if(!user||!configLoaded)return;
+    if(docsTreeDoc===null)return;/* listener المستند المخصّص لسه ما اشتغلش */
+    if(!docsTreeDoc._docsTreeDedicatedV173)return;/* استنى هجرة V173 الأول */
+    if(docsTreeDoc._filesSplitV178Done)return;/* اتعملت قبل كده */
+    if(docFilesData===null)return;/* listener الملفات لسه ما اشتغلش */
+    if(filesSplitMigratingRef.current)return;/* هجرة شغّالة بالفعل */
+    filesSplitMigratingRef.current=true;
+    let cancelled=false;
+    (async()=>{
+      try{
+        const srcFiles=Array.isArray(docsTreeDoc.documentsTree&&docsTreeDoc.documentsTree.files)?docsTreeDoc.documentsTree.files:[];
+        const existing=Array.isArray(docFilesData)?docFilesData:[];
+        /* union by id: الموجود في df_* له الأولوية (أحدث)، وإلا من المصدر */
+        const m=new Map();
+        srcFiles.forEach(f=>{if(f&&f.id!=null)m.set(String(f.id),f)});
+        existing.forEach(f=>{if(f&&f.id!=null)m.set(String(f.id),f)});
+        const allFiles=[...m.values()];
+        const existingIds=new Set(existing.map(f=>String(f&&f.id)));
+        const toWrite=allFiles.filter(f=>f&&f.id!=null&&!existingIds.has(String(f.id)));
+        let ok=true;
+        if(toWrite.length){
+          ok=await upDocFilesWrite({sets:toWrite.map(f=>({id:String(f.id),file:f})),dels:[]});
+        }
+        if(cancelled)return;
+        if(!ok){ console.error("[V21.27.178] files split write failed — هنعيد المحاولة في التحميل الجاي"); return; }
+        /* فرّغ الـ array من المستند المخصّص + زوّد الفلاج (بعد نجاح كتابة الملفات) */
+        const treeNext=JSON.parse(JSON.stringify(docsTreeDoc));
+        if(!treeNext.documentsTree||typeof treeNext.documentsTree!=="object")treeNext.documentsTree={folders:[],files:[]};
+        if(!Array.isArray(treeNext.documentsTree.folders))treeNext.documentsTree.folders=[];
+        treeNext.documentsTree.files=[];
+        treeNext._docsTreeDedicatedV173=true;
+        treeNext._filesSplitV178Done=true;
+        setDocFilesData(allFiles); docFilesDataRef.current=allFiles;/* optimistic */
+        setDocsTreeDoc(treeNext); docsTreeDocRef.current=treeNext;
+        await upDocsTreeTx(treeNext);
+        console.warn("[V21.27.178] documentsTree.files → per-file df_* docs:",allFiles.length+" files (wrote "+toWrite.length+" new)");
+      }finally{
+        filesSplitMigratingRef.current=false;
+      }
+    })();
+    return()=>{cancelled=true};
+  },[user,configLoaded,docsTreeDoc,docFilesData,upDocFilesWrite,upDocsTreeTx]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale
