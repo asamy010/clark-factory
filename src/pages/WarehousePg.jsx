@@ -10,7 +10,7 @@ import { Btn, Card, Inp, Sel, useDebounced } from "../components/ui.jsx";
 import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
-import { calcOrder } from "../utils/orders.js";
+import { calcOrder, orderCostPerPiece } from "../utils/orders.js";
 import { computeSoReserved, computeOrderAvail } from "../utils/stockCatalog.js";
 import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
 import { analyzeStockReconciliation, relinkOrphanMovements, syncStoredStockFromLedger } from "../utils/stockReconcile.js";
@@ -148,9 +148,13 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
        المحجوز) عبر computeOrderAvail — نفس مصدر الحقيقة في هَب المبيعات/كارت
        صنف. قبل كده كان cutQty − getConfirmedStock − reserved (= شغل تحت التشغيل،
        غلط — كان بيخفي الموديلات الجاهزة فعلاً ويعرض اللي لسه بتتصنّع). */
-    let finishedQty=0,finishedModels=0;
-    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){finishedQty+=avail;finishedModels++}});
-    return{fabric:f,accessory:a,general:g,finished:{count:finishedModels,qty:finishedQty}};
+    /* V21.27.155: قيمة الجاهز بالتكلفة = المتاح × تكلفة القطعة الكاملة للأمر
+       (orderCostPerPiece — نفس المصدر الموثوق في الداشبورد و InventoryValuationReport
+       و«تكلفة القطعة» في DetPg). قبل كده البطاقة كانت بتعرض **عدد القطع** (11,686)
+       مكان القيمة والإجمالي مكنش بيشملها → «تقييم الجاهز غلط كليًا». */
+    let finishedQty=0,finishedModels=0,finishedVal=0;
+    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){finishedQty+=avail;finishedModels++;let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}finishedVal+=avail*cp;}});
+    return{fabric:f,accessory:a,general:g,finished:{count:finishedModels,qty:finishedQty,value:r2(finishedVal)}};
   },[fabrics,accessories,generalProducts,orders,soReservedByOrder,stockNetMap]);
   
   /* ──────── OPEN PRODUCT FROM QR SCAN ──────── */
@@ -943,8 +947,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         </div>
         <div onClick={()=>setSubTab("finished")} style={{padding:14,borderRadius:12,background:T.ok+"06",border:"1px solid "+T.ok+"20",cursor:"pointer"}}>
           <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>👕 الجاهز</div>
-          <div style={{fontSize:FS+6,fontWeight:800,color:T.ok}}>{fmt(wStats.finished.qty)}</div>
-          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{wStats.finished.count+" موديل • "+wStats.finished.qty+" قطعة"}</div>
+          <div style={{fontSize:FS+6,fontWeight:800,color:T.ok}}>{fmt(r2(wStats.finished.value))}</div>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>{wStats.finished.count+" موديل • "+fmt(wStats.finished.qty)+" قطعة"}</div>
         </div>
         <div onClick={()=>setSubTab("general")} style={{padding:14,borderRadius:12,background:"#EC489906",border:"1px solid #EC489920",cursor:"pointer"}}>
           <div style={{fontSize:FS-2,color:T.textSec,marginBottom:4}}>➕ منتجات عامة</div>
@@ -958,8 +962,8 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div>
             <div style={{fontSize:FS-1,color:T.textSec,fontWeight:600}}>إجمالي قيمة المخازن</div>
-            <div style={{fontSize:FS+10,fontWeight:800,color:T.accent}}>{fmt(r2(wStats.fabric.value+wStats.accessory.value+wStats.general.value))} ج.م</div>
-            <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>لا تشمل قيمة الجاهز (غير مُسعَّر بعد)</div>
+            <div style={{fontSize:FS+10,fontWeight:800,color:T.accent}}>{fmt(r2(wStats.fabric.value+wStats.accessory.value+wStats.general.value+wStats.finished.value))} ج.م</div>
+            <div style={{fontSize:FS-2,color:T.textMut,marginTop:4}}>{"شاملة الجاهز بالتكلفة (👕 "+fmt(r2(wStats.finished.value))+" ج.م)"}</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
