@@ -153,7 +153,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
        «المنتجات العامة» وبتتحسب في تجميعة الجاهز (مخزون قديم جاهز). */
     const g={count:0,value:0,low:0,zero:0};
     const fo={count:0,qty:0,value:0};/* finished-opening = منتجات جاهزة افتتاحية */
-    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;
+    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;
       if(x.isFinishedGood){if(s>0){fo.count++;fo.qty+=s;fo.value+=s*c}return;}
       g.count++;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
     /* V21.27.94: الجاهز = «المتاح الفعلي» (المستلم من الورشة − صافي المبيعات −
@@ -356,7 +356,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
 
   const filteredProd=useMemo(()=>{
     /* V21.27.159: المنتجات الجاهزة الافتتاحية بتظهر في تاب «الجاهز» مش هنا. */
-    let list=generalProducts.filter(x=>!x.isFinishedGood).map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.price)||0}));
+    let list=generalProducts.filter(x=>!x.isFinishedGood).map(x=>({...x,_stock:netStockOf(x),_cost:Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0}));
     list=list.map(x=>({...x,_value:x._stock*x._cost}));
     if(hideZero)list=list.filter(x=>x._stock>0);
     const q=prodFilterDeb.trim().toLowerCase();
@@ -371,7 +371,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   /* V21.27.159: المنتجات الجاهزة الافتتاحية (isFinishedGood) — تُعرض في تاب الجاهز
      بنفس جدول الأصناف (صورة + رصيد + تكلفة + قيمة + تعديل/حركة/حذف). */
   const finishedProd=useMemo(()=>{
-    const list=generalProducts.filter(x=>x.isFinishedGood).map(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;return{...x,_stock:s,_cost:c,_value:s*c}});
+    const list=generalProducts.filter(x=>x.isFinishedGood).map(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;return{...x,_stock:s,_cost:c,_value:s*c}});
     list.sort((a,b)=>b._value-a._value);
     return list;
   },[generalProducts,stockNetMap]);
@@ -381,7 +381,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
   const finishedReportRows=useMemo(()=>{
     const rows=[];
     orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});
-    generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
+    generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
     rows.sort((a,b)=>b.value-a.value);
     return rows;
   },[orders,soReservedByOrder,generalProducts,stockNetMap]);
@@ -471,7 +471,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
 
   /* ──────── GENERAL PRODUCT CRUD ──────── */
   const openNewProd=()=>{setCardTab("general");setProdForm({name:"",category:productCategories[0]||"أخرى",unit:"قطعة",unit2:"",unit2Rate:"",price:0,costPrice:"",minStock:0,notes:"",code:"",sellable:true,purchasable:true,productType:"goods",prices:{},isFinishedGood:false});setShowProdForm(true)};
-  const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:p.costPrice??"",sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices),isFinishedGood:!!p.isFinishedGood});setShowProdForm(true)};
+  const editProd=(p)=>{setCardTab("general");setProdForm({...p,unit2:p.unit2||"",unit2Rate:p.unit2Rate||"",code:p.code||"",costPrice:(Number(p.avgCost)||Number(p.costPrice)||0),sellable:p.sellable!==false,purchasable:p.purchasable!==false,productType:p.productType||"goods",prices:pricesArrToMap(p.prices),isFinishedGood:!!p.isFinishedGood});setShowProdForm(true)};
   /* V21.21.53: كود الصنف لازم يكون فريد عبر كل الأصناف (قماش/إكسسوار/منتج عام).
      اختياري — بس لو اتكتب لازم ميكونش مكرّر. selfId يستثني الصنف اللي بنعدّله. */
   const itemCodeError=(code,selfId)=>{
@@ -557,7 +557,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         minStock:Number(prodForm.minStock)||0,
         price:Number(prodForm.price)||0,            /* سعر البيع (موجود من قبل) */
         costPrice:Number(prodForm.costPrice)||0,    /* V21.21.53: سعر الشراء/التكلفة */
-        avgCost:isEdit?(Number(prodForm.avgCost)||0):0,
+        avgCost:Number(prodForm.costPrice)||0,            /* V21.27.162: التكلفة من الكارت = مصدر تقييم المخزون (بتتزامن مع avgCost) */
         sellable:prodForm.sellable!==false,         /* V21.21.53 */
         purchasable:prodForm.purchasable!==false,   /* V21.21.53 */
         productType:prodForm.productType||"goods",  /* V21.21.53: goods | service */
@@ -656,12 +656,12 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       if(fabForm._eid){
         const idx=d.fabrics.findIndex(x=>x.id===fabForm._eid);
         if(idx>=0){
-          d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,..._common};
+          d.fabrics[idx]={...d.fabrics[idx],name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,avgCost:Number(fabForm.price)||0,..._common};
           if(_dual){d.fabrics[idx].unit2=_u2;d.fabrics[idx].unit2Rate=_r2;}
           else{delete d.fabrics[idx].unit2;delete d.fabrics[idx].unit2Rate;}
         }
       }else{
-        const _f={id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,stock:0,..._common};
+        const _f={id:Date.now(),name:fabForm.name.trim(),unit:fabForm.unit||"كيلو",price:Number(fabForm.price)||0,avgCost:Number(fabForm.price)||0,stock:0,..._common};
         if(_dual){_f.unit2=_u2;_f.unit2Rate=_r2;}
         d.fabrics.push(_f);
       }
@@ -669,7 +669,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setFabForm(null);
     showToast(fabForm._eid?"✅ تم تعديل القماش":"✅ تم إضافة القماش");
   };
-  const editFab=(f)=>{setCardTab("general");setFabForm({name:f.name,unit:f.unit,price:f.price,unit2:f.unit2||"",unit2Rate:f.unit2Rate||"",code:f.code||"",salePrice:f.salePrice??"",sellable:f.sellable!==false,purchasable:f.purchasable!==false,productType:f.productType||"goods",prices:pricesArrToMap(f.prices),image:f.image||"",_eid:f.id})};
+  const editFab=(f)=>{setCardTab("general");setFabForm({name:f.name,unit:f.unit,price:(Number(f.avgCost)||Number(f.price)||0),unit2:f.unit2||"",unit2Rate:f.unit2Rate||"",code:f.code||"",salePrice:f.salePrice??"",sellable:f.sellable!==false,purchasable:f.purchasable!==false,productType:f.productType||"goods",prices:pricesArrToMap(f.prices),image:f.image||"",_eid:f.id})};
   const deleteFab=async(f)=>{
     if(!canEdit){await denyAction("حذف القماش");return;}
     const blocker=formatBlockerMessage(data,"fabric",f.id,f.name);
@@ -711,12 +711,12 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
       if(accForm._eid){
         const idx=d.accessories.findIndex(x=>x.id===accForm._eid);
         if(idx>=0){
-          d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,..._common};
+          d.accessories[idx]={...d.accessories[idx],name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,avgCost:Number(accForm.price)||0,..._common};
           if(_dual){d.accessories[idx].unit2=_u2;d.accessories[idx].unit2Rate=_r2;}
           else{delete d.accessories[idx].unit2;delete d.accessories[idx].unit2Rate;}
         }
       }else{
-        const _a={id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,stock:0,..._common};
+        const _a={id:Date.now(),name:accForm.name.trim(),unit:accForm.unit||"قطعة",price:Number(accForm.price)||0,avgCost:Number(accForm.price)||0,stock:0,..._common};
         if(_dual){_a.unit2=_u2;_a.unit2Rate=_r2;}
         d.accessories.push(_a);
       }
@@ -724,7 +724,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     setAccForm(null);
     showToast(accForm._eid?"✅ تم تعديل الإكسسوار":"✅ تم إضافة الإكسسوار");
   };
-  const editAcc=(a)=>{setCardTab("general");setAccForm({name:a.name,unit:a.unit,price:a.price,unit2:a.unit2||"",unit2Rate:a.unit2Rate||"",code:a.code||"",salePrice:a.salePrice??"",sellable:a.sellable!==false,purchasable:a.purchasable!==false,productType:a.productType||"goods",prices:pricesArrToMap(a.prices),image:a.image||"",_eid:a.id})};
+  const editAcc=(a)=>{setCardTab("general");setAccForm({name:a.name,unit:a.unit,price:(Number(a.avgCost)||Number(a.price)||0),unit2:a.unit2||"",unit2Rate:a.unit2Rate||"",code:a.code||"",salePrice:a.salePrice??"",sellable:a.sellable!==false,purchasable:a.purchasable!==false,productType:a.productType||"goods",prices:pricesArrToMap(a.prices),image:a.image||"",_eid:a.id})};
   const deleteAcc=async(a)=>{
     if(!canEdit){await denyAction("حذف الإكسسوار");return;}
     const blocker=formatBlockerMessage(data,"accessory",a.id,a.name);
@@ -897,7 +897,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const rows=[];
     fabrics.forEach(f=>{const s=netStockOf(f);const c=Number(f.avgCost)||Number(f.price)||0;const status=s===0?"نافذ":f.minStock&&s<=f.minStock?"ناقص":"متاح";rows.push(["خامة","",f.name||"",s,f.unit||"",f.minStock||"",r2(c),r2(s*c),status,f.lastReceiveDate||""])});
     accessories.forEach(a=>{const s=netStockOf(a);const c=Number(a.avgCost)||Number(a.price)||0;const status=s===0?"نافذ":a.minStock&&s<=a.minStock?"ناقص":"متاح";rows.push(["إكسسوار","",a.name||"",s,a.unit||"",a.minStock||"",r2(c),r2(s*c),status,a.lastReceiveDate||""])});
-    generalProducts.forEach(p=>{const s=netStockOf(p);const c=Number(p.avgCost)||Number(p.price)||0;const status=s===0?"نافذ":p.minStock&&s<=p.minStock?"ناقص":"متاح";rows.push(["منتج عام",p.category||"",p.name||"",s,p.unit||"",p.minStock||"",r2(c),r2(s*c),status,p.lastMovementDate||""])});
+    generalProducts.forEach(p=>{const s=netStockOf(p);const c=Number(p.avgCost)||Number(p.costPrice)||Number(p.price)||0;const status=s===0?"نافذ":p.minStock&&s<=p.minStock?"ناقص":"متاح";rows.push(["منتج عام",p.category||"",p.name||"",s,p.unit||"",p.minStock||"",r2(c),r2(s*c),status,p.lastMovementDate||""])});
     downloadCSV("stock-snapshot-"+today+".csv",headers,rows);
   };
   
@@ -906,7 +906,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     const w=openPrintWindow();if(!w){tell("المتصفح يمنع الطباعة","فعّل النوافذ المنبثقة",{danger:true});return}
     const buildRows=(list,typeLabel,typeColor)=>list.map(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.price)||0;const status=s===0?"نافذ":x.minStock&&s<=x.minStock?"ناقص":"متاح";const statusClass=s===0?"err":x.minStock&&s<=x.minStock?"warn":"ok";return "<tr><td><span style='background:"+typeColor+"20;color:"+typeColor+";padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700'>"+typeLabel+"</span></td>"+(x.category?"<td>"+x.category+"</td>":"<td>—</td>")+"<td><b>"+(x.name||"")+"</b></td><td class='center'>"+fmt(s)+" "+(x.unit||"")+"</td><td class='center'>"+(x.minStock?fmt(x.minStock):"—")+"</td><td class='center'>"+fmt(r2(c))+"</td><td class='center'><b>"+fmt(r2(s*c))+"</b></td><td class='center "+statusClass+"'>"+status+"</td></tr>"}).join("");
     const allRows=buildRows(fabrics,"🧵 خامة","#0EA5E9")+buildRows(accessories,"🪡 إكسسوار","#8B5CF6")+buildRows(generalProducts,"➕ منتج","#EC4899");
-    const totalValue=fabrics.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0);
+    const totalValue=fabrics.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+accessories.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.price)||0),0)+generalProducts.reduce((s,x)=>s+netStockOf(x)*(Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0),0);
     const html="<html dir='rtl'><head><meta charset='UTF-8'><title>جرد المخزن</title><style>"+PRINT_CSS+".center{text-align:center}</style></head><body><div class='hdr'><div style='font-size:18px;font-weight:800;color:#0284C7'>📦 جرد المخزن الشامل</div><div class='hdr-info'><div>تاريخ الجرد: "+today+"</div><div>إجمالي القيمة: <b style='color:#0284C7'>"+fmt(r2(totalValue))+" ج.م</b></div></div></div><h3>أرصدة الأصناف</h3><table><thead><tr><th>النوع</th><th>الفئة</th><th>الاسم</th><th>الرصيد</th><th>الحد الأدنى</th><th>متوسط التكلفة</th><th>القيمة</th><th>الحالة</th></tr></thead><tbody>"+(allRows||"<tr><td colspan='8' class='center' style='padding:20px;color:#94A3B8'>لا توجد أصناف</td></tr>")+"<tr style='background:#EFF6FF;font-weight:800'><td colspan='6' style='text-align:left'>الإجمالي الكلي لقيمة المخزن</td><td class='center info' style='font-size:14px'>"+fmt(r2(totalValue))+" ج.م</td><td></td></tr></tbody></table><div class='sig'><div class='sig-box'>مسؤول المخزن</div><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div><div class='foot'>CLARK ERP System — جرد المخزن بتاريخ "+today+"</div><script>setTimeout(function(){window.print()},500)</"+"script></body></html>";
     w.document.write(html);w.document.close();
   };
@@ -2010,7 +2010,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     {/* ════ VIEW PRODUCT POPUP (from QR scan or click) ════ */}
     {viewProd&&(()=>{
       const stock=netStockOf(viewProd);/* V21.27.129: صافي الحركات */
-      const cost=Number(viewProd.avgCost)||Number(viewProd.price)||0;
+      const cost=Number(viewProd.avgCost)||Number(viewProd.costPrice)||Number(viewProd.price)||0;
       const isLow=viewProd.minStock&&stock<=viewProd.minStock;
       const isZero=stock===0;
       const statusColor=isZero?T.err:isLow?T.warn:T.ok;
