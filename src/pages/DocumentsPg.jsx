@@ -791,8 +791,10 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
       }
       setRecoverProgress({ scanned, recovered: recovered.length });
       if (recovered.length === 0) {
+        /* V21.27.176: مفيش ضائع → علّم إن الاستعادة اتعملت فالزر يختفي تلقائيًا */
+        upTree(d => { if (!d.documentsTree) d.documentsTree = { folders: [], files: [] }; d.documentsTree._recoveryDone = true; });
         setRecovering(false);
-        await tell("مفيش ملفات ضائعة", "كل الملفات الموجودة في التخزين مسجّلة بالفعل في الشجرة ✅", { type: "success" });
+        await tell("مفيش ملفات ضائعة", "كل الملفات الموجودة في التخزين مسجّلة بالفعل في الشجرة ✅\n(زر الاستعادة هيختفي — مش محتاجه.)", { type: "success" });
         return;
       }
       upTree(d => {
@@ -802,6 +804,7 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
         const have = new Set(d.documentsTree.files.map(f => f.storagePath));
         d.documentsTree.folders.push(...newFolders);
         recovered.forEach(f => { if (!have.has(f.storagePath)) d.documentsTree.files.push(f); });
+        d.documentsTree._recoveryDone = true;/* V21.27.176: الزر يختفي بعد الاستعادة */
       });
       setRecovering(false);
       showToast(`♻️ تم استرجاع ${recovered.length} ملف${newFolders.length ? " · في مجلد «ملفات مستردة»" : ""}`);
@@ -1174,8 +1177,9 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
             {/* V21.27.143: رفع مجلد كامل بمجلداته الفرعية */}
             {!showTrash && !recentView && canEdit && <Btn small onClick={() => folderInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }} title="ارفع مجلد كامل بكل ملفاته ومجلداته الفرعية">📁 رفع مجلد</Btn>}
             {!showTrash && !recentView && canEdit && <Btn small onClick={createFolder} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>➕ مجلد جديد</Btn>}
-            {/* V21.27.174: استرجاع الملفات الضائعة (فحص التخزين وإعادة التسجيل) */}
-            {!showTrash && !recentView && canEdit && <Btn small onClick={recoverOrphanedFiles} disabled={recovering} style={{ background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)" }} title="فحص التخزين وإعادة تسجيل أي ملف ظهر وبعدين اختفى من القائمة">♻️ استرجاع الضائع</Btn>}
+            {/* V21.27.174: استرجاع الملفات الضائعة. V21.27.176: بيختفي تلقائيًا بعد
+                ما يتشغّل مرة (tree._recoveryDone) — أداة لمرة واحدة، مش زر دائم. */}
+            {!showTrash && !recentView && canEdit && !tree._recoveryDone && <Btn small onClick={recoverOrphanedFiles} disabled={recovering} style={{ background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)" }} title="فحص التخزين وإعادة تسجيل أي ملف ظهر وبعدين اختفى من القائمة (بيختفي بعد أول تشغيل)">♻️ استرجاع الضائع</Btn>}
           </div>
         }
         style={{ marginBottom: 16 }}>
