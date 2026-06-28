@@ -577,10 +577,13 @@ export const DAILY_REPORT_VARIABLES = [
 /* ── Main builder ── */
 export function buildDailyReport(data, opts) {
   const config = opts?.config || {};
-  const sections = config.sections || {
+  /* V21.27.170: دمج فوق الافتراضيات — أي قسم مش متقفّل صراحةً (false) بيظهر
+     (يحلّ مشكلة اختفاء المبيعات/المشتريات لو config.sections ناقص مفاتيح). */
+  const DEFAULT_SECTIONS = {
     sales: true, purchases: true, treasury: true,
     production: true, alerts: true, tasks: true, comparison: false,
   };
+  const sections = { ...DEFAULT_SECTIONS, ...(config.sections || {}) };
   const date = opts?.date || new Date().toISOString().slice(0, 10);
 
   /* V19.80.15: compute all granular vars + section blocks, then apply the

@@ -358,10 +358,14 @@ function _comparisonSection(data, date) {
 /* ── Main builder ── */
 export function buildDailyReport(data, opts) {
   const config = opts?.config || {};
-  const sections = config.sections || {
+  /* V21.27.170: دمج فوق الافتراضيات — أي قسم مش متقفّل صراحةً (false) بيظهر.
+     قبل كده لو config.sections موجود بس ناقص مفاتيح (مثلاً مفيش sales/purchases)،
+     كانت بتطلع undefined → falsy → القسم يختفي. الدمج بيخلّي الناقص ياخد الافتراضي. */
+  const DEFAULT_SECTIONS = {
     sales: true, purchases: true, treasury: true,
     production: true, alerts: true, tasks: true, comparison: false,
   };
+  const sections = { ...DEFAULT_SECTIONS, ...(config.sections || {}) };
   const date = opts?.date || new Date().toISOString().slice(0, 10);
 
   const parts = [];

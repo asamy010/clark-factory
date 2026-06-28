@@ -12,6 +12,32 @@
 
 ---
 
+## V21.27.170 (2026-06-28) — 💰 رجوع المبيعات والمشتريات في التقرير اليومي
+
+**الطلب (Ahmed):** «ضيف المبيعات والمشتريات زي ما كانت قبل كده، محتاجها.»
+
+**التشخيص:** أقسام المبيعات/المشتريات موجودة في الكود وبتطلع صح (اتأكّد بـ smoke
+test). الـ root cause: `buildDailyReport` كان بيعمل `const sections =
+config.sections || {defaults}`. لو `config.sections` **موجود بس ناقص مفاتيح**
+(مثلاً اتحفظ من غير `sales`/`purchases`)، المفتاح الناقص = `undefined` →
+`if(sections.sales)` falsy → القسم يختفي. (الافتراضيات بتتطبّق بس لو `config.
+sections` غايب تمامًا، مش لو ناقص.)
+
+**الحل:** دمج فوق الافتراضيات:
+```js
+const DEFAULT_SECTIONS = { sales:true, purchases:true, treasury:true,
+  production:true, alerts:true, tasks:true, comparison:false };
+const sections = { ...DEFAULT_SECTIONS, ...(config.sections || {}) };
+```
+دلوقتي أي قسم مش متقفّل **صراحةً بـ false** بيظهر. اتطبّق على النسختين
+(`api/_buildDailyReport.js` + `src/utils/automation/buildDailyReport.js`).
+
+اتأكّد بـ smoke test (config ناقص sales/purchases → القسمين بيظهروا ✅). build ✓
+— كل الـ487 اختبار ناجح. (لو الأقسام كانت متقفّلة صراحةً من الإعدادات، تتفتح من
+تبويب الأتمتة.)
+
+---
+
 ## V21.27.169 (2026-06-28) — 📨 تحسين التقرير اليومي (الخزنة + العلامة + الفواصل)
 
 **الطلب (Ahmed):** في التقرير اليومي اللي بيوصل للأدمن: (1) في الخزنة بلاش
