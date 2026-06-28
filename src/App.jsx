@@ -385,6 +385,12 @@ export default function App(){
      fire-and-forget setDoc(...).catch() pattern that silently swallowed errors). */
   const salesDocRef=useRef({});
   const tasksDocRef=useRef({});
+  /* V21.27.173: «شجرة مساحة التخزين» (documentsTree) بقت في مستندها الخاص
+     factory/documentsTree بدل ما تتزاحم مع factory/tasks → كانت بتخلّي tasks
+     يتجاوز 1MB فالرفع يظهر ويختفي. مستند مخصّص = مساحته الكاملة. */
+  const[docsTreeDoc,setDocsTreeDoc]=useState(null);/* null = listener لسه ما اشتغلش */
+  const docsTreeDocRef=useRef(null);
+  const upDocsTreeWriteQueueRef=useRef(Promise.resolve());
   /* V19.55 CRITICAL FIX: Write-queue refs to serialize Firestore writes per doc.
      ════════════════════════════════════════════════════════════════════════════
      Why this exists:
@@ -436,7 +442,10 @@ export default function App(){
        - بعد الهجرة → المصدر tasks (= اتحاد config القديم + أي جديد).
        - قبل الهجرة → المصدر config صراحةً (يضمن ظهور الملفات القديمة حتى لو
          الـ lazy-seed القديم كتب tasks فاضي بالغلط — كان بيخفي القديم في V145). */
-    if(tasksDoc._docsTreeMigV145)merged.documentsTree=tasksDoc.documentsTree||{folders:[],files:[]};
+    /* V21.27.173: الأولوية للمستند المخصّص factory/documentsTree (لو اتهاجر)،
+       وإلا fallback للسلوك القديم (tasks → config) — additive وآمن. */
+    if(docsTreeDoc&&docsTreeDoc._docsTreeDedicatedV173)merged.documentsTree=docsTreeDoc.documentsTree||{folders:[],files:[]};
+    else if(tasksDoc._docsTreeMigV145)merged.documentsTree=tasksDoc.documentsTree||{folders:[],files:[]};
     else merged.documentsTree=configDoc.documentsTree||{folders:[],files:[]};
     /* V16.74 + V19.49 → V19.59 BUGFIX: split collections override config equivalents.
        PRE-V19.59 the merge required `splitLoaded === true` (all listeners fired
@@ -571,7 +580,7 @@ export default function App(){
       const _deadTx=new Set(configDoc._deletedTreasuryIds.map(String));
       merged.treasury=merged.treasury.filter(t=>!_deadTx.has(String(t&&t.id)));
     }
-    return merged},[configDoc,salesDoc,tasksDoc,splitData,partitionedData,salesSplitData,tasksSplitData]);
+    return merged},[configDoc,salesDoc,tasksDoc,docsTreeDoc,splitData,partitionedData,salesSplitData,tasksSplitData]);
   const[tab,setTab_]=useState(()=>sessionStorage.getItem("clark_tab")||"home");const[sel,setSel_]=useState(()=>sessionStorage.getItem("clark_sel")||null);
   const setTab=v=>{setTab_(v);sessionStorage.setItem("clark_tab",v)};
   const setSel=v=>{setSel_(v);if(v)sessionStorage.setItem("clark_sel",v);else sessionStorage.removeItem("clark_sel")};
@@ -1815,7 +1824,10 @@ export default function App(){
     const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data());setListenerStatus(s=>({...s,sales:true}))}},err=>{console.error("[V18.60] sales listener error:",err);setListenerStatus(s=>({...s,lastError:"sales: "+(err?.code||err?.message||"unknown")}))});
     /* Tasks doc */
     const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data());setListenerStatus(s=>({...s,tasks:true}))}},err=>{console.error("[V18.60] tasks listener error:",err);setListenerStatus(s=>({...s,lastError:"tasks: "+(err?.code||err?.message||"unknown")}))});
-    return()=>{u1();u2();u3()}},[user]);
+    /* V21.27.173: مستند «شجرة مساحة التخزين» المخصّص. لو مش موجود لسه → {} (تشغّل
+       الهجرة). بنتجاهل الكتابات المحلية المعلّقة زي باقي الـ listeners. */
+    const u4=onSnapshot(doc(db,"factory","documentsTree"),snap=>{if(snap.metadata.hasPendingWrites)return;const d=snap.exists()?snap.data():{};setDocsTreeDoc(d);docsTreeDocRef.current=d;},err=>{console.error("[V21.27.173] documentsTree listener error:",err);setListenerStatus(s=>({...s,lastError:"documentsTree: "+(err?.code||err?.message||"unknown")}))});
+    return()=>{u1();u2();u3();u4()}},[user]);
 
   /* ═══ V16.11: Migration 6 (split-phase-2 cleanup) — moved out of the config
      snapshot callback. Watches React state for all 3 docs to be ready, then
@@ -5434,40 +5446,57 @@ export default function App(){
      seed-on-first-write: أول كتابة بتنسخ documentsTree الموجود (من config) جوّه
      tasks — من غير أي حذف، فالبيانات القديمة محفوظة. بعد كده الـ merge بيفضّل
      نسخة tasks (شوف useMemo فوق). */
+  /* V21.27.173: كاتب المستند المخصّص factory/documentsTree (serialized + retries).
+     مستند منفصل = مساحته الـ1MB الكاملة، فالرفع الكبير ما بيتزاحمش مع المهام. */
+  const upDocsTreeTx=useCallback(async(next)=>{
+    const _doWrite=async()=>{
+      const ref=doc(db,"factory","documentsTree");
+      let lastErr=null;
+      for(let attempt=0;attempt<5;attempt++){
+        try{ await setDoc(ref,next,{merge:false}); markSynced(); return; }
+        catch(e){ lastErr=e; const code=e?.code||""; const retriable=code==="aborted"||code==="deadline-exceeded"||code==="unavailable"||code==="internal"||!code; if(!retriable||attempt===4)break; await _sleep(100*Math.pow(2,attempt)); }
+      }
+      try{ await setDoc(ref,next,{merge:false}); markSynced(); console.warn("[V21.27.173] documentsTree recovered via fallback setDoc"); }
+      catch(fallbackErr){ const cat=categorizeWriteError(fallbackErr); const docSize=estimateDocSize(next); console.error("[V21.27.173] documentsTree write failed:",fallbackErr,"size",docSize); showToast("⛔ فشل حفظ مساحة التخزين: "+(cat.arabic||"خطأ غير معروف")+(docSize>FIRESTORE_DOC_WARN_BYTES?" (حجم البيانات: "+formatBytes(docSize)+")":"")); }
+    };
+    const myWrite=upDocsTreeWriteQueueRef.current.then(_doWrite);
+    upDocsTreeWriteQueueRef.current=myWrite.catch(()=>{});
+    return myWrite;
+  },[markSynced]);
   const upDocs=useCallback((mutate)=>{
-    upTasks(t=>{
-      if(!t.documentsTree||typeof t.documentsTree!=="object")t.documentsTree={folders:[],files:[]};
-      if(!Array.isArray(t.documentsTree.folders))t.documentsTree.folders=[];
-      if(!Array.isArray(t.documentsTree.files))t.documentsTree.files=[];
-      mutate(t);
-    });
-  },[upTasks]);
-  /* V21.27.146: هجرة موثوقة (one-time) لـ documentsTree من config لـ tasks.
-     بتقرا configDoc (الـ state المحمّل بالكامل — مش الـ ref اللي ممكن يكون stale،
-     سبب bug V145 إن البيانات القديمة اختفت). بتعمل **اتحاد** (union by id) لـ
-     config القديم + أي حاجة في tasks (من lazy-seed أو رفع جديد) → صفر فقدان.
-     بتتحط flag _docsTreeMigV145 فتشتغل مرة واحدة. */
+    if(!isOnlineRef.current){ showToast("⛔ أنت أوفلاين دلوقتي — التعديل مش متاح لحد ما النت يرجع"); return; }
+    if(!configLoaded){ showToast("⏳ البيانات لسه بتتحمّل — حاول تاني بعد ثانيتين"); return; }
+    /* V21.27.173 SAFETY: ما نكتبش قبل ما الهجرة تخلّص — وإلا نبدأ من فاضي
+       فنمسح الـ32 ملف الموجودين. الهجرة بتخلّص خلال ثانية من التحميل. */
+    if(!docsTreeDocRef.current||!docsTreeDocRef.current._docsTreeDedicatedV173){
+      showToast("⏳ مساحة التخزين لسه بتتحمّل — حاول تاني بعد ثانية"); return;
+    }
+    const next=JSON.parse(JSON.stringify(docsTreeDocRef.current));
+    if(!next.documentsTree||typeof next.documentsTree!=="object")next.documentsTree={folders:[],files:[]};
+    if(!Array.isArray(next.documentsTree.folders))next.documentsTree.folders=[];
+    if(!Array.isArray(next.documentsTree.files))next.documentsTree.files=[];
+    try{ mutate(next); }catch(e){ console.error("[upDocs] mutate threw, aborting:",e); return; }
+    next._docsTreeDedicatedV173=true;
+    setDocsTreeDoc(next); docsTreeDocRef.current=next;/* optimistic */
+    return upDocsTreeTx(next);
+  },[configLoaded,upDocsTreeTx]);
+  /* V21.27.173: هجرة (one-time) لـ documentsTree لمستندها المخصّص. المصدر: tasks
+     (لو V145 اتعمل) وإلا config. union by id (صفر فقدان) + أي حاجة موجودة بالفعل
+     في المستند المخصّص. flag _docsTreeDedicatedV173 فتشتغل مرة واحدة. */
   useEffect(()=>{
     if(!user||!configLoaded)return;
-    if(!tasksDoc||tasksDoc._docsTreeMigV145)return;/* اتهاجرت قبل كده */
-    /* استنى بيانات المهام تتحمّل (وإلا upTasks هيرفض ويتأخّر) — الـ effect
-       هيعيد المحاولة لما tasksSplitLoaded يبقى true (في الـ deps). */
-    if(tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded)return;
-    const cfg=configDoc&&configDoc.documentsTree;
-    const cfgFolders=Array.isArray(cfg&&cfg.folders)?cfg.folders:[];
-    const cfgFiles=Array.isArray(cfg&&cfg.files)?cfg.files:[];
+    if(docsTreeDoc===null)return;/* listener لسه ما اشتغلش */
+    if(docsTreeDoc&&docsTreeDoc._docsTreeDedicatedV173)return;/* اتهاجرت قبل كده */
+    const src=(tasksDoc&&tasksDoc._docsTreeMigV145)?tasksDoc.documentsTree:(configDoc&&configDoc.documentsTree);
+    const srcFolders=Array.isArray(src&&src.folders)?src.folders:[];
+    const srcFiles=Array.isArray(src&&src.files)?src.files:[];
+    const cur=(docsTreeDoc&&docsTreeDoc.documentsTree)||{folders:[],files:[]};
     const unionById=(a,b)=>{const m=new Map();(a||[]).forEach(x=>{if(x&&x.id!=null)m.set(String(x.id),x)});(b||[]).forEach(x=>{if(x&&x.id!=null)m.set(String(x.id),x)});return[...m.values()];};
-    upTasks(t=>{
-      const tt=(t.documentsTree&&typeof t.documentsTree==="object")?t.documentsTree:{folders:[],files:[]};
-      /* tasks بيكسب عند تعارض الـ id (يحفظ أحدث تعديل)، والباقي من config */
-      t.documentsTree={
-        folders:unionById(cfgFolders,Array.isArray(tt.folders)?tt.folders:[]),
-        files:unionById(cfgFiles,Array.isArray(tt.files)?tt.files:[]),
-      };
-      t._docsTreeMigV145=true;
-    });
-    console.warn("[V21.27.146] documentsTree migrated to factory/tasks (union): config",cfgFolders.length+"/"+cfgFiles.length);
-  },[user,configLoaded,configDoc,tasksDoc,tasksSplitLoaded,upTasks]);
+    const next={documentsTree:{folders:unionById(srcFolders,Array.isArray(cur.folders)?cur.folders:[]),files:unionById(srcFiles,Array.isArray(cur.files)?cur.files:[])},_docsTreeDedicatedV173:true};
+    setDocsTreeDoc(next); docsTreeDocRef.current=next;
+    upDocsTreeTx(next);
+    console.warn("[V21.27.173] documentsTree → dedicated factory/documentsTree:",next.documentsTree.folders.length+"f/"+next.documentsTree.files.length+"files");
+  },[user,configLoaded,docsTreeDoc,tasksDoc,configDoc,upDocsTreeTx]);
   /* V16.11: ATOMIC ORDER OPERATIONS — addOrder/replaceOrder/delOrder now run
      stock check + order write + stock deduction inside a SINGLE Firestore
      transaction. Fixes a TOCTOU window where a check would pass on stale
