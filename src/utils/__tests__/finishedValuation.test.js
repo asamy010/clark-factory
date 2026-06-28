@@ -13,7 +13,7 @@ import { computeDashboardKpis } from "../dashboardKpis.js";
 import { makeFactoryData } from "./dataFixture.js";
 
 describe("computeFinishedValuation — مصدر الحقيقة الموحّد للجاهز", () => {
-  it("موديلات الإنتاج غير المقفولة: المتاح × التكلفة = 820 (من الفكسجر)", () => {
+  it("موديلات الإنتاج المتاحة: المتاح × التكلفة = 820 (من الفكسجر)", () => {
     const fin = computeFinishedValuation(makeFactoryData());
     /* متاح = مؤكد 50 − (مسلَّم 10 − مرتجع 2 + محجوز 1) = 41 × تكلفة 20 = 820 */
     expect(fin.models.value).toBe(820);
@@ -21,24 +21,25 @@ describe("computeFinishedValuation — مصدر الحقيقة الموحّد ل
     expect(fin.models.count).toBe(1);
   });
 
-  it("الأمر المقفول (o.closed) مُستبعَد تمامًا من التقييم", () => {
+  it("V21.27.168: الأمر المقفول (o.closed) **بيتحسب** — قطعه لسه في المخزن", () => {
     const data = makeFactoryData();
     data.orders.forEach(o => { o.closed = true; });
     const fin = computeFinishedValuation(data);
-    expect(fin.value).toBe(0);
-    expect(fin.models.count).toBe(0);
+    /* قفل الأوردر مابيشيلش قطعه → المتاح/التقييم زي ما هو (المعادلة: تسليم − مباع = متاح) */
+    expect(fin.value).toBe(820);
+    expect(fin.models.count).toBe(1);
   });
 
-  it("V21.27.167: مع خليط مفتوح+مقفول — المقفول وحده مُستبعَد (قاعدة «المتاح» الموحّدة)", () => {
+  it("V21.27.168: خليط مفتوح+مقفول — الاتنين بيتحسبوا (القطع كلها في المخزن)", () => {
     const data = makeFactoryData();
-    /* نسخة مقفولة من الأمر بنفس المخزون — المفروض متتحسبش (المتاح يفضل 41 من المفتوح). */
+    /* نسخة مقفولة من الأمر بنفس المخزون (بلا محجوز): متاح = 50 − (10 − 2) = 42. */
     const open = data.orders[0];
     const closedClone = JSON.parse(JSON.stringify(open));
     closedClone.id = "ord-closed"; closedClone.closed = true;
     data.orders.push(closedClone);
     const fin = computeFinishedValuation(data);
-    expect(fin.models.count).toBe(1);   /* المفتوح بس */
-    expect(fin.models.qty).toBe(41);    /* المقفول مُستبعَد — نفس قاعدة هب المبيعات بعد V167 */
+    expect(fin.models.count).toBe(2);   /* المفتوح + المقفول */
+    expect(fin.models.qty).toBe(83);    /* 41 (مفتوح) + 42 (مقفول) — المقفول بيتحسب */
   });
 
   it("الجاهز الافتتاحي (isFinishedGood) من الـ ledger يدخل الإجمالي والتقسيمة", () => {

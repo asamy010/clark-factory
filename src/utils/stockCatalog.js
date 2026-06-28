@@ -59,24 +59,31 @@ export function computeOrderAvail(o, soReserved){
   return { stockQty: sd, avail: sd - net, delivered: cd, returned: ret, reserved };
 }
 
-/* ──────── V21.27.165: تقييم المخزن الجاهز — مصدر حقيقة موحّد ────────
-   قبل كده كان الحساب متكرّر في WarehousePg.wStats و dashboardKpis.finishedVal
-   فدرِفوا مرّتين: V164 الداشبورد كان ناسي الجاهز الافتتاحي، و V165 الداشبورد كان
-   بيعدّ الأوامر المقفولة (o.closed) بينما المخازن بتتخطّاها → رقمين مختلفين.
-   الصيغة الموحّدة:
-     • موديلات الإنتاج: **غير مقفولة** (!o.closed) + المتاح>0 → المتاح × تكلفة
-       القطعة (orderCostPerPiece) [بيع = o.sellPrice].
+/* ──────── V21.27.165/168: تقييم المخزن الجاهز — مصدر حقيقة موحّد ────────
+   مصدر واحد بتستهلكه المخازن (wStats) + الداش بورد + يطابق منطق هب المبيعات
+   (stockModels)، فمستحيل يدرِفوا.
+
+   ⚠️ V21.27.168 — تصحيح مهم (عكس V165): الأوامر المقفولة (o.closed) **بتتحسب**
+   في المتاح والتقييم. القاعدة الفيزيائية المحاسبية:
+       المتاح = المُسلَّم للجاهز − المباع.
+   قفل الأوردر **مابيشيلش** قطعه من المخزن — القطع لسه موجودة فعليًا، فلازم تتعدّ.
+   V165 كان بيتخطّى المقفول (if o.closed return) غلطًا → كان بيكسر المعادلة:
+   «تسليم − مباع ≠ متاح» (الفرق = مخزون الأوامر المقفولة المتبقّي). أمر Ahmed:
+   «الرصيد المتاح = الفرق (تسليم − مبيعات)» — صح فيزيائيًا.
+   الصيغة:
+     • موديلات الإنتاج: المتاح>0 (مقفولة أو لأ) → المتاح × تكلفة القطعة
+       (orderCostPerPiece) [بيع = o.sellPrice].
      • الجاهز الافتتاحي: generalProducts المعلَّمة isFinishedGood، الرصيد من
        الـ ledger (computeStockNetMap) × (avgCost‖costPrice‖price) [بيع = x.price].
    يرجّع القيمة الكلية + التفصيلة + تقسيمة models/opening عشان كل المستهلكين
-   (المخازن + الداشبورد) ياخدوا نفس الرقم بالظبط. pure → آمن لأي bundle. */
+   ياخدوا نفس الرقم بالظبط. pure → آمن لأي bundle. */
 export function computeFinishedValuation(data){
   const d = data || {};
   const soReserved = computeSoReserved(d.salesOrders);
   let mVal = 0, mSell = 0, mQty = 0, mCount = 0;
   const detail = [];
   (d.orders || []).forEach(o => {
-    if(!o || o.closed) return;
+    if(!o) return;   /* V21.27.168: المقفول بيتحسب — قطعه لسه في المخزن */
     const { avail } = computeOrderAvail(o, soReserved);
     if(avail <= 0) return;
     let cost = 0; try { cost = orderCostPerPiece(o); } catch(_) {}

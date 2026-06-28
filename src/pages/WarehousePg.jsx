@@ -379,7 +379,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
      (المتاح من الورشة − المباع − المحجوز) + المنتجات الجاهزة الافتتاحية. */
   const finishedReportRows=useMemo(()=>{
     const rows=[];
-    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}let sizes="";try{const sz=getSizesFromSet(o,data);sizes=(sz.sizes&&sz.sizes.length?sz.sizes.join(" · "):(sz.label||""))}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",sizes,qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});
+    orders.forEach(o=>{const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}let sizes="";try{const sz=getSizesFromSet(o,data);sizes=(sz.sizes&&sz.sizes.length?sz.sizes.join(" · "):(sz.label||""))}catch(_){}rows.push({image:o.image||"",modelNo:o.modelNo||"—",name:o.modelDesc||"",sizes,qty:avail,cost:r2(cp),value:r2(avail*cp),kind:"موديل"})}});/* V21.27.168: المقفول بيتحسب (قطعه في المخزن) */
     generalProducts.filter(x=>x.isFinishedGood).forEach(x=>{const s=netStockOf(x);if(s>0){const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;rows.push({image:x.image||"",modelNo:x.code||"—",name:x.name||"",sizes:"",qty:s,cost:r2(c),value:r2(s*c),kind:"رصيد افتتاحي"})}});
     rows.sort((a,b)=>b.value-a.value);
     return rows;
@@ -1394,7 +1394,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
         /* V21.27.94: الرصيد المتاح = المستلم في المخزن (getConfirmedStock) −
            صافي المباع (customerDeliveries − customerReturns) − المحجوز، عبر
            computeOrderAvail (نفس مصدر الحقيقة في المبيعات/كارت صنف). */
-        const finList=orders.filter(o=>{if(o.closed)return false;return computeOrderAvail(o,soReservedByOrder).avail>0}).map(o=>{const t=calcOrder(o);const{stockQty,avail,delivered,returned,reserved}=computeOrderAvail(o,soReservedByOrder);return{o,cut:t.cutQty||0,rcv:stockQty,sold:delivered-returned,reserved,bal:avail}}).sort((a,b)=>b.bal-a.bal);
+        const finList=orders.filter(o=>computeOrderAvail(o,soReservedByOrder).avail>0).map(o=>{const t=calcOrder(o);const{stockQty,avail,delivered,returned,reserved}=computeOrderAvail(o,soReservedByOrder);return{o,cut:t.cutQty||0,rcv:stockQty,sold:delivered-returned,reserved,bal:avail}}).sort((a,b)=>b.bal-a.bal);/* V21.27.168: المقفول بيتحسب */
         return<div style={{marginTop:12}}>
           <div style={{fontSize:FS,fontWeight:700,color:T.text,marginBottom:8}}>📋 موديلات لها رصيد جاهز متاح ({fmt(finList.length)})</div>
           <div style={{overflowX:"auto",border:"1px solid "+T.brd,borderRadius:10}}>

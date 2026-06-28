@@ -516,10 +516,10 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   /* V21.20.5: كميات أوامر البيع المحجوزة لكل موديل («أمر البيع = بيع» يخصم المتاح).
      V21.21.67: اتنقلت للـ util stockCatalog.js (مصدر حقيقة واحد مع بورتال المخزن). */
   const soReservedByOrder=useMemo(()=>computeSoReserved(data.salesOrders),[data.salesOrders]);
-  /* V21.27.167: كل صف بيحمل o.closed عشان حساب «المتاح» يستبعد الأوامر المقفولة
-     (نفس قاعدة computeFinishedValuation في المخازن/الداش بورد — الأمر المقفول
-     منتهي ومخزونه مش متاح للبيع). الحقول التراكمية (مخزون/مباع) بتفضل شاملة الكل. */
-  const stockModels=useMemo(()=>orders.filter(o=>getConfirmedStock(o)>0).map(o=>{const{stockQty,avail,delivered,returned}=computeOrderAvail(o,soReservedByOrder);const net=(delivered-returned)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty,seriesQty:getConfirmedSeriesStock(o),brokenQty:getConfirmedBrokenStock(o),custDel:net,avail,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:returned,closed:!!o.closed}}),[orders,soReservedByOrder]);
+  /* V21.27.168: المتاح = تسليم − مباع (المعادلة الفيزيائية). الأوامر المقفولة
+     بتتحسب — قفل الأوردر مابيشيلش قطعه من المخزن. (V167 كان بيستبعدها غلطًا فكان
+     بيكسر «تسليم − مباع = متاح».) كل المخزون/المباع/المتاح من نفس مجموعة الأوامر. */
+  const stockModels=useMemo(()=>orders.filter(o=>getConfirmedStock(o)>0).map(o=>{const{stockQty,avail,delivered,returned}=computeOrderAvail(o,soReservedByOrder);const net=(delivered-returned)+(soReservedByOrder[o.id]||0);return{id:o.id,modelNo:o.modelNo,modelDesc:o.modelDesc,image:o.image||"",stockQty,seriesQty:getConfirmedSeriesStock(o),brokenQty:getConfirmedBrokenStock(o),custDel:net,avail,rackSize:getRackSize(o.id),sellPrice:Number(o.sellPrice)||0,returns:returned}}),[orders,soReservedByOrder]);
 
   const saveCust=()=>{if(!cName.trim()||!cPhone.trim()){showToast("⚠️ الاسم والتليفون مطلوبين");return}
     const phoneClean=normalizePhone(cPhone.trim());
@@ -2783,10 +2783,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
          flagged the inconsistency. Now both compute the same way: positive availability
          only. Over-sold models still appear in the matrix with a red indicator
          elsewhere; they just don't dilute the headline number. */
-      /* V21.27.167: «المتاح» يستبعد الأوامر المقفولة (نفس قاعدة المخازن/الداش بورد —
-         computeFinishedValuation). الأمر المقفول منتهي فمخزونه مش متاح للبيع. الحقول
-         التراكمية (totalStock/totalSold) بتفضل شاملة الكل عشان أرقام البيع التاريخية. */
-      const totalRemain=stockModels.filter(m=>!m.closed&&m.avail>0).reduce((s,m)=>s+m.avail,0);
+      /* V21.27.168: المتاح = Σ avail (= تسليم − مباع). المقفول بيتحسب (قطعه في
+         المخزن) عشان المعادلة تتحقق ويطابق المخازن/الداش بورد. */
+      const totalRemain=stockModels.filter(m=>m.avail>0).reduce((s,m)=>s+m.avail,0);
       const pct=totalStock?Math.round(totalSold/totalStock*100):0;
       const totalRevenue=stockModels.reduce((s,m)=>s+m.custDel*(Number(orders.find(o=>o.id===m.id)?.sellPrice)||0),0);
       const totalCost=orders.reduce((s,o)=>{const t=calcOrder(o);return s+(t.totalCost||0)},0);
@@ -2827,7 +2826,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
       const q = String(availPopup.search||"").trim().toLowerCase();
       /* Build the rows. Sort by avail descending so the highest-stock models appear first. */
       const _perOrder = stockModels
-        .filter(m => !m.closed && m.avail > 0)   /* V21.27.167: استبعاد المقفولة — يطابق بطاقة «رصيد متاح» والمخازن */
+        .filter(m => m.avail > 0)   /* V21.27.168: المقفول بيتحسب (قطعه في المخزن) — يطابق البطاقة والمخازن */
         .map(m => {
           const seriesQty = Number(m.seriesQty)||0;
           const custDel = Number(m.custDel)||0;
