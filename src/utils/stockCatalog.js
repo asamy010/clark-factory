@@ -18,8 +18,9 @@
    pure تماماً (مفيش browser refs) → آمن للاستيراد في الـ serverless bundle.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { calcOrder, getConfirmedStock, getConfirmedSeriesStock } from "./orders.js";
-import { getSizesFromSet } from "./format.js";
+import { calcOrder, getConfirmedStock, getConfirmedSeriesStock, orderCostPerPiece } from "./orders.js";
+import { getSizesFromSet, r2 } from "./format.js";
+import { computeStockNetMap, netStockOf } from "./stockLedger.js";
 
 /* المحجوز بأوامر البيع لكل أمر — نسخة طبق الأصل من
    CustDeliverPg.jsx soReservedByOrder (V21.20.5/V21.21.1). */
@@ -56,6 +57,50 @@ export function computeOrderAvail(o, soReserved){
   const reserved = (soReserved && soReserved[o.id]) || 0;
   const net = (cd - ret) + reserved;
   return { stockQty: sd, avail: sd - net, delivered: cd, returned: ret, reserved };
+}
+
+/* ──────── V21.27.165: تقييم المخزن الجاهز — مصدر حقيقة موحّد ────────
+   قبل كده كان الحساب متكرّر في WarehousePg.wStats و dashboardKpis.finishedVal
+   فدرِفوا مرّتين: V164 الداشبورد كان ناسي الجاهز الافتتاحي، و V165 الداشبورد كان
+   بيعدّ الأوامر المقفولة (o.closed) بينما المخازن بتتخطّاها → رقمين مختلفين.
+   الصيغة الموحّدة:
+     • موديلات الإنتاج: **غير مقفولة** (!o.closed) + المتاح>0 → المتاح × تكلفة
+       القطعة (orderCostPerPiece) [بيع = o.sellPrice].
+     • الجاهز الافتتاحي: generalProducts المعلَّمة isFinishedGood، الرصيد من
+       الـ ledger (computeStockNetMap) × (avgCost‖costPrice‖price) [بيع = x.price].
+   يرجّع القيمة الكلية + التفصيلة + تقسيمة models/opening عشان كل المستهلكين
+   (المخازن + الداشبورد) ياخدوا نفس الرقم بالظبط. pure → آمن لأي bundle. */
+export function computeFinishedValuation(data){
+  const d = data || {};
+  const soReserved = computeSoReserved(d.salesOrders);
+  let mVal = 0, mSell = 0, mQty = 0, mCount = 0;
+  const detail = [];
+  (d.orders || []).forEach(o => {
+    if(!o || o.closed) return;
+    const { avail } = computeOrderAvail(o, soReserved);
+    if(avail <= 0) return;
+    let cost = 0; try { cost = orderCostPerPiece(o); } catch(_) {}
+    const sell = Number(o.sellPrice) || 0;
+    mVal += avail * cost; mSell += avail * sell; mQty += avail; mCount++;
+    detail.push({ name: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : ""), qty: avail, unitCost: r2(cost), value: r2(avail * cost), unitSell: r2(sell), sellValue: r2(avail * sell), kind: "موديل" });
+  });
+  const netMap = computeStockNetMap(d.stockMovements);
+  let oVal = 0, oSell = 0, oQty = 0, oCount = 0;
+  (d.generalProducts || []).forEach(x => {
+    if(!x || !x.isFinishedGood) return;
+    const q = netStockOf(netMap, x); if(q <= 0) return;
+    const uc = Number(x.avgCost) || Number(x.costPrice) || Number(x.price) || 0;
+    const sell = Number(x.price) || 0;      /* المنتج العام: price = سعر البيع */
+    oVal += q * uc; oSell += q * sell; oQty += q; oCount++;
+    detail.push({ name: ((x.code ? x.code + " — " : "") + (x.name || "—")) + " (افتتاحي)", qty: q, unitCost: r2(uc), value: r2(q * uc), unitSell: r2(sell), sellValue: r2(q * sell), kind: "رصيد افتتاحي" });
+  });
+  detail.sort((a, b) => b.value - a.value);
+  return {
+    value: r2(mVal + oVal), sellValue: r2(mSell + oSell), qty: mQty + oQty, count: mCount + oCount,
+    models:  { value: r2(mVal), sellValue: r2(mSell), qty: mQty, count: mCount },
+    opening: { value: r2(oVal), sellValue: r2(oSell), qty: oQty, count: oCount },
+    detail,
+  };
 }
 
 /* مفاتيح الأقمشة A..H — كل واحد له مصفوفة ألوان order["colors"+k] (§4). */

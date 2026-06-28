@@ -11,7 +11,7 @@ import { FS, PRINT_CSS } from "../constants/index.js";
 import { T, TD, TH } from "../theme.js";
 import { fmt, gid, r2 } from "../utils/format.js";
 import { calcOrder, orderCostPerPiece } from "../utils/orders.js";
-import { computeSoReserved, computeOrderAvail } from "../utils/stockCatalog.js";
+import { computeSoReserved, computeOrderAvail, computeFinishedValuation } from "../utils/stockCatalog.js";
 import { computeStockNetMap, netStockOf as netStockOfLedger } from "../utils/stockLedger.js";
 import { analyzeStockReconciliation, relinkOrphanMovements, syncStoredStockFromLedger } from "../utils/stockReconcile.js";
 import { ask, askInput, showToast, tell, denyAction } from "../utils/popups.js";
@@ -154,23 +154,18 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
     /* V21.27.159: المنتجات الجاهزة الافتتاحية (isFinishedGood) بتتشال من جردِ
        «المنتجات العامة» وبتتحسب في تجميعة الجاهز (مخزون قديم جاهز). */
     const g={count:0,value:0,low:0,zero:0};
-    const fo={count:0,qty:0,value:0};/* finished-opening = منتجات جاهزة افتتاحية */
-    generalProducts.forEach(x=>{const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;
-      if(x.isFinishedGood){if(s>0){fo.count++;fo.qty+=s;fo.value+=s*c}return;}
+    generalProducts.forEach(x=>{
+      if(x.isFinishedGood)return;/* V21.27.165: الجاهز الافتتاحي بيتحسب في computeFinishedValuation */
+      const s=netStockOf(x);const c=Number(x.avgCost)||Number(x.costPrice)||Number(x.price)||0;
       g.count++;g.value+=s*c;if(s===0)g.zero++;else if(x.minStock&&s<=x.minStock)g.low++});
-    /* V21.27.94: الجاهز = «المتاح الفعلي» (المستلم من الورشة − صافي المبيعات −
-       المحجوز) عبر computeOrderAvail — نفس مصدر الحقيقة في هَب المبيعات/كارت
-       صنف. قبل كده كان cutQty − getConfirmedStock − reserved (= شغل تحت التشغيل،
-       غلط — كان بيخفي الموديلات الجاهزة فعلاً ويعرض اللي لسه بتتصنّع). */
-    /* V21.27.155: قيمة الجاهز بالتكلفة = المتاح × تكلفة القطعة الكاملة للأمر
-       (orderCostPerPiece — نفس المصدر الموثوق في الداشبورد و InventoryValuationReport
-       و«تكلفة القطعة» في DetPg). قبل كده البطاقة كانت بتعرض **عدد القطع** (11,686)
-       مكان القيمة والإجمالي مكنش بيشملها → «تقييم الجاهز غلط كليًا». */
-    let finishedQty=0,finishedModels=0,finishedVal=0;
-    orders.forEach(o=>{if(o.closed)return;const{avail}=computeOrderAvail(o,soReservedByOrder);if(avail>0){finishedQty+=avail;finishedModels++;let cp=0;try{cp=orderCostPerPiece(o)}catch(_){}finishedVal+=avail*cp;}});
-    /* V21.27.159: إجمالي الجاهز = موديلات الإنتاج + المنتجات الجاهزة الافتتاحية. */
-    return{fabric:f,accessory:a,general:g,finishedOpening:{count:fo.count,qty:fo.qty,value:r2(fo.value)},finished:{count:finishedModels+fo.count,qty:finishedQty+fo.qty,value:r2(finishedVal+fo.value)}};
-  },[fabrics,accessories,generalProducts,orders,soReservedByOrder,stockNetMap]);
+    /* V21.27.165: الجاهز (موديلات الإنتاج غير المقفولة + المنتجات الجاهزة الافتتاحية)
+       من **مصدر الحقيقة الموحّد** computeFinishedValuation — نفس الدالة بالظبط اللي
+       بتغذّي لوحة التحكم (dashboardKpis). قبل كده كان فيه نسختين درِفوا (V164/V165). */
+    const finVal=computeFinishedValuation(data);
+    return{fabric:f,accessory:a,general:g,
+      finishedOpening:{count:finVal.opening.count,qty:finVal.opening.qty,value:finVal.opening.value},
+      finished:{count:finVal.count,qty:finVal.qty,value:finVal.value}};
+  },[fabrics,accessories,generalProducts,orders,soReservedByOrder,stockNetMap,data]);
   
   /* ──────── OPEN PRODUCT FROM QR SCAN ──────── */
   useEffect(()=>{

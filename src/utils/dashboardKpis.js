@@ -21,7 +21,7 @@ import { r2 } from "./format.js";
 import { computeSalesOverviewTotals, buildCustomerSummary, buildSupplierSummary } from "./accountSummary.js";
 import { calcOrder, getConfirmedStock, orderCostPerPiece } from "./orders.js";
 import { getCategoryById } from "./categories.js";
-import { computeStockNetMap, netStockOf } from "./stockLedger.js";
+import { computeFinishedValuation } from "./stockCatalog.js";
 
 export function computeDashboardKpis(data){
   const d = data || {};
@@ -57,55 +57,13 @@ export function computeDashboardKpis(data){
   const payable = r2(supDetail.reduce((acc, x) => acc + (x.balance > 0 ? x.balance : 0), 0));
 
   /* ── تقييم المخزون (بالتكلفة) ── */
-  /* الجاهز: المتاح لكل أوردر × تكلفة الوحدة (نفس منطق InventoryValuationReport) */
-  const soReserved = {};
-  (d.salesOrders || []).forEach(so => {
-    if(!so || so.status === "cancelled" || so.sourceDistributionId) return;
-    (so.items || []).forEach(it => { if(it && it.sourceType === "order" && it.sourceId) soReserved[it.sourceId] = (soReserved[it.sourceId] || 0) + (Number(it.qty) || 0); });
-    /* V21.27.97: مرتجعات الأمر المباشر (so.returns) تطرح من المحجوز.
-       V21.27.99: مرتجعات أصناف المخزون بترجع فعليًا (applyStockDelta) مش
-       للمحجوز المشتق — فبنتخطّاها (الموديلات order بس هي اللي تُطرح هنا). */
-    (so.returns || []).forEach(rr => { if(rr && rr.sourceId && (!rr.itemSourceType || rr.itemSourceType === "order")) soReserved[rr.sourceId] = (soReserved[rr.sourceId] || 0) - (Number(rr.qty) || 0); });
-  });
-  let finishedVal = 0, finishedSellVal = 0; const finishedDetail = [];
-  (d.orders || []).forEach(o => {
-    const sd = getConfirmedStock(o); if(sd <= 0) return;
-    const cd = (o.customerDeliveries || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
-    const ret = (o.customerReturns || []).reduce((a, x) => a + (Number(x.qty) || 0), 0);
-    const avail = Math.max(0, sd - (cd - ret + (soReserved[o.id] || 0)));
-    if(avail <= 0) return;
-    /* V21.27.128: تكلفة الوحدة = نفس رقم «تكلفة القطعة» في الأمر بالضبط
-       (orderCostPerPiece = costAllProjected + التسوية + المصروفات الإضافية ÷
-       كمية القص). قبل كده كانت تستخدم costPer (الفعلي) وتتجاهل التسوية
-       والمصروفات → رقم مخالف للأمر. */
-    let cost = 0; try { cost = orderCostPerPiece(o); } catch(_) {}
-    const val = r2(avail * cost);
-    /* V21.27.104: قيمة الجاهز بسعر البيع (avail × سعر بيع الأمر) — لتقرير
-       تقييم المخزون المحاسبي (الجاهز بالتكلفة + بسعر المبيعات). سعر البيع
-       مخزّن مباشرة على الأمر (o.sellPrice) — مش محسوب. */
-    const sell = Number(o.sellPrice) || 0;
-    const sval = r2(avail * sell);
-    finishedVal += val; finishedSellVal += sval;
-    finishedDetail.push({ name: (o.modelNo || "—") + (o.modelDesc ? " — " + o.modelDesc : ""), qty: avail, unitCost: r2(cost), value: val, unitSell: r2(sell), sellValue: sval });
-  });
-  /* V21.27.164: المنتجات الجاهزة الافتتاحية (مخزون قديم جاهز — مالهاش أمر إنتاج،
-     isFinishedGood) جزء من تقييم الجاهز — نفس مصدر الحقيقة في هَب المخازن
-     (WarehousePg.wStats.finished = موديلات الإنتاج + الجاهز الافتتاحي). قبل كده
-     كانت متغيّبة عن الداشبورد فبطاقة «تقييم مخزن جاهز» كانت أقل من تاب الجاهز
-     بقيمة الأصناف دي. الرصيد من الـ ledger (حركة opening) مش item.stock. */
-  const _finNetMap = computeStockNetMap(d.stockMovements);
-  (d.generalProducts || []).forEach(x => {
-    if(!x || !x.isFinishedGood) return;
-    const q = netStockOf(_finNetMap, x); if(q <= 0) return;
-    const uc = Number(x.avgCost) || Number(x.costPrice) || Number(x.price) || 0;
-    const val = r2(q * uc);
-    const sell = Number(x.price) || 0;      /* المنتج العام: price = سعر البيع */
-    const sval = r2(q * sell);
-    finishedVal += val; finishedSellVal += sval;
-    finishedDetail.push({ name: ((x.code ? x.code + " — " : "") + (x.name || "—")) + " (افتتاحي)", qty: q, unitCost: r2(uc), value: val, unitSell: r2(sell), sellValue: sval });
-  });
-  finishedVal = r2(finishedVal); finishedSellVal = r2(finishedSellVal);
-  finishedDetail.sort((a, b) => b.value - a.value);
+  /* V21.27.165: الجاهز عبر مصدر الحقيقة الموحّد computeFinishedValuation
+     (stockCatalog) — نفس الدالة اللي بيستهلكها هَب المخازن (WarehousePg.wStats).
+     قبل كده كان فيه نسختين من الحساب درِفوا (V164: نسي الجاهز الافتتاحي؛ V165:
+     عدّ الأوامر المقفولة). دلوقتي مستحيل يختلفوا — دالة واحدة. */
+  const _fin = computeFinishedValuation(d);
+  const finishedVal = _fin.value, finishedSellVal = _fin.sellValue;
+  const finishedDetail = _fin.detail;
 
   /* الخامات/الإكسسوار: المخزون × متوسط التكلفة (legacy + أصناف المخازن المخصصة) */
   const fabricDetail = [], accessoryDetail = [], otherDetail = [];

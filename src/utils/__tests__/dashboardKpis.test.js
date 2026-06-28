@@ -60,6 +60,14 @@ describe("computeDashboardKpis — الأرقام الذهبية", () => {
     expect(computeDashboardKpis(data).inventory.finished).toBe(820);/* بدون تغيير */
   });
 
+  it("V21.27.165: الأمر المقفول (closed) لا يُحتسب في تقييم الجاهز (مطابقة هَب المخازن)", () => {
+    const data = makeFactoryData();
+    data.orders.forEach(o => { o.closed = true; });
+    const k = computeDashboardKpis(data);
+    /* المخازن بتتخطّى الأوامر المقفولة — الداشبورد لازم يعمل نفس الشيء (V165) */
+    expect(k.inventory.finished).toBe(0);
+  });
+
   it("V21.21.1: مرآة التوزيعة لا تحجز مخزوناً (so2 كميتها 5 متجاهَلة)", () => {
     const data = makeFactoryData();
     /* لو المرآة اتحسبت في الحجز: متاح = 50 − (8 + 6) = 36 × 20 = 720 ≠ 820 */

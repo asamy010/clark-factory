@@ -12,6 +12,51 @@
 
 ---
 
+## V21.27.165 (2026-06-28) — 🎯 توحيد تقييم الجاهز في دالة واحدة (الفرق كان الأوامر المقفولة)
+
+**ملاحظة Ahmed:** بعد V164 الرقمين لسه مختلفين — والداش بورد بقى **أعلى**:
+المخازن 3,429,886.29 مقابل الداش بورد 3,643,570.68 (فرق **213,684.39**).
+
+**التشخيص:** قارنّا المسارين سطرًا بسطر:
+- صيغة المتاح (`getConfirmedStock − (delivered − returned + reserved)`) **متطابقة**.
+- بناء `soReserved` (computeSoReserved) **متطابق**.
+- `orders` = `data.orders` في الاتنين.
+- **الفرق الوحيد:** هَب المخازن بيعمل `if(o.closed) return` (يتخطّى الأوامر
+  المقفولة)، بينما الداش بورد **مكنش** بيتخطّاها → بيعدّ الأوامر المقفولة اللي
+  لسه ليها `avail>0`. الفرق = قيمة دي بالظبط.
+
+**ليه درِفوا مرّتين؟** كان فيه **نسختين** من حساب تقييم الجاهز (WarehousePg.wStats
+و dashboardKpis) — V164 صلّح غياب الافتتاحي في نسخة، و V165 ظهر فرق المقفول.
+ده بالظبط نمط الـ drift اللي البروتوكول (§0.1 + سابقة stockCatalog/stockLedger)
+بيحذّر منه.
+
+**الحل (مصدر حقيقة واحد — §0):** استخرجنا دالة واحدة
+**`computeFinishedValuation(data)`** في `src/utils/stockCatalog.js`:
+- موديلات الإنتاج: `!o.closed` + `computeOrderAvail.avail>0` → `avail ×
+  orderCostPerPiece` (بيع = `o.sellPrice`).
+- الجاهز الافتتاحي: `generalProducts.filter(isFinishedGood)`، الرصيد
+  `netStockOf(computeStockNetMap(stockMovements))` × `(avgCost‖costPrice‖price)`
+  (بيع = `x.price`).
+- بترجّع `{ value, sellValue, qty, count, models, opening, detail }`.
+
+**المستهلكون (الاتنين بقوا يستدعوا نفس الدالة):**
+- `dashboardKpis.js`: شال الـ soReserved + لووب الأوامر + لووب الافتتاحي،
+  وبقى `const _fin = computeFinishedValuation(d)`.
+- `WarehousePg.wStats`: شال لووب `fo`/الأوامر، وبقى `computeFinishedValuation
+  (data)` للـ finished + finishedOpening (لووب generalProducts بقى للـ `g`
+  غير الجاهز بس).
+
+**Blast radius:** بطاقة الربح = `netProfit` (مبيعات − COGS − مصروفات) **مش
+متأثرة**. الـ COGS (بيلفّ كل الأوامر بما فيها المقفولة) **متغيّرش** — التعديل
+على التقييم بس. هَب المخازن رقمه **مكنش يتغيّر** (الدالة بتكرّر منطقه حرفيًا).
+
+**الاختبارات (6 جديدة):** `finishedValuation.test.js` (5: موديلات=820، الأمر
+المقفول مُستبعَد=0، الافتتاحي من الـ ledger=180، المنتج العام مُستبعَد،
+الداش بورد=الدالة بالظبط) + `dashboardKpis.test.js` (المقفول→0). **486 اختبار
+كلهم ناجح.** build ✓.
+
+---
+
 ## V21.27.164 (2026-06-28) — ⚖️ توحيد تقييم مخزن الجاهز بين لوحة التحكم وتاب الجاهز
 
 **سؤال Ahmed:** «الأصناف اللي بضيفها لمخزن الجاهز مباشر (بلا أمر) — تقييمها بيتضاف
