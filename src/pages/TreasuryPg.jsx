@@ -2994,7 +2994,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     })()}
 
     {/* View Tabs — V18.92: horizontal scroll on mobile to prevent tabs being cut off */}
-    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.brd,WebkitOverflowScrolling:"touch"}}>
+    <div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflowX:"auto",overflowY:"hidden",border:"1px solid "+T.brd,WebkitOverflowScrolling:"touch"}}>
       {(()=>{
         /* Dynamic tabs: general journal + one per account + tools */
         const unreadTransferNotifs=notifications.filter(n=>n.toEmail===userEmail&&!n.read&&(n.type==="treasury_transfer"||n.type==="treasury_transfer_confirmed")).length;
@@ -3026,7 +3026,7 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
         const _isWalletAccView=view.startsWith("acc_")&&(accountsData.find(a=>a.id===view.slice(4))?.type==="wallet");
         return baseTabs.map(v=>{
         const _active=view===v.k||(v.k==="wallets"&&_isWalletAccView);
-        return <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:_active?T.accent:T.cardSolid,color:_active?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>;})
+        return <div key={v.k} onClick={()=>{setView(v.k);if(v.accName){setFilterAcc(v.accName);setTxAccount(v.accName)}else if(v.k==="journal")setFilterAcc("الكل")}} style={{flex:isMob?"0 0 auto":"1 0 auto",padding:isMob?"10px 14px":"10px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:_active?T.accent:T.cardSolid,color:_active?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{v.l}</div>;})
       })()}
     </div>
 
@@ -3036,8 +3036,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     {(view==="wallets"||(view.startsWith("acc_")&&accountsData.find(a=>a.id===view.slice(4))?.type==="wallet"))&&(()=>{
       const _wls=accountsData.filter(a=>a.type==="wallet");
       const _subTabs=[{k:"wallets",l:"🏠 الرئيسية"},..._wls.map(w=>({k:"acc_"+w.id,l:(w.icon||"📱")+" "+w.name,accName:w.name}))];
-      return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
-        {_subTabs.map(s=><div key={s.k} onClick={()=>{setView(s.k);if(s.accName){setFilterAcc(s.accName);setTxAccount(s.accName)}}} style={{flex:isMob?"0 0 auto":1,padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===s.k?T.accent:"transparent",color:view===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
+      return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflowX:"auto",overflowY:"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
+        {_subTabs.map(s=><div key={s.k} onClick={()=>{setView(s.k);if(s.accName){setFilterAcc(s.accName);setTxAccount(s.accName)}}} style={{flex:isMob?"0 0 auto":"1 0 auto",padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:view===s.k?T.accent:"transparent",color:view===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
       </div>;
     })()}
 
@@ -5842,8 +5842,8 @@ export function TreasuryPg({data,upConfig,isMob,canEdit,user,userRole}){
     {view==="settings"&&<div>
       {(()=>{
         const _subTabs=[{k:"financial",l:"💰 المالية"}];
-        return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflow:isMob?"auto":"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
-          {_subTabs.map(s=><div key={s.k} onClick={()=>setSettingsTab(s.k)} style={{flex:isMob?"0 0 auto":1,padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:settingsTab===s.k?T.accent:"transparent",color:settingsTab===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
+        return<div style={{display:"flex",gap:0,marginBottom:16,borderRadius:10,overflowX:"auto",overflowY:"hidden",border:"1px solid "+T.accent+"55",background:T.accent+"0D",WebkitOverflowScrolling:"touch"}}>
+          {_subTabs.map(s=><div key={s.k} onClick={()=>setSettingsTab(s.k)} style={{flex:isMob?"0 0 auto":"1 0 auto",padding:isMob?"9px 14px":"9px 8px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:FS-2,background:settingsTab===s.k?T.accent:"transparent",color:settingsTab===s.k?"#fff":T.textSec,transition:"all 0.15s",whiteSpace:"nowrap"}}>{s.l}</div>)}
         </div>;
       })()}
       {settingsTab==="financial"&&<Card title="💰 الإعدادات المالية — بنود الحركات">
