@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeStockNetMap, netStockOf } from "../stockLedger.js";
+import { computeStockNetMap, netStockOf, recomputeItemFromMovements } from "../stockLedger.js";
 
 const mv = (o) => ({ createdAt: "2026-01-01T00:00:00Z", ...o });
 
@@ -69,5 +69,61 @@ describe("netStockOf", () => {
 
   it("returns 0 for a missing item", () => {
     expect(netStockOf(new Map(), null)).toBe(0);
+  });
+});
+
+describe("recomputeItemFromMovements", () => {
+  it("computes net stock and inflow-weighted avgCost for one item", () => {
+    const r = recomputeItemFromMovements([
+      mv({ itemType: "general", itemId: "g1", type: "opening", qty: 100, price: 10 }),
+      mv({ itemType: "general", itemId: "g1", type: "in", qty: 100, price: 20 }),
+      mv({ itemType: "general", itemId: "g1", type: "out", qty: 50, price: 0 }),
+    ], "g1");
+    expect(r.stock).toBe(150);          // 100 + 100 - 50
+    expect(r.avgCost).toBe(15);         // (100*10 + 100*20) / 200
+  });
+
+  it("ignores out-movement price in the average (only inflows count)", () => {
+    const r = recomputeItemFromMovements([
+      mv({ itemType: "fabric", itemId: "f1", type: "in", qty: 10, price: 5 }),
+      mv({ itemType: "fabric", itemId: "f1", type: "out", qty: 4, price: 999 }),
+    ], "f1");
+    expect(r.stock).toBe(6);
+    expect(r.avgCost).toBe(5);
+  });
+
+  it("only counts the requested item's movements", () => {
+    const moves = [
+      mv({ itemType: "fabric", itemId: "f1", type: "in", qty: 10, price: 5 }),
+      mv({ itemType: "fabric", itemId: "f2", type: "in", qty: 999, price: 999 }),
+    ];
+    expect(recomputeItemFromMovements(moves, "f1").stock).toBe(10);
+  });
+
+  it("returns avgCost=null when there are no inflows (caller keeps old cost)", () => {
+    const r = recomputeItemFromMovements([
+      mv({ itemType: "fabric", itemId: "f1", type: "out", qty: 3 }),
+    ], "f1");
+    expect(r.stock).toBe(-3);
+    expect(r.avgCost).toBeNull();
+  });
+
+  it("simulating a permit deletion lowers stock (validation use-case)", () => {
+    const all = [
+      mv({ id: "p1", itemType: "general", itemId: "g1", type: "opening", qty: 100, price: 10 }),
+      mv({ id: "s1", itemType: "general", itemId: "g1", type: "out", qty: 80, price: 0 }),
+    ];
+    expect(recomputeItemFromMovements(all, "g1").stock).toBe(20);
+    // remove the +100 opening permit → 0 - 80 = -80 (must be blocked by the UI)
+    const afterDelete = all.filter(m => m.id !== "p1");
+    expect(recomputeItemFromMovements(afterDelete, "g1").stock).toBe(-80);
+  });
+
+  it("adjust sets the running stock (matches computeStockNetMap)", () => {
+    const r = recomputeItemFromMovements([
+      mv({ createdAt: "2026-01-01", itemType: "fabric", itemId: "f1", type: "in", qty: 100, price: 5 }),
+      mv({ createdAt: "2026-01-02", itemType: "fabric", itemId: "f1", type: "adjust", qty: 70 }),
+    ], "f1");
+    expect(r.stock).toBe(70);
   });
 });

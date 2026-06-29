@@ -17,9 +17,11 @@ import { FS } from "../constants/index.js";
 import { Btn, Inp, Sel, SearchSel } from "./ui.jsx";
 import { fmt, r2 } from "../utils/format.js";
 import { ask, tell, showToast } from "../utils/popups.js";
-import { computeStockNetMap, netStockOf } from "../utils/stockLedger.js";
+import { computeStockNetMap, netStockOf, recomputeItemFromMovements } from "../utils/stockLedger.js";
 
 const _gid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+/* V21.27.183: itemType الحركة → اسم الـ collection (للـ recompute بعد تعديل/حذف). */
+const _listKeyFor = (it) => it === "fabric" ? "fabrics" : it === "accessory" ? "accessories" : "generalProducts";
 
 /* V21.27.182: `itemType` = اللي بيتكتب في حركة المخزون (مفصول عن `key`).
    - الجاهز (finishedGood) بياخد itemType="general" عشان حركاته تظهر في «سجل
@@ -47,6 +49,8 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
   const [price, setPrice] = useState("");
   const [date, setDate] = useState(today);
   const [notes, setNotes] = useState("");
+  /* V21.27.183: تعديل إذن مسجّل (movement.id من سجل الإذونات) */
+  const [editMov, setEditMov] = useState(null);
 
   const selType = permitTypes.find(t => String(t.id) === String(permitTypeId)) || null;
   const direction = selType ? selType.direction : null; /* "in" | "out" */
@@ -129,6 +133,75 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
     showToast("✅ اتنفّذ الإذن — " + (direction === "in" ? "زاد" : "خصم") + " " + fmt(q) + " " + (selItem.unit || ""));
   };
 
+  /* ── حذف إذن مسجّل (V21.27.183) ──
+     الحذف بيرجّع تأثير الإذن في الرصيد. الفاليديشن: لو الإذن كان «داخل/افتتاحي»
+     وكميته اتصرفت في حركات تانية (الرصيد بعد الحذف هيبقى سالب) → ممنوع، لأن
+     الكمية «مرتبطة بحركات تانية». بعد الحذف بنعيد حساب stock+avgCost للصنف من
+     الحركات (source of truth) عشان الـ fallback والتقييم يفضلوا متّسقين. */
+  const reapplyItem = (d, itemType, itemId) => {
+    const it = (d[_listKeyFor(itemType)] || []).find(x => String(x.id) === String(itemId));
+    if(!it) return;
+    const rc = recomputeItemFromMovements(d.stockMovements, itemId);
+    it.stock = rc.stock;
+    if(rc.avgCost !== null) it.avgCost = rc.avgCost;
+    it.lastMovementDate = (d.stockMovements || [])
+      .filter(m => m && String(m.itemId) === String(itemId) && m.itemType !== "order")
+      .reduce((mx, m) => (m.date || "") > mx ? (m.date || "") : mx, "") || it.lastMovementDate;
+  };
+  const deletePermit = async (m) => {
+    if(!canEdit){ showToast("⛔ مالكش صلاحية"); return; }
+    if(!m || m.sourceType !== "permit"){ showToast("⚠️ الحركة دي مش إذن مخزني"); return; }
+    /* فاليديشن: الرصيد بعد الحذف لازم يفضل ≥ 0 */
+    const after = (data.stockMovements || []).filter(x => String(x.id) !== String(m.id));
+    const { stock } = recomputeItemFromMovements(after, m.itemId);
+    if(stock < 0){
+      await tell("مينفعش تحذف الإذن ده",
+        "الصنف: " + (m.itemName || "—") + "\n\nالكمية اللي الإذن ده ضافها اتصرفت بالفعل في حركات تانية (بيع/صرف/إذونات). لو حذفناه الرصيد هيبقى " + fmt(stock) + " " + (m.unit || "") + " (بالسالب).\n\nاحذف أو عدّل الحركات اللي صرفت الكمية الأول، وبعدين احذف الإذن.",
+        { type: "error" });
+      return;
+    }
+    const isOut = m.type === "out";
+    const ok = await ask("حذف الإذن المخزني",
+      "• النوع: " + (m.permitTypeName || "—") + "\n• الصنف: " + (m.itemName || "—") +
+      "\n• الكمية: " + (isOut ? "−" : "+") + fmt(m.qty) + " " + (m.unit || "") +
+      "\n\nالحذف هيرجّع تأثير الإذن في الرصيد (الرصيد الجديد للصنف: " + fmt(stock) + " " + (m.unit || "") + "). متأكد؟",
+      { danger: true, confirmText: "حذف" });
+    if(!ok) return;
+    upConfig(d => {
+      d.stockMovements = (d.stockMovements || []).filter(x => String(x.id) !== String(m.id));
+      reapplyItem(d, m.itemType, m.itemId);
+    });
+    showToast("🗑 اتحذف الإذن واتعدّل الرصيد");
+  };
+  const saveEditPermit = async () => {
+    if(!canEdit){ showToast("⛔ مالكش صلاحية"); return; }
+    if(!editMov) return;
+    const newQty = Number(editMov.qty) || 0;
+    if(newQty <= 0){ showToast("⚠️ ادخل كمية صحيحة"); return; }
+    const newPrice = editMov.type === "out" ? 0 : (Number(editMov.price) || 0);
+    /* فاليديشن: الرصيد بعد التعديل لازم يفضل ≥ 0 */
+    const others = (data.stockMovements || []).filter(x => String(x.id) !== String(editMov.id));
+    const simulated = [...others, { ...editMov, qty: newQty, price: newPrice }];
+    const { stock } = recomputeItemFromMovements(simulated, editMov.itemId);
+    if(stock < 0){
+      await tell("الكمية كبيرة",
+        "التعديل ده هيخلّي رصيد «" + (editMov.itemName || "") + "» = " + fmt(stock) + " " + (editMov.unit || "") + " (بالسالب) — فيه حركات تانية صرفت الكمية.\n\nقلّل الكمية أو راجع الحركات.",
+        { type: "error" });
+      return;
+    }
+    upConfig(d => {
+      const mvx = (d.stockMovements || []).find(x => String(x.id) === String(editMov.id));
+      if(!mvx) return;
+      mvx.qty = newQty;
+      if(mvx.type !== "out") mvx.price = newPrice;
+      mvx.date = editMov.date || mvx.date;
+      mvx.notes = (editMov.notes || "").trim() || mvx.notes;
+      reapplyItem(d, editMov.itemType, editMov.itemId);
+    });
+    setEditMov(null);
+    showToast("✅ اتعدّل الإذن واتحدّث الرصيد");
+  };
+
   const lbl = { fontSize: FS - 2, color: T.textSec, fontWeight: 600, display: "block", marginBottom: 4 };
   const card = { background: T.cardSolid, border: "1px solid " + T.brd, borderRadius: 12, padding: 14, marginBottom: 14 };
 
@@ -192,7 +265,7 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
         : <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FS - 1, minWidth: 560 }}>
             <thead><tr style={{ background: T.bg }}>
-              {["التاريخ", "النوع", "الاتجاه", "الصنف", "الكمية", "ملاحظات"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: "right", fontSize: FS - 3, fontWeight: 800, color: T.textSec, borderBottom: "1.5px solid " + T.brd, whiteSpace: "nowrap" }}>{h}</th>)}
+              {["التاريخ", "النوع", "الاتجاه", "الصنف", "الكمية", "ملاحظات", ...(canEdit ? ["إجراءات"] : [])].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: "right", fontSize: FS - 3, fontWeight: 800, color: T.textSec, borderBottom: "1.5px solid " + T.brd, whiteSpace: "nowrap" }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {permitLog.map((m, i) => { const isOut = m.type === "out"; return <tr key={m.id || i} style={{ borderBottom: "1px solid " + T.brd }}>
@@ -203,10 +276,36 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
                 <td style={{ padding: "6px 10px", color: T.text }}>{m.itemName || "—"}</td>
                 <td style={{ padding: "6px 10px", fontWeight: 700, color: isOut ? T.err : T.ok, direction: "ltr", textAlign: "right" }}>{(isOut ? "−" : "+") + fmt(m.qty)} {m.unit || ""}</td>
                 <td style={{ padding: "6px 10px", color: T.textMut, fontSize: FS - 3 }}>{m.notes || ""}</td>
+                {/* V21.27.183: تعديل/حذف الإذن — بيأثر في الرصيد مع فاليديشن */}
+                {canEdit && <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>
+                  <span style={{ display: "inline-flex", gap: 6 }}>
+                    <Btn ghost small onClick={() => setEditMov({ ...m })} style={{ color: T.accent, padding: "2px 8px" }}>✏️</Btn>
+                    <Btn ghost small onClick={() => deletePermit(m)} style={{ color: T.err, padding: "2px 8px" }}>🗑</Btn>
+                  </span>
+                </td>}
               </tr>; })}
             </tbody>
           </table>
         </div>}
     </div>
+
+    {/* ════ تعديل إذن (V21.27.183) ════ */}
+    {editMov && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditMov(null)}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 16, padding: 20, width: "100%", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontWeight: 800, fontSize: FS + 1, color: T.text, marginBottom: 4 }}>✏️ تعديل إذن مخزني</div>
+        <div style={{ fontSize: FS - 2, color: T.textMut, marginBottom: 14 }}>{editMov.itemName} — {editMov.type === "out" ? "خارج ➖" : (editMov.type === "opening" ? "افتتاحي ◉" : "داخل ➕")} ({editMov.permitTypeName || "—"})</div>
+        <div style={{ display: "grid", gridTemplateColumns: editMov.type === "out" ? "1fr 1fr" : "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div><label style={lbl}>الكمية{editMov.unit ? " (" + editMov.unit + ")" : ""}</label><Inp type="number" value={editMov.qty} onChange={v => setEditMov(p => ({ ...p, qty: v }))} /></div>
+          {editMov.type !== "out" && <div><label style={lbl}>التكلفة/الوحدة</label><Inp type="number" value={editMov.price} onChange={v => setEditMov(p => ({ ...p, price: v }))} /></div>}
+          <div><label style={lbl}>التاريخ</label><Inp type="date" value={editMov.date} onChange={v => setEditMov(p => ({ ...p, date: v }))} /></div>
+        </div>
+        <div style={{ marginBottom: 14 }}><label style={lbl}>ملاحظات</label><Inp value={editMov.notes || ""} onChange={v => setEditMov(p => ({ ...p, notes: v }))} placeholder="سبب الإذن..." /></div>
+        <div style={{ fontSize: FS - 3, color: T.textMut, marginBottom: 12, lineHeight: 1.6 }}>التعديل بيأثّر في رصيد الصنف فورًا. مينفعش تخلّي الرصيد بالسالب لو الكمية اتصرفت في حركات تانية.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn onClick={saveEditPermit} disabled={!canEdit || !(Number(editMov.qty) > 0)} style={{ flex: 1, background: T.ok, color: "#fff", border: "none" }}>💾 حفظ التعديل</Btn>
+          <Btn ghost onClick={() => setEditMov(null)} style={{ flex: 1 }}>إلغاء</Btn>
+        </div>
+      </div>
+    </div>}
   </div>;
 }
