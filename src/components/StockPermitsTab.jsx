@@ -21,10 +21,16 @@ import { computeStockNetMap, netStockOf } from "../utils/stockLedger.js";
 
 const _gid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+/* V21.27.182: `itemType` = اللي بيتكتب في حركة المخزون (مفصول عن `key`).
+   - الجاهز (finishedGood) بياخد itemType="general" عشان حركاته تظهر في «سجل
+     حركات المنتج» اللي بيفلتر itemType==="general" + يندمج مع الجرد/التقييم
+     (computeStockNetMap بيفهرس بالـ itemId فالرصيد سليم في كل الحالات).
+   - الجاهز والمنتج العام الاتنين generalProducts، بنفرّقهم بعلامة isFinishedGood. */
 const CATS = [
-  { key: "fabric", label: "🧵 خامة/قماش", listKey: "fabrics" },
-  { key: "accessory", label: "🪡 إكسسوار", listKey: "accessories" },
-  { key: "generalProduct", label: "➕ منتج عام", listKey: "generalProducts" },
+  { key: "fabric", label: "🧵 خامة/قماش", listKey: "fabrics", itemType: "fabric" },
+  { key: "accessory", label: "🪡 إكسسوار", listKey: "accessories", itemType: "accessory" },
+  { key: "generalProduct", label: "➕ منتج عام", listKey: "generalProducts", itemType: "generalProduct" },
+  { key: "finishedGood", label: "👕 منتج جاهز", listKey: "generalProducts", itemType: "general", finished: true },
 ];
 
 export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
@@ -44,8 +50,14 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
 
   const selType = permitTypes.find(t => String(t.id) === String(permitTypeId)) || null;
   const direction = selType ? selType.direction : null; /* "in" | "out" */
-  const listKey = (CATS.find(c => c.key === cat) || CATS[0]).listKey;
-  const itemList = Array.isArray(data[listKey]) ? data[listKey] : [];
+  const catObj = CATS.find(c => c.key === cat) || CATS[0];
+  const listKey = catObj.listKey;
+  const rawList = Array.isArray(data[listKey]) ? data[listKey] : [];
+  /* V21.27.182: افصل «منتج عام» عن «منتج جاهز» في القائمة (الاتنين generalProducts
+     لكن بعلامة isFinishedGood) عشان كل فئة تعرض أصنافها بس. */
+  const itemList = catObj.key === "finishedGood" ? rawList.filter(x => x && x.isFinishedGood)
+                 : catObj.key === "generalProduct" ? rawList.filter(x => x && !x.isFinishedGood)
+                 : rawList;
   const selItem = itemList.find(x => String(x.id) === String(itemId)) || null;
   /* V21.27.129: الرصيد = صافي حركات المخزون (استلامات + إذونات + مرتجعات
      بالاتجاه) — نفس مصدر العرض في «المخازن» بدل item.stock اللي ممكن يدرِف. */
@@ -102,8 +114,12 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
       }
       it.lastMovementDate = date || today;
       if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+      /* V21.27.182: للجاهز، حركة الإدخال تتسجّل «رصيد افتتاحي» (opening) — متّسقة
+         مع إطار «منتجات جاهزة (رصيد افتتاحي)» وبتظهر ◉ ابتدائي. opening في الـ
+         net-map بيتعامل زي in (بيزوّد)، فالرصيد سليم. الـ itemType من الفئة. */
+      const movType = (catObj.finished && direction === "in") ? "opening" : direction;
       d.stockMovements.push({
-        id: _gid(), type: direction, itemType: cat, itemId: selItem.id, itemName: selItem.name,
+        id: _gid(), type: movType, itemType: catObj.itemType, itemId: selItem.id, itemName: selItem.name,
         qty: q, unit: selItem.unit || "", price: cost, date: date || today,
         sourceType: "permit", sourceId: null, permitTypeId: selType.id, permitTypeName: selType.name,
         notes: notes.trim() || ("إذن مخزني: " + selType.name), createdBy: userName || "", createdAt: new Date().toISOString(),
@@ -179,14 +195,15 @@ export function StockPermitsTab({ data, upConfig, canEdit, userName, isMob }){
               {["التاريخ", "النوع", "الاتجاه", "الصنف", "الكمية", "ملاحظات"].map(h => <th key={h} style={{ padding: "7px 10px", textAlign: "right", fontSize: FS - 3, fontWeight: 800, color: T.textSec, borderBottom: "1.5px solid " + T.brd, whiteSpace: "nowrap" }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {permitLog.map((m, i) => <tr key={m.id || i} style={{ borderBottom: "1px solid " + T.brd }}>
+              {permitLog.map((m, i) => { const isOut = m.type === "out"; return <tr key={m.id || i} style={{ borderBottom: "1px solid " + T.brd }}>
                 <td style={{ padding: "6px 10px", color: T.textSec, whiteSpace: "nowrap" }}>{m.date || "—"}</td>
                 <td style={{ padding: "6px 10px", fontWeight: 700, color: T.text }}>{m.permitTypeName || "—"}</td>
-                <td style={{ padding: "6px 10px", fontWeight: 700, color: m.type === "in" ? T.ok : T.err, whiteSpace: "nowrap" }}>{m.type === "in" ? "داخل ➕" : "خارج ➖"}</td>
+                {/* V21.27.182: «out» بس هو الخارج؛ in/opening الاتنين دخول (➕). */}
+                <td style={{ padding: "6px 10px", fontWeight: 700, color: isOut ? T.err : T.ok, whiteSpace: "nowrap" }}>{isOut ? "خارج ➖" : (m.type === "opening" ? "افتتاحي ◉" : "داخل ➕")}</td>
                 <td style={{ padding: "6px 10px", color: T.text }}>{m.itemName || "—"}</td>
-                <td style={{ padding: "6px 10px", fontWeight: 700, color: m.type === "in" ? T.ok : T.err, direction: "ltr", textAlign: "right" }}>{(m.type === "in" ? "+" : "−") + fmt(m.qty)} {m.unit || ""}</td>
+                <td style={{ padding: "6px 10px", fontWeight: 700, color: isOut ? T.err : T.ok, direction: "ltr", textAlign: "right" }}>{(isOut ? "−" : "+") + fmt(m.qty)} {m.unit || ""}</td>
                 <td style={{ padding: "6px 10px", color: T.textMut, fontSize: FS - 3 }}>{m.notes || ""}</td>
-              </tr>)}
+              </tr>; })}
             </tbody>
           </table>
         </div>}

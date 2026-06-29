@@ -1436,7 +1436,7 @@ export function WarehousePg({data,upConfig,updOrder,isMob,isTab,canEdit,statusCa
           <div style={{fontSize:FS,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}>📦 منتجات جاهزة (رصيد افتتاحي)<span style={{padding:"1px 8px",borderRadius:8,fontSize:FS-3,fontWeight:700,background:T.ok+"15",color:T.ok}}>غير منتجة في المصنع</span>{finishedProd.length>0?<span style={{color:T.textMut,fontWeight:600}}>({finishedProd.length})</span>:null}</div>
           {canEdit&&<Btn primary small onClick={()=>{openNewProd();setProdForm(p=>({...(p||{}),isFinishedGood:true,unit:"قطعة"}))}}>➕ منتج جاهز</Btn>}
         </div>
-        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,lineHeight:1.6}}>أصناف جاهزة مخزون قديم مش متصنّعة في المصنع. أضف المنتج بالصور والتفاصيل، وسجّل رصيده الافتتاحي بزر «⇅ حركة» (داخل). بيظهر في التقييم والجرد وقابل للبيع.</div>
+        <div style={{fontSize:FS-2,color:T.textMut,marginBottom:8,lineHeight:1.6}}>أصناف جاهزة مخزون قديم مش متصنّعة في المصنع. أضف المنتج بالصور والتفاصيل، وسجّل رصيده الافتتاحي بزر «⇅ حركة» (داخل) <b>أو من تاب «📋 إذونات مخزنية» ← فئة «👕 منتج جاهز»</b> (V21.27.182). الكمية في الكارت = صافي كل الحركات. بيظهر في التقييم والجرد وقابل للبيع.</div>
         {finishedProd.length>0?renderItemTable(finishedProd,"general"):<div style={{padding:24,textAlign:"center",color:T.textMut,fontSize:FS-1,border:"1px dashed "+T.brd,borderRadius:10}}>لا توجد منتجات جاهزة افتتاحية بعد — اضغط «➕ منتج جاهز»</div>}
       </div>}
       <Card title="📊 سجل حركات مخزن الجاهز" style={{marginTop:12}}>
