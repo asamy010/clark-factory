@@ -68,7 +68,7 @@ export function PurchaseHubPg(props){
     { id: "receipts",   label: "📥 الاستلام",         show: canPurch, cnt: (data.purchaseReceipts || []).length },
     { id: "invoices",   label: "📤 فواتير المشتريات", show: canInv,   cnt: (data.purchaseInvoices || []).length },
     { id: "debitNotes", label: "↪️ إشعارات مدينة",    show: canDN,    cnt: (data.purchaseDebitNotes || []).length },
-    { id: "ledger",     label: "📊 كشف محاسبي",       show: canInv || canPurch },
+    { id: "ledger",     label: "📊 كشف حساب",         show: canInv || canPurch },
     { id: "reports",    label: "📈 تقارير",            show: canPurch || canInv },
     { id: "suppliers",  label: "👥 الموردون",         show: canViewPurchView("suppliers"), cnt: (data.suppliers || []).length },
     { id: "categories", label: "🏷️ الأصناف",          show: canViewPurchView("categories"), cnt: (data.itemCategories || []).length },

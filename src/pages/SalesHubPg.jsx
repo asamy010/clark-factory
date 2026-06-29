@@ -92,7 +92,7 @@ export function SalesHubPg(props){
     { id: "orders",      label: "📑 أوامر البيع",          show: canDoc("salesOrders"),     cnt: (data.salesOrders || []).length },
     { id: "invoices",    label: "📤 فواتير البيع",         show: canDoc("salesInvoices"),   cnt: (data.salesInvoices || []).length },
     { id: "returns",     label: "↩️ مرتجعات - إشعارات دائنة", show: canDoc("creditNotes"),  cnt: (data.salesCreditNotes || []).length },
-    { id: "ledger",      label: "📊 كشف محاسبي",           show: canDoc("salesInvoices") || canOps },
+    { id: "ledger",      label: "📊 كشف حساب",             show: canDoc("salesInvoices") || canOps },
     { id: "transfer",    label: "💱 تحميل حساب",            show: canDoc("salesInvoices") || canOps },
     { id: "portalRequests", label: "🛒 طلبات بورتال",      show: canViewPortal, cnt: portalPending || undefined },
     { id: "reports",     label: "📈 تقارير",                show: canOps || canDoc("salesInvoices") },
