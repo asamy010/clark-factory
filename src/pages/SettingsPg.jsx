@@ -1552,6 +1552,22 @@ function PoSettingsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,poMig
         {draft.poPrefix+String(1).padStart(draft.poDigits,"0")}
       </span>
     </div>
+    {/* V21.27.180: تشغيل/إيقاف منع حفظ أمر القص بدون خامة A (تطبيق فوري — مش جزء من الـ draft).
+        لما يكون موقوف بيسمح بحفظ أوامر ببيانات تكاليف ناقصة وإكمالها لاحقًا. */}
+    {(()=>{const fabReq=config.requireFabricOnOrder!==false;return(
+    <div style={{padding:"12px 14px",borderRadius:10,background:fabReq?T.ok+"08":T.warn+"0C",border:"1px solid "+(fabReq?T.ok+"30":T.warn+"40"),marginBottom:14}}>
+      <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
+        <input type="checkbox" checked={fabReq} onChange={ev=>{const on=ev.target.checked;upConfig(d=>{d.requireFabricOnOrder=on});showToast(on?"✅ تم تفعيل منع الحفظ بدون خامة A":"⚠️ تم إيقاف المنع — تقدر تحفظ أمر القص بدون خامة");}} style={{width:18,height:18,cursor:"pointer",marginTop:2,flexShrink:0}}/>
+        <span style={{flex:1}}>
+          <span style={{fontSize:FS,fontWeight:700,color:T.text}}>🧵 منع حفظ أمر القص بدون خامة A</span>
+          <div style={{fontSize:FS-2,color:T.textMut,marginTop:3,lineHeight:1.65}}>
+            لما تكون <b>مفعّلة</b> (الافتراضي) مايتحفظش أي أمر قص من غير خامة A حقيقية موجودة في المخزن.
+            <br/><b>أوقفها مؤقتًا</b> لو محتاج تحفظ أوامر ببيانات تكاليف ناقصة (مثلًا بعد عمل ريست للخامات) وتكمّلها بعدين — بعد ما تخلّص رجّعها مفعّلة تاني.
+          </div>
+          {!fabReq&&<div style={{fontSize:FS-2,color:T.warn,fontWeight:700,marginTop:6}}>⚠️ المنع موقوف حاليًا — ممكن تحفظ أوامر قص ناقصة الخامة.</div>}
+        </span>
+      </label>
+    </div>);})()}
     <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid "+T.brd,marginBottom:14}}>
       <Btn ghost onClick={handleDiscard} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{}}>↩️ إلغاء</Btn>
       <Btn primary onClick={handleSave} disabled={!isDirty} style={!isDirty?{opacity:0.4}:{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"10px 24px"}}>💾 حفظ</Btn>

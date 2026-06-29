@@ -12,6 +12,48 @@
 
 ---
 
+## V21.27.180 (2026-06-29) — 🧵 خيار إيقاف منع حفظ أمر القص بدون خامة
+
+**الطلب (Ahmed):** «في الأوردر لما بعمل تعديل وحفظ بدون خامة واحدة ع الأقل
+بيمنع الحفظ. عاوز أوبشن في الإعدادات أوقف الخاصية دي وأشغّلها تاني عادي — عشان
+في بيانات ناقصة في التكاليف عاوز أكمّلها ومش عارف أحفظ عشان عملت ريست للخامات
+ومسحتها وهاكمّل جديد.»
+
+**الخلفية:** V21.27.120 شدّدت المنع (حارس صارم: ممنوع حفظ أمر قص بدون **خامة A
+حقيقية موجودة في المخزن**). ده بيمنع كمان لو الـ id موجود بس الخامة اتمسحت
+(سيناريو الريست بتاع Ahmed) → مش عارف يحفظ.
+
+**الحل — toggle في الإعدادات (الافتراضي = صارم زي ما هو):**
+- **الإعداد:** `config.requireFabricOnOrder` — `undefined`/`true` = مفعّل
+  (السلوك القديم)، `false` = موقوف. (إعداد single-device — cfg مناسب §10.)
+- **الحواجز الـ3 اتغطّت كلها بفلاج واحد `requireFabric`:**
+  1. `src/utils/orders.js` → `validateOrder(form, requireFabricA=true)` — البراميتر
+     الجديد بيتحكّم في «خامة A مطلوبة». الافتراضي true (متوافق مع الكولر الوحيد).
+  2. `src/pages/OrdForm.jsx` → `const requireFabric=data?.requireFabricOnOrder!==false;`
+     - وضع الأمر: `validateOrder(form,requireFabric)` + الحارس الصارم
+       `if(requireFabric&&!fabObj(form.fabricA))…`.
+     - وضع الموديل: `if(requireFabric&&!fabObj(form.fabricA))…`.
+  3. `src/pages/SettingsPg.jsx` → في `PoSettingsCard` (إعدادات أمر التشغيل) toggle
+     فوري (مش جزء من الـ draft): checkbox بيكتب `requireFabricOnOrder` عبر upConfig
+     + توست + بانر تحذير لما يكون موقوف.
+- **فحص المخزن مش متأثر:** `checkStockAvailability` بترجّع ok لو المخزن متعطّل،
+  وبتتخطّى الخامة المحذوفة (`if(!fab)return`)، فمفيش حاجز تاني بيقفل السيناريو.
+
+**أمان (§0.1):** التغيير معزول في طبقة التحقّق — مفيش mutation مالي/مخزون جديد.
+الافتراضي بيحافظ على السلوك الصارم تمامًا (مفيش install بيتأثر إلا لو الأدمن
+وقّف الخيار بنفسه). نصيحة في الـ UI: رجّعه مفعّل بعد ما تخلّص.
+
+**اختبارات:** `src/utils/__tests__/validateOrderFabric.test.js` (5 حالات:
+الافتراضي صارم · مفعّل صريح · موقوف · باقي الحقول لسه بتتمنع · سليم مع خامة).
+build ✓ — **501 اختبار ناجح**.
+
+**ملفات:** `src/utils/orders.js`، `src/pages/OrdForm.jsx`،
+`src/pages/SettingsPg.jsx`، `src/utils/__tests__/validateOrderFabric.test.js`
+(جديد)، `package.json`، `src/constants/index.js`، `public/sw.js`،
+`public/changelog.json`، `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.179 (2026-06-29) — 🩹 إصلاح: رفع مجموعة ملفات مع بعض ماكانتش تظهر
 
 **البلاغ (Ahmed):** «اخترت ارفع مجموعة ملفات مع بعض ماترفعوش ومظهروش / رفعت

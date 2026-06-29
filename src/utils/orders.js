@@ -894,7 +894,7 @@ export function buildModelFromOrder(order){
      could add a second color row with empty name / layers=0 / pcsPerLayer=0
      and save silently — the row would appear blank in printouts and reports
      and inflate the color count without contributing qty. */
-export function validateOrder(form){
+export function validateOrder(form,requireFabricA=true){
   const e=[];
   if(!(form.modelNo||"").trim())e.push("رقم الموديل مطلوب");
   if(!(form.modelDesc||"").trim())e.push("وصف الموديل مطلوب");
@@ -904,7 +904,10 @@ export function validateOrder(form){
      cut quantities and workshop deliveries, and a fabric without a piece
      can't be linked to anything. At least one piece must be selected. */
   if(!Array.isArray(form.orderPieces)||form.orderPieces.length===0)e.push("قطع الموديل مطلوبة — أضف قطعة واحدة على الأقل (قميص / شورت / إلخ)");
-  if(!form.fabricA)e.push("خامة A مطلوبة");
+  /* V21.27.180: «خامة A مطلوبة» بقت قابلة للإيقاف من الإعدادات
+     (requireFabricOnOrder=false) — عشان حفظ أوامر ببيانات تكاليف ناقصة وإكمالها
+     لاحقًا (مثلًا بعد ريست الخامات). الافتراضي مفعّل (السلوك القديم الصارم). */
+  if(requireFabricA&&!form.fabricA)e.push("خامة A مطلوبة");
   FKEYS.forEach(k=>{
     if(!form["fabric"+k])return;
     const ca=form["colors"+k]||[];

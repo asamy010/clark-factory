@@ -37,6 +37,10 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
   /* V19.36: track upload progress so the user sees feedback while Storage processes the file */
   const[uploadingImg,setUploadingImg]=useState(false);
   const fabObj=id=>data.fabrics.find(x=>x.id===Number(id));
+  /* V21.27.180: منع الحفظ بدون خامة A قابل للإيقاف من الإعدادات
+     (إعدادات أمر التشغيل). الافتراضي مفعّل (السلوك الصارم القديم) — بس لو
+     الأدمن وقّفه (requireFabricOnOrder===false) بيسمح بحفظ أوامر ببيانات ناقصة. */
+  const requireFabric=data?.requireFabricOnOrder!==false;
   /* V21.27.86: لو المخزن مفعّل، نعرض بادج توافر للخامة المختارة + نمنع تسجيل
      أوردر القص لو الاستهلاك أكبر من المتاح بالمخزن (نفس منطق App.jsx). */
   const stockEnabled=!!((data.purchaseSettings||{}).stockEnabled);
@@ -121,8 +125,9 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       if(!form.modelNo||!form.modelNo.trim())v.push("رقم/اسم الموديل مطلوب");
       if(!form.modelDesc||!form.modelDesc.trim())v.push("وصف الموديل مطلوب");
       if(!form.sizeSetId)v.push("المقاس مطلوب");
-      /* V21.27.120: ممنوع منعاً باتاً بدون خامة A (لازم خامة حقيقية موجودة). */
-      if(!fabObj(form.fabricA))v.push("⛔ خامة A مطلوبة — ممنوع الحفظ بدون خامة A");
+      /* V21.27.120: ممنوع منعاً باتاً بدون خامة A (لازم خامة حقيقية موجودة).
+         V21.27.180: قابل للإيقاف من الإعدادات (requireFabric). */
+      if(requireFabric&&!fabObj(form.fabricA))v.push("⛔ خامة A مطلوبة — ممنوع الحفظ بدون خامة A");
       if((form.colorsA||[]).filter(c=>(c.color||"").trim()).length===0)v.push("لازم لون واحد على الأقل في الخامة الأولى");
       if(v.length>0){setErrs(v);return}setErrs([]);
       const ss=data.sizeSets.find(s=>s.id===Number(form.sizeSetId));
@@ -133,11 +138,13 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
       onSave(o);
       return;
     }
-    const v=validateOrder(form);if(v.length>0){setErrs(v);return}setErrs([]);
+    const v=validateOrder(form,requireFabric);if(v.length>0){setErrs(v);return}setErrs([]);
     /* V21.27.120: حارس صارم (أمر Ahmed) — ممنوع منعاً باتاً حفظ أمر قص بدون خامة A.
        validateOrder بتمنع الفاضي؛ ده طبقة تانية بتمنع كمان خامة محذوفة/غير موجودة
-       (id موجود بس الخامة اتشالت من المخزن). مفيش أي مسار حفظ يعدّي من غير خامة A. */
-    if(!fabObj(form.fabricA)){setErrs(["⛔ ممنوع حفظ أمر القص بدون خامة A — اختر خامة A أولاً"]);return;}
+       (id موجود بس الخامة اتشالت من المخزن). مفيش أي مسار حفظ يعدّي من غير خامة A.
+       V21.27.180: الحارس ده قابل للإيقاف من الإعدادات (requireFabric=false) — عشان
+       حفظ أوامر ببيانات تكاليف ناقصة وإكمالها لاحقًا (مثلًا بعد ريست الخامات). */
+    if(requireFabric&&!fabObj(form.fabricA)){setErrs(["⛔ ممنوع حفظ أمر القص بدون خامة A — اختر خامة A أولاً"]);return;}
     /* V21.27.86: امنع تسجيل أوردر القص لو المخزن غير كافٍ للخامة المطلوبة.
        checkStockAvailability بترجّع ok:true لو المخزن متعطّل (stockEnabled/
        autoDeductOnCut)، فالقيد ده آمن في كل الحالات — ومتسق مع بلوك App.jsx. */
