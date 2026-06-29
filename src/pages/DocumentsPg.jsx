@@ -31,8 +31,6 @@ import {
   uploadBytes,
   getDownloadURL,
   deleteObject,
-  listAll,
-  getMetadata,
 } from "firebase/storage";
 
 /* Reuse the friendlyStorageError pattern from ShopifyPushModal (V21.9.16). */
@@ -221,8 +219,6 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
   const [waSearch, setWaSearch] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ total: 0, done: 0 });
-  const [recovering, setRecovering] = useState(false);/* V21.27.174: استرجاع الملفات الضائعة */
-  const [recoverProgress, setRecoverProgress] = useState({ scanned: 0, recovered: 0 });
   const [emptyingTrash, setEmptyingTrash] = useState(false);/* V21.27.177: تفريغ السلة */
   const [emptyProgress, setEmptyProgress] = useState({ total: 0, done: 0 });
   const [dragOver, setDragOver] = useState(false);
@@ -722,102 +718,6 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
     handleFiles(e.dataTransfer.files);
   };
 
-  /* V21.27.174: أداة استرجاع الملفات الضائعة. بتفحص Firebase Storage تحت
-     `documents/` وبتعيد تسجيل أي ملف موجود فعليًا في التخزين لكن مش مسجّل في
-     الشجرة (بياناته ضاعت بسبب bug الـ1MB القديم — V173 root cause). بتعيد بناء
-     الميتاداتا من Storage (الاسم/المجلد من المسار + الحجم/النوع من getMetadata +
-     الرابط من getDownloadURL). الملفات اللي مجلدها الأصلي ضاع → بتروح مجلد
-     «📦 ملفات مستردة». */
-  const recoverOrphanedFiles = useCallback(async () => {
-    if (!canEdit) { tell("صلاحيات", "ما عندكش صلاحية", { danger: true }); return; }
-    const yes = await ask("استرجاع الملفات الضائعة",
-      "هيتم فحص مساحة التخزين بالكامل وإعادة تسجيل أي ملف موجود فعليًا في التخزين بس مش ظاهر في الشجرة. ممكن ياخد دقيقة أو أكتر حسب عدد الملفات. نكمّل؟");
-    if (!yes) return;
-    setRecovering(true);
-    setRecoverProgress({ scanned: 0, recovered: 0 });
-    try {
-      const registered = new Set((files || []).map(f => f.storagePath).filter(Boolean));
-      const existingFolderIds = new Set((folders || []).map(f => String(f.id)));
-      const SKIP = new Set([".trash", ".versions", ".thumbnails"]);
-      const recovered = [];
-      const newFolders = [];
-      let recoveredFolderId = null;
-      const ensureRecoveredFolder = () => {
-        if (recoveredFolderId) return recoveredFolderId;
-        const id = gid();
-        const now = new Date().toISOString();
-        newFolders.push({ id, name: "📦 ملفات مستردة " + new Date().toISOString().slice(0, 10), icon: "📦", color: "#F59E0B", parentId: null, orderIndex: 0, createdBy: userEmail, createdAt: now, lastModifiedAt: now });
-        recoveredFolderId = id;
-        return id;
-      };
-      let scanned = 0;
-      const processItems = async (items, folderFromPath) => {
-        for (const item of items) {
-          scanned++;
-          if (scanned % 5 === 0) setRecoverProgress({ scanned, recovered: recovered.length });
-          if (registered.has(item.fullPath)) continue;
-          try {
-            const meta = await getMetadata(item);
-            const url = await getDownloadURL(item);
-            const raw = item.name; const us = raw.indexOf("_");
-            const name = us >= 0 ? raw.slice(us + 1) : raw;
-            let folderId = folderFromPath;
-            if (folderId === "root") folderId = null;
-            else if (folderId && !existingFolderIds.has(String(folderId))) folderId = ensureRecoveredFolder();
-            const now = new Date().toISOString();
-            recovered.push({
-              id: gid(), name, folderId: folderId || null,
-              storagePath: item.fullPath, downloadURL: url,
-              contentType: meta.contentType || "application/octet-stream",
-              size: Number(meta.size) || 0,
-              uploadedBy: (meta.customMetadata && meta.customMetadata.uploadedBy) || "♻️ مسترد",
-              uploadedAt: meta.timeCreated || now, lastModifiedAt: now,
-              description: "♻️ مسترد تلقائيًا من التخزين", previewable: isPreviewable(meta.contentType),
-            });
-          } catch (e) { console.warn("[recover] skip", item.fullPath, e?.message || e); }
-        }
-      };
-      const rootRef = storageRef(storage, "documents");
-      const rootList = await listAll(rootRef);
-      await processItems(rootList.items, "root");
-      for (const prefix of rootList.prefixes) {
-        if (SKIP.has(prefix.name)) continue;
-        const sub = await listAll(prefix);
-        await processItems(sub.items, prefix.name);
-        /* مستوى أعمق (احتياطي) */
-        for (const sub2 of sub.prefixes) {
-          if (SKIP.has(sub2.name)) continue;
-          const s2 = await listAll(sub2);
-          await processItems(s2.items, sub2.name);
-        }
-      }
-      setRecoverProgress({ scanned, recovered: recovered.length });
-      if (recovered.length === 0) {
-        /* V21.27.176: مفيش ضائع → علّم إن الاستعادة اتعملت فالزر يختفي تلقائيًا */
-        upTree(d => { if (!d.documentsTree) d.documentsTree = { folders: [], files: [] }; d.documentsTree._recoveryDone = true; });
-        setRecovering(false);
-        await tell("مفيش ملفات ضائعة", "كل الملفات الموجودة في التخزين مسجّلة بالفعل في الشجرة ✅\n(زر الاستعادة هيختفي — مش محتاجه.)", { type: "success" });
-        return;
-      }
-      upTree(d => {
-        if (!d.documentsTree) d.documentsTree = { folders: [], files: [] };
-        if (!Array.isArray(d.documentsTree.folders)) d.documentsTree.folders = [];
-        if (!Array.isArray(d.documentsTree.files)) d.documentsTree.files = [];
-        const have = new Set(d.documentsTree.files.map(f => f.storagePath));
-        d.documentsTree.folders.push(...newFolders);
-        recovered.forEach(f => { if (!have.has(f.storagePath)) d.documentsTree.files.push(f); });
-        d.documentsTree._recoveryDone = true;/* V21.27.176: الزر يختفي بعد الاستعادة */
-      });
-      setRecovering(false);
-      showToast(`♻️ تم استرجاع ${recovered.length} ملف${newFolders.length ? " · في مجلد «ملفات مستردة»" : ""}`);
-      if (recoveredFolderId) { setSearch(""); setShowTrash(false); setRecentView(false); setCurrentFolderId(recoveredFolderId); }
-    } catch (e) {
-      console.error("[recover] failed", e);
-      setRecovering(false);
-      await tell("فشل الاسترجاع", friendlyStorageError(e), { danger: true });
-    }
-  }, [canEdit, files, folders, userEmail, upTree]);
-
   /* ─────────── FILE OPERATIONS ─────────── */
 
   const renameFile = async (file) => {
@@ -1207,9 +1107,7 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
             {/* V21.27.143: رفع مجلد كامل بمجلداته الفرعية */}
             {!showTrash && !recentView && canEdit && <Btn small onClick={() => folderInputRef.current?.click()} style={{ background: "#fff", color: "#8B5CF6", border: "none", fontWeight: 700 }} title="ارفع مجلد كامل بكل ملفاته ومجلداته الفرعية">📁 رفع مجلد</Btn>}
             {!showTrash && !recentView && canEdit && <Btn small onClick={createFolder} style={{ background: "rgba(255,255,255,0.2)", color: "#fff", border: "none" }}>➕ مجلد جديد</Btn>}
-            {/* V21.27.174: استرجاع الملفات الضائعة. V21.27.176: بيختفي تلقائيًا بعد
-                ما يتشغّل مرة (tree._recoveryDone) — أداة لمرة واحدة، مش زر دائم. */}
-            {!showTrash && !recentView && canEdit && !tree._recoveryDone && <Btn small onClick={recoverOrphanedFiles} disabled={recovering} style={{ background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.4)" }} title="فحص التخزين وإعادة تسجيل أي ملف ظهر وبعدين اختفى من القائمة (بيختفي بعد أول تشغيل)">♻️ استرجاع الضائع</Btn>}
+            {/* V21.27.184: زر «♻️ استرجاع الضائع» اتشال (مش محتاجه بعد split الملفات V178). */}
           </div>
         }
         style={{ marginBottom: 16 }}>
@@ -1487,18 +1385,6 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
               <div style={{ fontSize: FS + 3, fontWeight: 800, color: T.text, marginBottom: 6 }}>جاري تفريغ السلة...</div>
               <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 14, lineHeight: 1.6 }}>بنحذف الملفات من التخزين نهائيًا — متقفلش الصفحة.</div>
               <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.err, direction: "ltr" }}>{emptyProgress.done} / {emptyProgress.total}</div>
-            </div>
-          </div>
-        )}
-        {/* V21.27.174: overlay استرجاع الملفات الضائعة */}
-        {recovering && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(15,23,42,0.72)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-            onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.cardSolid, borderRadius: 18, padding: "26px 28px", width: "100%", maxWidth: 430, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", textAlign: "center" }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>♻️</div>
-              <div style={{ fontSize: FS + 3, fontWeight: 800, color: T.text, marginBottom: 6 }}>جاري فحص التخزين واسترجاع الملفات...</div>
-              <div style={{ fontSize: FS - 1, color: T.textSec, marginBottom: 16, lineHeight: 1.6 }}>بنفحص كل ملفات التخزين — ممكن ياخد دقيقة. متقفلش الصفحة.</div>
-              <div style={{ fontSize: FS + 1, fontWeight: 800, color: T.accent, marginTop: 6, direction: "rtl" }}>تم فحص: {recoverProgress.scanned} · للاسترجاع: {recoverProgress.recovered}</div>
             </div>
           </div>
         )}

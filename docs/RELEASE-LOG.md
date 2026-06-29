@@ -12,6 +12,47 @@
 
 ---
 
+## V21.27.184 (2026-06-29) — 🐞 تحديث فئات المصروف لايف + حذف زر «استرجاع الضائع»
+
+**البلاغ (Ahmed):** «(1) لما بضغط على فئات المصروف مش بتظهر حاجة غير لما أقفلها
+وأفتحها تاني بتتغيّر لونها للأحمر. (2) عايز أمسح زر استرجاع الضائع خلاص مش
+محتاجه.»
+
+### 1) إصلاح: بوب اب الربح/الخسارة كان snapshot (مش لايف)
+**Root cause (`src/components/DashboardKpis.jsx`):** كل بطاقة KPI كانت بتعمل
+`setPopup(cfg)` بـ **object ثابت** (snapshot) فيه `rows`/`summary`/`extra`
+محسوبين لحظة الفتح. لما تضغط فئة → `toggleOpex` → `upConfig` → `data` تتغيّر →
+الكومبوننت يعيد الرندر، **لكن** الـ state لسه ماسك الـ snapshot القديم → الشيبات
+وأرقام الربح ما بتتحدّثش غير لما تقفل وتفتح (يعيد البناء).
+
+**الحل:** الـ state بيخزّن **«نوع» البوب اب** (string) بس؛ والمحتوى بيتشق في كل
+رندر من البيانات الحيّة:
+- `open(cfg)` بقت بترجّع الـ cfg بدل `setPopup`.
+- البطاقات: `onClick={() => setPopup("profit")}` … إلخ.
+- `const POPUPS = {sales, purchases, finished, fabric, accessory, invTotal,
+  profit}` + `const cfg = popup && POPUPS[popup] ? POPUPS[popup]() : null;`.
+- الرندر و`printPopup` بيستخدموا `cfg` (الحيّ) بدل `popup`.
+
+دلوقتي تحديد/إلغاء فئة بيتعكس **فورًا** (شيبات + أرقام الربح) — صفر تغيير في
+معادلة الربح نفسها (`computeDashboardKpis`).
+
+### 2) حذف زر «♻️ استرجاع الضائع» (`src/pages/DocumentsPg.jsx`)
+الزر كان أداة لمرة واحدة (V174-176) لاسترجاع ملفات ضاعت بسبب bug الـ1MB. بعد
+split الملفات لمستندات مستقلة (V178) المشكلة اتحلّت جذريًا، فالزر مالوش لازمة.
+شِلنا بالكامل: الزر + handler `recoverOrphanedFiles` + states
+(`recovering`/`recoverProgress`) + overlay التقدّم + imports `listAll`/
+`getMetadata` غير المستخدمة. (الفلاج `_recoveryDone` في الداتا بيتساب — مش بيتقرا،
+غير ضار.)
+
+**أمان:** الاتنين تغييرات presentation/cleanup — صفر تغيير في منطق مالي/تخزين.
+build ✓ — **507 اختبار ناجح**.
+
+**ملفات:** `src/components/DashboardKpis.jsx`، `src/pages/DocumentsPg.jsx`،
+`package.json`، `src/constants/index.js`، `public/sw.js`،
+`public/changelog.json`، `docs/RELEASE-LOG.md`.
+
+---
+
 ## V21.27.183 (2026-06-29) — ✏️🗑 تعديل/حذف الإذونات المخزنية (بيأثر في الرصيد + فاليديشن)
 
 **الطلب (Ahmed):** «عايز أقدر أعمل تعديل أو حذف للإذونات المخزنية، وده يأثّر في
