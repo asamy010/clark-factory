@@ -1,24 +1,33 @@
-# CLARK Factory ERP — Shopify B2C Integration
+# CLARK Factory ERP — Garment Manufacturing + Shopify B2C
 
-> Garment factory ERP with full Shopify Two-Stage COD workflow + Bosta shipping integration.
+> Full-stack ERP for an Egyptian garment factory: production, inventory,
+> sales, purchasing, accounting, treasury, HR/payroll — with Shopify
+> Two-Stage COD, Bosta shipping, and a WhatsApp AI agent.
 
 [![Deploy Status](https://img.shields.io/badge/Vercel-deployed-success)](https://clark-factory.vercel.app)
-[![Version](https://img.shields.io/badge/version-V21.9.63-blue)](./WORK_LOG.md)
+[![Version](https://img.shields.io/badge/version-V21.27.184-blue)](./docs/RELEASE-LOG.md)
 [![Build](https://img.shields.io/badge/build-passing-success)](#)
+[![Tests](https://img.shields.io/badge/tests-507%20passing-success)](#)
 
 ---
 
 ## 🎯 What is this?
 
-CLARK Factory is a complete ERP system for an Egyptian garment manufacturing
-business, integrated with:
+CLARK Factory is a complete, Arabic-first (RTL) ERP for an Egyptian garment
+manufacturing business. It covers the full operational cycle — cutting/work
+orders → production → finished-goods inventory → sales & distribution →
+accounting → treasury → payroll — and integrates a B2C storefront and
+logistics on top:
 
-- **Shopify** (B2C store with Two-Stage COD workflow)
-- **Bosta** (shipping + Customer Return Pickup)
-- **Judge.me** (product reviews)
-- **WhatsApp** (customer communication + automated campaigns)
-- **Firebase** (auth, Firestore, Storage)
-- **Vercel** (hosting + serverless functions + cron)
+- **Shopify** — B2C store with a Two-Stage COD workflow + WhatsApp campaigns
+- **Bosta** — shipping, AWB labels, live tracking, Customer Return Pickup (CRP)
+- **WhatsApp** — AI support agent + automated, segment-based campaigns
+- **Judge.me** — product reviews
+- **Firebase** — Auth, Firestore, Storage
+- **Vercel** — hosting + serverless functions + cron
+
+> The entire UI is in **Arabic (Egyptian dialect)**. Code, comments, and this
+> README are in English.
 
 ---
 
@@ -26,184 +35,189 @@ business, integrated with:
 
 | File | Purpose |
 |------|---------|
-| **[CLAUDE.md](./CLAUDE.md)** | Engineering protocol + Principal Engineer persona instructions |
-| **[WORK_LOG.md](./WORK_LOG.md)** | Complete phase-by-phase history (V19.91 → V21.9.10) |
-| **[README.md](./README.md)** | This file — project overview |
-| **[shopify-integration-spec.md](./docs/shopify-integration-spec.md)** | Original spec |
+| **[CLAUDE.md](./CLAUDE.md)** | Engineering protocol, Principal-Engineer persona, architectural rules, and the anti-pattern catalog. **Read first.** |
+| **[docs/NEW-SESSION-START.md](./docs/NEW-SESSION-START.md)** | Quick operational summary + standing directives for any new session. |
+| **[docs/RELEASE-LOG.md](./docs/RELEASE-LOG.md)** | **The live rolling history** — newest first, root-cause for every release. This is the authoritative changelog of record. |
+| **[docs/ROADMAP-PROFESSIONAL.md](./docs/ROADMAP-PROFESSIONAL.md)** | Forward-looking roadmap. |
+| **[docs/SUPABASE-MIGRATION-PLAN.md](./docs/SUPABASE-MIGRATION-PLAN.md)** | Planned migration off Firestore (lift-and-shift JSONB → relational). |
+| **[docs/SECURITY.md](./docs/SECURITY.md)** | Security model and posture. |
+| **[public/changelog.json](./public/changelog.json)** | In-app, user-facing changelog (lazy-loaded by the About modal). |
+
+> ⚠️ `WORK_LOG.md` is **frozen at V21.9.10** (2026-05-10) and is kept only for
+> historical reference. For anything after that, use **`docs/RELEASE-LOG.md`**.
 
 ---
 
 ## 🏗 Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Browser (React + Vite)                    │
-├─────────────────────────────────────────────────────────────────┤
-│  ShopifyIntegrationPg.jsx ─┐                                    │
-│  • 13 sub-tabs             │                                    │
-│  • Dashboard / Connection  │                                    │
-│  • Products / Orders       │     ┌─ runWithProgress             │
-│  • Returns / Abandoned    ─┼────▶│  (overlay + Firestore        │
-│  • Discounts / Customers   │     │   listener for progress)     │
-│  • Campaigns / Shipping    │     └──────────────────────────────┘
-│  • Invoices / Reconcil.    │                                    │
-│  • Settings                │                                    │
-└────────────────────────────┼──── HTTPS + Bearer ID token ──────┐
-                             │                                    │
-┌────────────────────────────▼────────────────────────────────────┤
-│                  Vercel Serverless Functions                    │
-├─────────────────────────────────────────────────────────────────┤
-│  /api/shopify/* ─── 30+ endpoints ──┐                           │
-│  /api/bosta/* ───── 6 endpoints     │                           │
-│  /api/judgeme/* ─── 2 endpoints    ─┼─▶ Firestore              │
-│  /api/cron/* ────── 3 schedulers    │   • factory/config        │
-│  /api/maintenance/* ─ 2 migrations  │   • shopifyOrdersArchive  │
-│  /api/diagnostics ── health check   │   • shopifyProductsDocs   │
-│                                     │   • shopifyCustomersDocs  │
-│                                     │   • syncJobs (progress)   │
-│                                     │   • <30+ split collections>
-│                                     └──┬────────────────────────┤
-│                                        │                        │
-│                                        ▼                        │
-│                                 Firebase Storage                │
-│                                 • shopify-products/*            │
-│                                 • whatsapp-campaigns/*          │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │  Shopify Admin API   │ ◀─── OAuth 2.0 (shpat_)
-                  │  • Orders / Products │      Scopes: read_orders,
-                  │  • Customers         │      read_all_orders,
-                  │  • Inventory         │      read_products,
-                  │  • Webhooks          │      write_products, etc.
-                  └──────────────────────┘
-                             ▲
-                             │
-                  ┌──────────┴───────────┐
-                  │   Bosta Public API   │
-                  │  • Deliveries        │
-                  │  • CRP (returns)     │
-                  │  • AWB PDF           │
-                  └──────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    Browser (React 18 + Vite 5)                     │
+│  src/App.jsx — single app shell: global state, Firestore           │
+│  listeners, routing (history API), write transactions, migrations  │
+├──────────────────────────────────────────────────────────────────┤
+│  ~38 pages (src/pages/*) + ~130 components (src/components/*)       │
+│  Sales · Purchase · Accounting · Treasury · HR · Warehouse ·       │
+│  Models/Production · Shopify (13 sub-tabs) · AI Agent · Automation  │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │  HTTPS + Firebase ID token (Bearer)
+┌───────────────────────────▼──────────────────────────────────────┐
+│              Vercel Serverless Functions (api/*)                   │
+│  ~91 endpoints · setCors · verifyAdminToken · withProgress wrapper │
+│   /api/shopify/*  (31)   /api/bosta/*   /api/ai-agent/*            │
+│   /api/maintenance/* (12 migrations/repairs)                       │
+│   /api/cron/* (5 jobs)   /api/admin/*   /api/*-portal*             │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────────┐
+│                          Firestore                                 │
+│  factory/config (kept small)  +  daily splits (treasuryDays, …)    │
+│  +  per-id partitions (customersDocs, …)  +  seasons/{s}/orders    │
+│  +  per-file docs (factory/df_<id>)  +  syncJobs (progress)        │
+└────────────────────────────────────────────────────────────────────┘
+        │                         │                         │
+        ▼                         ▼                         ▼
+  Shopify Admin API         Bosta Public API          Firebase Storage
+  (OAuth 2.0, shpat_)       (deliveries, CRP, AWB)    (products, campaigns)
+        │
+        ▼
+  WhatsApp bridge (clark-wa-bridge, self-hosted) ──▶ AI agent (Claude)
 ```
+
+### Core architectural rules (see CLAUDE.md for the full set)
+
+- **Document splitting** — Firestore caps documents at 1 MB. Any array that
+  grows over time is split: **daily** (`treasuryDays/{YYYY-MM-DD}`, audits,
+  payments, invoices, notifications…) or **per-id** (`customersDocs/{id}`,
+  products, suppliers…). Storage-space files go one-doc-per-file
+  (`factory/df_<id>`, V178) for unbounded capacity. Result: `factory/config`
+  stays small regardless of business volume.
+- **Active season** — orders live in `seasons/{seasonId}/orders/{id}`, **not**
+  in `cfg.orders`.
+- **Distributions are the source of truth** — sales-order "mirrors"
+  (`sourceDistributionId`) are display/billing documents only and are excluded
+  from balance/inventory math to prevent double-counting.
+- **Migrations** — every one follows **backup → dry-run → idempotent → flag**,
+  paired with on-demand `repair-*` endpoints for drift recovery.
+- **Universal progress tracking** — every sync/pull runs through
+  `withProgress()` (server) + a `syncJobs/{jobId}` Firestore listener (client)
+  that drives a full-screen progress overlay.
 
 ---
 
 ## 🔥 Key Features
 
-### Shopify Integration (13 sub-tabs)
+### Manufacturing & inventory
+- Cutting/work orders, models, multi-fabric (A–H) + colors + size sets
+- Raw-material, accessories, and finished-goods inventory
+- **Stock movements are the source of truth** (`stockLedger`,
+  `recomputeItemFromMovements`); opening balances via store permits
+  (الإذونات المخزنية), inventory valuation at cost
+- Mobile warehouse flows: quick sale/return, stock receive/count, packaging
 
-1. **📊 Dashboard** — KPIs + recent activity
-2. **🔌 Connection** — OAuth setup + status
-3. **📦 Products** — Sync + filters + bulk actions + inventory push
-4. **🛒 Orders** — Two-stage COD + archive viewer + Bosta linking
-5. **↩️ Returns** — Return requests + Bosta CRP integration
-6. **🛍️ Abandoned Cart** — Recovery campaigns
-7. **🎟 Discounts** — Codes manager
-8. **👥 Customers** — Tier system (VIP/Regular/New/At-risk) + WhatsApp
-9. **📬 Campaigns** — Automated WhatsApp by audience segment
-10. **🚚 Shipping (Bosta)** — Live tracking + multi-provider registry
-11. **🧾 Invoices** — Phase 3 accounting integration
-12. **🔄 Reconciliation** — Match Shopify ↔ CLARK
-13. **⚙️ Settings** — Workflow config + Bosta + Judge.me
+### Sales & purchasing (document chains)
+- **Sales:** quotation → sales order → invoice; customer distributions &
+  deliveries; account transfers; credit notes
+- **Purchasing:** RFQ → PO → goods receipt → invoice; debit notes;
+  weighted-average costing; multi-currency
+- Deletion ordering enforced (newest-first), with guards against breaking
+  downstream documents
 
-### Document Splitting
+### Accounting & treasury
+- Double-entry posting engine (`postingRules`, `posting`), customer/supplier
+  statements, season closing, dashboard P&L KPIs
+- Treasury with daily-split cash ledger, two-leg transfers, checks lifecycle,
+  recurring rules; nightly financial reconciliation cron
 
-Firestore docs hard-cap at 1 MB. CLARK uses two split strategies:
+### HR & payroll
+- Weekly payroll, attendance, employee debts/installments; approved weeks post
+  to treasury (with a repair endpoint for drift)
 
-- **Daily splits** (transactional/dated): treasury, audit, payments, invoices,
-  notifications, salesCreditNotes, returnRequests, campaigns, etc.
-- **Per-id splits** (entities): customers, suppliers, products, etc.
+### Shopify integration (13 sub-tabs)
+Dashboard · Connection (OAuth) · Products · Orders (Two-Stage COD) · Returns
+(Bosta CRP) · Abandoned Cart · Discounts · Customers (tiers + WhatsApp) ·
+Campaigns · Shipping · Invoices · Reconciliation · Settings
 
-Result: factory/config stays small (~150 KB) regardless of business volume.
+### Shipping
+- Bosta: create shipment, AWB PDF, tracking via webhook, historical sync
+- Multi-provider registry (Aramex / Mylerz scaffolded)
 
-### Universal Progress Tracking
+### AI & automation
+- **WhatsApp AI agent** (Claude) — read-only over business data, tool-use loop,
+  human takeover, per-conversation budget caps; default model is configurable
+  via `AI_AGENT_MODEL`
+- **AI image studio** — generate / describe / analyze product imagery
+- **Event-driven automation** — atomic claim-fire-record idempotency
+  (in-flight lock + content dedup), scheduled reminders/campaigns, and a
+  `scheduler-watchdog` that detects a stalled cron
 
-Every sync/pull operation shows a full-screen progress overlay with:
-- Live progress bar (% or indeterminate)
-- Step-by-step messages
-- Elapsed time
-- Result preview on success
-- Manual dismiss (no auto-close)
+### Customer/partner portals
+Signed (HMAC) public links for delivery confirmation, customer/partner/workshop
+ordering, and stock operations.
 
-Powered by `withProgress()` server wrapper + `syncJobs/{jobId}` Firestore listener.
-
-### Robust Error Handling
-
-- Per-endpoint timeouts (30s default → 10 min for historical syncs)
-- Try/catch on every async path
-- AbortController for request cancellation
-- Graceful degradation (e.g. Bosta failure doesn't block return approval)
-- All errors logged with context
+### Observability
+`/api/diagnostics` + the in-app Diagnostics panel track document sizes, array
+growth, orphan detection, and flag/data mismatches with tiered thresholds
+(600 KB warn → 800 KB error → 1 MB critical).
 
 ---
 
 ## 🚀 Development
 
 ### Prerequisites
-
 - Node 18+
-- Firebase project with Firestore + Storage + Auth
-- Shopify dev store + custom app credentials
+- Firebase project (Firestore + Storage + Auth)
+- Shopify custom-app credentials
 - Vercel account
 - Bosta API key (optional)
 
-### Local Development
-
+### Local development
 ```bash
-cd "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
 npm install
-npm run dev
+npm run dev      # Vite dev server
+npm run build    # production build → dist/ (must finish "✓ built", zero errors)
+npm test         # vitest run (507 tests)
+npm run lint     # eslint
+npm run test:rules   # Firestore rules against the emulator
 ```
 
-### Build
+### Environment
+- **Development machine:** Mac (source on iCloud Drive). The git repo at
+  `clark-factory/` is what Vercel deploys.
+- **No local test environment** — deploys go **directly to production**.
+  Treat any change to sensitive data flows (accounting, treasury, inventory,
+  Firestore/Storage rules, migrations) with care: warn, prefer a low-risk
+  staging operation first, and never "ship and hope". See CLAUDE.md §0.1
+  (Push-Back) and §1.
 
+### Deploy workflow (per CLAUDE.md §1)
+After every code change: **build → bump version (3 places) → update
+`docs/RELEASE-LOG.md` → commit specific files → push → zip**.
+
+Version is the single source of truth in **three** places:
+1. `package.json` → `"version": "21.x.y"`
+2. `src/constants/index.js` → `export const APP_VERSION = "V21.x.y"`
+3. `public/changelog.json` → prepend a new entry at the top of the array
+
+> Versioning note: the changelog moved to **`public/changelog.json`** (V21.21.37).
+> It is no longer kept inside `AboutVersionModal.jsx`.
+
+Vercel auto-deploys on push to `main`. The release zip (per release) excludes
+`node_modules/` and `dist/`; in CI/cloud use:
 ```bash
-npm run build
+git archive --format=zip --prefix=clark-v21.x.y/ -o clark-v21.x.y.zip HEAD
 ```
 
-Output goes to `dist/`. Should finish with `✓ built in Xs` and zero errors.
-
-### Deploy
-
-The git repo at `Documents/GitHub/clark-factory/` is auto-deployed by Vercel
-on every push to `main`. Workflow:
-
-```bash
-# 1. Develop in source folder
-cd "C:\Users\Ahmed Samy\Desktop\clark-v19_90_0"
-# ... edit files ...
-npm run build  # verify
-
-# 2. Bump version (3 places: package.json + constants/index.js + AboutVersionModal.jsx)
-
-# 3. Copy to git repo
-cp <files> "C:\Users\Ahmed Samy\Documents\GitHub\clark-factory\<paths>"
-
-# 4. Commit + push
-cd "C:\Users\Ahmed Samy\Documents\GitHub\clark-factory"
-git add <specific-files>
-git commit -m "V<x.y.z>: ..."
-git push origin main
-
-# 5. Zip on Desktop
-# (PowerShell — see CLAUDE.md §1 step 6)
-```
-
-Full protocol details in [CLAUDE.md](./CLAUDE.md).
-
-### Environment Variables (Vercel)
-
+### Environment variables (Vercel)
 ```
 # Firebase Admin
-GOOGLE_APPLICATION_CREDENTIALS_JSON  (or individual keys)
+GOOGLE_APPLICATION_CREDENTIALS_JSON   (or individual keys)
 FIREBASE_PROJECT_ID
 
 # Shopify OAuth
 SHOPIFY_CLIENT_ID
 SHOPIFY_CLIENT_SECRET
-DELIVERY_CONFIRM_SECRET   (HMAC for state signing)
+DELIVERY_CONFIRM_SECRET    # HMAC for portal/state signing
 
 # Cron
 CRON_SECRET
@@ -211,51 +225,67 @@ CRON_SECRET
 # Bosta webhook
 BOSTA_WEBHOOK_SECRET
 
-# Optional fallback for Shopify
+# AI agent (WhatsApp)
+AI_AGENT_MODEL             # default: claude-sonnet-4-20250514
+ANTHROPIC_API_KEY
+
+# Optional Shopify fallback
 SHOPIFY_STORE_URL
 SHOPIFY_ACCESS_TOKEN
-SHOPIFY_API_VERSION       (default: 2024-10)
-SHOPIFY_APP_BASE_URL      (override for webhook URLs)
+SHOPIFY_API_VERSION        # default: 2024-10
+SHOPIFY_APP_BASE_URL       # override for webhook URLs
 ```
+
+---
+
+## 🧪 Quality
+
+- **Tests:** 43 Vitest files, **507 passing**. Coverage is strongest on the
+  financial core (posting rules, statements, inventory valuation, treasury
+  sync, invoices) with realistic fixtures and golden calculations. Firestore
+  rules are validated against the emulator in CI before deploy.
+- **Known gaps:** React components and most API endpoints are not yet unit
+  tested — a deliberate area for future investment.
 
 ---
 
 ## 📜 Engineering Standard
 
-Every line of code in this repo follows the **Principal Engineer** standard
-(see [CLAUDE.md §0](./CLAUDE.md)):
+Every change follows the **Principal Engineer** standard (CLAUDE.md §0):
 
 - ✅ **Defensive** — handles edge cases
-- ✅ **Documented** — comments explain "why" not "what"
+- ✅ **Documented** — comments explain *why*, not *what*
 - ✅ **Tested** — at least smoke-tested before deploy
 - ✅ **Reversible** — backups + idempotent migrations
 
-Bug fixes always include:
-- ROOT CAUSE comment
-- Anti-pattern entry in CLAUDE.md §10 (prevents regression)
-- Verification steps
+Bug fixes include a **ROOT CAUSE** comment, a regression test (or explicit
+manual verification steps), and an anti-pattern entry in CLAUDE.md §10 to
+prevent recurrence.
 
 ---
 
-## 📊 Current Stats
+## 📊 Current Stats (measured at V21.27.184)
 
-- **Version**: V21.9.63
-- **Commits on main**: 30+
-- **API endpoints**: 50+
-- **UI components**: 40+
-- **Total lines**: ~30,000
-- **Migrations completed**: 10+
-- **Cron jobs**: 3 active
+| Metric | Value |
+|--------|-------|
+| **Version** | V21.27.184 (2026-06-29) |
+| **Total lines (src + api)** | ~177,000 |
+| **React files** | 166 `.jsx` (~38 pages + ~130 components) |
+| **JS modules** | 179 `.js` (utils, schemas, constants) |
+| **API endpoints** | ~91 (116 files incl. shared helpers) |
+| **Shopify endpoints** | 31 |
+| **Migration/repair endpoints** | 12 |
+| **Cron jobs** | 5 |
+| **Tests** | 507 passing across 43 files |
+| **Firestore rules** | 660 lines, 8 roles |
 
-See [WORK_LOG.md](./WORK_LOG.md) for full phase history.
+See **[docs/RELEASE-LOG.md](./docs/RELEASE-LOG.md)** for the full phase history.
 
 ---
 
 ## 🤝 Maintainer
 
-**Ahmed Samy** — CLARK Factory owner
-
-Built and maintained as a Principal Engineer-level codebase.
+**Ahmed Samy** — CLARK Factory owner.
 
 ---
 
@@ -265,4 +295,4 @@ Private — proprietary CLARK Factory ERP system.
 
 ---
 
-*Last updated: V21.9.63 (2026-05-17)*
+*Last updated: V21.27.184 (2026-06-30).*
