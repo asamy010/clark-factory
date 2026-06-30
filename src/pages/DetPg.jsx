@@ -1215,7 +1215,11 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         {activeFabs.map(k=>{const colors=gc(order,k);if(colors.length===0)return null;const dt=gdate(order,k);const fp=order["fabricPieces"+k]||[];const fabP=gf(order,k,"Price");const fabU=gf(order,k,"Unit");
           /* V21.27.57: استهلاك/راق + استهلاك/قطعة في الشريط الملوّن — نفس معادلة جدول التكلفة (cons/pcsPerLayer) */
           const consL=gcons(order,k);const _ppl=(colors[0]||{}).pcsPerLayer||1;const consPc=consL>0?r2(consL/_ppl):0;
-          return<div key={k}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} fabPrice={fabP?(fabP+" ج.م"+(fabU?"/"+fabU:"")):""} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly consPerLayer={consL} consPerPiece={consPc} unit={fabU||""}/>
+          {/* V21.27.194: minWidth:0 عشان كرت الخامة يتقيّد بعرض الشاشة (grid item
+             الافتراضي min-width:auto كان بيخلّيه يتمدّد لعرض الجدول 450 ويتقطّع من
+             الشمال على الموبايل). كده الجدول بيبقى قابل للتمرير أفقي جوّاه والشِبات
+             تلتف بدل ما تتقصّ. */}
+          return<div key={k} style={{minWidth:0}}><FCTable label={"خامة "+k} fabName={gf(order,k,"Label")} fabPrice={fabP?(fabP+" ج.م"+(fabU?"/"+fabU:"")):""} accent={FCOL[FKEYS.indexOf(k)]} colors={colors} setColors={()=>{}} readOnly consPerLayer={consL} consPerPiece={consPc} unit={fabU||""}/>
           {fp.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:8}}>{fp.map(p=><span key={p} style={{padding:"3px 10px",borderRadius:8,fontSize:FS-3,fontWeight:600,background:FCOL[FKEYS.indexOf(k)]+"15",color:FCOL[FKEYS.indexOf(k)],border:"1px solid "+FCOL[FKEYS.indexOf(k)]+"30"}}>{gIcon(p,data.garmentTypes)+" "+p}</span>)}</div>}
           {dt&&<div style={{fontSize:FS-2,color:T.textSec,marginTop:-4,marginBottom:10}}>{"تاريخ القص: "+dt}</div>}
         </div>})}
