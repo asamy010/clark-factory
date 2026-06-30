@@ -63,20 +63,21 @@ export function computeDashboardKpis(data){
      عدّ الأوامر المقفولة). دلوقتي مستحيل يختلفوا — دالة واحدة. */
   const _fin = computeFinishedValuation(d);
   const finishedVal = _fin.value, finishedSellVal = _fin.sellValue;
-  const finishedDetail = _fin.detail;
+  /* V21.27.199: وحدة الجاهز = قطعة (لعرضها جنب الكمية في بوب اب التقييم). */
+  const finishedDetail = (_fin.detail || []).map(r => ({ ...r, unit: r.unit || "قطعة" }));
 
   /* الخامات/الإكسسوار: المخزون × متوسط التكلفة (legacy + أصناف المخازن المخصصة) */
   const fabricDetail = [], accessoryDetail = [], otherDetail = [];
   let fabricVal = 0, accessoryVal = 0, otherVal = 0;
-  (d.fabrics || []).forEach(f => { const q = Number(f.stock) || 0; if(!q) return; const uc = Number(f.avgCost) || Number(f.price) || 0; const v = r2(q * uc); fabricVal += v; fabricDetail.push({ name: f.name || "—", qty: q, unitCost: r2(uc), value: v }); });
-  (d.accessories || []).forEach(a => { const q = Number(a.stock) || 0; if(!q) return; const uc = Number(a.avgCost) || Number(a.price) || 0; const v = r2(q * uc); accessoryVal += v; accessoryDetail.push({ name: a.name || "—", qty: q, unitCost: r2(uc), value: v }); });
+  (d.fabrics || []).forEach(f => { const q = Number(f.stock) || 0; if(!q) return; const uc = Number(f.avgCost) || Number(f.price) || 0; const v = r2(q * uc); fabricVal += v; fabricDetail.push({ name: f.name || "—", qty: q, unit: f.unit || "متر", unitCost: r2(uc), value: v }); });
+  (d.accessories || []).forEach(a => { const q = Number(a.stock) || 0; if(!q) return; const uc = Number(a.avgCost) || Number(a.price) || 0; const v = r2(q * uc); accessoryVal += v; accessoryDetail.push({ name: a.name || "—", qty: q, unit: a.unit || "قطعة", unitCost: r2(uc), value: v }); });
   (d.inventoryItems || []).forEach(it => {
     const q = Number(it.stock) || 0; if(!q) return;
     const uc = Number(it.avgCost) || Number(it.price) || 0; const v = r2(q * uc);
     const cat = getCategoryById(d, it.categoryId); const lg = cat ? cat.legacy : null;
-    if(lg === "fabric"){ fabricVal += v; fabricDetail.push({ name: it.name || "—", qty: q, unitCost: r2(uc), value: v }); }
-    else if(lg === "accessory"){ accessoryVal += v; accessoryDetail.push({ name: it.name || "—", qty: q, unitCost: r2(uc), value: v }); }
-    else { otherVal += v; otherDetail.push({ name: (it.name || "—") + (cat ? " (" + cat.name + ")" : ""), qty: q, unitCost: r2(uc), value: v }); }
+    if(lg === "fabric"){ fabricVal += v; fabricDetail.push({ name: it.name || "—", qty: q, unit: it.unit || "متر", unitCost: r2(uc), value: v }); }
+    else if(lg === "accessory"){ accessoryVal += v; accessoryDetail.push({ name: it.name || "—", qty: q, unit: it.unit || "قطعة", unitCost: r2(uc), value: v }); }
+    else { otherVal += v; otherDetail.push({ name: (it.name || "—") + (cat ? " (" + cat.name + ")" : ""), qty: q, unit: it.unit || "قطعة", unitCost: r2(uc), value: v }); }
   });
   fabricVal = r2(fabricVal); accessoryVal = r2(accessoryVal); otherVal = r2(otherVal);
   fabricDetail.sort((a, b) => b.value - a.value); accessoryDetail.sort((a, b) => b.value - a.value);

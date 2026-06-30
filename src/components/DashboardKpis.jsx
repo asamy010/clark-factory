@@ -76,7 +76,8 @@ export function DashboardKpis({ data, isMob, upConfig }){
     rows: k.purchases.detail,
     summary: [["إجمالي المشتريات", k.purchases.total], ["مرتجع المشتريات", k.purchases.returns], ["المشتريات الفعلية", k.purchases.net], ["رصيد الموردين المستحق", k.purchases.payable]],
   });
-  const invCols = [{ key: "name", label: "الصنف", align: "right" }, { key: "qty", label: "الكمية", money: false }, { key: "unitCost", label: "تكلفة الوحدة" }, { key: "value", label: "القيمة" }];
+  /* V21.27.199: unitKey → الوحدة (متر/كيلو/قطعة) تظهر جنب الكمية مباشرة. */
+  const invCols = [{ key: "name", label: "الصنف", align: "right" }, { key: "qty", label: "الكمية", money: false, unitKey: "unit" }, { key: "unitCost", label: "تكلفة الوحدة" }, { key: "value", label: "القيمة" }];
   const finishedPopup = () => open({ title: "تقييم المخزون الجاهز (بالتكلفة)", color: "#10B981", columns: invCols, rows: k.inventory.finishedDetail, summary: [["إجمالي تقييم الجاهز", k.inventory.finished]] });
   const fabricPopup = () => open({ title: "تقييم مخزون القماش (بالتكلفة)", color: "#0EA5E9", columns: invCols, rows: k.inventory.fabricDetail, summary: [["إجمالي تقييم القماش", k.inventory.fabric]] });
   const accessoryPopup = () => open({ title: "تقييم مخزون الإكسسوار (بالتكلفة)", color: "#8B5CF6", columns: invCols, rows: k.inventory.accessoryDetail, summary: [["إجمالي تقييم الإكسسوار", k.inventory.accessory]] });
@@ -128,7 +129,7 @@ export function DashboardKpis({ data, isMob, upConfig }){
     h += "</tr></thead><tbody>";
     (cfg.rows || []).forEach((row, i) => {
       h += "<tr style='background:" + (i % 2 ? "#f8fafc" : "#fff") + "'>";
-      cols.forEach(c => { const raw = row[c.key]; const txt = (c.money === false) ? fmt(Number(raw) || 0) : (typeof raw === "number" ? fmt0(raw) + " ج.م" : _esc(raw)); h += "<td style='padding:5px;border:1px solid #eee;text-align:" + (c.align || "center") + "'>" + txt + "</td>"; });
+      cols.forEach(c => { const raw = row[c.key]; const txt = (c.money === false) ? (fmt(Number(raw) || 0) + (c.unitKey && row[c.unitKey] ? " " + row[c.unitKey] : "")) : (typeof raw === "number" ? fmt0(raw) + " ج.م" : _esc(raw)); h += "<td style='padding:5px;border:1px solid #eee;text-align:" + (c.align || "center") + "'>" + txt + "</td>"; });
       h += "</tr>";
     });
     h += "</tbody></table>";
@@ -187,7 +188,7 @@ export function DashboardKpis({ data, isMob, upConfig }){
                         <tr key={i} style={{ borderBottom: "1px solid " + T.brd }}>
                           {cfg.columns.map(c => {
                             const raw = row[c.key];
-                            const txt = (c.money === false) ? fmt(Number(raw) || 0) : (typeof raw === "number" ? money(raw) : raw);
+                            const txt = (c.money === false) ? (fmt(Number(raw) || 0) + (c.unitKey && row[c.unitKey] ? " " + row[c.unitKey] : "")) : (typeof raw === "number" ? money(raw) : raw);
                             const neg = typeof raw === "number" && raw < 0;
                             return <td key={c.key} style={{ padding: "6px 7px", textAlign: c.align || "center", color: neg ? T.err : T.text, fontWeight: c.key === "name" ? 700 : 600, whiteSpace: c.key === "name" ? "normal" : "nowrap" }}>{txt}</td>;
                           })}
