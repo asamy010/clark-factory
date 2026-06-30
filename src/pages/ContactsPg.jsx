@@ -1707,13 +1707,16 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
           </div>
         ) : (
           <div style={{overflowX:"auto", borderRadius: 10, border: "1px solid "+T.brd}}>
-            <table style={{width:"100%", borderCollapse:"collapse", minWidth: isMob ? "auto" : 700}}>
+            {/* V21.27.197: على الموبايل tableLayout:fixed بعرض 100% — الجدول
+                مستحيل يتعدّى الشاشة (كان بيتمدّد على أوسع صف فيتقطّع من الشمال).
+                الأعمدة بعرض ثابت + الاسم يتقصّر بـ«…» بدل ما يوسّع الجدول. */}
+            <table style={{width:"100%", borderCollapse:"collapse", minWidth: isMob ? "auto" : 700, tableLayout: isMob ? "fixed" : "auto"}}>
               <thead>
                 <tr>
                   {selectMode && <th style={{...colHeader, width: 40, textAlign: "center"}}>☑</th>}
                   <th style={colHeader}>الاسم</th>
-                  <th style={colHeader}>التليفون</th>
-                  <th style={colHeader}>التصنيفات</th>
+                  <th style={{...colHeader, width: isMob ? 160 : undefined}}>التليفون</th>
+                  <th style={{...colHeader, width: isMob ? 52 : undefined}}>التصنيفات</th>
                   {!isMob && <th style={colHeader}>التاجز</th>}
                   {!isMob && <th style={colHeader}>المصدر</th>}
                 </tr>
@@ -1734,15 +1737,15 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                         <input type="checkbox" checked={isSel} onChange={() => toggleSelect(c.id)} style={{width: 17, height: 17, cursor: "pointer"}} />
                       </td>
                     )}
-                    <td style={{...colCell, fontWeight: 700}}>
-                      <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                    <td style={{...colCell, fontWeight: 700, overflow: "hidden"}}>
+                      <div style={{display:"flex", alignItems:"center", gap: 8, minWidth: 0}}>
                         {/* V21.27.58: صورة مصغّرة بالطول (3:4) */}
                         {c.image ? <img src={c.image} alt="" style={{width: 30, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid "+T.brd, flexShrink: 0}} /> : null}
-                        <span>{c.name || "—"}</span>
+                        <span style={{overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{c.name || "—"}</span>
                       </div>
                     </td>
                     <td style={{...colCell, color: T.textSec, fontFamily: "monospace", direction: "ltr"}}>
-                      <div style={{display:"flex", alignItems:"center", gap: 8}}>
+                      <div style={{display:"flex", alignItems:"center", gap: 8, minWidth: 0}}>
                         {/* V21.27.195: زر اتصال مباشر (tel:) — يفتح الاتصال على الرقم.
                             stopPropagation عشان ما يفتحش تفاصيل الصف. */}
                         {c.phone ? (
@@ -1753,7 +1756,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                             aria-label="اتصال"
                             style={{
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              width: 32, height: 32, borderRadius: "50%",
+                              width: isMob ? 28 : 32, height: isMob ? 28 : 32, borderRadius: "50%",
                               background: "#10B981", color: "#fff", flexShrink: 0,
                               boxShadow: "0 2px 6px rgba(16,185,129,0.35)", textDecoration: "none",
                             }}
@@ -1774,7 +1777,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                             aria-label="واتساب"
                             style={{
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              width: 32, height: 32, borderRadius: "50%",
+                              width: isMob ? 28 : 32, height: isMob ? 28 : 32, borderRadius: "50%",
                               background: "#25D366", color: "#fff", flexShrink: 0,
                               boxShadow: "0 2px 6px rgba(37,211,102,0.35)", textDecoration: "none",
                             }}
@@ -1784,7 +1787,7 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
                             </svg>
                           </a>
                         ) : null}
-                        <span>{c.phone || "—"}</span>
+                        <span style={{overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: isMob ? FS-2 : undefined}}>{c.phone || "—"}</span>
                       </div>
                     </td>
                     <td style={colCell}>
