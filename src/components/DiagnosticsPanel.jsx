@@ -49,6 +49,8 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
   /* V21.21.34: المطابقة المالية اليومية — تشغيل يدوي */
   const [reconcileBusy, setReconcileBusy] = useState(false);
   const [reconcileResult, setReconcileResult] = useState(null);
+  /* V21.27.186: إصلاح فوري (يكتب الأرجل الناقصة) — منفصل عن الفحص (قراءة فقط) */
+  const [reconcileRepairBusy, setReconcileRepairBusy] = useState(false);
   /* V21.9.45: repair confirmed transfers — legs recovery */
   const [transferRepairBusy, setTransferRepairBusy] = useState(false);
   const [transferRepairResult, setTransferRepairResult] = useState(null);
@@ -521,6 +523,31 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
       }
     } catch(e){ showToast("⛔ " + e.message); }
     finally { setReconcileBusy(false); }
+  };
+
+  /* V21.27.186: إصلاح فوري — بيشغّل المطابقة بـ autoRepair=true فبيكمّل أي أرجل
+     تحويل ناقصة للتحويلات المؤكدة (إضافة فقط، idempotent). بتأكيد لأنه بيكتب
+     في الخزنة. */
+  const runReconcileRepairNow = async () => {
+    if(!canEdit) return;
+    const yes = await ask("🔧 إصلاح حركات التحويل الناقصة الآن",
+      "هيتفحص آخر فترة، ولو لقى تحويل أنت أكّدته وحركته ناقصة في الخزنة، هيكمّلها (إضافة فقط — مفيش حذف، وآمن لو اشتغل أكتر من مرة). تأكيد؟");
+    if(!yes) return;
+    setReconcileRepairBusy(true);
+    try {
+      const r = await reconcileFinancials({ autoRepair: true }, user);
+      setReconcileResult(r);
+      if(!r?.ok){ showToast("⛔ " + (r?.error || "فشل الإصلاح")); return; }
+      const ar = r.report?.autoRepair || {};
+      if(ar.ran){
+        showToast(`🔧 تم الإصلاح — اتكتبت ${ar.applied} حركة تحويل ناقصة`);
+      } else if((ar.eligible || 0) > 0){
+        showToast(`⚠️ فيه ${ar.eligible} حركة قابلة للإصلاح لكن ماتمتش — ${ar.skipped || ar.note || "راجع التفاصيل"}`);
+      } else {
+        showToast("✅ مفيش حركات تحويل ناقصة — كله سليم");
+      }
+    } catch(e){ showToast("⛔ " + e.message); }
+    finally { setReconcileRepairBusy(false); }
   };
 
   /* V21.21.33: tags + contacts migration handler — dry-run → confirm → run. */
@@ -2273,14 +2300,23 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
             <div style={{ fontWeight: 800, fontSize: FS }}>🧮 المطابقة المالية اليومية</div>
             <div style={{ fontSize: FS - 2, color: T.textSec, marginTop: 4, lineHeight: 1.7 }}>
               فحص يومي تلقائي (٤ فجراً) بيقارن الخزنة بالقيود بالفواتير: أرجل التحويلات، توازن القيود،
-              التكرارات، الفواتير بلا قيد، وحجم التخزين — وبيبعت واتساب لو فيه انحراف. الزر ده بيشغّل
-              الفحص فوراً (قراءة فقط — من غير واتساب).
+              التكرارات، الفواتير بلا قيد، وحجم التخزين — وبيبعت واتساب لو فيه انحراف.
+              <br/>
+              <b>🔧 الإصلاح التلقائي مُفعّل:</b> لو الفحص لقى تحويل أكّدته وحركته ناقصة في الخزنة،
+              بيكمّلها تلقائي كل ليلة (إضافة فقط + آمن للتكرار + محدود بسقف). زر «الفحص» قراءة فقط؛
+              زر «إصلاح الآن» بيشغّل الإكمال فورًا.
             </div>
           </div>
-          <LoadingBtn loading={reconcileBusy} loadingText="جاري الفحص..." onClick={runReconcileNow} disabled={!canEdit} small
-            style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800 }}>
-            🧮 شغّل المطابقة الآن
-          </LoadingBtn>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <LoadingBtn loading={reconcileBusy} loadingText="جاري الفحص..." onClick={runReconcileNow} disabled={!canEdit} small
+              style={{ background: T.accent, color: "#fff", border: "none", fontWeight: 800 }}>
+              🧮 فحص فقط (آمن)
+            </LoadingBtn>
+            <LoadingBtn loading={reconcileRepairBusy} loadingText="جاري الإصلاح..." onClick={runReconcileRepairNow} disabled={!canEdit} small
+              style={{ background: T.ok, color: "#fff", border: "none", fontWeight: 800 }}>
+              🔧 إصلاح الآن
+            </LoadingBtn>
+          </div>
         </div>
         {reconcileResult?.report && (
           <div style={{ marginTop: 10, padding: 8, background: (reconcileResult.report.ok ? T.ok : T.warn) + "08", borderRadius: 6, fontSize: FS - 2 }}>
@@ -2297,6 +2333,17 @@ export function DiagnosticsPanel({ data, canEdit, user, isMob, getUserRole }){
                 ))}
               </ul>
             )}
+            {/* V21.27.186: نتيجة الإصلاح التلقائي لأرجل التحويلات */}
+            {reconcileResult.report.autoRepair?.ran ? (
+              <div style={{ marginTop: 8, color: T.ok, fontWeight: 700 }}>
+                🔧 تم الإصلاح التلقائي: اتكتبت <b>{reconcileResult.report.autoRepair.applied}</b> حركة تحويل ناقصة.
+              </div>
+            ) : (reconcileResult.report.autoRepair?.eligible > 0 && (
+              <div style={{ marginTop: 8, color: T.warn, fontWeight: 700 }}>
+                🛠 <b>{reconcileResult.report.autoRepair.eligible}</b> حركة قابلة للإصلاح
+                {reconcileResult.report.autoRepair.mode === "dry-run" ? " (فحص فقط — اضغط «إصلاح الآن»)" : ""}.
+              </div>
+            ))}
           </div>
         )}
       </div>

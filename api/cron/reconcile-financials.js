@@ -144,7 +144,10 @@ export default async function handler(req, res){
        • بس لما الخزنة + التحويلات مقسّمين (المسار العام الحالي).
        النطاق = نافذة المطابقة (آخر windowDays) — الانحراف الأقدم يتصلح من
        الـ endpoint اليدوي اللي بيمسح كل الأيام. */
-    const autoRepairOn = (cfg.reconcile || {}).autoRepair === true
+    /* V21.27.186: مُفعّل افتراضيًا (Ahmed فعّله صراحةً بعد شرح المخاطر). يتقفل
+       بس لو cfg.reconcile.autoRepair === false. body/query للتشغيل اليدوي الفوري
+       من لوحة التشخيصات. */
+    const autoRepairOn = (cfg.reconcile || {}).autoRepair !== false
       || body.autoRepair === true || q.autoRepair === "1";
     const canRepairSplit = !!cfg._splitDaysV1674Done && !!cfg._splitDaysV1952Done;
     let autoRepair = { ran: false, eligible: 0 };
@@ -163,7 +166,7 @@ export default async function handler(req, res){
         autoRepair = { ran: false, eligible, skipped: "تجاوز الحد الآمن", cap: AUTO_REPAIR_CAP };
       } else if(dryRun || !autoRepairOn){
         autoRepair = { ran: false, mode: "dry-run", eligible, stats,
-          note: autoRepairOn ? "dryRun" : "معطّل افتراضيًا — فعّل cfg.reconcile.autoRepair=true" };
+          note: autoRepairOn ? "dryRun" : "متوقّف يدويًا (cfg.reconcile.autoRepair=false)" };
       } else {
         const r = await applyTransferLegRepairs(db, legsToCreate);
         autoRepair = { ran: true, eligible, applied: r.written, daysAffected: r.daysAffected, stats };
