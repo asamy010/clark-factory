@@ -46,6 +46,10 @@ const ICONS = {
   aiStudio: <SvgIcon><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><path d="M18.5 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></SvgIcon>,
   /* مشتريات — شنطة */
   purchase: <SvgIcon><path d="M6 2.5l-2 4V20a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6.5l-2-4z"/><path d="M4 6.5h16"/><path d="M9 10.5a3 3 0 0 0 6 0"/></SvgIcon>,
+  /* جهات الاتصال — أشخاص */
+  contacts: <SvgIcon><path d="M16 21v-1.8a3.8 3.8 0 0 0-3.8-3.8H6.8A3.8 3.8 0 0 0 3 19.2V21"/><circle cx="9.5" cy="7.3" r="3.6"/><path d="M21 21v-1.8a3.8 3.8 0 0 0-2.85-3.68"/><path d="M15.4 4.1a3.6 3.6 0 0 1 0 6.8"/></SvgIcon>,
+  /* الحملات والرسائل — مكبّر صوت */
+  campaigns: <SvgIcon><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></SvgIcon>,
 };
 
 /* الأقسام المعروضة على الهوم — tabs (canViewTab) أو special actions. */
@@ -58,6 +62,8 @@ const HOME_BUTTONS = [
   { key: "details",         label: "التصنيع" },
   { key: "aiStudio",        label: "AI Studio" },
   { key: "purchase",        label: "مشتريات" },
+  { key: "contacts",        label: "جهات الاتصال" },
+  { key: "campaigns",       label: "الحملات والرسائل" },
 ];
 
 export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }) {
