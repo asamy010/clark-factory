@@ -68,7 +68,12 @@
        This rule just stops the WHOLE page from drifting left/right when a child
        element accidentally overflows the viewport. */
     @media(max-width:768px){html,body{overflow-x:hidden;max-width:100vw}#root{overflow-x:hidden;max-width:100vw}
-    table{font-size:12px!important}th,td{padding:6px 8px!important}input,select{font-size:13px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}
+    table{font-size:12px!important}th,td{padding:6px 8px!important}
+      /* V21.27.200: خط الحقول 16px على الموبايل — iOS Safari بيعمل auto-zoom
+         مزعج على أي input/select/textarea خطه أقل من 16px عند الضغط (كان 13px
+         فبيزوّم ويفضل مزوّم). 16px = الحد اللي بيمنع الزوم، مع الحفاظ على
+         الـ pinch-zoom (مش بنلغيه من الـ viewport). بيعالج كل شاشات الإدخال. */
+      input,select,textarea{font-size:16px!important;padding:8px 10px!important}button{font-size:12px!important}h1{font-size:20px!important}
       /* V15.10: MetricCard responsive — icon shrinks, value text adjusts so label/value both visible */
       .metric-card{padding:10px 12px!important;gap:8px!important}
       .metric-card > div:first-child{width:32px!important;height:32px!important;font-size:16px!important}
