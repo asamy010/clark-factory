@@ -105,7 +105,7 @@ export function FixedAssetsPg({ data, config, isMob, user }){
 
   /* Stats */
   const stats = useMemo(() => {
-    let totalCost = 0, totalDep = 0, totalBV = 0;
+    let totalCost = 0, totalDep = 0, totalBV = 0, totalSalvage = 0;
     let active = 0, fully = 0, disposed = 0;
     assets.forEach(a => {
       const cost = Number(a.acquisitionCost) || 0;
@@ -114,10 +114,24 @@ export function FixedAssetsPg({ data, config, isMob, user }){
       totalCost += cost;
       totalDep += dep;
       totalBV += (cost - dep);
+      /* V21.27.187: إجمالي قيمة الخردة (للأصول غير المتصرّف فيها — نفس قاعدة
+         إجمالي التكلفة فيكونوا قابلين للمقارنة). */
+      totalSalvage += Number(a.salvageValue) || 0;
       if(a.status === "fully_depreciated") fully++;
       else active++;
     });
-    return { totalCost, totalDep, totalBV, active, fully, disposed, total: assets.length };
+    return { totalCost, totalDep, totalBV, totalSalvage, active, fully, disposed, total: assets.length };
+  }, [assets]);
+
+  /* V21.27.187: إجماليات تقرير الأصول (كل الأصول المعروضة في التقرير، شاملة
+     المتصرّف فيها — مطابقة لصفوف الجدول). */
+  const reportTotals = useMemo(() => {
+    let cost = 0, salvage = 0;
+    assets.forEach(a => {
+      cost += Number(a.acquisitionCost) || 0;
+      salvage += Number(a.salvageValue) || 0;
+    });
+    return { cost, salvage };
   }, [assets]);
 
   /* Handlers */
@@ -157,7 +171,7 @@ export function FixedAssetsPg({ data, config, isMob, user }){
 
     {/* Stats cards (always visible) */}
     <div style={{
-      display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(4,1fr)",
+      display: "grid", gridTemplateColumns: isMob ? "repeat(2,1fr)" : "repeat(5,1fr)",
       gap: 8, marginBottom: 14,
     }}>
       <div style={{padding: 10, background: T.cardSolid, borderRadius: 8, border: "1px solid "+T.brd, textAlign: "center"}}>
@@ -171,6 +185,13 @@ export function FixedAssetsPg({ data, config, isMob, user }){
         <div style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>إجمالي التكلفة</div>
         <div style={{fontSize: FS+1, fontWeight: 800, color: T.text, direction: "ltr", fontFamily: "monospace"}}>
           {fmt(stats.totalCost.toFixed(0))}
+        </div>
+      </div>
+      {/* V21.27.187: إجمالي قيمة الخردة — جنب إجمالي التكلفة */}
+      <div style={{padding: 10, background: T.cardSolid, borderRadius: 8, border: "1px solid "+T.brd, textAlign: "center"}}>
+        <div style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>إجمالي قيمة الخردة</div>
+        <div style={{fontSize: FS+1, fontWeight: 800, color: T.warn, direction: "ltr", fontFamily: "monospace"}}>
+          {fmt(stats.totalSalvage.toFixed(0))}
         </div>
       </div>
       <div style={{padding: 10, background: T.cardSolid, borderRadius: 8, border: "1px solid "+T.brd, textAlign: "center"}}>
@@ -318,6 +339,47 @@ export function FixedAssetsPg({ data, config, isMob, user }){
       {assets.length === 0 ? <div style={{padding: 40, textAlign: "center", color: T.textMut}}>
         لا توجد بيانات لعرضها
       </div> : <div style={{overflowX: "auto"}}>
+        {/* V21.27.187: تقرير الأصول — اسم الأصل · الفئة · تكلفة الشراء · قيمة الخردة · الحالة */}
+        <div style={{fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 12}}>
+          📊 تقرير الأصول الثابتة (التكلفة وقيمة الخردة)
+        </div>
+        <table style={{width: "100%", borderCollapse: "collapse", fontSize: FS-1, marginBottom: 28}}>
+          <thead>
+            <tr style={{background: T.bg, borderBottom: "2px solid "+T.brd}}>
+              <th style={{padding: 8, textAlign: "right", fontWeight: 800, color: T.textSec, fontSize: FS-2}}>اسم الأصل</th>
+              <th style={{padding: 8, textAlign: "right", fontWeight: 800, color: T.textSec, fontSize: FS-2}}>الفئة</th>
+              <th style={{padding: 8, textAlign: "left",  fontWeight: 800, color: T.textSec, fontSize: FS-2}}>تكلفة الشراء</th>
+              <th style={{padding: 8, textAlign: "left",  fontWeight: 800, color: T.textSec, fontSize: FS-2}}>قيمة الخردة</th>
+              <th style={{padding: 8, textAlign: "center",fontWeight: 800, color: T.textSec, fontSize: FS-2}}>الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {assets.map(a => {
+              const status = STATUS_META[a.status] || STATUS_META.active;
+              return <tr key={a.id} style={{borderBottom: "1px solid "+T.brd, background: a.status === "disposed" ? T.bg : "transparent"}}>
+                <td style={{padding: 8, fontWeight: 700}}>{a.name}</td>
+                <td style={{padding: 8, color: T.textSec, fontSize: FS-2}}>{a.category}</td>
+                <td style={{padding: 8, textAlign: "left", direction: "ltr", fontFamily: "monospace", fontWeight: 700}}>{_amt(Number(a.acquisitionCost) || 0)}</td>
+                <td style={{padding: 8, textAlign: "left", direction: "ltr", fontFamily: "monospace", fontWeight: 700, color: T.warn}}>{_amt(Number(a.salvageValue) || 0)}</td>
+                <td style={{padding: 8, textAlign: "center"}}>
+                  <span style={{
+                    fontSize: FS-3, fontWeight: 800, color: status.color, background: status.bg,
+                    padding: "3px 10px", borderRadius: 12, whiteSpace: "nowrap",
+                  }}>{status.label}</span>
+                </td>
+              </tr>;
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{borderTop: "2px solid "+T.brd, background: T.bg, fontWeight: 800}}>
+              <td style={{padding: 8, fontWeight: 800}} colSpan={2}>الإجمالي ({assets.length} أصل)</td>
+              <td style={{padding: 8, textAlign: "left", direction: "ltr", fontFamily: "monospace", fontWeight: 800, color: T.text}}>{fmt(reportTotals.cost.toFixed(0))}</td>
+              <td style={{padding: 8, textAlign: "left", direction: "ltr", fontFamily: "monospace", fontWeight: 800, color: T.warn}}>{fmt(reportTotals.salvage.toFixed(0))}</td>
+              <td/>
+            </tr>
+          </tfoot>
+        </table>
+
         <div style={{fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 12}}>
           📊 سجل الأصول الكامل
         </div>
