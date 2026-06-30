@@ -22,7 +22,7 @@ const CARD_SHADOW= "0 8px 20px rgba(37,99,235,0.07), 0 2px 5px rgba(15,23,42,0.0
 const CARD_SHADOW_ACTIVE = "0 3px 10px rgba(37,99,235,0.10)";
 
 /* ─── أيقونات SVG خطّية موحّدة (24×24، stroke currentColor) ─── */
-const SvgIcon = ({ children, size = 28 }) => (
+const SvgIcon = ({ children, size = 25 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
     {children}
@@ -115,11 +115,11 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }
         </div>
       </div>
 
-      {/* ─── شبكة الأقسام (عمودين) ─── */}
+      {/* ─── شبكة الأقسام (٣ أعمدة — V21.27.193) ─── */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 12,
+        gridTemplateColumns: "repeat(3, 1fr)",
+        gap: 10,
         marginBottom: 18,
       }}>
         {visible.map(btn => (
@@ -132,16 +132,16 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }
             style={{
               background: "#fff",
               border: "1px solid " + CARD_BRD,
-              borderRadius: 20,
-              padding: "20px 12px",
+              borderRadius: 18,
+              padding: "15px 6px",
               cursor: "pointer",
               fontFamily: "inherit",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              justifyContent: "center",
-              gap: 12,
-              minHeight: 128,
+              justifyContent: "flex-start",
+              gap: 9,
+              minHeight: 112,
               boxShadow: CARD_SHADOW,
               transition: "transform .14s ease, box-shadow .14s ease",
               WebkitTapHighlightColor: "transparent",
@@ -151,12 +151,13 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }
           >
             {/* أيقونة في خلفية أزرق شفّاف موحّدة */}
             <div style={{
-              width: 62,
-              height: 62,
-              borderRadius: 18,
+              width: 50,
+              height: 50,
+              borderRadius: 15,
               background: TILE_BG,
               border: "1px solid " + TILE_BRD,
               color: BLUE,
+              flexShrink: 0,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -165,10 +166,10 @@ export function MobileHomePage({ user, canViewTab, onNavigate, onSpecialAction }
               {ICONS[btn.key]}
             </div>
             <span style={{
-              fontSize: FS + 1,
-              fontWeight: 800,
+              fontSize: FS - 1,
+              fontWeight: 700,
               color: T.text,
-              lineHeight: 1.2,
+              lineHeight: 1.25,
               textAlign: "center",
             }}>{btn.label}</span>
           </button>
