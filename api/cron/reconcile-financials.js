@@ -25,6 +25,12 @@ import admin from "firebase-admin";
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
 import { bridgeSend } from "../_eventProcessor.js";
 import { runAllChecks, buildAlertMessage } from "../_reconcileChecks.js";
+import { computeMissingTransferLegs, applyTransferLegRepairs } from "../_repairs.js";
+
+/* V21.27.185 — الحد الآمن لعدد الأرجل اللي الإصلاح التلقائي بيكتبها في تشغيلة
+   واحدة. لو الانحراف أكبر من كده، غالبًا فيه عطل منهجي → نبلّغ ونوقف الكتابة
+   التلقائية (مراجعة بشرية عبر الـ endpoint اليدوي). */
+const AUTO_REPAIR_CAP = 50;
 
 function isAuthorizedCron(req){
   const secret = (process.env.CRON_SECRET || "").trim();
@@ -120,6 +126,61 @@ export default async function handler(req, res){
     report.configBytes = cfgBytes;
     report.durationMs = Date.now() - startTs;
 
+    /* ════════════════════════════════════════════════════════════════════
+       V21.27.185 — الإصلاح التلقائي لأرجل التحويلات المؤكدة الناقصة
+       ────────────────────────────────────────────────────────────────────
+       يقفل حلقة «الكشف → الإصلاح» اللي كانت يدوية: بدل ما حد يلاحظ التنبيه
+       ويضغط زر repair، الـ cron يصلح تلقائيًا — server-side، خارج الـ hot
+       path، بنفس منطق endpoint الإصلاح اليدوي (api/_repairs.js — مصدر واحد).
+
+       حواجز الأمان (§0.1 — الكتابة المالية غير المُشرَف عليها):
+       • تحفّظي: يكمّل بس الأرجل الناقصة لتحويلات **المستخدم أكّدها** (مفيش
+         اختراع فلوس)، idempotent بالـ id.
+       • صنف واحد مثبَّت فقط (أرجل التحويلات) — الباقي alert-only لحد ما يثبت.
+       • معطّل افتراضيًا: من غير cfg.reconcile.autoRepair=true بيحسب ويبلّغ
+         بس (dry-run) — تفعيل الكتابة = قلب flag واحد. ?autoRepair=1 للتشغيل
+         اليدوي الفوري.
+       • محدود بـ AUTO_REPAIR_CAP — انحراف ضخم = عطل منهجي = مراجعة بشرية.
+       • بس لما الخزنة + التحويلات مقسّمين (المسار العام الحالي).
+       النطاق = نافذة المطابقة (آخر windowDays) — الانحراف الأقدم يتصلح من
+       الـ endpoint اليدوي اللي بيمسح كل الأيام. */
+    const autoRepairOn = (cfg.reconcile || {}).autoRepair === true
+      || body.autoRepair === true || q.autoRepair === "1";
+    const canRepairSplit = !!cfg._splitDaysV1674Done && !!cfg._splitDaysV1952Done;
+    let autoRepair = { ran: false, eligible: 0 };
+    try {
+      const { legsToCreate, stats } = computeMissingTransferLegs(transfers, treasury, {
+        activeSeason: cfg.activeSeason || "",
+        actor: "cron:reconcile-" + authBy,
+        reason: "auto-repair-reconcile-v21.27.185",
+      });
+      const eligible = legsToCreate.length;
+      if(eligible === 0){
+        autoRepair = { ran: false, eligible: 0 };
+      } else if(!canRepairSplit){
+        autoRepair = { ran: false, eligible, skipped: "treasury/transfers غير مقسّمين — استخدم endpoint اليدوي" };
+      } else if(eligible > AUTO_REPAIR_CAP){
+        autoRepair = { ran: false, eligible, skipped: "تجاوز الحد الآمن", cap: AUTO_REPAIR_CAP };
+      } else if(dryRun || !autoRepairOn){
+        autoRepair = { ran: false, mode: "dry-run", eligible, stats,
+          note: autoRepairOn ? "dryRun" : "معطّل افتراضيًا — فعّل cfg.reconcile.autoRepair=true" };
+      } else {
+        const r = await applyTransferLegRepairs(db, legsToCreate);
+        autoRepair = { ran: true, eligible, applied: r.written, daysAffected: r.daysAffected, stats };
+        try {
+          await db.collection("migrationLog").doc("auto-repair-transfers-" + to + "-" + Date.now()).set({
+            type: "auto-repair-transfers", status: "success",
+            eligible, applied: r.written, daysAffected: r.daysAffected,
+            stats, by: "cron:reconcile", ranBy: authBy, at: new Date().toISOString(),
+          });
+        } catch(_) {}
+      }
+    } catch(e){
+      console.error("[V21.27.185 auto-repair] failed:", e);
+      autoRepair = { ran: false, error: e.message };
+    }
+    report.autoRepair = autoRepair;
+
     if(dryRun){
       return res.status(200).json({ ok: true, dryRun: true, report });
     }
@@ -152,7 +213,13 @@ export default async function handler(req, res){
         } else if(phones.length === 0){
           alert = { attempted: false, skipped: "no-recipients" };
         } else {
-          const text = buildAlertMessage(report, to);
+          let text = buildAlertMessage(report, to);
+          /* V21.27.185: لو الإصلاح التلقائي اشتغل، أضِف سطر شفافية للتنبيه. */
+          if(report.autoRepair?.ran){
+            text += "\n🔧 *تم الإصلاح التلقائي:* " + report.autoRepair.applied + " رجل تحويل ناقصة اتكتبت.";
+          } else if(report.autoRepair?.eligible > 0 && report.autoRepair?.mode === "dry-run"){
+            text += "\n🛠 *قابل للإصلاح التلقائي:* " + report.autoRepair.eligible + " رجل (فعّل cfg.reconcile.autoRepair).";
+          }
           /* V21.26.19: id ثابت (تاريخ التقرير + الهاتف) — يمنع تكرار تنبيه نفس
              اليوم لو الـ cron اشتغل مرتين قبل ما alertSentAt يتسجّل. */
           const messages = phones.map(phone => ({ id: "reconcile:" + to + "|" + phone, phone, message: text, role: "owner" }));

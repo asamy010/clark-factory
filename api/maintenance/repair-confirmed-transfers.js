@@ -62,19 +62,12 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { getDb, setCors, verifyAdminToken } from "../_firebase.js";
+/* V21.27.185: منطق الحساب + الكتابة اتنقل لموديول مشترك عشان نفس الكود بالظبط
+   يشغّل الـ endpoint ده + الإصلاح التلقائي في reconcile-financials cron. */
+import { computeMissingTransferLegs, applyTransferLegRepairs } from "../_repairs.js";
 
 const FLAG_TREASURY_SPLIT = "_splitDaysV1674Done";
 const FLAG_TRANSFERS_SPLIT = "_splitDaysV1952Done";
-
-function gid(){
-  return "rep_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
-}
-function dayName(dateStr){
-  if(!dateStr) return "";
-  try {
-    return new Date(dateStr + "T00:00:00Z").toLocaleDateString("ar-EG", { weekday: "long" });
-  } catch(_) { return ""; }
-}
 
 /* Load all entries from a daily-split collection.
    Returns array of entries flattened from each day doc. */
@@ -132,112 +125,20 @@ export default async function handler(req, res){
       treasury = Array.isArray(cfg.treasury) ? cfg.treasury : [];
     }
 
-    /* Index treasury legs by transferId for fast lookup */
-    const legsByTransferId = new Map();
-    for(const t of treasury){
-      if(t && t.transferId){
-        if(!legsByTransferId.has(t.transferId)) legsByTransferId.set(t.transferId, []);
-        legsByTransferId.get(t.transferId).push(t);
-      }
-    }
-
-    /* ── Scan confirmed transfers for missing legs ── */
-    let scanned = 0;
-    let withMissing = 0;
-    let outCreated = 0;
-    let inCreated = 0;
-    const legsToCreate = [];     /* {leg, day} */
-    const sampleRepaired = [];   /* {tfId, amount, from, to, missing} */
-    const daysAffected = new Set();
-
-    for(const tf of transfers){
-      if(!tf || typeof tf !== "object") continue;
-      if(tf.status !== "confirmed") continue;
-      scanned++;
-
-      const existingLegs = legsByTransferId.get(tf.id) || [];
-      const hasOut = existingLegs.some(t => t.type === "out");
-      const hasIn  = existingLegs.some(t => t.type === "in");
-
-      const date = String(tf.date || "").slice(0, 10);
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){
-        /* Skip transfers with invalid dates — can't determine day doc */
-        continue;
-      }
-
-      const dayN = dayName(date);
-      const missing = [];
-
-      /* Out leg — only if fromAccount set */
-      if(!hasOut && tf.fromAccount){
-        legsToCreate.push({
-          day: date,
-          leg: {
-            id: gid(),
-            type: "out",
-            amount: Number(tf.amount) || 0,
-            desc: "تحويل إلى " + tf.toAccount + (tf.note ? " — " + tf.note : ""),
-            notes: "",
-            category: "تحويل داخلي",
-            account: tf.fromAccount,
-            season: cfg.activeSeason || "",
-            date,
-            day: dayN,
-            transferId: tf.id,
-            by: tf.sentBy || tf.approvedBy || (auth.email || auth.uid),
-            createdAt: new Date().toISOString(),
-            repairedAt: new Date().toISOString(),
-            repairedBy: auth.email || auth.uid,
-            repairReason: "v21.9.45-confirmed-transfer-legs-recovery",
-          },
-        });
-        outCreated++;
-        missing.push("out");
-        daysAffected.add(date);
-      }
-
-      /* In leg — only if toAccount set */
-      if(!hasIn && tf.toAccount){
-        legsToCreate.push({
-          day: date,
-          leg: {
-            id: gid(),
-            type: "in",
-            amount: Number(tf.amount) || 0,
-            desc: "تحويل من " + tf.fromAccount + (tf.note ? " — " + tf.note : ""),
-            notes: "",
-            category: "تحويل داخلي",
-            account: tf.toAccount,
-            season: cfg.activeSeason || "",
-            date,
-            day: dayN,
-            transferId: tf.id,
-            by: tf.sentBy || tf.approvedBy || (auth.email || auth.uid),
-            createdAt: new Date().toISOString(),
-            repairedAt: new Date().toISOString(),
-            repairedBy: auth.email || auth.uid,
-            repairReason: "v21.9.45-confirmed-transfer-legs-recovery",
-          },
-        });
-        inCreated++;
-        missing.push("in");
-        daysAffected.add(date);
-      }
-
-      if(missing.length > 0){
-        withMissing++;
-        if(sampleRepaired.length < 10){
-          sampleRepaired.push({
-            tfId: tf.id,
-            amount: Number(tf.amount) || 0,
-            from: tf.fromAccount || "",
-            to:   tf.toAccount || "",
-            date,
-            missing: missing.join("+"),
-          });
-        }
-      }
-    }
+    /* ── Scan confirmed transfers for missing legs ──
+       V21.27.185: الحساب اتنقل لـ computeMissingTransferLegs (api/_repairs.js)
+       — مصدر حقيقة واحد مع الـ cron. الـ reason الافتراضي
+       "v21.9.45-confirmed-transfer-legs-recovery" محفوظ للتوافق مع السجلات. */
+    const { legsToCreate, stats } = computeMissingTransferLegs(transfers, treasury, {
+      activeSeason: cfg.activeSeason || "",
+      actor: auth.email || auth.uid,
+    });
+    const scanned = stats.transfers_scanned;
+    const withMissing = stats.transfers_with_missing_legs;
+    const outCreated = stats.legs_out_to_create;
+    const inCreated = stats.legs_in_to_create;
+    const sampleRepaired = stats.sample_repaired;
+    const daysAffected = new Set(stats.days_list);
 
     /* ── DRY RUN: report only ── */
     if(dryRun){
@@ -267,41 +168,11 @@ export default async function handler(req, res){
       });
     }
 
-    /* Group new legs by day doc */
-    const legsByDay = new Map();
-    for(const { day, leg } of legsToCreate){
-      if(!legsByDay.has(day)) legsByDay.set(day, []);
-      legsByDay.get(day).push(leg);
-    }
-
     if(treasurySplit){
-      /* Write to treasuryDays/{date}.
-         CRITICAL: read existing entries, MERGE with new legs, write back.
-         Never overwrite — that would wipe entries from other transactions
-         on the same day (V16.75 lesson). */
-      for(const [day, newLegs] of legsByDay){
-        const dayRef = db.collection("treasuryDays").doc(day);
-        const daySnap = await dayRef.get();
-        let entries = [];
-        if(daySnap.exists){
-          const data = daySnap.data();
-          entries = Array.isArray(data?.entries) ? data.entries : [];
-        }
-        /* Defense in depth: skip any leg whose id already exists in entries
-           (idempotency for re-runs against the same data). */
-        const existingIds = new Set(entries.map(e => String(e?.id || "")));
-        const fresh = newLegs.filter(l => !existingIds.has(String(l.id)));
-        if(fresh.length === 0) continue;
-        /* Prepend (treasury uses unshift convention — newest first) */
-        const merged = [...fresh, ...entries];
-        await dayRef.set({
-          entries: merged,
-          count: merged.length,
-          updatedAt: new Date().toISOString(),
-          repairTouched: true,
-          repairAt: new Date().toISOString(),
-        }, { merge: true });
-      }
+      /* V21.27.185: الكتابة المقسّمة اتنقلت لـ applyTransferLegRepairs
+         (api/_repairs.js) — نفس المنطق المشترك مع الـ cron: read-modify-write،
+         merge مش overwrite (درس V16.75)، idempotent بالـ id. */
+      await applyTransferLegRepairs(db, legsToCreate);
     } else {
       /* Pre-V16.74 install — write to cfg.treasury directly.
          Use a transaction to avoid stale-write collision. */
