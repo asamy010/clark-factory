@@ -3806,7 +3806,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* V21.22.11: قائمة العملاء بقت VIEW ملء الشاشة بدل بوب اب (مبدأ:
         الكبير = صفحة، الصغير = popup). فورم «+ عميل جديد» يفضل popup صغير. */}
     {showCustList&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflowY:"auto",overflowX:"hidden"}}>
-      <div style={{maxWidth:1360,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>{/* V21.27.188: توسعة العرض (1200→1360) عشان كل أزرار الأدوات تبان على الصف (طلب Ahmed). كان V21.27.75 ضيّقه لـ1200. */}
+      <div style={{maxWidth:1480,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>{/* V21.27.189: توسعة أكبر (1360→1480) عشان أزرار الأدوات تبان واضحة متباعدة مش متقطّعة (طلب Ahmed). تاريخ: V21.27.75=1200 → V21.27.188=1360 → V21.27.189=1480. */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap",position:"sticky",top:0,background:T.bg,paddingTop:4,paddingBottom:10,zIndex:2}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <Btn small onClick={()=>setShowCustList(false)} style={{background:T.cardSolid,border:"1px solid "+T.brd,fontWeight:700}}>← رجوع</Btn>
@@ -3863,9 +3863,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const cPhone={width:116,flexShrink:0,whiteSpace:"nowrap"};
             const cAddr={flex:"1.6",minWidth:110,padding:"0 8px",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"};
             const cTot={width:84,flexShrink:0,whiteSpace:"nowrap"};
-            /* V21.27.188: وسّعنا عمود الأدوات (176→220) عشان الـ5 أزرار
-               (📋 ✏️ QR 📱 ❌) تبان كلها — كان الزر الأخير بيتقطع. */
-            const cAct={width:220,flexShrink:0,paddingInlineEnd:6};
+            /* V21.27.189: وسّعنا عمود الأدوات أكتر (220→268) عشان الـ5 أزرار
+               (📋 ✏️ QR 📱 ❌) تبان واضحة متباعدة مش متقطّعة. gap أكبر شوية. */
+            const cAct={width:268,flexShrink:0,paddingInlineEnd:8};
             const hdr={fontWeight:800,color:T.textSec,fontSize:FS-2};
             const renderRow=(c,i,style)=>{const total=getCustTotal(c.id);return(
               <div key={c.id} style={{...style,display:"flex",alignItems:"center",boxSizing:"border-box",borderBottom:"1px solid "+T.brd,fontSize:FS-1,background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}>
@@ -3876,7 +3876,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
                 <div style={cPhone}>{c.phone}</div>
                 <div style={{...cAddr,color:T.textSec}} title={c.address||""}>{c.address||"—"}</div>
                 <div style={{...cTot,fontWeight:700,color:T.accent}}>{total||"—"}</div>
-                {canEdit&&<div style={{...cAct,display:"flex",gap:3}}>
+                {canEdit&&<div style={{...cAct,display:"flex",gap:5}}>
                   <Btn small onClick={()=>setCustSalesLog(c.id)} style={{background:"#059669"+"12",color:"#059669",border:"1px solid #05966930"}} title="سجل مبيعات">📋</Btn>
                   <Btn small onClick={()=>{setCName(c.name);setCPhone(c.phone);setCAddr(c.address||"");setCType(c.type||"مكتب");setCDiscount(Number(c.discount)||0);setCArchived(!!c.archived);setCTags(Array.isArray(c.tags)?c.tags.slice():[]);setCPriceTier(c.priceTier||"");setCEditId(c.id);setShowCustForm(true)}} style={{background:T.warn+"12",color:T.warn,border:"1px solid "+T.warn+"30"}} title="تعديل">✏️</Btn>
                   <Btn small onClick={()=>showCustQR(c)} style={{background:"#8B5CF612",color:"#8B5CF6",border:"1px solid #8B5CF630"}} title="عرض كود QR">QR</Btn>
