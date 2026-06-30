@@ -1,69 +1,62 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   CLARK · BottomNav (V21.9.155 — Mobile Redesign Phase A)
+   CLARK · BottomNav (V21.27.192 — إعادة تصميم احترافية: أبيض + أزرق انسيابي)
    ───────────────────────────────────────────────────────────────────────
-   Fixed bottom tab bar (mobile only). Renders 5 tabs from BOTTOM_TABS
-   with badges + active indicator + safe-area padding for iPhone home
-   indicator.
+   شريط سفلي ثابت (موبايل). أيقونات SVG خطّية موحّدة (بدل الإيموجي) بلون أزرق،
+   تاب نشط بخلفية pill أزرق شفّاف. زر الهوم المركزي المرتفع منفصل (BottomNavFab).
 
-   The center "spacer" slot is intentionally left clear so the FAB
-   (rendered separately as BottomNavFab) sits in the middle without
-   colliding with any tab button.
+   - full mode: ٤ تابات (sales/details/finance/more) + spacer مركزي لزر الهوم.
+   - minimal mode (الشاشات الفرعية): زر هوم مركزي واحد بس.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { T } from "../../theme.js";
-import { FS } from "../../constants/index.js";
 import { BOTTOM_TABS } from "../../utils/navigationConfig.js";
 
-/* Convert latin digits to Arabic-Indic for badge display (consistent with
-   the rest of the app's number rendering). */
 function toArabicDigits(n) {
   return String(n).replace(/\d/g, d => "٠١٢٣٤٥٦٧٨٩"[d]);
 }
 
+/* ─── أيقونات SVG خطّية موحّدة (24×24، stroke currentColor) ─── */
+const SvgIcon = ({ children, size = 25 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    {children}
+  </svg>
+);
+
+const ICONS = {
+  sales:   <SvgIcon><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h2.2l2.3 12.1a2 2 0 0 0 2 1.6h8a2 2 0 0 0 2-1.5L21 7H5.5"/></SvgIcon>,
+  details: <SvgIcon><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M20 4.5L8.5 16"/><path d="M14.5 14.5L20 19.5"/><path d="M8.5 8L12 11.5"/></SvgIcon>,
+  finance: <SvgIcon><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10.5h19"/><circle cx="17" cy="14.5" r="1.3"/></SvgIcon>,
+  more:    <SvgIcon><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></SvgIcon>,
+  home:    <SvgIcon size={26}><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.7V21h4.5v-5.5h5V21H19V9.7"/></SvgIcon>,
+};
+
+const BLUE = "#2563EB";
+const GREY = "#94A3B8";
+
 export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs, minimal }) {
-  /* `visibleTabs` is the filtered list (after permissions) — passed from
-     App.jsx so the component stays pure UI. Falls back to BOTTOM_TABS for
-     the rare case where the caller hasn't pre-filtered.
-     `minimal` (V21.9.158): when true, render ONLY a centered home button
-     (no tabs, no spacer). Used on sub-screens per user feedback — the full
-     nav distracts from page content. */
-  const tabs = Array.isArray(visibleTabs) && visibleTabs.length > 0
-    ? visibleTabs
-    : BOTTOM_TABS;
+  const tabs = Array.isArray(visibleTabs) && visibleTabs.length > 0 ? visibleTabs : BOTTOM_TABS;
 
   function handleClick(tabId) {
-    if (navigator.vibrate) {
-      try { navigator.vibrate(8); } catch(_) {}
-    }
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch (_) {} }
     onTabChange(tabId);
   }
 
-  /* V21.9.158: Minimal mode — only a centered home button. */
+  /* minimal mode — زر هوم مركزي واحد (الشاشات الفرعية). */
   if (minimal) {
     return (
       <nav style={minimalNavStyle} role="navigation" aria-label="العودة للرئيسية">
-        <button
-          onClick={() => handleClick("home")}
-          style={minimalHomeBtnStyle}
-          aria-label="الرئيسية"
-        >
-          <span style={{ fontSize: 26, lineHeight: 1 }} aria-hidden="true">🏠</span>
-          <span style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>الرئيسية</span>
+        <button onClick={() => handleClick("home")} style={minimalHomeBtnStyle} aria-label="الرئيسية">
+          {ICONS.home}
         </button>
       </nav>
     );
   }
 
-  /* V21.9.157: build the final list with a SPACER element at the exact center
-     so the FAB sits centered (50/50 split, not the previous best-effort spacer).
-     For 4 tabs → [tab0, tab1, SPACER, tab2, tab3]. For odd counts the spacer
-     still inserts at the midpoint (handles permission-hidden tabs gracefully). */
+  /* full mode — spacer في النص المظبوط (FAB/home يقع فوقه). */
   const items = [];
   const half = Math.floor(tabs.length / 2);
   tabs.forEach((tab, idx) => {
-    if (idx === half) {
-      items.push({ kind: "spacer", key: "spacer-mid" });
-    }
+    if (idx === half) items.push({ kind: "spacer", key: "spacer-mid" });
     items.push({ kind: "tab", key: tab.id, tab });
   });
 
@@ -80,33 +73,34 @@ export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs, m
           <button
             key={it.key}
             onClick={() => handleClick(tab.id)}
-            style={{
-              ...tabItemStyle,
-              color: isActive ? "#0369a1" : "#64748b",
-            }}
+            style={{ ...tabItemStyle, color: isActive ? BLUE : GREY }}
             aria-current={isActive ? "page" : undefined}
             aria-label={tab.label}
           >
-            {/* Active indicator (top bar) */}
-            {isActive && <span style={activeIndicatorStyle} aria-hidden="true" />}
-            {/* Badge (top-right of icon) */}
+            {/* badge */}
             {badge > 0 && (
               <span style={badgeStyle} aria-label={badge + " إشعار"}>
                 {badge > 99 ? "+99" : toArabicDigits(badge)}
               </span>
             )}
-            {/* Icon */}
+            {/* أيقونة في pill أزرق شفّاف عند التفعيل */}
             <span style={{
-              fontSize: 24,/* V21.9.157: bigger icon — was 22 */
-              lineHeight: 1,
-              transform: isActive ? "translateY(-1px) scale(1.08)" : "none",
-              transition: "transform 0.2s",
-            }} aria-hidden="true">{tab.icon}</span>
-            {/* Label */}
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 46,
+              height: 30,
+              borderRadius: 14,
+              background: isActive ? "rgba(37,99,235,0.10)" : "transparent",
+              transition: "background 0.2s ease",
+            }}>
+              {ICONS[tab.id] || null}
+            </span>
             <span style={{
-              fontSize: 11,/* V21.9.157: slightly bigger — was 10.5 */
-              fontWeight: 600,
+              fontSize: 11,
+              fontWeight: isActive ? 800 : 600,
               whiteSpace: "nowrap",
+              transition: "font-weight 0.15s",
             }}>{tab.label}</span>
           </button>
         );
@@ -120,17 +114,16 @@ export function BottomNav({ activeBottomTab, onTabChange, badges, visibleTabs, m
 const navStyle = {
   position: "fixed",
   bottom: 0, left: 0, right: 0,
-  height: "calc(64px + env(safe-area-inset-bottom, 0px))",
+  height: "calc(66px + env(safe-area-inset-bottom, 0px))",
   paddingBottom: "env(safe-area-inset-bottom, 0px)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.94)",
   backdropFilter: "saturate(180%) blur(20px)",
   WebkitBackdropFilter: "saturate(180%) blur(20px)",
-  borderTop: "1px solid #e2e8f0",
+  borderTop: "1px solid #E8EFF7",
   display: "flex",
   alignItems: "stretch",
   zIndex: 50,
-  boxShadow: "0 -4px 24px rgba(15,23,42,0.06)",
-  /* Stop iOS double-tap zoom inside the nav */
+  boxShadow: "0 -6px 24px rgba(37,99,235,0.06)",
   touchAction: "manipulation",
 };
 
@@ -140,7 +133,7 @@ const tabItemStyle = {
   flexDirection: "column",
   alignItems: "center",
   justifyContent: "center",
-  gap: 3,
+  gap: 2,
   background: "none",
   border: "none",
   cursor: "pointer",
@@ -154,26 +147,15 @@ const tabItemStyle = {
 
 const spacerStyle = {
   flex: 1,
-  /* Cap the spacer so the FAB (64px) has clearance but doesn't dominate.
-     ~70px = FAB + small breathing room on each side. */
-  maxWidth: 70,
-};
-
-const activeIndicatorStyle = {
-  position: "absolute",
-  top: 0, left: "50%",
-  transform: "translateX(-50%)",
-  width: 28, height: 3,
-  background: "#0369a1",
-  borderRadius: "0 0 4px 4px",
+  maxWidth: 76,
 };
 
 const badgeStyle = {
   position: "absolute",
-  top: 4, right: "calc(50% - 22px)",
+  top: 2, right: "calc(50% - 22px)",
   minWidth: 17, height: 17,
   padding: "0 4px",
-  background: "#dc2626",
+  background: "#EF4444",
   color: "#fff",
   fontSize: 10,
   fontWeight: 700,
@@ -184,9 +166,10 @@ const badgeStyle = {
   border: "2px solid #fff",
   boxSizing: "border-box",
   lineHeight: 1,
+  zIndex: 1,
 };
 
-/* V21.9.158 — Minimal mode styles (single centered home button on sub-screens) */
+/* minimal mode — زر هوم مركزي (الشاشات الفرعية) — نفس شكل BottomNavFab. */
 const minimalNavStyle = {
   position: "fixed",
   bottom: 0, left: 0, right: 0,
@@ -196,22 +179,21 @@ const minimalNavStyle = {
   alignItems: "center",
   justifyContent: "center",
   zIndex: 50,
-  pointerEvents: "none",/* let underlying content receive touches; button itself re-enables */
+  pointerEvents: "none",
 };
 
 const minimalHomeBtnStyle = {
   pointerEvents: "auto",
   display: "flex",
-  flexDirection: "column",
   alignItems: "center",
   justifyContent: "center",
-  width: 64,
-  height: 64,
+  width: 60,
+  height: 60,
   borderRadius: "50%",
-  background: "linear-gradient(135deg, #0EA5E9 0%, #0369a1 100%)",
+  background: "linear-gradient(135deg, #2E7BED 0%, #1D4ED8 100%)",
   color: "#fff",
   border: "none",
-  boxShadow: "0 6px 20px rgba(3,105,161,0.4), 0 0 0 5px #f1f5f9",
+  boxShadow: "0 8px 22px rgba(37,99,235,0.45), 0 0 0 5px #fff",
   cursor: "pointer",
   fontFamily: "inherit",
   WebkitTapHighlightColor: "transparent",

@@ -30,12 +30,16 @@
    اتـ moved لـ "المزيد" tab بدلاً منها. السبب: per user feedback، الـ
    mobile experience مطلوب يكون simpler — 4 categories أوضح من 5.
    ──────────────────────────────────────────────────────────── */
+/* V21.27.192: الـ «home» اتشال من التابات المسطّحة وبقى **زر النص المرتفع**
+   (بدل زر الـ «+» القديم). التابات المسطّحة دلوقتي ٤ (sales/details/finance/more)
+   متوزّعة ٢ يمين + ٢ شمال حوالين زر الهوم المركزي → شكل متماثل احترافي.
+   الأيقونات SVG (مش إيموجي) — بتتبني في BottomNav.jsx بالـ id. */
 export const BOTTOM_TABS = [
-  { id: "home",    label: "الرئيسية", icon: "🏠" },
-  { id: "sales",   label: "المبيعات",  icon: "🧾" },
-  /* FAB goes here visually (centered) */
-  { id: "finance", label: "المالية",   icon: "💰" },
-  { id: "more",    label: "المزيد",    icon: "☰" },
+  { id: "sales",   label: "المبيعات" },
+  { id: "details", label: "التصنيع" },
+  /* زر الهوم المركزي المرتفع بيقع هنا visually (BottomNavFab) */
+  { id: "finance", label: "المالية" },
+  { id: "more",    label: "المزيد" },
 ];
 
 /* ────────────────────────────────────────────────────────────
@@ -83,8 +87,9 @@ export const TAB_SUBVIEWS = {
      لأنهم كانوا في tab منفصل اتـ remove. الترتيب: الإنتاج أولاً (الأكثر استخداماً
      في الفاكتوري daily) → ثم business → ثم admin. */
   more: [
-    /* ─── إنتاج (formerly inventory tab) ─── */
-    { id: "details",    label: "التصنيع",      tabKey: "details",    icon: "✂️" },
+    /* ─── إنتاج (formerly inventory tab) ───
+       V21.27.192: «التصنيع» بقى تاب مستقل في الشريط السفلي → اتشال من هنا
+       لتفادي التكرار (المخازن/التشغيل الخارجي/تتبع القطع باقيين). */
     { id: "warehouse",  label: "المخازن",         tabKey: "warehouse",  icon: "📦" },
     { id: "external",   label: "تشغيل خارجي",     tabKey: "external",   icon: "🏗️" },
     { id: "pieces",     label: "تتبع القطع",      tabKey: "pieces",     icon: "🔍" },
@@ -167,6 +172,7 @@ export const FAB_ACTIONS = [
    ──────────────────────────────────────────────────────────── */
 export function bottomTabFromTabKey(tabKey) {
   if (!tabKey || tabKey === "home") return "home";
+  if (tabKey === "details") return "details"; // V21.27.192: «التصنيع» تاب مستقل
   if (tabKey === "sales") return "sales"; // V21.11.0: مفتاح الهَب المجمّع
   if (tabKey === "purchases") return "finance"; // V21.12.0: هَب المشتريات
   for (const bottomId of Object.keys(TAB_SUBVIEWS)) {

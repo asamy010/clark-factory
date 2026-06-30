@@ -6513,7 +6513,8 @@ export default function App(){
   /* Filter BOTTOM_TABS to those with at least one visible sub-view.
      Computed each render — cheap since it's just 5 iterations × small lists. */
   const visibleBottomTabs = BOTTOM_TABS.filter(bt => {
-    if (bt.id === "home") return canViewTab("home") || true;/* always allow home */
+    /* V21.27.192: «التصنيع» تاب مباشر — مرتبط بصلاحية details. */
+    if (bt.id === "details") return canViewTab("details");
     if (bt.id === "more") {
       /* "more" visible if user has at least one entry in TAB_SUBVIEWS.more */
       return (TAB_SUBVIEWS.more || []).some(sv => canViewTab(sv.tabKey));
@@ -6537,6 +6538,9 @@ export default function App(){
       setTab("home"); setSel(null);
     } else if (bottomTabId === "more") {
       setTab("moreMenu"); setSel(null);
+    } else if (bottomTabId === "details") {
+      /* V21.27.192: «التصنيع» تاب مباشر — صفحة DetPg ليها تابات داخلية. */
+      setTab("details"); setSel(null);
     } else {
       /* navigate to the first VISIBLE sub-view of the chosen bottom tab */
       const subs = visibleSubViews(bottomTabId, canViewTab, navFlags);
@@ -6568,42 +6572,8 @@ export default function App(){
     return { home: homeCnt, sales: 0, inventory: 0, finance: 0, more: moreCnt };
   })();
 
-  /* FAB action handler — wires each action to the appropriate side-effect.
-     V21.9.159: the treasury action no longer navigates to TreasuryPg; it opens
-     the QuickTreasuryModal directly for a much faster in/out entry workflow. */
-  const onFabAction = (action) => {
-    if (!action) return;
-    if (action.kind === "openQuickPopup") {
-      setQuickPopup(action.mode === "notif" ? "notif" : "task");
-      setQpTo(action.mode === "notif" ? "all" : "");
-      setQpText("");
-      return;
-    }
-    /* V21.9.159: intercept treasury action → open quick modal instead of nav */
-    if (action.kind === "navigateAndAction" && action.action === "newEntry" && action.targetTab === "treasury") {
-      setQuickTreasury({ type: "in" });
-      return;
-    }
-    if (action.kind === "navigateAndAction") {
-      /* Stash the action so the target page can pick it up on next render */
-      try {
-        sessionStorage.setItem("clark-fab-action", JSON.stringify({
-          targetTab: action.targetTab,
-          action: action.action,
-          ts: Date.now(),
-        }));
-      } catch(_) {}
-      goTo(action.targetTab);
-      /* Also dispatch a window event for pages that prefer event-based wiring */
-      setTimeout(() => {
-        try {
-          window.dispatchEvent(new CustomEvent("clark-fab-action", {
-            detail: { targetTab: action.targetTab, action: action.action },
-          }));
-        } catch(_) {}
-      }, 200);
-    }
-  };
+  /* V21.27.192: onFabAction اتشال — زر النص بقى «زر الهوم» بدل قائمة الإجراءات
+     السريعة (طلب Ahmed). الإجراءات السريعة لسه متاحة من صفحاتها + من شبكة الهوم. */
 
   /* V21.9.159: Special actions from the MobileHomePage big-buttons grid.
      V21.9.161: collapsed quick-treasury in/out into one entry — the modal
@@ -7672,7 +7642,7 @@ export default function App(){
         visibleTabs={visibleBottomTabs}
         minimal={tab!=="home"}
       />
-      {tab==="home"&&<BottomNavFab onAction={onFabAction}/>}
+      {tab==="home"&&<BottomNavFab onHome={goHome}/>}
     </>}
     {/* V21.9.157 mode-toggle button removed in V21.9.159 — see useEffect above. */}
     {/* V21.9.159 — Quick Treasury Modal (opens from FAB treasury action + mobile home quick in/out buttons) */}
