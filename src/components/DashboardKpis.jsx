@@ -7,7 +7,7 @@
 import { useState, useMemo } from "react";
 import { T } from "../theme.js";
 import { FS } from "../constants/index.js";
-import { fmt } from "../utils/format.js";
+import { fmt, fmt0 } from "../utils/format.js";
 import { printPage } from "../utils/print.js";
 import { computeDashboardKpis } from "../utils/dashboardKpis.js";
 
@@ -17,7 +17,8 @@ export function DashboardKpis({ data, isMob, upConfig }){
   const k = useMemo(() => computeDashboardKpis(data), [data]);
   const [popup, setPopup] = useState(null); /* {title,color,columns,rows,summary,note,extra} */
 
-  const money = (n) => fmt(Number(n) || 0) + " ج.م";
+  /* V21.27.198: أرقام لوحة التحكم بدون كسور عشرية (fmt0 = تقريب لأقرب صحيح). */
+  const money = (n) => fmt0(Number(n) || 0) + " ج.م";
 
   /* V21.21.19: فئات المنصرف المتاحة + اختيار فئات المصروفات التشغيلية يدوياً */
   const outCats = useMemo(() => {
@@ -47,7 +48,7 @@ export function DashboardKpis({ data, isMob, upConfig }){
       onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; }}
       onMouseLeave={e => { e.currentTarget.style.transform = "none"; }}>
       <div style={{ fontSize: FS - 2, color: big ? "rgba(255,255,255,.9)" : T.textSec, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
-      <div style={{ fontSize: isMob ? 17 : (big ? 24 : 20), fontWeight: 900, marginTop: 4, color: big ? "#fff" : (color || T.text) }}>{fmt(Number(value) || 0)}<span style={{ fontSize: FS - 3, fontWeight: 600, opacity: .7 }}> ج.م</span></div>
+      <div style={{ fontSize: isMob ? 17 : (big ? 24 : 20), fontWeight: 900, marginTop: 4, color: big ? "#fff" : (color || T.text) }}>{fmt0(Number(value) || 0)}<span style={{ fontSize: FS - 3, fontWeight: 600, opacity: .7 }}> ج.م</span></div>
       {sub && <div style={{ fontSize: FS - 3, marginTop: 2, fontWeight: 700, color: big ? "rgba(255,255,255,.85)" : T.textMut }}>{sub}</div>}
     </div>
   );
@@ -127,11 +128,11 @@ export function DashboardKpis({ data, isMob, upConfig }){
     h += "</tr></thead><tbody>";
     (cfg.rows || []).forEach((row, i) => {
       h += "<tr style='background:" + (i % 2 ? "#f8fafc" : "#fff") + "'>";
-      cols.forEach(c => { const raw = row[c.key]; const txt = (c.money === false) ? fmt(Number(raw) || 0) : (typeof raw === "number" ? fmt(raw) + " ج.م" : _esc(raw)); h += "<td style='padding:5px;border:1px solid #eee;text-align:" + (c.align || "center") + "'>" + txt + "</td>"; });
+      cols.forEach(c => { const raw = row[c.key]; const txt = (c.money === false) ? fmt(Number(raw) || 0) : (typeof raw === "number" ? fmt0(raw) + " ج.م" : _esc(raw)); h += "<td style='padding:5px;border:1px solid #eee;text-align:" + (c.align || "center") + "'>" + txt + "</td>"; });
       h += "</tr>";
     });
     h += "</tbody></table>";
-    if(cfg.summary){ h += "<table style='width:100%;border-collapse:collapse;margin-top:12px;font-size:13px'>"; cfg.summary.forEach(([lab, val], idx) => { const last = idx === cfg.summary.length - 1; h += "<tr><td style='padding:7px;border:1px solid #ddd;font-weight:" + (last ? 800 : 600) + ";background:" + (last ? "#f0f9ff" : "#fff") + "'>" + _esc(lab) + "</td><td style='padding:7px;border:1px solid #ddd;text-align:left;font-weight:800;background:" + (last ? "#f0f9ff" : "#fff") + "'>" + fmt(Number(val) || 0) + " ج.م</td></tr>"; }); h += "</table>"; }
+    if(cfg.summary){ h += "<table style='width:100%;border-collapse:collapse;margin-top:12px;font-size:13px'>"; cfg.summary.forEach(([lab, val], idx) => { const last = idx === cfg.summary.length - 1; h += "<tr><td style='padding:7px;border:1px solid #ddd;font-weight:" + (last ? 800 : 600) + ";background:" + (last ? "#f0f9ff" : "#fff") + "'>" + _esc(lab) + "</td><td style='padding:7px;border:1px solid #ddd;text-align:left;font-weight:800;background:" + (last ? "#f0f9ff" : "#fff") + "'>" + fmt0(Number(val) || 0) + " ج.م</td></tr>"; }); h += "</table>"; }
     printPage(cfg.title, h, { factoryName: data.factoryName, logo: data.logo });
   };
 
