@@ -3806,7 +3806,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
     {/* V21.22.11: قائمة العملاء بقت VIEW ملء الشاشة بدل بوب اب (مبدأ:
         الكبير = صفحة، الصغير = popup). فورم «+ عميل جديد» يفضل popup صغير. */}
     {showCustList&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflowY:"auto",overflowX:"hidden"}}>
-      <div style={{maxWidth:1200,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>{/* V21.27.75: عرض متوسّط متوسّط بالشاشة — الأعمدة تتقارب وشكل أفضل (طلب Ahmed) */}
+      <div style={{maxWidth:1360,margin:"0 auto",padding:isMob?14:24,minHeight:"100%",boxSizing:"border-box"}}>{/* V21.27.188: توسعة العرض (1200→1360) عشان كل أزرار الأدوات تبان على الصف (طلب Ahmed). كان V21.27.75 ضيّقه لـ1200. */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap",position:"sticky",top:0,background:T.bg,paddingTop:4,paddingBottom:10,zIndex:2}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <Btn small onClick={()=>setShowCustList(false)} style={{background:T.cardSolid,border:"1px solid "+T.brd,fontWeight:700}}>← رجوع</Btn>
@@ -3863,7 +3863,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
             const cPhone={width:116,flexShrink:0,whiteSpace:"nowrap"};
             const cAddr={flex:"1.6",minWidth:110,padding:"0 8px",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"};
             const cTot={width:84,flexShrink:0,whiteSpace:"nowrap"};
-            const cAct={width:176,flexShrink:0,paddingInlineEnd:6};
+            /* V21.27.188: وسّعنا عمود الأدوات (176→220) عشان الـ5 أزرار
+               (📋 ✏️ QR 📱 ❌) تبان كلها — كان الزر الأخير بيتقطع. */
+            const cAct={width:220,flexShrink:0,paddingInlineEnd:6};
             const hdr={fontWeight:800,color:T.textSec,fontSize:FS-2};
             const renderRow=(c,i,style)=>{const total=getCustTotal(c.id);return(
               <div key={c.id} style={{...style,display:"flex",alignItems:"center",boxSizing:"border-box",borderBottom:"1px solid "+T.brd,fontSize:FS-1,background:c.archived?T.err+"06":(i%2===0?"transparent":T.bg+"80"),opacity:c.archived?0.7:1}}>
