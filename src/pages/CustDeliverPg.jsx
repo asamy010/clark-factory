@@ -1197,7 +1197,9 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         Object.entries(custMap).sort((a,b)=>(b[1].del-b[1].ret)-(a[1].del-a[1].ret)).forEach(([n,d])=>{const net=d.del-d.ret;h+="<tr><td style='font-weight:700'>"+n+"</td><td style='text-align:center'>"+fmt(d.del)+"</td><td style='text-align:center;color:#EF4444'>"+(d.ret||"—")+"</td><td style='text-align:center;font-weight:800'>"+fmt(net)+"</td><td style='text-align:center;font-weight:700;color:#8B5CF6'>"+fmt(r2(d.val))+" ج.م</td></tr>"});
         h+="<tr style='background:#F1F5F9;font-weight:800'><td>الاجمالي</td><td style='text-align:center'>"+fmt(totalDel)+"</td><td style='text-align:center;color:#EF4444'>"+fmt(totalRet)+"</td><td style='text-align:center;font-size:14px'>"+fmt(totalNet)+"</td><td style='text-align:center;color:#8B5CF6;font-size:14px'>"+fmt(r2(totalVal))+" ج.م</td></tr></tbody></table>"}}
     h+="<div class='sig'><div class='sig-box'>مسؤول المبيعات</div><div class='sig-box'>المدير</div></div>";
-    printPage(titleParts.join(" — "),h,{factoryName:config.factoryName,logo:config.logo});setShowReport(false)};
+    /* V21.27.190: عرض بدل طباعة فورية — يفتح صفحة التقرير الاحترافية والمستخدم
+       يختار 🖨 طباعة أو 📄 PDF من شريط الصفحة. */
+    printPage(titleParts.join(" — "),h,{factoryName:config.factoryName,logo:config.logo},{viewOnly:true});setShowReport(false)};
 
   /* Shipping label */
   const printShippingLabel=async(cust,sessDate,items,total,shipN)=>{
@@ -6871,7 +6873,7 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn ghost onClick={()=>setShowReport(false)}>الغاء</Btn>
-          <Btn onClick={printSalesReport} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>🖨 طباعة التقرير</Btn>
+          <Btn onClick={printSalesReport} style={{background:"#8B5CF6",color:"#fff",border:"none",fontWeight:700}}>👁 عرض التقرير</Btn>
         </div>
       </div>
     </div>}

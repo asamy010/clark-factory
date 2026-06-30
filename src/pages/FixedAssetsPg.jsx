@@ -19,6 +19,7 @@ import {
   monthlyDepreciation, bookValue, ASSET_CATEGORIES,
 } from "../utils/accounting/fixedAssets.js";
 import { fmt } from "../utils/format.js";
+import { printPage } from "../utils/print.js";
 import { ask, tell } from "../utils/popups.js";
 /* V21.9.188: cross-page action handoff (Dashboard "+ جديد" button). */
 import { consumePendingAction } from "../utils/pendingAction.js";
@@ -148,6 +149,38 @@ export function FixedAssetsPg({ data, config, isMob, user }){
   };
 
   const _amt = (n) => Math.abs(n) < 0.005 ? "—" : fmt(n.toFixed(2));
+
+  /* V21.27.190: تقرير الأصول الثابتة قابل للطباعة — تنسيق أبيض/أسود احترافي
+     (mono) يفتح صفحة منفصلة فيها 🖨 طباعة + 📄 PDF. الأعمدة: اسم الأصل · الفئة ·
+     تكلفة الشراء · قيمة الخردة · الحالة + صف إجمالي. */
+  const printAssetsReport = () => {
+    if(assets.length === 0){ showToast("لا توجد بيانات لعرضها"); return; }
+    const STATUS_LABEL = { active: "نشط", fully_depreciated: "مُهلك بالكامل", disposed: "تم التصرف فيه" };
+    let rows = "";
+    assets.forEach(a => {
+      rows += "<tr>"
+        + "<td style='font-weight:700'>" + (a.name || "") + "</td>"
+        + "<td>" + (a.category || "") + "</td>"
+        + "<td style='text-align:center'>" + fmt((Number(a.acquisitionCost) || 0).toFixed(0)) + "</td>"
+        + "<td style='text-align:center'>" + fmt((Number(a.salvageValue) || 0).toFixed(0)) + "</td>"
+        + "<td style='text-align:center'>" + (STATUS_LABEL[a.status] || a.status || "") + "</td>"
+        + "</tr>";
+    });
+    const h = "<h2 style='text-align:center'>تقرير الأصول الثابتة</h2>"
+      + "<table><thead><tr>"
+      + "<th>اسم الأصل</th><th>الفئة</th><th>تكلفة الشراء</th><th>قيمة الخردة</th><th>الحالة</th>"
+      + "</tr></thead><tbody>"
+      + rows
+      + "<tr style='font-weight:800;background:#E5E7EB'>"
+      + "<td colspan='2'>الإجمالي (" + assets.length + " أصل)</td>"
+      + "<td style='text-align:center'>" + fmt(reportTotals.cost.toFixed(0)) + "</td>"
+      + "<td style='text-align:center'>" + fmt(reportTotals.salvage.toFixed(0)) + "</td>"
+      + "<td></td>"
+      + "</tr>"
+      + "</tbody></table>"
+      + "<div class='sig'><div class='sig-box'>المحاسب</div><div class='sig-box'>المدير</div></div>";
+    printPage("تقرير الأصول الثابتة", h, { factoryName: config?.factoryName, logo: config?.logo }, { viewOnly: true, mono: true });
+  };
 
   return <div style={{padding: isMob ? 12 : 20, maxWidth: 1400, margin: "0 auto"}}>
     {/* Header */}
@@ -340,8 +373,14 @@ export function FixedAssetsPg({ data, config, isMob, user }){
         لا توجد بيانات لعرضها
       </div> : <div style={{overflowX: "auto"}}>
         {/* V21.27.187: تقرير الأصول — اسم الأصل · الفئة · تكلفة الشراء · قيمة الخردة · الحالة */}
-        <div style={{fontSize: FS, fontWeight: 800, color: T.text, marginBottom: 12}}>
-          📊 تقرير الأصول الثابتة (التكلفة وقيمة الخردة)
+        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12}}>
+          <div style={{fontSize: FS, fontWeight: 800, color: T.text}}>
+            📊 تقرير الأصول الثابتة (التكلفة وقيمة الخردة)
+          </div>
+          {/* V21.27.190: عرض/طباعة احترافي أبيض-أسود */}
+          <Btn small onClick={printAssetsReport} style={{background: T.text, color: T.cardSolid, border: "none", fontWeight: 800}}>
+            👁 عرض / طباعة التقرير
+          </Btn>
         </div>
         <table style={{width: "100%", borderCollapse: "collapse", fontSize: FS-1, marginBottom: 28}}>
           <thead>

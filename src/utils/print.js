@@ -40,7 +40,12 @@ export function printWithTemplate(templateId, context, printTemplates, options) 
    for branded output. Falls back to CLARK defaults for backward compatibility.
    
    PDF output is professional, suitable for external review/tax audit. */
-export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");return}
+export function printPage(title,bodyHtml,configInfo,opts){const pw=openPrintWindow();if(!pw){alert("المتصفح بيمنع فتح نافذة الطباعة — فعّل النوافذ المنبثقة (pop-ups) من إعدادات المتصفح");return}
+  /* V21.27.190: opts.viewOnly = افتح صفحة التقرير من غير طباعة أوتوماتيك (عرض،
+     والمستخدم يختار 🖨 طباعة أو 📄 PDF). opts.mono = تنسيق أبيض/أسود احترافي
+     بالكامل (بدون اللمسات الزرقا في الهيدر). الافتراضي (3 args) = نفس السلوك القديم. */
+  const viewOnly=!!(opts&&opts.viewOnly);const mono=!!(opts&&opts.mono);
+  const accentLine=mono?"#000":"#0284C7";const titleBg=mono?"#F3F4F6":"#F0F9FF";const titleBrd=mono?"#9CA3AF":"#BAE6FD";const titleTxt=mono?"#000":"#0369A1";const footBrand=mono?"#000":"#0284C7";
   const today=new Date().toLocaleDateString("ar-EG",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   const timeStr=new Date().toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
   const safeTitle=String(title||"تقرير").replace(/[\\/:*?"<>|]/g,"_").slice(0,80);
@@ -49,17 +54,17 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
   const factoryAddr=(configInfo&&configInfo.address)||"";
   const factoryPhone=(configInfo&&configInfo.phone)||"";
   /* V15.58: Professional PDF-friendly header styles override the legacy .hdr */
-  const enhancedStyles=".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0284C7;padding-bottom:14px;margin-bottom:20px;gap:16px}"
+  const enhancedStyles=".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid "+accentLine+";padding-bottom:14px;margin-bottom:20px;gap:16px}"
     +".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"
     +".hdr-brand img{height:50px;max-width:90px;object-fit:contain}"
     +".hdr-brand-text{line-height:1.3}"
     +".hdr-brand-name{font-size:17px;font-weight:800;color:#0F172A}"
     +".hdr-brand-sub{font-size:10px;color:#64748B;font-weight:600;margin-top:2px}"
-    +".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;min-width:160px}"
-    +".hdr-title-main{font-size:14px;font-weight:800;color:#0369A1;line-height:1.2}"
+    +".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:"+titleBg+";border:1px solid "+titleBrd+";border-radius:8px;min-width:160px}"
+    +".hdr-title-main{font-size:14px;font-weight:800;color:"+titleTxt+";line-height:1.2}"
     +".hdr-title-date{font-size:10px;color:#64748B;font-weight:600;margin-top:4px;font-family:monospace}"
     +".foot{margin-top:30px;padding-top:10px;border-top:2px solid #CBD5E1;text-align:center;font-size:9px;color:#64748B;font-weight:600;display:flex;justify-content:space-between;gap:10px}"
-    +".foot-brand{font-weight:800;color:#0284C7}"
+    +".foot-brand{font-weight:800;color:"+footBrand+"}"
     +".foot-meta{color:#94A3B8;font-weight:500}";
   /* Build professional header */
   let brandSub="نظام إدارة مصانع الملابس";
@@ -87,7 +92,7 @@ export function printPage(title,bodyHtml,configInfo){const pw=openPrintWindow();
      Was removed in V15.79 but caused "nothing happens" — new window opens in background tab,
      user misses it. Now focus brings the window to front, print() opens the native dialog.
      Toolbar (رجوع/طباعة/PDF) stays visible so user can cancel dialog and use PDF button. */
-    setTimeout(()=>{try{pw.focus();pw.print()}catch(e){}},500);}
+    setTimeout(()=>{try{pw.focus();if(!viewOnly)pw.print()}catch(e){}},500);}
 
 /* Thermal package label — 10x15cm with QR and movement log */
 /* V14.x: 10×15 cm customer package label.
