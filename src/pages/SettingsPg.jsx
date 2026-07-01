@@ -1796,7 +1796,7 @@ function BrandsCard({config,upConfig,T,FS,showToast,Btn,Card,Inp,compressImage})
   };
   /* V21.27.210: اللوجو landscape عريض (زي لوجو حقيقي) — بشكله الطبيعي بالكامل
      مش مربّع مقصوص. objectFit:contain + maxW/maxH بيحافظ على الأبعاد الأصلية. */
-  const swatch=(src,fallback)=><div style={{width:150,height:52,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:6}}>{src?<img src={src} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>:<span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>{fallback}</span>}</div>;
+  const swatch=(src,fallback)=><div style={{width:150,height:52,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:6}}>{src?<img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>:<span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>{fallback}</span>}</div>;
   return<Card title="🏷️ البراندات (العلامات التجارية)" style={{marginBottom:12}}>
     <CardSubtitle icon="💡">عرّف براندات إضافية (مثلاً HILTY للأونلاين) بلوجو مستقل. الموديل والأوردر بيختار البراند، وطباعة أمر التشغيل بتظهر لوجو البراند بدل لوجو المصنع. أي موديل/أوردر بدون براند بيستخدم لوجو المصنع الافتراضي (CLARK).</CardSubtitle>
     {/* CLARK الافتراضي (مدمج) */}
@@ -1824,7 +1824,7 @@ function BrandsCard({config,upConfig,T,FS,showToast,Btn,Card,Inp,compressImage})
       <div style={{fontSize:FS-1,fontWeight:800,color:editId?T.accent:T.text,marginBottom:10}}>{editId?"✏️ تعديل البراند":"➕ براند جديد"}</div>
       <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <div style={{position:"relative",width:150,height:56,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.cardSolid,cursor:"pointer",flexShrink:0,padding:6}}>
-          {logo?<img src={logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>:<span style={{fontSize:FS-3,color:T.textMut}}>لوجو</span>}
+          {logo?<img src={logo} alt="" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>:<span style={{fontSize:FS-3,color:T.textMut}}>لوجو</span>}
           <input type="file" accept="image/*" onChange={handleFile} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
         </div>
         <div style={{flex:1,minWidth:180}}>
