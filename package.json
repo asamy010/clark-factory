@@ -1,7 +1,7 @@
 {
   "name": "clark-factory-online",
   "private": true,
-  "version": "21.27.217",
+  "version": "21.27.218",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,7 @@
     "emu:save": "npx -y firebase-tools@14 emulators:start --only auth,firestore,storage --import=./.emulator-data --export-on-exit=./.emulator-data",
     "dev:emu": "VITE_USE_EMULATOR=1 vite",
     "test:emu": "npx -y firebase-tools@14 emulators:exec --only auth,firestore,storage --project demo-clark \"node scripts/emu-smoke.mjs\"",
+    "test:emu:stock": "npx -y firebase-tools@14 emulators:exec --only firestore --project demo-clark \"node scripts/emu-order-stock.mjs\"",
     "build": "vite build",
     "build:analyze": "ANALYZE=1 vite build",
     "preview": "vite preview",

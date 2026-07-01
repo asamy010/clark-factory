@@ -433,6 +433,19 @@ export function deductStockForOrder(d,order,userName){
 
   const needed=calcStockNeeded(order);
   const prev=order._stockDeducted||{fabrics:{},accessories:{}};
+  /* V21.27.218 (C1): تتبّع «المخصوم فعليًا» — منفصل عن snapshot الـ needed.
+     ROOT CAUSE: بعد ترحيلات V19.52/V19.57 كانت الدالة بتتنادى على config خام
+     من غير fabrics/accessories → كل الـ findIndex بترجع -1 → صفر خصم فعلي،
+     لكن السطر الأخير كان بيختم order._stockDeducted بالكامل (فيكشن). النتيجة:
+     أوردرات «مخصومة» على الورق من غير أي حركة مخزون. _stockDeductedActual
+     بيسجّل الكميات اللي اتطبّقت فعلاً على صنف موجود — وده اللي بيتسترد عند
+     حذف الأوردر (refundActualStockForOrder) بدل الـ snapshot الوهمي، فأوردرات
+     الفترة الوهمية مابترجّعش مخزون ماتخصمش أصلاً. */
+  const actual=order._stockDeductedActual
+    ?JSON.parse(JSON.stringify(order._stockDeductedActual))
+    :{fabrics:{},accessories:{}};
+  if(!actual.fabrics)actual.fabrics={};
+  if(!actual.accessories)actual.accessories={};
   if(!d.stockMovements)d.stockMovements=[];
   const now=new Date().toISOString();
   const today=now.split("T")[0];
@@ -444,6 +457,7 @@ export function deductStockForOrder(d,order,userName){
     if(delta===0)return;
     const idx=(d.fabrics||[]).findIndex(f=>String(f.id)===String(fabId));
     if(idx<0)return;
+    actual.fabrics[fabId]=r2((Number(actual.fabrics[fabId])||0)+delta);/* V21.27.218 */
     const fab=d.fabrics[idx];
     const newStock=r2((Number(fab.stock)||0)-delta);
     /* V21.9.91 (Stock audit Bug #2): visibility for negative-stock state.
@@ -469,6 +483,7 @@ export function deductStockForOrder(d,order,userName){
     if(needed.fabrics[fabId]!==undefined)return;/* already processed */
     const idx=(d.fabrics||[]).findIndex(f=>String(f.id)===String(fabId));
     if(idx<0)return;
+    actual.fabrics[fabId]=r2((Number(actual.fabrics[fabId])||0)-oldQty);/* V21.27.218 */
     const fab=d.fabrics[idx];
     fab.stock=r2((Number(fab.stock)||0)+oldQty);
     d.stockMovements.push({
@@ -486,6 +501,7 @@ export function deductStockForOrder(d,order,userName){
     if(delta===0)return;
     const idx=(d.accessories||[]).findIndex(a=>String(a.id)===String(accId));
     if(idx<0)return;
+    actual.accessories[accId]=r2((Number(actual.accessories[accId])||0)+delta);/* V21.27.218 */
     const acc=d.accessories[idx];
     acc.stock=r2((Number(acc.stock)||0)-delta);
     d.stockMovements.push({
@@ -500,6 +516,7 @@ export function deductStockForOrder(d,order,userName){
     if(needed.accessories[accId]!==undefined)return;
     const idx=(d.accessories||[]).findIndex(a=>String(a.id)===String(accId));
     if(idx<0)return;
+    actual.accessories[accId]=r2((Number(actual.accessories[accId])||0)-oldQty);/* V21.27.218 */
     const acc=d.accessories[idx];
     acc.stock=r2((Number(acc.stock)||0)+oldQty);
     d.stockMovements.push({
@@ -513,6 +530,43 @@ export function deductStockForOrder(d,order,userName){
 
   /* Save snapshot on the order for next delta calc */
   order._stockDeducted={fabrics:{...needed.fabrics},accessories:{...needed.accessories}};
+  order._stockDeductedActual=actual;/* V21.27.218: المخصوم فعليًا (للاسترداد الصادق) */
+}
+
+/* V21.27.218 (C1): استرداد المخزون عند حذف الأوردر — من _stockDeductedActual
+   (المخصوم فعليًا) مش من snapshot الـ needed. أوردرات الفترة الوهمية (اتختمت
+   «مخصومة» من غير خصم فعلي — بعد ترحيلات V19.52/V19.57 وقبل V21.27.218) actual
+   بتاعها فاضي → صفر استرداد → مفيش تضخّم مخزون كاذب عند حذفها.
+   d = draft فيه fabrics/accessories/stockMovements (مائي أو legacy config). */
+export function refundActualStockForOrder(d,order,userName){
+  const actual=order&&order._stockDeductedActual;
+  if(!actual)return false;
+  if(!d.stockMovements)d.stockMovements=[];
+  const now=new Date().toISOString();
+  const today=now.split("T")[0];
+  let any=false;
+  const apply=(kind,arrName)=>{
+    Object.entries(actual[kind]||{}).forEach(([itemId,qty])=>{
+      const q=r2(Number(qty)||0);
+      if(q===0)return;
+      const idx=(d[arrName]||[]).findIndex(x=>String(x.id)===String(itemId));
+      if(idx<0)return;
+      const item=d[arrName][idx];
+      /* q>0 = كان مخصوم → رجّعه (in). q<0 = كان مسترد زيادة → اخصمه (out). */
+      item.stock=r2((Number(item.stock)||0)+q);
+      d.stockMovements.push({
+        id:gid(),type:q>0?"in":"out",itemType:kind==="fabrics"?"fabric":"accessory",
+        itemId,itemName:item.name||"",qty:Math.abs(q),unit:item.unit||"",
+        price:Number(item.avgCost)||0,date:today,sourceType:"cut",sourceId:order.id,
+        notes:(q>0?"إرجاع ":"تسوية ")+(kind==="fabrics"?"خامة":"إكسسوار")+" من موديل "+(order.modelNo||"")+" (حذف الأوردر)",
+        createdBy:userName||"",createdAt:now
+      });
+      any=true;
+    });
+  };
+  apply("fabrics","fabrics");
+  apply("accessories","accessories");
+  return any;
 }
 
 /* Workshop quality/time/delivery rating — returns 2-10 or null if no data */

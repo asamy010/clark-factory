@@ -80,7 +80,8 @@ import { validateDoc } from "./utils/validateData.js";
 import { configureBridgeProxy } from "./utils/whatsappBridge.js";
 import { ask, tell, askInput, askForm, showToast, highlightRow } from "./utils/popups.js";
 import { printPage, printPkgLabel, printEmpQrCards, renderLabelPages, openPrintWindow } from "./utils/print.js";
-import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc, buildModelFromOrder } from "./utils/orders.js";
+import { wsIsInternal, calcOrder, getConfirmedStock, checkStockAvailability, deductStockForOrder, refundActualStockForOrder, calcWsRating, migrateStatus, matchWorkshopFromDesc, buildModelFromOrder } from "./utils/orders.js";
+import { collectStockIds, txReadStockDocs, txWriteStockDocs, stockTxToday } from "./utils/orderStockTx.js";
 import { ensureCategoriesInit } from "./utils/categories.js";
 /* V19.91: Shopify integration — schema migration on app load (idempotent). */
 import { ensureShopifyInit } from "./utils/shopify/shopifyMigration.js";
@@ -5735,14 +5736,16 @@ export default function App(){
        orders' unless the caller walked all season subcollections. This also
        makes legacy-orders migration to seasons/{season}/orders/{id} cleaner. */
     if(!o.season) o.season = season || configDoc?.activeSeason || "";
-    /* Fast local pre-check — gives immediate feedback before paying the network round-trip.
-       The transaction below re-checks against fresh server data anyway. */
-    const localCheck=checkStockAvailability(o,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
+    /* V21.27.218 (C1 FIX): الفحص المحلي على الـ data المائيّة (فيها fabrics/
+       accessories الحقيقيين من fabricsDocs/accessoriesDocs) — configDoc الخام
+       مقصوص منه المخزون بعد ترحيل V19.57 فكان الفحص no-op. */
+    const localCheck=checkStockAvailability(o,data);
     /* V19.48 BUG FIX: Respect blockOnInsufficientStock setting. When user picks
        "السماح بالسالب" (warning mode), blockOnInsufficientStock=false → we should
        show a warning but allow the order. Previously we always blocked, ignoring
        the setting completely. */
-    const _blockShortage=(configDoc.purchaseSettings||{}).blockOnInsufficientStock!==false;
+    const _ps=(data.purchaseSettings||{});
+    const _blockShortage=_ps.blockOnInsufficientStock!==false;
     if(!localCheck.ok&&_blockShortage){
       await tell("المخزن غير كافي",_formatShortageMsg("⛔ لا يمكن إنشاء الأوردر — المخزن غير كافي:",localCheck.shortages),{type:"error"});
       return;
@@ -5752,29 +5755,58 @@ export default function App(){
       showToast("⚠️ المخزن غير كافي — هيتم الخصم بالسالب",{type:"warning",duration:5000});
     }
     const orderRef=doc(collection(db,"seasons",season,"orders"));/* auto-id */
-    const configRef=doc(db,"factory","config");
+    /* V21.27.218 (C1 FIX): مسارات الحفظ حسب حالة الميزة والترحيل:
+       ١) الخصم مقفول → كتابة الأوردر مباشرة (مفيش سبب نلمس config — الكود القديم
+          كان بيعيد كتابة config كامل بلا داعي وبيحقن stockMovements:[] المقصوصة).
+       ٢) الخصم شغّال + الترحيلات تمّت (الوضع الفعلي في الإنتاج) → ترانزاكشن على
+          fabricsDocs/accessoriesDocs/stockMovementsDays نفسها: فحص طازج + خصم +
+          حركات + الأوردر — كله ذرّي. ده اللي بيخلّي «صارم» صارم فعلاً.
+       ٣) الخصم شغّال + الترحيلات لسه (تنصيبات قديمة) → المسار القديم على config
+          (كان شغّال صح قبل الترحيل). */
+    const _stockOn=_ps.stockEnabled&&_ps.autoDeductOnCut;
+    const _partOn=!!configDoc?._partitionedV1957Done;
+    const _splitOn=!!configDoc?._splitDaysV1952Done;
     try{
-      await runTransaction(db,async(tx)=>{
-        /* Re-read config from server inside the transaction */
-        const cfgSnap=await tx.get(configRef);
-        const cfg=cfgSnap.exists()?cfgSnap.data():{};
-        /* Re-check stock against FRESH data — closes the TOCTOU window.
-           V19.48: also respect the setting on the server-side recheck. */
-        const freshCheck=checkStockAvailability(o,cfg);
-        const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
-        if(!freshCheck.ok&&_blockFresh){
-          const err=new Error("STOCK_INSUFFICIENT");
-          err.shortages=freshCheck.shortages;
-          throw err;
-        }
-        /* Apply deduction to a fresh copy, then commit order + config atomically.
-           In warning mode this will produce negative stock — that's intentional. */
-        const nextCfg=JSON.parse(JSON.stringify(cfg));
-        deductStockForOrder(nextCfg,o,userName);
-        enforceDataLimits(nextCfg);
-        tx.set(orderRef,o);
-        tx.set(configRef,nextCfg);
-      });
+      if(!_stockOn){
+        await setDoc(orderRef,o);
+      }else if(_partOn&&_splitOn){
+        const today=stockTxToday();
+        const ids=collectStockIds(o);
+        await runTransaction(db,async(tx)=>{
+          /* كل القراءات أولاً (قيد Firestore) — مستندات الأصناف + حركات اليوم */
+          const ctx=await txReadStockDocs(tx,db,ids,today);
+          const draft={purchaseSettings:_ps,fabrics:ctx.fabrics,accessories:ctx.accessories,stockMovements:[]};
+          /* فحص طازج على مستندات الأصناف نفسها — قفل TOCTOU حقيقي (القديم كان
+             بيقرا config الخام الفاضي فبيعدّي دايمًا). */
+          const freshCheck=checkStockAvailability(o,draft);
+          if(!freshCheck.ok&&_blockShortage){
+            const err=new Error("STOCK_INSUFFICIENT");
+            err.shortages=freshCheck.shortages;
+            throw err;
+          }
+          deductStockForOrder(draft,o,userName);/* بيختم o._stockDeducted/_stockDeductedActual */
+          txWriteStockDocs(tx,ctx,draft);
+          tx.set(orderRef,o);
+        });
+      }else{
+        const configRef=doc(db,"factory","config");
+        await runTransaction(db,async(tx)=>{
+          const cfgSnap=await tx.get(configRef);
+          const cfg=cfgSnap.exists()?cfgSnap.data():{};
+          const freshCheck=checkStockAvailability(o,cfg);
+          const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
+          if(!freshCheck.ok&&_blockFresh){
+            const err=new Error("STOCK_INSUFFICIENT");
+            err.shortages=freshCheck.shortages;
+            throw err;
+          }
+          const nextCfg=JSON.parse(JSON.stringify(cfg));
+          deductStockForOrder(nextCfg,o,userName);
+          enforceDataLimits(nextCfg);
+          tx.set(orderRef,o);
+          tx.set(configRef,nextCfg);
+        });
+      }
     }catch(e){
       if(e&&e.message==="STOCK_INSUFFICIENT"){
         await tell("المخزن غير كافي",_formatShortageMsg("⛔ المخزن غير كافي (تأكيد من السيرفر):",e.shortages),{type:"error"});
@@ -5890,25 +5922,39 @@ export default function App(){
     }
     const configRef=doc(db,"factory","config");
     const salesRef=doc(db,"factory","sales");
+    /* V21.27.218 (C1 FIX): مسار الاسترداد حسب حالة الترحيل — زي addOrder. */
+    const _partOn=!!configDoc?._partitionedV1957Done;
+    const _splitOn=!!configDoc?._splitDaysV1952Done;
+    const _actual=ord._stockDeductedActual||{};
+    const _hasActual=Object.values(_actual.fabrics||{}).some(q=>Number(q))||Object.values(_actual.accessories||{}).some(q=>Number(q));
     try{
       await runTransaction(db,async(tx)=>{
         /* All reads must precede any writes inside a transaction */
         const cfgSnap=await tx.get(configRef);
         const salesSnap=await tx.get(salesRef);
+        /* V21.27.218: قراءة مستندات الأصناف + يوم الحركات (للاسترداد الذرّي) */
+        let stockCtx=null;
+        if(_partOn&&_splitOn&&_hasActual){
+          stockCtx=await txReadStockDocs(tx,db,collectStockIds(ord),stockTxToday());
+        }
         const cfg=cfgSnap.exists()?cfgSnap.data():{};
         const sales=salesSnap.exists()?salesSnap.data():{};
         const nextCfg=JSON.parse(JSON.stringify(cfg));
         const nextSales=JSON.parse(JSON.stringify(sales));
         /* Refund stock if it was previously deducted.
-           V21.9.79 ROOT-CAUSE FIX (Bug #1 + #4 in cutting audit):
-           Pre-V21.9.79 the returnOrder cleared only colorsA-D. After V19.80.3
-           expanded FKEYS to A-H, orders with fabrics E/F/G/H kept their colors
-           on the returnOrder → calcStockNeeded computed a NEW positive `needed`
-           for those slots → deductStockForOrder applied delta = needed - prev,
-           which could be 0 (no refund) or NEGATIVE (deducting MORE on delete).
-           Result: silent stock loss whenever a multi-fabric order was deleted.
-           Fix: clear colorsX for EVERY slot in FKEYS dynamically. */
-        if(ord._stockDeducted){
+           V21.27.218 (C1 FIX): الاسترداد بقى من _stockDeductedActual (المخصوم
+           فعليًا) على مستندات fabricsDocs/accessoriesDocs نفسها — مش من snapshot
+           الـ needed على config المقصوص. أوردرات الفترة الوهمية (اتختمت «مخصومة»
+           بعد الترحيلات من غير خصم فعلي) actual بتاعها فاضي → صفر استرداد →
+           مفيش تضخّم مخزون كاذب عند حذفها.
+           V21.9.79 ROOT-CAUSE (تاريخي): returnOrder trick كان بيصفّر colors
+           لكل FKEYS — احتفظنا بيه لمسار legacy (قبل الترحيل) فقط. */
+        if(stockCtx){
+          const draft={fabrics:stockCtx.fabrics,accessories:stockCtx.accessories,stockMovements:[]};
+          refundActualStockForOrder(draft,ord,userName);
+          txWriteStockDocs(tx,stockCtx,draft);
+        }else if(!_partOn&&ord._stockDeducted){
+          /* legacy (قبل ترحيل V19.57): المخزون لسه في config — السلوك القديم */
           const returnOrder={...ord,_stockDeducted:ord._stockDeducted,cutQty:0,accItems:[]};
           FKEYS.forEach(k=>{returnOrder["colors"+k]=[]});
           deductStockForOrder(nextCfg,returnOrder,userName);
@@ -5955,10 +6001,13 @@ export default function App(){
     if(!newData||typeof newData!=="object"||!newData.id||!newData.modelNo){console.error("replaceOrder: invalid data",newData);showToast("⚠️ خطأ — البيانات غير صالحة");return}
     /* Preserve _stockDeducted snapshot from existing order */
     if(ord._stockDeducted&&!newData._stockDeducted)newData._stockDeducted=ord._stockDeducted;
-    /* Local pre-check (delta-aware) for fast UX */
-    const localCheck=checkStockAvailability(newData,{...configDoc,fabrics:configDoc.fabrics,accessories:configDoc.accessories,purchaseSettings:configDoc.purchaseSettings});
+    /* V21.27.218: نحافظ كمان على «المخصوم فعليًا» — ده اللي بيتسترد عند الحذف */
+    if(ord._stockDeductedActual&&!newData._stockDeductedActual)newData._stockDeductedActual=ord._stockDeductedActual;
+    /* V21.27.218 (C1 FIX): الفحص المحلي على data المائيّة — زي addOrder */
+    const localCheck=checkStockAvailability(newData,data);
     /* V19.48 BUG FIX: Respect blockOnInsufficientStock setting (warning mode allows negative). */
-    const _blockShortage=(configDoc.purchaseSettings||{}).blockOnInsufficientStock!==false;
+    const _ps=(data.purchaseSettings||{});
+    const _blockShortage=_ps.blockOnInsufficientStock!==false;
     if(!localCheck.ok&&_blockShortage){
       await tell("المخزن غير كافي",_formatShortageMsg("⛔ لا يمكن حفظ التعديل — المخزن غير كافي للزيادة المطلوبة:",localCheck.shortages),{type:"error"});
       return;
@@ -5968,25 +6017,48 @@ export default function App(){
     }
     const clean={...newData};delete clean._docId;
     const orderRef=doc(db,"seasons",season,"orders",ord._docId);
-    const configRef=doc(db,"factory","config");
+    /* V21.27.218 (C1 FIX): نفس مسارات addOrder الثلاثة — شوف التعليق هناك. */
+    const _stockOn=_ps.stockEnabled&&_ps.autoDeductOnCut;
+    const _partOn=!!configDoc?._partitionedV1957Done;
+    const _splitOn=!!configDoc?._splitDaysV1952Done;
     try{
-      await runTransaction(db,async(tx)=>{
-        const cfgSnap=await tx.get(configRef);
-        const cfg=cfgSnap.exists()?cfgSnap.data():{};
-        /* Re-check stock against FRESH data using the new order's needs */
-        const freshCheck=checkStockAvailability(clean,cfg);
-        const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
-        if(!freshCheck.ok&&_blockFresh){
-          const err=new Error("STOCK_INSUFFICIENT");
-          err.shortages=freshCheck.shortages;
-          throw err;
-        }
-        const nextCfg=JSON.parse(JSON.stringify(cfg));
-        deductStockForOrder(nextCfg,clean,userName);
-        enforceDataLimits(nextCfg);
-        tx.set(orderRef,clean);
-        tx.set(configRef,nextCfg);
-      });
+      if(!_stockOn){
+        await setDoc(orderRef,clean);
+      }else if(_partOn&&_splitOn){
+        const today=stockTxToday();
+        const ids=collectStockIds(clean);
+        await runTransaction(db,async(tx)=>{
+          const ctx=await txReadStockDocs(tx,db,ids,today);
+          const draft={purchaseSettings:_ps,fabrics:ctx.fabrics,accessories:ctx.accessories,stockMovements:[]};
+          const freshCheck=checkStockAvailability(clean,draft);
+          if(!freshCheck.ok&&_blockShortage){
+            const err=new Error("STOCK_INSUFFICIENT");
+            err.shortages=freshCheck.shortages;
+            throw err;
+          }
+          deductStockForOrder(draft,clean,userName);/* delta-aware ضد _stockDeducted */
+          txWriteStockDocs(tx,ctx,draft);
+          tx.set(orderRef,clean);
+        });
+      }else{
+        const configRef=doc(db,"factory","config");
+        await runTransaction(db,async(tx)=>{
+          const cfgSnap=await tx.get(configRef);
+          const cfg=cfgSnap.exists()?cfgSnap.data():{};
+          const freshCheck=checkStockAvailability(clean,cfg);
+          const _blockFresh=(cfg.purchaseSettings||{}).blockOnInsufficientStock!==false;
+          if(!freshCheck.ok&&_blockFresh){
+            const err=new Error("STOCK_INSUFFICIENT");
+            err.shortages=freshCheck.shortages;
+            throw err;
+          }
+          const nextCfg=JSON.parse(JSON.stringify(cfg));
+          deductStockForOrder(nextCfg,clean,userName);
+          enforceDataLimits(nextCfg);
+          tx.set(orderRef,clean);
+          tx.set(configRef,nextCfg);
+        });
+      }
     }catch(e){
       if(e&&e.message==="STOCK_INSUFFICIENT"){
         await tell("المخزن غير كافي",_formatShortageMsg("⛔ المخزن غير كافي (تأكيد من السيرفر):",e.shortages),{type:"error"});
