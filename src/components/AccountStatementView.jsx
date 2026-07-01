@@ -19,6 +19,7 @@ import { editCustomerDiscount } from "../utils/sales/discounts.js";
 import { editPartyTransfer } from "../utils/contacts.js";
 import { buildDocColumns } from "../utils/docColumns.js";
 import { printPage } from "../utils/print.js";
+import { tafqitEGP } from "../utils/tafqit.js";/* V21.27.202: تفقيط عربي احترافي للإجمالي */
 import { exportExcel } from "../utils/print-extras.js";
 
 function _esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -273,6 +274,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.closing.toFixed(2))}</td></tr></tfoot>
       </table>
       <p style="margin-top:14px;font-weight:700">${balanceLabel(result.totals.closing, partyType).txt}</p>
+      <div style="margin-top:6px;font-size:12px;color:#0f172a;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;padding:8px 12px;background:#f8fafc"><span style="color:#64748b;font-weight:600">التفقيط: </span>${tafqitEGP(result.totals.closing)}</div>
       <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع ${partyType === "customer" ? "العميل" : "المورد"}: ____________</div><div>توقيع المصنع: ____________</div></div>`;
     printPage(docTitle, html, { factoryName: data.factoryName, logo: data.logo });
   };
