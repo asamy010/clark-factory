@@ -21,6 +21,7 @@ const stepBtn = (disabled) => ({ width: 28, height: 28, borderRadius: 8, border:
 const catalogCache = {};  /* { [custId]: { items } } */
 const cartCache = {};      /* { [custId]: cart } */
 const inflight = {};       /* { [custId]: true } — منع تكرار الـ prefetch */
+const imgsPreloaded = {};  /* { [custId]: true } — صور أول شاشة اتحمّلت في كاش المتصفح (V21.27.205) */
 
 /* V21.21.86: تحميل مُسبق للكتالوج في الخلفية (يُنادى من البورتال عند الفتح)
    عشان تاب «اطلب» يفتح فوراً بدون تحميل. fire-and-forget، يكتب في الكاش. */
@@ -116,6 +117,10 @@ export function CustomerOrderTab({ custId, sig, ts }) {
   const [done, setDone] = useState(null);
   const [showN, setShowN] = useState(25);   /* pagination — 25 موديل + عرض المزيد */
   useEffect(() => { setShowN(25); }, [q]);   /* رجوع للأول عند البحث */
+  /* V21.27.205: مؤشر «جاري تحميل الموديلات المتاحة» يفضل ظاهر لحد ما صور أول
+     شاشة تتحمّل فعلاً — عشان الجريد يظهر والصور جاهزة مش رمادي قدّام العميل.
+     imgsPreloaded كاش على مستوى الموديول → التنقّل بين التابات مايعيدش المؤشر. */
+  const [imgsReady, setImgsReady] = useState(() => !!imgsPreloaded[custId]);
 
   const qs = "c=" + encodeURIComponent(custId) + "&sig=" + encodeURIComponent(sig) + (ts ? "&t=" + encodeURIComponent(ts) : "");
 
@@ -132,6 +137,20 @@ export function CustomerOrderTab({ custId, sig, ts }) {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { cartCache[custId] = cart; }, [cart, custId]);
+
+  /* V21.27.205: preload صور أول ~12 موديل (فوق الطية) بـ new Image() → تدخل كاش
+     المتصفح، فلما الجريد يترسم الصور تبان فوراً بدل ما تتحمّل رمادي قدّام العميل.
+     safety 6s عشان مايعلّقش لو صورة بايظة/بطيئة. الباقي بيتحمّل lazy مع السكرول. */
+  useEffect(() => {
+    if (loading || error || imgsReady) return;
+    const urls = items.slice(0, 12).map(it => it && it.image).filter(Boolean);
+    if (!urls.length) { imgsPreloaded[custId] = true; setImgsReady(true); return; }
+    let done = 0, cancelled = false;
+    const finish = () => { if (cancelled) return; if (++done >= urls.length) { imgsPreloaded[custId] = true; setImgsReady(true); } };
+    urls.forEach(u => { const im = new Image(); im.onload = finish; im.onerror = finish; im.src = u; });
+    const timer = setTimeout(() => { if (!cancelled) { imgsPreloaded[custId] = true; setImgsReady(true); } }, 6000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [loading, error, imgsReady, items, custId]);
 
   /* تعيين كمية لون (بالقطع) — تقريب لمضاعف سيري + قصّ على المتبقّي المتاح */
   const setColorQty = (it, colorName, pieces) => {
@@ -187,8 +206,13 @@ export function CustomerOrderTab({ custId, sig, ts }) {
     finally { setSubmitting(false); }
   };
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: SEC }}>⏳ جاري تحميل المتاح...</div>;
   if (error) return <div style={{ padding: 20, textAlign: "center", color: "#DC2626", background: "#FEE2E2", borderRadius: 12 }}>⛔ {error}</div>;
+  if (loading || !imgsReady) return <div style={{ padding: 50, textAlign: "center" }}>
+    <style>{"@keyframes clarkOrderSpin{to{transform:rotate(360deg)}}"}</style>
+    <div style={{ width: 44, height: 44, margin: "0 auto", borderRadius: "50%", border: "4px solid " + BRD, borderTopColor: AC, animation: "clarkOrderSpin 0.8s linear infinite" }} />
+    <div style={{ fontSize: 15, fontWeight: 800, color: TXT, marginTop: 16 }}>جاري تحميل الموديلات المتاحة</div>
+    <div style={{ fontSize: 12, color: MUT, marginTop: 5 }}>لحظات لتجهيز الصور…</div>
+  </div>;
 
   if (done) return <div style={{ padding: "30px 16px", textAlign: "center" }}>
     <div style={{ fontSize: 60 }}>✅</div>
