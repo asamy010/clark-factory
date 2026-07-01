@@ -12,6 +12,49 @@
 
 ---
 
+## V21.27.207 (2026-07-01) — 🧪 بيئة اختبار فعلية (Firebase Emulator + Staging)
+
+**الطلب (Ahmed):** «إزاي نخلّي أي تعديل يعمل تست فعلي في البيئة على الماك أو
+الكلاود؟ دي مشكلة لازم نحلها.»
+
+**التشخيص:** `src/firebase.js` كان hardcoded على مشروع الإنتاج الوحيد
+(`clarkfactorymanagement`) من غير أي سويتش، فأي `npm run dev` بيتكلم مع الإنتاج
+مباشرة. `firebase.json` كان فيه emulator للـ firestore بس (مقفول UI ومش موصول).
+الاختبارات كانت unit-only (531) — مش بتشغّل التطبيق الحقيقي مع Firestore.
+
+**الحل — طبقتين:**
+
+**١) Emulator محلي (الماك):**
+- `src/firebase.js`: الإعداد بقى من env (VITE_FB_*) مع fallback = نفس قيم الإنتاج
+  بالظبط؛ + اتصال بالـ Firebase Emulator (firestore/auth/storage + secondary auth)
+  محاط بـtry/catch، بيتفعّل **فقط** لما `VITE_USE_EMULATOR=1`.
+- `firebase.json`: فعّلنا emulators لـ auth(9099)/firestore(8080)/storage(9199) + UI(4000).
+- `package.json`: `emu` (تشغيل الـ emulator) + `emu:save` (مع حفظ/استرجاع البيانات)
+  + `dev:emu` (vite موصول بالـ emulator).
+- الاستخدام: `npm run emu` (تيرمينال) + `npm run dev:emu` (تيرمينال تاني) → التطبيق
+  الحقيقي على Firebase وهمي بنفس الـ rules، صفر خطر على الإنتاج.
+
+**٢) Staging على الكلاود (Vercel Preview):** نفس الـ env-config بيمكّن مشروع
+`clark-staging` — املا `VITE_FB_*` في Vercel Preview فقط → push فرع التطوير يطلع
+preview حي على staging. الخطوات في `docs/TESTING.md`.
+
+**أمان الإنتاج (مهم — §0.1 auth/init sensitive):** لما مفيش أي `VITE_*` env (زي
+الإنتاج على Vercel) الـ `firebaseConfig` بيرجع لنفس الـ literals القديمة تمامًا،
+و`USING_EMULATOR=false` → كتلة الـ emulator dead code. **اتأكدنا من الـ bundle
+فعليًا:** `MODE:"production"`، الـ projectId الإنتاجي موجود، والـ guard بيتترجم
+لـ`false`. الإنتاج byte-identical.
+
+**ملفات:** `src/firebase.js`، `firebase.json`، `package.json`، `.gitignore`
+(تجاهُل `.emulator-data`/logs)، `.env.example` (جديد)، `docs/TESTING.md` (جديد —
+دليل عربي شامل)، `CLAUDE.md` (تحديث ملاحظة «No test env»).
+
+**التالي (اختياري — بانتظار قرار Ahmed):** اختبارات Playwright آلية للمسارات
+الحرجة على الـ emulator؛ سكربت seed لبيانات مبدئية؛ إنشاء مشروع staging فعليًا.
+
+build ✓ · 531 اختبار · eslint نظيف · الإنتاج مؤكَّد byte-identical.
+
+---
+
 ## V21.27.206 (2026-07-01) — 🏷️ البراندات (CLARK / HILTY) بلوجو مستقل
 
 **الطلب (Ahmed):** «هاعمل براند تاني اسمه HILTY للأونلاين. عاوز في كارت الموديل

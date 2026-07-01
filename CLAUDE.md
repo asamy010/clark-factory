@@ -218,6 +218,14 @@ Build runs on the Mac. No local-test environment — deploys go DIRECT to
 production. (Old Windows paths in this file are stale — ignore them; the
 Mac paths in the "Paths" table below are authoritative.)
 
+> **✅ تحديث V21.27.207 — بقى فيه بيئة اختبار فعلية (Firebase Emulator).**
+> `npm run emu` + `npm run dev:emu` بيشغّلوا التطبيق الحقيقي على Firestore/Auth/
+> Storage وهميين محليًا بنفس الـ rules — **بصفر خطر على الإنتاج**. للتغييرات
+> الحسّاسة (خزنة/مرتبات/محاسبة/migrations/rules/تهيئة) **جرّب على الـ emulator
+> الأول** بدل «ship and hope». التفاصيل الكاملة (+ مسار Staging على الكلاود) في
+> **`docs/TESTING.md`**. الإنتاج مطابق تمامًا لما `VITE_USE_EMULATOR` مش مضبوط
+> (العلَم مش موجود على Vercel → كود الـ emulator dead code).
+
 After every meaningful change:
 
 ### Step 1 — Build

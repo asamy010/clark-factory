@@ -19,3 +19,10 @@ npm-debug.log*
 
 # Release zips (delivered artifacts, never committed)
 clark-v*.zip
+
+# Firebase emulator exported data (local test env — V21.27.207)
+.emulator-data/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+storage-debug.log

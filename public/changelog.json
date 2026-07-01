@@ -1,5 +1,17 @@
 [
  {
+  "version": "V21.27.207",
+  "date": "2026-07-01",
+  "types": ["architectural"],
+  "title": "🧪 Phase 207 — بيئة اختبار فعلية (Firebase Emulator)",
+  "changes": [
+   { "type": "architectural", "text": "**حل مشكلة «مفيش تست فعلي»:** أضفنا بيئة اختبار محلية على الماك عبر Firebase Emulator. `npm run emu` + `npm run dev:emu` بيشغّلوا التطبيق الحقيقي على Firestore/Auth/Storage وهميين محليًا بنفس الـ security rules — فتقدر تجرّب أي تعديل (أوردر، خزنة، براند، رفع صور، migrations) **بصفر خطر على بيانات الإنتاج**. لوحة الـ Emulator UI على localhost:4000." },
+   { "type": "architectural", "text": "**تهيئة آمنة:** `src/firebase.js` بقى ياخد الإعداد من متغيّرات البيئة (VITE_FB_*) لو موجودة وإلا الإنتاج الافتراضي بنفس القيم بالظبط. الاتصال بالـ emulator بيتفعّل فقط لما VITE_USE_EMULATOR=1 (dev محلي). في بناء Vercel/الإنتاج العلَم مش مضبوط → كود الـ emulator dead code، **الإنتاج مطابق تمامًا** (اتأكدنا من الـ bundle)." },
+   { "type": "architectural", "text": "**مسار Staging على الكلاود:** نفس الـ env-config بيمكّن مشروع Firebase منفصل (clark-staging) عبر Vercel Preview — فأي push على فرع التطوير يطلع لينك preview على بيانات staging قبل الإنتاج. الخطوات كاملة في `docs/TESTING.md`." },
+   { "type": "doc", "text": "**توثيق:** `docs/TESTING.md` (دليل عربي شامل للطبقات الأربعة: unit / rules / emulator / staging) + `.env.example` + تحديث CLAUDE.md. الميزة كلها dev-tooling — مفيش تأثير على المستخدمين." }
+  ]
+ },
+ {
   "version": "V21.27.206",
   "date": "2026-07-01",
   "types": ["feature"],
