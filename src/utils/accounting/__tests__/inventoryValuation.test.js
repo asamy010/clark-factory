@@ -42,9 +42,12 @@ describe("buildInventoryValuationReport", () => {
     expect(rep.supplierRows).toEqual([{ name: "مورد أ", balance: 1000 }]);
   });
 
-  it("مستحق العملاء = الأرصدة الموجبة فقط (200)؛ الرصيد الدائن مستبعد", () => {
-    expect(rep.customerReceivable).toBe(200);
-    expect(rep.customerRows).toEqual([{ name: "عميل أ", balance: 200 }]);
+  it("مستحق العملاء = الأرصدة الموجبة فقط (180)؛ الرصيد الدائن مستبعد", () => {
+    /* V21.27.216 (H4): العميل بلا خصم مسجّل → خصم افتراضي 10% (مطابق للكشف
+       statement.js). التسليم 2×100=200، بعد الخصم 180. قبل الإصلاح كان الملخّص
+       يطبّق 0% (200) ويختلف عن الكشف — دلوقتي الاتنين 180. */
+    expect(rep.customerReceivable).toBe(180);
+    expect(rep.customerRows).toEqual([{ name: "عميل أ", balance: 180 }]);
     expect(rep.customerCredit).toBe(200); // c2 دفع 200 بدون مبيعات
   });
 

@@ -68,6 +68,30 @@ describe("buildCustomerSummary — رصيد العميل التشغيلي", () =
     expect(buildCustomerSummary("c1", data).payCheck).toBe(200);
   });
 
+  it("V21.27.216 (H4): بدون خصم عميل/تسليم → خصم افتراضي 10% (مطابق للكشف مش 0%)", () => {
+    const data = {
+      customers: [{ id: "cX" }],/* لا discount */
+      orders: [{ id: "oX", sellPrice: 100, customerDeliveries: [{ custId: "cX", qty: 10, price: 100, date: "2026-06-01" }], customerReturns: [] }],
+      custPayments: [], checks: [], treasury: [], salesOrders: [], salesCreditNotes: [], custDeliverySessions: [],
+    };
+    const s = buildCustomerSummary("cX", data);
+    expect(s.salesGross).toBe(1000);
+    expect(s.salesNet).toBe(900);/* 10% افتراضي — قبل الإصلاح كان 1000 (0%) ويختلف عن الكشف */
+    expect(s.discPct).toBe(10);
+    expect(s.balance).toBe(900);
+  });
+
+  it("V21.27.216 (H4): خصم الجلسة (custDisc) له الأسبقية على خصم العميل — زي statement.js", () => {
+    const data = {
+      customers: [{ id: "cX", discount: 5 }],
+      orders: [{ id: "oX", sellPrice: 100, customerDeliveries: [{ custId: "cX", qty: 10, price: 100, sessionId: "s1", date: "2026-06-01" }], customerReturns: [] }],
+      custPayments: [], checks: [], treasury: [], salesOrders: [], salesCreditNotes: [],
+      custDeliverySessions: [{ id: "s1", custDisc: { cX: 20 } }],
+    };
+    const s = buildCustomerSummary("cX", data);
+    expect(s.salesNet).toBe(800);/* خصم الجلسة 20% يكسب خصم العميل 5% */
+  });
+
   it("§14.5: ترتيب البراميترات معكوساً يرجّع null (مش رقم غلط صامت)", () => {
     const data = makeFactoryData();
     expect(buildCustomerSummary(data, "c1")).toBeNull();

@@ -103,30 +103,49 @@ export function buildCustomerSummary(custId, data) {
   if (!custId || !data) return null;
   const customer = (data.customers || []).find(c => c.id === custId);
   if (!customer) return null;
-  const discPct = Number(customer.discount) || 0;
+  /* V21.27.216 FIX (H4): الخصم per-delivery بنفس أسبقية statement.js
+     (جلسة custDisc → delivery discPct → customer.discount → 10%) بدل خصم ثابت من
+     customer.discount بافتراضي 0. قبل كده الملخّص (هنا) والكشف (statement.js)
+     كانوا بيطلعوا رصيدين مختلفين لنفس العميل (مثال: عميل بلا خصم مسجّل، الكشف
+     يخصم 10% افتراضي والملخّص 0%). LOGIC MUST MATCH statement.js:115-141. */
+  const _sessions = data.custDeliverySessions || [];
+  const _sessDisc = (e) => {
+    const sid = e && (e.sessionId || e.sessId);
+    if(!sid) return null;
+    const s = _sessions.find(x => x && x.id === sid);
+    const m = s && s.custDisc;
+    if(m && m[custId] != null && m[custId] !== ""){ const n = Number(m[custId]); if(!isNaN(n)) return n; }
+    return null;
+  };
+  const pickDiscPct = (e) => {
+    const sd = _sessDisc(e); if(sd != null) return sd;
+    if(e && e.discPct != null){ const n = Number(e.discPct); if(!isNaN(n)) return n; }
+    if(customer && customer.discount != null){ const n = Number(customer.discount); if(!isNaN(n)) return n; }
+    return 10;
+  };
 
-  /* Sales + returns gross from orders */
-  let salesGross = 0, returnsGross = 0;
+  /* Sales + returns من الأوامر — الصافي per-entry (خصم لكل تسليم) */
+  let salesGross = 0, salesNet = 0, returnsGross = 0, returnsNet = 0;
   (data.orders || []).forEach(o => {
     const sp = Number(o.sellPrice) || 0;
-    (o.customerDeliveries || []).forEach(d => {
-      if (d.custId === custId) {
-        const effPrice = Number(d.price) || sp;
-        salesGross += (Number(d.qty) || 0) * effPrice;
-      }
+    (o.customerDeliveries || []).forEach(e => {
+      if (e.custId !== custId) return;
+      const qty = Number(e.qty) || 0; if(qty <= 0) return;
+      const gross = qty * (Number(e.price) || sp);
+      salesGross += gross;
+      salesNet += Math.round(gross * (1 - pickDiscPct(e) / 100));
     });
-    (o.customerReturns || []).forEach(r => {
-      if (r.custId === custId) {
-        returnsGross += (Number(r.qty) || 0) * sp;
-      }
+    (o.customerReturns || []).forEach(e => {
+      if (e.custId !== custId) return;
+      const qty = Number(e.qty) || 0; if(qty <= 0) return;
+      const gross = qty * (Number(e.price) || sp);
+      returnsGross += gross;
+      returnsNet += Math.round(gross * (1 - pickDiscPct(e) / 100));
     });
   });
-
-  /* Apply customer discount */
-  const discAmt = Math.round(salesGross * discPct / 100);
-  const returnsDisc = Math.round(returnsGross * discPct / 100);
-  const salesNet = salesGross - discAmt;
-  const returnsNet = returnsGross - returnsDisc;
+  const discAmt = salesGross - salesNet;
+  /* discPct للعرض فقط (نسبة الخصم الفعلية المخلوطة) — الحساب per-entry فوق */
+  const discPct = salesGross > 0 ? Math.round(discAmt / salesGross * 100) : (Number(customer.discount) || 0);
 
   /* Cash + other payments */
   let payCash = 0, payOther = 0;
