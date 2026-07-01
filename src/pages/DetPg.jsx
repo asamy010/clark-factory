@@ -616,7 +616,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <span>📐 {o.sizeLabel}</span>
                 {/* V21.27.206: شارة البراند (لوجو صغير + اسم) — فاضي = CLARK افتراضي */}
-                {(()=>{const br=getBrand(data,o.brandId);return br?<span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"1px 8px 1px 5px",borderRadius:999,background:T.bg,border:"1px solid "+T.brd,fontWeight:800,color:T.text}}>{br.logo?<img src={br.logo} alt="" style={{width:14,height:14,borderRadius:3,objectFit:"contain"}}/>:<span>🏷️</span>}{br.name}</span>:null})()}
+                {/* V21.27.210: اللوجو بشكله الطبيعي عريض (height ثابت + width تلقائي) مش مربع */}
+                {(()=>{const br=getBrand(data,o.brandId);return br?<span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"1px 8px 1px 6px",borderRadius:999,background:T.bg,border:"1px solid "+T.brd,fontWeight:800,color:T.text}}>{br.logo?<img src={br.logo} alt="" style={{height:16,width:"auto",maxWidth:72,objectFit:"contain",borderRadius:3}}/>:<span>🏷️</span>}{br.name}</span>:null})()}
                 {wds.length>0&&<span>🏭 {new Set(wds.map(w=>w.wsName)).size} ورش</span>}
                 {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
                 {isStale&&!isSent&&<span style={{padding:"1px 8px",borderRadius:999,background:T.err+"12",color:T.err,fontWeight:700}}>🔴 {ageDays}ي</span>}

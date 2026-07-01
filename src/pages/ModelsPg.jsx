@@ -200,7 +200,8 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
                   {m.sizeLabel && <div style={{display:"inline-block",padding:"4px 12px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.accent+"14",color:T.accent}}>{m.sizeLabel}</div>}
                   {/* V21.27.206: شارة البراند (لوجو صغير + اسم) */}
-                  {(() => { const br = getBrand(data, m.brandId); return br ? <span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px 3px 6px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.bg,border:"1px solid "+T.brd,color:T.text}}>{br.logo ? <img src={br.logo} alt="" style={{width:16,height:16,borderRadius:4,objectFit:"contain"}}/> : <span>🏷️</span>}{br.name}</span> : null; })()}
+                  {/* V21.27.210: اللوجو بشكله الطبيعي عريض (height ثابت + width تلقائي) مش مربع */}
+                  {(() => { const br = getBrand(data, m.brandId); return br ? <span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px 3px 7px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.bg,border:"1px solid "+T.brd,color:T.text}}>{br.logo ? <img src={br.logo} alt="" style={{height:18,width:"auto",maxWidth:84,objectFit:"contain",borderRadius:3}}/> : <span>🏷️</span>}{br.name}</span> : null; })()}
                 </div>
               </div>
             </div>
