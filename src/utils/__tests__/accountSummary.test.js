@@ -147,6 +147,20 @@ describe("buildSupplierSummary — رصيد المورد التشغيلي", () =
     expect(s2.balance).toBe(230);
   });
 
+  it("V21.27.215 (H3): شيك دفع مورد مدفوع لا يُحتسب مرتين (رِجل خزنة check_pay + data.checks)", () => {
+    const data = makeFactoryData();
+    /* شيك دفع مورد اتعمل من فورم الخزنة (غير مرتبط بـ supplierPayment) واتعلّم «مدفوع».
+       بيسجّل: (1) شيك في data.checks، (2) رِجل خزنة out بـ sourceType=check_pay. */
+    data.checks.push({ id: "chp1", type: "payable", partyId: "sup1", amount: 100, status: "مدفوع", date: "2026-06-09" });
+    data.treasury.push({ id: "tp1", type: "out", amount: 100, supplierId: "sup1", sourceType: "check_pay", checkId: "chp1", date: "2026-06-09" });
+    const s = buildSupplierSummary("sup1", data);
+    /* رِجل check_pay مستبعدة من totalPaid (الشيك متعدّ في payChecks) — قبل الإصلاح
+       كانت totalPaid=320 (تكرار) والرصيد ينزل الضِعف. */
+    expect(s.totalPaid).toBe(220);
+    expect(s.payChecks).toBe(100);
+    expect(s.balance).toBe(130);/* 500 − 50 (مرتجعات) − 220 (مدفوعات) − 100 (شيك، مرة واحدة) */
+  });
+
   it("V21.21.30: الشيك المرتد/الملغي وفئة غير «دفعة مورد» لا يُحتسبون", () => {
     const data = makeFactoryData();
     data.checks.push(

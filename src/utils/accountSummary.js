@@ -254,6 +254,12 @@ export function buildSupplierSummary(supId, data) {
     if (knownTxIds.has(t.id)) return;
     if (tombstones.has(t.id)) return;
     if (t.sourceType === "check_bounce") return;
+    /* V21.27.215 FIX (H3): استبعاد حركات الشيكات — الشيك متعدّ بالفعل من
+       data.checks تحت (payChecks). من غير الاستبعاد ده، شيك دفع مورد مدفوع (رِجل
+       خزنة check_pay بـ supplierId، بدون supplierPayments record) كان بيتحسب
+       مرتين: مرة هنا في totalPaid ومرة في payChecks → رصيد المورد ينزل الضِعف.
+       LOGIC MUST MATCH statement.js:275 (اللي بيستبعد check_collect/check_pay). */
+    if (t.sourceType === "check_collect" || t.sourceType === "check_pay") return;
     totalPaid += Number(t.amount) || 0;
     if (t.date > lastActivity) lastActivity = t.date;
   });

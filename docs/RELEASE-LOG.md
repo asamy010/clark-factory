@@ -12,6 +12,28 @@
 
 ---
 
+## V21.27.215 (2026-07-01) — 🧮 إصلاح: شيك المورد المدفوع كان يتحسب مرتين في الملخّص
+
+**المصدر:** الفحص الشامل — H3 (عالي).
+
+**Root cause:** `buildSupplierSummary` (`accountSummary.js`) في حلقة حركات الخزنة
+اليتيمة كان بيستبعد `check_bounce` بس — **مش** `check_collect`/`check_pay`
+(بينما `statement.js:275` بيستبعدهم). فشيك دفع مورد مدفوع اتعمل من فورم الخزنة
+(رِجل `check_pay` بـ`supplierId` بدون `supplierPayments` record) كان بيتحسب مرتين:
+مرة في `totalPaid` (الرِجل) ومرة في `payChecks` (من `data.checks`) → رصيد المورد
+ينزل الضِعف، ويختلف عن كشف الحساب اللي بيحسبه صح.
+
+**الإصلاح:** أضفنا استبعاد `check_collect`/`check_pay` لنفس الحلقة (سطر واحد) —
+بقى مطابق لـ`statement.js`. جانب العميل كان أصلًا سليم (`accountSummary.js:165`).
+
+**الاختبار (§0.2):** build ✓ · 534 اختبار ✓ (+1 regression: شيك دفع مدفوع
+totalPaid=220 مش 320، balance=130 مش double) · emulator 3/3 ✓.
+
+**ملفات:** `src/utils/accountSummary.js`، `src/utils/__tests__/accountSummary.test.js`
++ bump.
+
+---
+
 ## V21.27.214 (2026-07-01) — 🛠️ إصلاح: زر إلغاء مرتجع التوزيعة الميّت + مرتجع الصنف الجاهز
 
 **المصدر:** الفحص الشامل (`docs/AUDIT-2026-07-01-FULL.md`) — C2/C3 (حرج) + H2 (عالي).
