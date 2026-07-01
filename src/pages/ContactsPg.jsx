@@ -939,10 +939,8 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
   }, [ledger]);
 
   const handleSave = async () => {
-    if(!isRegistryContact){
-      showToast("⚠️ التعديل متاح فقط للجهات المسجّلة في الـ registry");
-      return;
-    }
+    /* V21.27.201: التعديل بقى متاح للجهات المرتبطة كمان (عميل/مورد/ورشة/موظف) —
+       الأب (handleEditSave) بيكتب الاسم/التليفون في السجل الأصلي. */
     if(!name.trim()){ showToast("⚠️ ادخل الاسم"); return; }
     setSaving(true);
     try {
@@ -1319,12 +1317,42 @@ function ContactDetailModal({ contact, data, onSave, onSettle, onReverseSettle, 
             )}
           </div>
         ) : (
-          <div style={{
-            padding: "10px 14px", borderRadius: 8, marginBottom: 12,
-            background: T.warn + "10", border: "1px solid " + T.warn + "33",
-            fontSize: FS-2, color: T.warn, lineHeight: 1.7,
-          }}>
-            ℹ️ ده record من قائمة "{labelForType(contact.linkedFrom)}" القديمة، مش في الـ contacts registry. للتعديل، استخدم الصفحة الأصلية. الـ link-existing flow (يـ promotes هذا الـ record إلى الـ registry) هـ يجي في slice لاحقة.
+          /* V21.27.201: تعديل الجهات المرتبطة (من قائمة عميل/مورد/ورشة/موظف) —
+             الاسم/التليفون بيتحدّثوا في السجل الأصلي مباشرة (طلب Ahmed). */
+          <div style={{padding: "12px 14px", borderRadius: 10, border: "1px dashed " + T.brd, marginBottom: 12}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 10}}>
+              <div style={{fontSize: FS, fontWeight: 700, color: T.text}}>{"✏️ تعديل (" + labelForType(contact.linkedFrom) + ")"}</div>
+              {!editMode && canEdit && (
+                <Btn small primary onClick={() => setEditMode(true)}>تعديل</Btn>
+              )}
+            </div>
+            {editMode ? (
+              <>
+                <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 10, marginBottom: 10}}>
+                  <div>
+                    <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>الاسم</label>
+                    <Inp value={name} onChange={setName} />
+                  </div>
+                  <div>
+                    <label style={{fontSize: FS-3, color: T.textSec, fontWeight: 600}}>التليفون</label>
+                    <Inp value={phone} onChange={setPhone} />
+                  </div>
+                </div>
+                <div style={{fontSize: FS-3, color: T.textMut, padding: "6px 10px", background: T.bg, borderRadius: 6, lineHeight: 1.6, marginBottom: 10}}>
+                  💡 التعديل بيتحدّث في السجل الأصلي («{labelForType(contact.linkedFrom)}») مباشرة.
+                </div>
+                <div style={{display:"flex", justifyContent:"flex-end", gap: 8}}>
+                  <Btn ghost onClick={() => setEditMode(false)} disabled={saving}>إلغاء</Btn>
+                  <Btn primary onClick={handleSave} disabled={saving || !name.trim()}>
+                    {saving ? "..." : "💾 حفظ"}
+                  </Btn>
+                </div>
+              </>
+            ) : (
+              <div style={{fontSize: FS-2, color: T.textMut}}>
+                {canEdit ? "اضغط «تعديل» لتغيير الاسم/التليفون في السجل الأصلي." : "مفيش صلاحية تعديل."}
+              </div>
+            )}
           </div>
         )}
 
@@ -1596,8 +1624,28 @@ export function ContactsPg({ data, upConfig, isMob, canEdit, user }){
      The patch returned by updateContact() carries the registry update
      PLUS any propagated changes to customers/suppliers/workshops/employees. */
   const handleEditSave = async (updates) => {
-    if(!viewing || viewing.linkedFrom !== "contact"){
-      showToast("⚠️ التعديل متاح فقط للجهات المسجّلة");
+    if(!viewing){ return; }
+    /* V21.27.201: جهة مرتبطة (من قائمة عميل/مورد/ورشة/موظف) — نكتب الاسم/التليفون
+       في السجل الأصلي مباشرة عبر entityIds (upConfig بيزامن الـ partitioned). */
+    if(viewing.linkedFrom !== "contact"){
+      const ids = viewing.entityIds || {};
+      const nm = (updates.name || "").trim();
+      const ph = (updates.phone || "").trim();
+      if(!nm){ showToast("⚠️ ادخل الاسم"); return; }
+      const listMap = { customer: "customers", supplier: "suppliers", workshop: "workshops", employee: "employees" };
+      const touched = [];
+      upConfig(d => {
+        for(const [type, id] of Object.entries(ids)){
+          const listKey = listMap[type];
+          if(!listKey || id == null) continue;
+          const arr = Array.isArray(d[listKey]) ? d[listKey] : [];
+          const ent = arr.find(x => String(x.id) === String(id));
+          if(ent){ ent.name = nm; ent.phone = ph; touched.push(type); }
+        }
+      });
+      if(!touched.length){ showToast("⚠️ لم يتم العثور على السجل الأصلي"); return; }
+      showToast("✓ تم تحديث " + touched.map(labelForType).join(" + "));
+      setViewing({ ...viewing, name: nm, phone: ph });
       return;
     }
     try {

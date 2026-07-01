@@ -302,7 +302,16 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
       /* V21.26.23: بحث عام عبر كل المجلدات (مش المجلد الحالي بس) */
       result = result.filter(f => !f.deletedAt);
     } else {
-      result = result.filter(f => !f.deletedAt && (f.folderId || null) === currentFolderId);
+      /* V21.27.201: الملفات «اليتيمة» (folderId بيشاور على مجلد اتمسح) كانت
+         بتختفي من كل مكان (بايتسها فاضلة في التخزين). ده بيحصل لو مجلد اتفقد من
+         documentsTree (مستند واحد last-write-wins عبر أجهزة). الحل الدفاعي:
+         نعتبرها ملفات في الجذر فتظهر بدل ما تختفي — صفر فقدان بيانات من العرض. */
+      const validFolderIds = new Set(folders.map(f => f.id));
+      result = result.filter(f => {
+        if (f.deletedAt) return false;
+        const eff = (f.folderId && validFolderIds.has(f.folderId)) ? f.folderId : null;
+        return eff === currentFolderId;
+      });
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -314,7 +323,7 @@ export function DocumentsPg({ data, upConfig, upDocs, isMob, canEdit, user, mode
     return result.sort((a, b) =>
       (b.uploadedAt || "").localeCompare(a.uploadedAt || "")
     );
-  }, [files, currentFolderId, search, showTrash, recentView]);
+  }, [files, folders, currentFolderId, search, showTrash, recentView]);
 
   /* V21.26.12: تنقّل بالأسهم في المعاينة بين صور المجلد الحالي. */
   const navPreview = (dir) => {
