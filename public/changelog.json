@@ -1,5 +1,16 @@
 [
  {
+  "version": "V21.27.208",
+  "date": "2026-07-01",
+  "types": ["architectural"],
+  "title": "✅ Phase 208 — تأكيد بيئة الاختبار فعليًا + أمر test:emu",
+  "changes": [
+   { "type": "architectural", "text": "**جرّبنا الـ emulator بنفسنا وطلع شغّال 3/3:** شغّلنا الـ Firebase Emulator suite بالكامل (auth+firestore+storage) وعملنا round-trip حقيقي — تسجيل مستخدم على Auth + قراءة موثّقة على **القواعد الحقيقية** (firestore.rules) + رفع ملف على Storage — كله نجح. يعني ربط V21.27.207 صحيح فعليًا مش نظري. اختبارات الـ rules الـ20 كمان عدّت." },
+   { "type": "feature", "text": "**أمر جديد `npm run test:emu`:** يشغّل الـ emulator ويعمل الـ round-trip ده تلقائيًا ويطلع PASS/FAIL — تأكيد سريع بأمر واحد إن بيئة الاختبار سليمة قبل ما تعتمد عليها. سكربت `scripts/emu-smoke.mjs` بيستخدم مشروع demo (أوفلاين، صفر اتصال بالإنتاج)." },
+   { "type": "doc", "text": "تحديث `docs/TESTING.md` بالأمر الجديد. ملاحظة: warnings الـ IPv6 (::1) اللي بتظهر في بعض بيئات الكلاود غير مؤثرة — الـ emulator بيرجع لـ IPv4 ويشتغل عادي (على الماك مبتظهرش أصلاً)." }
+  ]
+ },
+ {
   "version": "V21.27.207",
   "date": "2026-07-01",
   "types": ["architectural"],
