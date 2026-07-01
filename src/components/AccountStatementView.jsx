@@ -274,7 +274,7 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
           <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.closing.toFixed(2))}</td></tr></tfoot>
       </table>
       <p style="margin-top:14px;font-weight:700">${balanceLabel(result.totals.closing, partyType).txt}</p>
-      <div style="margin-top:6px;font-size:12px;color:#0f172a;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;padding:8px 12px;background:#f8fafc"><span style="color:#64748b;font-weight:600">التفقيط: </span>${tafqitEGP(result.totals.closing)}</div>
+      <div style="margin-top:6px;font-size:12px;color:#0f172a;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;padding:8px 12px;background:#f8fafc">${tafqitEGP(result.totals.closing)}</div>
       <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px"><div>توقيع ${partyType === "customer" ? "العميل" : "المورد"}: ____________</div><div>توقيع المصنع: ____________</div></div>`;
     printPage(docTitle, html, { factoryName: data.factoryName, logo: data.logo });
   };
