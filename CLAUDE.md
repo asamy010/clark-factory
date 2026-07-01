@@ -10,6 +10,11 @@
 > **بعد أي تعديل في الكود، نفّذ التسلسل ده أوتوماتيك من غير ما تسأل:**
 >
 > 1. **Build** — `npm run build` (لازم `✓ built` وصفر أخطاء).
+> 1.b **اختبار سحابي كامل (إلزامي لأي data-flow أو فيتشر)** — قبل الدفع للإنتاج:
+>    شغّل الـ Firebase Emulator في السيشن السحابي واختبر التغيير فعليًا
+>    (`npm run test:emu` تأكيد البيئة + اختبار موجّه للتغيير). **تعديلات العرض
+>    البحتة (CSS/نص/طباعة/ترتيب) معفاة.** التفاصيل الكاملة في **§0.2**. مايتدفعش
+>    على `main` أي data-flow/فيتشر قبل ما الاختبار السحابي يعدّي.
 > 2. **Bump** النسخة في ٣ أماكن (`package.json` + `src/constants/index.js` +
 >    entry جديد في أول `public/changelog.json` — **V21.21.37: مش في
 >    AboutVersionModal.jsx زي زمان؛ الـ CHANGELOG بقى JSON منفصل**).
@@ -128,8 +133,10 @@ if(win) win.location.href = url; // navigate after gesture preserved
 
    **خاصة الـ rules cross-service helpers** — Firestore rules vs Storage rules
    لهم CEL مختلف. الـ helper اللي بـ يشتغل في firestore.rules ممكن يـ throw
-   silent error في storage.rules → default-deny → كل operations تفشل. **لو
-   الـ user مفيش local test environment، ارفض الـ change ده تماماً** —
+   silent error في storage.rules → default-deny → كل operations تفشل.
+   **تحديث V21.27.208: بقى فيه emulator — اختبر أي تغيير في `*.rules` على
+   الـ emulator (`npm run test:rules` + round-trip فعلي للرفع/القراءة، §0.2)
+   قبل الدفع.** لو الاختبار مش ممكن لأي سبب، **ارفض الـ change ده تماماً** —
    الـ blast radius too high. (V21.9.69 incident — storage.rules dynamic
    scopes broke all uploads even though syntax validated and deployed.)
 
@@ -200,6 +207,48 @@ audit الـ async patterns في الـ app — هـ تـ require manual verific
 
 الـ user كان لازم يقول-لي 'بطل'. وأنا كان لازم أقول-له من البداية: 'الـ
 changes دي risky — هـ نـ ship-ها على stages أو نـ test كل واحدة'.
+
+---
+
+## 0.2 اختبار سحابي كامل قبل النشر — إلزامي لأي data-flow أو فيتشر (أمر Ahmed — 2026-07-01)
+
+> **أمر صريح من Ahmed:** «اعمل تيست سحابي كامل لأي داتا فلو أو فيتشر قبل النشر.»
+
+بقى فيه **بيئة اختبار فعلية** (Firebase Emulator — شوف §1 «Environment» +
+`docs/TESTING.md`، اتّأسست V21.27.207-208). فالقاعدة القديمة «مفيش test env →
+ship and hope» **اتلغت**. من دلوقتي:
+
+> **ممنوع تدفع للإنتاج (`main`) أي تغيير بيلمس data-flow أو أي فيتشر جديدة قبل
+> ما تختبره فعليًا على الـ emulator في السيشن السحابي، وتشوف النتيجة تعدّي.**
+
+### إمتى الاختبار السحابي إلزامي (لو التغيير أي واحد من دول)
+- خزنة / مرتبات / محاسبة / فواتير / مخزون / أوامر تشغيل / كشوف حساب
+- migrations أو split/partitioned collections (أي كتابة جديدة/معدّلة في Firestore)
+- `firestore.rules` / `storage.rules` / تهيئة Firebase / رفع/حذف Storage
+- أي **فيتشر جديدة** (منطق بيانات جديد، مش مجرد عرض)
+- أي async pattern جديد في hot path (saveTx / approveTransfer / approveWeek…)
+
+### إمتى معفى (عرض بحت — كفاية build + الاختبارات الموجودة)
+- CSS / ألوان / تنسيق / نصوص / طباعة / ترتيب UI — **من غير أي منطق بيانات**.
+
+### إزاي تعمل الاختبار السحابي (خطوة بخطوة، في نفس السيشن)
+1. **تأكيد إن البيئة سليمة:** `npm run test:emu` — لازم **3/3 ✅**. (بيشغّل
+   auth+firestore+storage emulators ويعمل round-trip حقيقي على القواعد الحقيقية.)
+2. **اختبار موجّه للتغيير:** اكتب سكربت emulator صغير (زي `scripts/emu-smoke.mjs`)
+   بيستورد **دوال المنطق الحقيقية المتأثرة** (مثلاً mutator الخزنة/الأوردر/
+   الـ split-sync) ويشغّلها على الـ emulator، ويتأكد إن الكتابة/القراءة/الرصيد
+   طلعوا صح. أو `npm run emu` + `npm run dev:emu` وتفاعل يدوي لو الـ UX هو المهم.
+3. **لو `*.rules` اتغيّرت:** `npm run test:rules` كمان (لازم تعدّي).
+4. **اكتب النتيجة الفعلية للـ user** (عدّى كام/فشل كام)، وبعدها بس ادفع على `main`.
+
+### لو الاختبار مش ممكن
+لو التغيير معتمد على حاجة مش قابلة للـ emulation (API خارجي حقيقي، إلخ)، **قول
+ده صراحة للـ user واستأذن قبل الدفع** — نفس روح §0.1. مفيش «ship and hope».
+
+### الخلاصة
+§0.1 كانت: «مفيش test env → ارفض التغيير الخطر». دلوقتي: **اختبر الأول سحابيًا،
+وبعدين انشر**. الاختبار السحابي **خطوة إلزامية في الـ workflow** (§1 step 1.b)
+زي البيلد والزيب بالظبط — لأي data-flow أو فيتشر.
 
 ---
 
@@ -980,5 +1029,6 @@ origin main → zip**. النسخة لازم تتظبط في `package.json` +
 
 ---
 
-Last updated: V21.22.11 (2026-06-14) — أضيف §15 (views vs popups + أداء
-القوائم). الموديلات (§14.x جاية)، البروتوكول §1 ثابت.
+Last updated: V21.27.209 (2026-07-01) — أضيف §0.2 (اختبار سحابي إلزامي لأي
+data-flow/فيتشر قبل النشر) + step 1.b في الـ AUTO-WORKFLOW + ملاحظة Emulator في
+§1. قبله §15 (views vs popups + أداء القوائم).
