@@ -1,8 +1,9 @@
 /* V19.66: import r2 for monetary rounding (was missing → float drift in totals).
    Pre-V19.66 every consolidation accumulated 0.0000000001-class rounding error
    into AR balances and reports. */
-import { r2 } from "./format.js";
+import { r2, gid } from "./format.js";
 import { previewDocNo, reserveDocNo } from "./docNumbering.js";
+import { applyStockDelta } from "./categories.js";
 
 /* ═══════════════════════════════════════════════════════════════════════
    CLARK · Invoices Utility (V18.65 → V19.66 hardened)
@@ -1372,6 +1373,63 @@ export function deleteDraftDebitNoteMutator(d, debitNoteId){
   if(d.purchaseDebitNotes[idx].status !== "draft") return false;
   d.purchaseDebitNotes.splice(idx, 1);
   return true;
+}
+
+/* itemType → categoryId (زي _catIdFromItemType في PurchasePg/saveReceiptReturn) */
+function _catIdFromItemType(itemType){
+  if(itemType === "fabric") return "core_fabric";
+  if(itemType === "accessory") return "core_accessory";
+  return itemType;
+}
+
+/* V21.27.219 (M6 — من الفحص الشامل): عكسي — لما يتلغي/يتحذف إشعار مدين ناتج عن
+   مرتجع استلام، رجّع المرتجع التشغيلي المرتبط (نظير removeOperationalReturnFor
+   CreditNote في المبيعات). بيدوّر على `purchaseReceipts[]._returns` اللي
+   debitNoteId بتاعها = الإشعار ده، ويعكس:
+     • المخزون: applyStockDelta(+الكمية الأساسية) + حركة `purchase_return_cancel`
+       (in) — من حركات purchase_return الموسومة بالـ debitNoteId (كمية أساسية
+       دقيقة، تدعم الوحدة المزدوجة). fallback من _returns.qty للمرتجعات القديمة
+       غير الموسومة.
+     • يشيل مدخلات `_returns` المرتبطة بالإشعار (بترجّع الكمية المتاحة للمرتجع).
+   بيرجّع { restored } = عدد الأصناف اللي اترجّع مخزونها.
+   ملاحظة: القيد المحاسبي العكسي للإشعار نفسه بيتم في شاشته (autoPost.debitNote
+   Voided) — ده بس بيزامن التشغيلي/المخزون زي جانب المبيعات. */
+export function reverseDebitNoteReceiptReturns(d, debitNoteId, opts = {}){
+  const { stockEnabled = false, userName = "" } = opts;
+  if(!debitNoteId) return { restored: 0 };
+  if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+  const today = new Date().toISOString().split("T")[0];
+  const nowIso = new Date().toISOString();
+  let restored = 0;
+  (d.purchaseReceipts || []).forEach(rcpt => {
+    if(!rcpt || !Array.isArray(rcpt._returns)) return;
+    const mine = rcpt._returns.filter(re => re && re.debitNoteId === debitNoteId);
+    if(mine.length === 0) return;
+    if(stockEnabled){
+      /* حركات purchase_return الموسومة بالـ debitNoteId = كمية أساسية دقيقة */
+      const tagged = d.stockMovements.filter(m => m && m.sourceType === "purchase_return" && m.sourceId === rcpt.id && m.debitNoteId === debitNoteId);
+      const sources = tagged.length
+        ? tagged.map(m => ({ itemType: m.itemType, itemId: m.itemId, itemName: m.itemName, qty: Math.abs(Number(m.qty) || 0), unit: m.unit, price: m.price }))
+        /* legacy fallback: مرتجعات قديمة من غير debitNoteId على الحركة → من _returns */
+        : mine.map(re => ({ itemType: re.itemType, itemId: re.itemId, itemName: re.itemName, qty: Number(re.qty) || 0, unit: re.unit, price: re.price }));
+      sources.forEach(s => {
+        const q = Number(s.qty) || 0;
+        if(q <= 0) return;
+        const catId = _catIdFromItemType(s.itemType);
+        applyStockDelta(d, catId, s.itemId, +q, null);/* رجّع البضاعة للمخزن */
+        d.stockMovements.push({
+          id: gid(), type: "in", itemType: s.itemType, itemId: s.itemId, itemName: s.itemName || "",
+          qty: +q, unit: s.unit || "", price: Number(s.price) || 0, date: today,
+          sourceType: "purchase_return_cancel", sourceId: rcpt.id, debitNoteId,
+          notes: "إلغاء مرتجع مشتريات — استلام " + (rcpt.receiptNo || ""), createdBy: userName || "", createdAt: nowIso,
+        });
+        restored++;
+      });
+    }
+    /* شيل مدخلات المرتجع المرتبطة بالإشعار (بترجّع الكمية المتاحة للمرتجع) */
+    rcpt._returns = rcpt._returns.filter(re => re.debitNoteId !== debitNoteId);
+  });
+  return { restored };
 }
 
 /* Stats — mirrors getCreditNoteStats. */

@@ -1056,7 +1056,17 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     let dnNo="";
     upConfig(d=>{
       if(!Array.isArray(d.stockMovements))d.stockMovements=[];
-      /* (1) خصم المخزون لكل بند */
+      /* (1) إشعار مدين أولاً — عشان نوسم حركات المخزون بالـ debitNoteId (V21.27.219
+         M6: يخلّي إلغاء/حذف الإشعار يعكس المرتجع بدقة). */
+      const res=upsertDebitNoteFromReturn(d,{
+        supplierId:r.supplierId,supplierName:r.supplierName,date:today2,
+        items:picked.map(it=>({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,name:it.itemName,qty:it._retQ,unitPrice:Number(it.price)||0})),
+        notes:(retNotes||"").trim()||("مرتجع استلام "+(r.receiptNo||"")),
+        linkedReceiptId:r.id,
+      },supplier,userName);
+      dnNo=res&&res.debitNote?res.debitNote.debitNoteNo:"";
+      const _dnId=res&&res.debitNote?res.debitNote.id:"";
+      /* (2) خصم المخزون لكل بند (موسوم بالـ debitNoteId) */
       if(stockEnabled){
         picked.forEach(it=>{
           const catId=_catIdFromItemType(it);
@@ -1070,20 +1080,12 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
           if(cat?.legacy==="fabric"){const f=(d.fabrics||[]).find(x=>String(x.id)===String(it.itemId));if(f&&f.stock<0)f.stock=0}
           else if(cat?.legacy==="accessory"){const a=(d.accessories||[]).find(x=>String(x.id)===String(it.itemId));if(a&&a.stock<0)a.stock=0}
           else{const x=(d.inventoryItems||[]).find(y=>String(y.id)===String(it.itemId));if(x&&x.stock<0)x.stock=0}
-          d.stockMovements.push({id:gid(),type:"out",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName||"",qty:-baseRet,unit:(_dualRcpt?(it._baseUnit||it.unit):it.unit)||"",price:Number(it.price)||0,date:today2,sourceType:"purchase_return",sourceId:r.id,notes:"مرتجع مشتريات للمورد — استلام "+(r.receiptNo||"")+(_dualRcpt?" · مرتجع: "+fmt(it._retQ)+" "+(it.unit||""):""),createdBy:userName,createdAt:nowISO()});
+          d.stockMovements.push({id:gid(),type:"out",itemType:it.itemType,itemId:it.itemId,itemName:it.itemName||"",qty:-baseRet,unit:(_dualRcpt?(it._baseUnit||it.unit):it.unit)||"",price:Number(it.price)||0,date:today2,sourceType:"purchase_return",sourceId:r.id,debitNoteId:_dnId,notes:"مرتجع مشتريات للمورد — استلام "+(r.receiptNo||"")+(_dualRcpt?" · مرتجع: "+fmt(it._retQ)+" "+(it.unit||""):""),createdBy:userName,createdAt:nowISO()});
         });
       }
-      /* (2) إشعار مدين (يقلّل المستحق للمورد) */
-      const res=upsertDebitNoteFromReturn(d,{
-        supplierId:r.supplierId,supplierName:r.supplierName,date:today2,
-        items:picked.map(it=>({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,name:it.itemName,qty:it._retQ,unitPrice:Number(it.price)||0})),
-        notes:(retNotes||"").trim()||("مرتجع استلام "+(r.receiptNo||"")),
-        linkedReceiptId:r.id,
-      },supplier,userName);
-      dnNo=res&&res.debitNote?res.debitNote.debitNoteNo:"";
       /* (3) سجّل المرتجع على الاستلام (لتحديد الكمية المتبقية) */
       const ri=(d.purchaseReceipts||[]).findIndex(x=>x.id===r.id);
-      if(ri>=0){ if(!Array.isArray(d.purchaseReceipts[ri]._returns))d.purchaseReceipts[ri]._returns=[]; picked.forEach(it=>{d.purchaseReceipts[ri]._returns.push({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it._retQ,price:Number(it.price)||0,date:today2,debitNoteId:res&&res.debitNote?res.debitNote.id:"",by:userName,at:nowISO()})}); }
+      if(ri>=0){ if(!Array.isArray(d.purchaseReceipts[ri]._returns))d.purchaseReceipts[ri]._returns=[]; picked.forEach(it=>{d.purchaseReceipts[ri]._returns.push({itemType:it.itemType,itemId:it.itemId,itemName:it.itemName,qty:it._retQ,price:Number(it.price)||0,date:today2,debitNoteId:_dnId,by:userName,at:nowISO()})}); }
     });
     setReturnRcpt(null);setRetQty({});setRetNotes("");
     showToast("✅ تم المرتجع — إشعار مدين "+dnNo+(stockEnabled?" + خصم المخزن":""));
@@ -1130,6 +1132,20 @@ export function PurchasePg({data,upConfig,isMob,isTab,canEdit,user,userRole,hubV
     const linkedInv=findInvoiceByReceipt(data,r.id);
     if(linkedInv){
       await tell("⛔ لا يمكن حذف الاستلام","الاستلام له فاتورة مشتريات مرتبطة ("+(linkedInv.invoiceNo||"")+") — احذف/الغِ الفاتورة الأول ثم احذف الاستلام.",{type:"warning"});
+      return;
+    }
+    /* V21.27.219 (M1 — من الفحص الشامل): نفس السلسلة المستندية للمرتجعات.
+       ROOT CAUSE: الحذف كان بيعكس كامل الكمية المستلمة وبيشيل حركات receipt بس —
+       حركات purchase_return (out) والإشعار المدين بيفضلوا → دفتر الحركات يروح
+       سالب (استلام 100 − مرتجع 30 − حذف 100 = −30) والمورد يفضل متخصم له قيمة
+       بضاعة استلامها اتحذف. القاعدة (§14.2): المرتجع مستند «بعد» الاستلام —
+       يتشال الأول (بحذف/إلغاء الإشعار المدين المرتبط). */
+    const _rets=Array.isArray(r._returns)?r._returns:[];
+    if(_rets.length>0){
+      const totQ=_rets.reduce((s,x)=>s+(Number(x.qty)||0),0);
+      const dnIds=[...new Set(_rets.map(x=>x.debitNoteId).filter(Boolean))];
+      const dnNos=dnIds.map(id=>{const dn=(data.purchaseDebitNotes||[]).find(n=>n&&n.id===id);return dn?(dn.debitNoteNo||id):id});
+      await tell("⛔ لا يمكن حذف الاستلام","الاستلام عليه مرتجعات مشتريات مسجّلة ("+fmt(totQ)+" وحدة"+(dnNos.length?" — إشعار مدين: "+dnNos.join("، "):"")+").\n\nاحذف/الغِ الإشعار المدين المرتبط أولاً (من شاشة الإشعارات المدينة) ثم احذف الاستلام.",{type:"warning"});
       return;
     }
     const confirmed=await ask("حذف الاستلام","سيتم حذف الاستلام "+r.receiptNo+" وعكس كل التأثيرات:\n\n⚠️ سيتم خصم البنود من المخزن\n⚠️ سيتم حذف الحركات المالية المرتبطة\n\nهل تريد المتابعة؟",{danger:true,confirmText:"حذف"});

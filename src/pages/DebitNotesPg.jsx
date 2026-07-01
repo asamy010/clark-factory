@@ -22,7 +22,7 @@ import { sumQtyByUnit, fmtQtyByUnit } from "../utils/docColumns.js";
 import { ask, showToast } from "../utils/popups.js";
 import {
   postDebitNoteMutator, debitNotePostBlocker, voidDebitNoteMutator, deleteDraftDebitNoteMutator,
-  getDebitNoteStats,
+  getDebitNoteStats, reverseDebitNoteReceiptReturns,
 } from "../utils/invoices.js";
 import { autoPost } from "../utils/accounting/autoPost.js";
 import { printDebitNote } from "../utils/printInvoice.js";
@@ -143,20 +143,32 @@ export function DebitNotesPg({data, upConfig, isMob, user}){
     }
   };
 
+  /* V21.27.219 (M6): هل الإشعار ناتج عن مرتجع استلام؟ (عشان نحذّر إن الإلغاء
+     هيرجّع المخزون والكمية المتاحة للمرتجع). */
+  const _stockEnabled = !!(data.purchaseSettings && data.purchaseSettings.stockEnabled);
+  const _linkedReceiptReturns = (dn) => (data.purchaseReceipts || [])
+    .some(r => r && Array.isArray(r._returns) && r._returns.some(re => re && re.debitNoteId === dn.id));
+
   const handleVoid = async (dn) => {
-    if(!await ask("إلغاء إشعار مدين", "إلغاء إشعار "+dn.debitNoteNo+"؟\n\nسيتم إنشاء قيد عكسي.", {danger:true,confirmText:"إلغاء"})) return;
-    upConfig(d => { voidDebitNoteMutator(d, dn.id, userName, "إلغاء يدوي"); });
+    const hasRet = _linkedReceiptReturns(dn);
+    const extra = hasRet ? "\n\n↩️ الإشعار ناتج عن مرتجع استلام — الإلغاء هيرجّع المرتجع التشغيلي" + (_stockEnabled ? " ويعيد البضاعة للمخزن" : "") + " ويحرّر الكمية للمرتجع تاني." : "";
+    if(!await ask("إلغاء إشعار مدين", "إلغاء إشعار "+dn.debitNoteNo+"؟\n\nسيتم إنشاء قيد عكسي."+extra, {danger:true,confirmText:"إلغاء"})) return;
+    /* V21.27.219 (M6): ربط ثنائي — الإلغاء بيشيل المرتجع التشغيلي المرتبط
+       (يرجّع المخزون والكمية المتاحة) عشان المخزون والمورد يفضلوا متطابقين. */
+    upConfig(d => { reverseDebitNoteReceiptReturns(d, dn.id, { stockEnabled: _stockEnabled, userName }); voidDebitNoteMutator(d, dn.id, userName, "إلغاء يدوي"); });
     if(dn.postedJournalRef){
       autoPost.debitNoteVoided(data, dn, userName).catch(e => console.warn("[void dn] failed:", e));
     }
-    showToast("✓ تم الإلغاء");
+    showToast("✓ تم الإلغاء" + (hasRet ? " — رجع المرتجع التشغيلي" + (_stockEnabled ? " والمخزون" : "") : ""));
     setActiveDN(null);
   };
 
   const handleDelete = async (dn) => {
-    if(!await ask("حذف المسودة", "حذف مسودة الإشعار "+dn.debitNoteNo+"؟", {danger:true,confirmText:"حذف"})) return;
-    upConfig(d => { deleteDraftDebitNoteMutator(d, dn.id); });
-    showToast("✓ تم الحذف");
+    const hasRet = _linkedReceiptReturns(dn);
+    const extra = hasRet ? "\n\n↩️ الإشعار ناتج عن مرتجع استلام — الحذف هيرجّع المرتجع التشغيلي" + (_stockEnabled ? " ويعيد البضاعة للمخزن" : "") + "." : "";
+    if(!await ask("حذف المسودة", "حذف مسودة الإشعار "+dn.debitNoteNo+"؟"+extra, {danger:true,confirmText:"حذف"})) return;
+    upConfig(d => { reverseDebitNoteReceiptReturns(d, dn.id, { stockEnabled: _stockEnabled, userName }); deleteDraftDebitNoteMutator(d, dn.id); });
+    showToast("✓ تم الحذف" + (hasRet ? " — رجع المرتجع التشغيلي" + (_stockEnabled ? " والمخزون" : "") : ""));
     setActiveDN(null);
   };
 
