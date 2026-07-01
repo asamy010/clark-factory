@@ -55,12 +55,15 @@ export function printPage(title,bodyHtml,configInfo,opts){const pw=openPrintWind
   const factoryPhone=(configInfo&&configInfo.phone)||"";
   /* V15.58: Professional PDF-friendly header styles override the legacy .hdr */
   const enhancedStyles=".hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid "+accentLine+";padding-bottom:14px;margin-bottom:20px;gap:16px}"
-    +".hdr-brand{display:flex;align-items:center;gap:12px;flex:1}"
-    +".hdr-brand img{height:50px;max-width:90px;object-fit:contain}"
-    +".hdr-brand-text{line-height:1.3}"
-    +".hdr-brand-name{font-size:17px;font-weight:800;color:#0F172A}"
+    +".hdr-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}"
+    +".hdr-brand img{height:50px;max-width:78px;object-fit:contain}"
+    +".hdr-brand-text{line-height:1.25;min-width:0}"
+    /* V21.27.211: اسم المصنع سطر واحد بخط أصغر — كان بيعمل wrap لـ3 سطور على
+       الموبايل لأن عنوان المستند الطويل (flex-shrink:0) كان بياخد العرض. الحل:
+       نحمي الـbrand (flex-shrink:0) + الاسم nowrap، ونخلّي العنوان هو اللي يلفّ. */
+    +".hdr-brand-name{font-size:13px;font-weight:800;color:#0F172A;white-space:nowrap}"
     +".hdr-brand-sub{font-size:10px;color:#64748B;font-weight:600;margin-top:2px}"
-    +".hdr-title{text-align:left;flex-shrink:0;padding:8px 14px;background:"+titleBg+";border:1px solid "+titleBrd+";border-radius:8px;min-width:160px}"
+    +".hdr-title{text-align:left;flex-shrink:1;min-width:0;padding:8px 14px;background:"+titleBg+";border:1px solid "+titleBrd+";border-radius:8px}"
     +".hdr-title-main{font-size:14px;font-weight:800;color:"+titleTxt+";line-height:1.2}"
     +".hdr-title-date{font-size:10px;color:#64748B;font-weight:600;margin-top:4px;font-family:monospace}"
     +".foot{margin-top:30px;padding-top:10px;border-top:2px solid #CBD5E1;text-align:center;font-size:9px;color:#64748B;font-weight:600;display:flex;justify-content:space-between;gap:10px}"
