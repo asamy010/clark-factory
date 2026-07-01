@@ -12,7 +12,7 @@ import { T, TD, TDB, TDL, TH } from "../theme.js";
 import { fmt, gIcon, gc, gcons, gdate, gf, gid, r2, slay, sqty, openWA } from "../utils/format.js";
 import { sanitizeHtml } from "../utils/sanitizeHtml.js";
 import { nowISO, cairoDateStr } from "../utils/serverTime.js";
-import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, buildOrderFromModel, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
+import { calcOrder, detectQtyMismatch, getConfirmedStock, getOrderDetails, getOrderTimeline, getPieceCutQty, getStageIndex, mkOrder, buildOrderFromModel, getBrand, planCutSync, PRODUCTION_STAGES, recomputeStatus, sortOrders, wsIsInternal, wsTypeInfo } from "../utils/orders.js";
 import { addAudit } from "../utils/audit.js";
 import { ask, highlightRow, showToast } from "../utils/popups.js";
 import { printLabel, printOrderSheet, printReceipt, printWorkshopReport } from "../utils/print-extras.js";
@@ -615,6 +615,8 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
               {/* ── Meta chips ── */}
               <div style={{fontSize:FS-3,color:T.textMut,fontWeight:600,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <span>📐 {o.sizeLabel}</span>
+                {/* V21.27.206: شارة البراند (لوجو صغير + اسم) — فاضي = CLARK افتراضي */}
+                {(()=>{const br=getBrand(data,o.brandId);return br?<span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"1px 8px 1px 5px",borderRadius:999,background:T.bg,border:"1px solid "+T.brd,fontWeight:800,color:T.text}}>{br.logo?<img src={br.logo} alt="" style={{width:14,height:14,borderRadius:3,objectFit:"contain"}}/>:<span>🏷️</span>}{br.name}</span>:null})()}
                 {wds.length>0&&<span>🏭 {new Set(wds.map(w=>w.wsName)).size} ورش</span>}
                 {o.closed&&<span style={{fontWeight:700,color:"#64748B"}}>🔒 مغلق</span>}
                 {isStale&&!isSent&&<span style={{padding:"1px 8px",borderRadius:999,background:T.err+"12",color:T.err,fontWeight:700}}>🔴 {ageDays}ي</span>}
@@ -886,7 +888,7 @@ export function DetPg({data,updOrder,replaceOrder,addOrder,delOrder,sel,setSel,i
         <span style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>{(curIdx+1)+"/"+sortedIds.length}</span>
         <Btn small onClick={()=>nextId&&setSel(nextId)} disabled={!nextId} style={{fontSize:18,padding:"2px 8px",opacity:nextId?1:0.3}}>←</Btn>
         <div style={{width:1,height:20,background:T.brd,margin:"0 4px",flexShrink:0}}/>
-        <Btn small onClick={()=>printOrderSheet(order,t,activeFabs,statusCards)} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
+        <Btn small onClick={()=>{const _br=getBrand(data,order.brandId);printOrderSheet(order,t,activeFabs,statusCards,{factoryName:_br?_br.name:data.factoryName,logo:(_br&&_br.logo)?_br.logo:data.logo})}} style={{background:T.accentBg,color:T.accent,border:"1px solid "+T.accent+"30"}} title="طباعة">🖨</Btn>
         {/* Desktop: inline buttons */}
         {!isMob&&<>
           {canEdit&&!order.closed&&<Btn small primary onClick={()=>setEditing(true)} title="تعديل">✏️</Btn>}

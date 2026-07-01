@@ -13,7 +13,7 @@ import { ModelForm } from "./ModelForm.jsx";
 import { AIStudioPg } from "./AIStudioPg.jsx";
 import { ModelDetailModal } from "../components/ModelDetailModal.jsx";
 import { ImageLightbox } from "../components/ImageLightbox.jsx";
-import { mkOrder } from "../utils/orders.js";
+import { mkOrder, getBrand } from "../utils/orders.js";
 import { T } from "../theme.js";
 import { FS, FKEYS } from "../constants/index.js";
 import { ask, tell, showToast } from "../utils/popups.js";
@@ -197,7 +197,11 @@ export function ModelsPg({ data, models, addModel, replaceModel, delModel, isMob
               <div style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:FS+3,fontWeight:900,color:T.text,lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelNo || "—"}</div>
                 <div style={{fontSize:FS-1,color:T.textSec,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.modelDesc || ""}</div>
-                {m.sizeLabel && <div style={{display:"inline-block",marginTop:8,padding:"4px 12px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.accent+"14",color:T.accent}}>{m.sizeLabel}</div>}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+                  {m.sizeLabel && <div style={{display:"inline-block",padding:"4px 12px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.accent+"14",color:T.accent}}>{m.sizeLabel}</div>}
+                  {/* V21.27.206: شارة البراند (لوجو صغير + اسم) */}
+                  {(() => { const br = getBrand(data, m.brandId); return br ? <span title={"البراند: "+br.name} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px 3px 6px",borderRadius:999,fontSize:FS-3,fontWeight:800,background:T.bg,border:"1px solid "+T.brd,color:T.text}}>{br.logo ? <img src={br.logo} alt="" style={{width:16,height:16,borderRadius:4,objectFit:"contain"}}/> : <span>🏷️</span>}{br.name}</span> : null; })()}
+                </div>
               </div>
             </div>
             {/* colors palette */}

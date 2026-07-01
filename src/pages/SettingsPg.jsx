@@ -1756,6 +1756,90 @@ function LogoCard({config,upConfig,T,FS,showToast,Btn,Card,requirePass,compressI
   </Card>;
 }
 
+/* V21.27.206: BrandsCard — تعريف البراندات (اسم + لوجو). CLARK = الافتراضي
+   المدمج (بيستخدم لوجو المصنع)؛ البراندات الإضافية (زي HILTY) بتتخزّن في
+   config.brands = [{id,name,logo}] — مصفوفة إعدادات صغيرة في factory/config
+   (زي garmentTypes/sizeSets، مش محتاجة splitting). الموديل/الأوردر بيختار
+   منها، والطباعة بتستخدم لوجو البراند بدل لوجو المصنع. */
+function BrandsCard({config,upConfig,T,FS,showToast,Btn,Card,Inp,compressImage}){
+  const brands=Array.isArray(config.brands)?config.brands:[];
+  const [name,setName]=useState("");
+  const [logo,setLogo]=useState("");
+  const [editId,setEditId]=useState(null);/* null = وضع الإضافة */
+  const factoryLogo=config.logo||"";
+  const resetDraft=()=>{setName("");setLogo("");setEditId(null)};
+  const handleFile=async e=>{
+    const f=e.target.files[0]; if(!f)return;
+    try{ const c=await compressImage(f,200,0.6); setLogo(c); showToast("✨ تم تحميل لوجو البراند"); }
+    catch(err){ showToast("⛔ فشل معالجة الصورة"); }
+    finally{ e.target.value=""; }
+  };
+  const startEdit=b=>{ setEditId(b.id); setName(b.name||""); setLogo(b.logo||""); };
+  const saveDraft=()=>{
+    const nm=(name||"").trim();
+    if(!nm){ showToast("⚠️ اكتب اسم البراند"); return; }
+    if(editId){
+      upConfig(d=>{ d.brands=(Array.isArray(d.brands)?d.brands:[]).map(b=>String(b.id)===String(editId)?{...b,name:nm,logo:logo||""}:b); });
+      showToast("✅ تم تعديل البراند "+nm);
+    }else{
+      const id="brand_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      upConfig(d=>{ if(!Array.isArray(d.brands)) d.brands=[]; d.brands.push({id,name:nm,logo:logo||""}); });
+      showToast("✅ تم إضافة البراند "+nm);
+    }
+    resetDraft();
+  };
+  const removeBrand=async b=>{
+    if(!await ask("حذف البراند","هل تريد حذف البراند «"+b.name+"»؟ الموديلات/الأوامر المرتبطة هترجع للوجو الافتراضي (CLARK).",{danger:true,confirmText:"حذف"}))return;
+    upConfig(d=>{ d.brands=(Array.isArray(d.brands)?d.brands:[]).filter(x=>String(x.id)!==String(b.id)); });
+    if(String(editId)===String(b.id)) resetDraft();
+    showToast("🗑 تم حذف البراند");
+  };
+  const swatch=(src,fallback)=><div style={{width:52,height:52,borderRadius:10,border:"1px solid "+T.brd,overflow:"hidden",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{src?<img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}}/>:<span style={{fontSize:FS-3,color:T.textMut,fontWeight:700}}>{fallback}</span>}</div>;
+  return<Card title="🏷️ البراندات (العلامات التجارية)" style={{marginBottom:12}}>
+    <CardSubtitle icon="💡">عرّف براندات إضافية (مثلاً HILTY للأونلاين) بلوجو مستقل. الموديل والأوردر بيختار البراند، وطباعة أمر التشغيل بتظهر لوجو البراند بدل لوجو المصنع. أي موديل/أوردر بدون براند بيستخدم لوجو المصنع الافتراضي (CLARK).</CardSubtitle>
+    {/* CLARK الافتراضي (مدمج) */}
+    <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:10,border:"1px dashed "+T.brd,background:T.bg,marginBottom:10}}>
+      {swatch(factoryLogo,"لوجو")}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:FS,fontWeight:800,color:T.text}}>CLARK <span style={{fontSize:FS-3,color:T.textMut,fontWeight:600}}>(الافتراضي)</span></div>
+        <div style={{fontSize:FS-3,color:T.textMut}}>بيستخدم لوجو المصنع من كارت «لوجو المصنع» فوق.</div>
+      </div>
+    </div>
+    {/* البراندات الإضافية */}
+    {brands.length>0&&<div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+      {brands.map(b=><div key={b.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:10,border:"1px solid "+(String(editId)===String(b.id)?T.accent+"70":T.brd),background:T.cardSolid}}>
+        {swatch(b.logo,"—")}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:FS,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name}</div>
+          <div style={{fontSize:FS-3,color:b.logo?T.ok:T.warn}}>{b.logo?"✓ لوجو محدّد":"⚠️ بدون لوجو"}</div>
+        </div>
+        <Btn small onClick={()=>startEdit(b)} style={{background:T.accent+"12",color:T.accent,border:"1px solid "+T.accent+"30"}}>✏️</Btn>
+        <Btn small danger onClick={()=>removeBrand(b)}>🗑</Btn>
+      </div>)}
+    </div>}
+    {/* draft: إضافة/تعديل */}
+    <div style={{padding:"12px 14px",borderRadius:12,border:"1px solid "+(editId?T.accent+"50":T.brd),background:editId?T.accent+"08":T.bg}}>
+      <div style={{fontSize:FS-1,fontWeight:800,color:editId?T.accent:T.text,marginBottom:10}}>{editId?"✏️ تعديل البراند":"➕ براند جديد"}</div>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{position:"relative",width:64,height:64,borderRadius:12,border:"2px dashed "+T.brd,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:T.cardSolid,cursor:"pointer",flexShrink:0}}>
+          {logo?<img src={logo} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}}/>:<span style={{fontSize:FS-3,color:T.textMut}}>لوجو</span>}
+          <input type="file" accept="image/*" onChange={handleFile} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer"}}/>
+        </div>
+        <div style={{flex:1,minWidth:180}}>
+          <label style={{fontSize:FS-3,color:T.textSec,fontWeight:600,display:"block",marginBottom:4}}>اسم البراند</label>
+          <Inp value={name} onChange={setName} placeholder="مثلاً: HILTY"/>
+          <div style={{fontSize:FS-3,color:T.textMut,marginTop:4}}>اضغط المربع لرفع اللوجو (أقصى عرض 200px)</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}>
+        {editId&&<Btn ghost onClick={resetDraft}>↩️ إلغاء</Btn>}
+        {logo&&<Btn ghost small onClick={()=>setLogo("")} style={{color:T.err}}>🗑 امسح اللوجو</Btn>}
+        <Btn primary onClick={saveDraft} style={{background:T.ok,color:"#fff",border:"none",fontWeight:800,padding:"9px 22px"}}>{editId?"💾 حفظ التعديل":"➕ إضافة البراند"}</Btn>
+      </div>
+    </div>
+  </Card>;
+}
+
 export function WaContactsCard({config,upConfig,T,FS,isMob,showToast,Inp,Btn,Card,setDirty}){
   const REPORT_TYPES=[
     {k:"treasuryDaily",l:"📊 يومية الخزنة"},
@@ -4197,6 +4281,8 @@ export function SettingsPg({config,upConfig,upSales,upTasks,isMob,user,userRole,
     </Card>
     {/* V16.5: Logo card with draft + save pattern */}
     <LogoCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Card={Card} requirePass={requirePass} compressImage={compressImage} setDirty={(d)=>setDirtyCards(p=>({...p,logo:d}))}/>
+    {/* V21.27.206: تعريف البراندات (CLARK افتراضي + HILTY وغيره بلوجو مستقل) */}
+    <BrandsCard config={config} upConfig={upConfig} T={T} FS={FS} showToast={showToast} Btn={Btn} Card={Card} Inp={Inp} compressImage={compressImage}/>
     </>}
     {activeTab==="users" && <>
     <Card title="ادارة المستخدمين" style={{marginBottom:16}}>

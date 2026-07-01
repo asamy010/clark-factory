@@ -267,7 +267,9 @@ export async function printWorkshopReport(order,filterWsName){
 
 
 
-export async function printOrderSheet(order,t,activeFabs,statusCards){
+/* V21.27.206: configInfo اختياري — لوجو/اسم البراند (لو الأمر له براند) بدل
+   لوجو المصنع الافتراضي. متوافق للخلف: بدون configInfo → لوجو CLARK الافتراضي. */
+export async function printOrderSheet(order,t,activeFabs,statusCards,configInfo){
   let wsRows="";(order.workshopDeliveries||[]).forEach(wd=>{const rcvd=(wd.receives||[]).reduce((s,r)=>s+(Number(r.qty)||0),0);wsRows+="<tr><td>"+wd.wsName+"</td><td>"+(wd.garmentType||"-")+"</td><td>"+wd.qty+"</td><td>"+rcvd+"</td><td>"+(wd.qty-rcvd)+"</td></tr>"});
   const col=getStatusColor(order.status,statusCards);
   const pieces=order.orderPieces||[];
@@ -291,7 +293,7 @@ export async function printOrderSheet(order,t,activeFabs,statusCards){
   /* V21.27.4: تفاصيل التشغيل المنسّقة (HTML) — تيك-باك يطبع مع الأمر */
   if(order.prodDetails&&String(order.prodDetails).replace(/<[^>]*>/g,"").trim())h+="<h2 style='font-size:14px;margin:12px 0 6px'>تفاصيل التشغيل / تيك-باك</h2><div style='border:1px solid #e2e8f0;padding:10px;border-radius:6px;font-size:12px;line-height:1.7'>"+sanitizeHtml(order.prodDetails)+"</div>";
   h+="<div class='sig'><div class='sig-box'>توقيع مسؤول القص</div><div class='sig-box'>مسؤول التشغيل</div><div class='sig-box'>مدير الانتاج</div></div>";
-  printPage("أمر قص — "+order.modelNo,h)
+  printPage("أمر قص — "+order.modelNo,h,configInfo)
 }
 
 

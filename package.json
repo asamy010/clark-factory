@@ -1,7 +1,7 @@
 {
   "name": "clark-factory-online",
   "private": true,
-  "version": "21.27.205",
+  "version": "21.27.206",
   "type": "module",
   "scripts": {
     "dev": "vite",

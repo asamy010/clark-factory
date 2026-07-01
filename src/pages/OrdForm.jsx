@@ -243,6 +243,16 @@ export function OrdForm({data,initial,onSave,onCancel,isMob,statusCards,upConfig
           </div>
           <div><label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap"}}>ماركر (جربر)</label><Inp value={form.marker||""} onChange={v=>updF("marker",v)} placeholder="بيانات الماركر..."/></div>
         </div>
+        {/* V21.27.206: البراند — بيظهر لو فيه براندات معرّفة. بيتورّث من الموديل
+            وقابل للتغيير. فاضي = CLARK الافتراضي (لوجو المصنع في الطباعة). */}
+        {(data.brands||[]).length>0&&<div style={{marginTop:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <label style={{fontSize:FS-2,color:T.textSec,whiteSpace:"nowrap",fontWeight:700}}>🏷️ البراند</label>
+          <Sel value={form.brandId||""} onChange={v=>updF("brandId",v)} style={{maxWidth:220}}>
+            <option value="">CLARK (افتراضي)</option>
+            {(data.brands||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </Sel>
+          {fromModel&&form.brandId&&<span style={{fontSize:FS-3,color:T.textMut}}>موروث من الموديل — تقدر تغيّره</span>}
+        </div>}
       </div>
     </div>
     {/* ═══════════════════════════════════════════════════════════════

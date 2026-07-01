@@ -174,6 +174,15 @@ export function ModelForm({ data, initial, onSave, onCancel, isMob, upConfig, us
       <div style={{flex:1,minWidth:200,display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 2fr",gap:8,alignContent:"start"}}>
         <div><label style={lbl}>رقم الموديل *</label><Inp value={form.modelNo} onChange={v => updF("modelNo", v)}/></div>
         <div><label style={lbl}>الوصف *</label><Inp value={form.modelDesc} onChange={v => updF("modelDesc", v)}/></div>
+        {/* V21.27.206: البراند — بيظهر بس لو فيه براندات معرّفة في الإعدادات.
+            فاضي = CLARK الافتراضي (لوجو المصنع). الأوردر بيرث البراند ده. */}
+        {(data.brands || []).length > 0 && <div style={{gridColumn:isMob?"auto":"1 / -1"}}>
+          <label style={lbl}>🏷️ البراند</label>
+          <Sel value={form.brandId || ""} onChange={v => updF("brandId", v)} style={{maxWidth:260}}>
+            <option value="">CLARK (افتراضي)</option>
+            {(data.brands || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Sel>
+        </div>}
         <div style={{gridColumn:isMob?"auto":"1 / -1"}}>
           <label style={lbl}>قطع الموديل ({(form.orderPieces || []).length}/5)</label>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>

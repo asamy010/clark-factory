@@ -778,7 +778,7 @@ export function migrateStatus(status){
    and reports for fabric slots that don't exist on the order. */
 export function mkOrder(){
   const today=new Date().toISOString().split("T")[0];
-  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:""};
+  const o={id:gid(),date:today,createdAt:new Date().toISOString(),modelNo:"",modelDesc:"",poNumber:"",sizeSetId:"",sizeLabel:"",status:"تم القص",cutQty:0,deliveredQty:0,accItems:[],deliveries:[],workshopDeliveries:[],orderPieces:[],image:"",instructions:"",attachments:[],marker:"",brandId:""};/* V21.27.206: brandId — البراند (فاضي = CLARK الافتراضي/لوجو المصنع) */
   FKEYS.forEach(k=>{o["fabric"+k]="";o["cons"+k]=0;o["cutDate"+k]=k==="A"?today:"";o["colors"+k]=k==="A"?[{color:"",colorHex:"",layers:0,pcsPerLayer:0,qty:0}]:[];o["fabric"+k+"Label"]="";o["fabric"+k+"Price"]=0;o["fabric"+k+"Unit"]=""});
   return o
 }
@@ -793,6 +793,8 @@ export function buildOrderFromModel(model){
   o.modelId=model.id;
   o.modelNo=model.modelNo||"";
   o.modelDesc=model.modelDesc||"";
+  /* V21.27.206: أمر التشغيل يرث براند الموديل (فاضي = CLARK الافتراضي) */
+  o.brandId=model.brandId||"";
   o.sizeSetId=model.sizeSetId||"";
   o.sizeLabel=model.sizeLabel||"";
   o.orderPieces=Array.isArray(model.orderPieces)?[...model.orderPieces]:[];
@@ -853,6 +855,8 @@ export function buildModelFromOrder(order){
   if(!order||typeof order!=="object") return m;
   m.modelNo=order.modelNo||"";
   m.modelDesc=order.modelDesc||"";
+  /* V21.27.206: الموديل المسحوب من أمر يحتفظ ببراند الأمر */
+  m.brandId=order.brandId||"";
   m.sizeSetId=order.sizeSetId||"";
   m.sizeLabel=order.sizeLabel||"";
   m.orderPieces=Array.isArray(order.orderPieces)?[...order.orderPieces]:[];
@@ -884,6 +888,14 @@ export function buildModelFromOrder(order){
     if(Object.keys(sm).length) m.shopify_meta=sm;
   }
   return m;
+}
+
+/* V21.27.206: حلّ البراند من الإعدادات (data.brands = [{id,name,logo}]).
+   brandId فاضي أو غير موجود → null (يعني CLARK الافتراضي — لوجو المصنع).
+   مصدر حقيقة واحد بيستخدمه كارت الموديل + كارت الأوردر + طباعة أمر التشغيل. */
+export function getBrand(data,brandId){
+  if(!brandId||!data) return null;
+  return (data.brands||[]).find(b=>b&&String(b.id)===String(brandId))||null;
 }
 
 /* Validate order form - returns array of error messages.
