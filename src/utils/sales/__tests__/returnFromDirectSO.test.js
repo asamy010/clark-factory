@@ -302,7 +302,10 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     expect(d.salesCreditNotes[0].status).toBe("void");     // voided, not removed
   });
 
-  it("cancels a DISTRIBUTION return: removes customerReturns + linked CN; returns ret for GL", () => {
+  /* V21.27.214: العقد الجديد للتوزيعة — الـ mutator بيتعامل مع الإشعار الدائن في
+     config (بيتحفظ بالـ upConfig) وبيرجّع معرّفات المرتجع؛ الكومبوننت بيشيله من
+     أوردر الموسم عبر updOrder. الاختبارات تحاكي خطوة الكومبوننت دي. */
+  it("cancels a DISTRIBUTION return: returns ref for updOrder + deletes linked draft CN; returns ret for GL", () => {
     const d = {
       orders: [{ id: "ord1", modelNo: "M1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, date: "2026-06-01", _key: "ord1:saleReturn:s1:c1:2026-06-01" }] }],
       salesCreditNotes: [{ id: "cn1", status: "draft", creditNoteNo: "CN-1", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "ord1:saleReturn:s1:c1:2026-06-01" }] }],
@@ -311,12 +314,28 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
     expect(r.ok).toBe(true);
     expect(r.kind).toBe("dist");
-    expect(d.orders[0].customerReturns.length).toBe(0);    // operational removed
-    expect(d.salesCreditNotes.length).toBe(0);             // draft CN deleted
+    expect(r.orderId).toBe("ord1");                        // caller splices via updOrder
+    expect(r.retId).toBe("r1");
+    expect(d.salesCreditNotes.length).toBe(0);             // draft CN deleted (config)
     expect(r.ret).toMatchObject({ qty: 3 });               // returned so handler can reverse GL
+    // simulate the component's updOrder splice on the season order:
+    const i = d.orders[0].customerReturns.findIndex(x => x.id === r.retId);
+    d.orders[0].customerReturns.splice(i, 1);
+    expect(d.orders[0].customerReturns.length).toBe(0);
   });
 
-  it("does NOT auto-void a CONSOLIDATED CN (>1 returnRefs) — flags cnMulti", () => {
+  it("C2 regression: finds the dist return via ctx.orders when d.orders is empty (the real upConfig case)", () => {
+    // In production d (config draft) has NO season orders — they live in seasons/{s}/orders.
+    const liveOrders = [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, _key: "k1" }] }];
+    const d = { orders: [], salesCreditNotes: [{ id: "cn1", status: "draft", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "k1" }] }], salesOrders: [] };
+    const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t", { orders: liveOrders });
+    expect(r.ok).toBe(true);                               // pre-fix this returned {ok:false,"المرتجع غير موجود"}
+    expect(r.orderId).toBe("ord1");
+    expect(r.retId).toBe("r1");
+    expect(d.salesCreditNotes.length).toBe(0);             // CN handled
+  });
+
+  it("does NOT auto-void a CONSOLIDATED CN (>1 returnRefs) — flags cnMulti, still returns ref", () => {
     const d = {
       orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, _key: "k1" }] }],
       salesCreditNotes: [{ id: "cn1", status: "posted", creditNoteNo: "CN-1", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "k1" }, { orderId: "ord2", custId: "c1", _key: "k2" }] }],
@@ -325,7 +344,7 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
     expect(r.ok).toBe(true);
     expect(r.cnMulti).toBe(true);
-    expect(d.orders[0].customerReturns.length).toBe(0);    // operational still removed
+    expect(r.orderId).toBe("ord1");                        // caller still removes operational
     expect(d.salesCreditNotes[0].status).toBe("posted");   // CN untouched (manual handling)
   });
 
@@ -333,7 +352,8 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     const d = { orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 2, date: "2026-06-01" }] }], salesCreditNotes: [], salesOrders: [] };
     const r = cancelReturnMutator(d, { kind: "dist", orderId: "ord1", retId: "r1" }, "t");
     expect(r.ok).toBe(true);
-    expect(d.orders[0].customerReturns.length).toBe(0);
+    expect(r.orderId).toBe("ord1");
+    expect(r.retId).toBe("r1");
     expect(r.cn).toBeNull();
   });
 
@@ -349,7 +369,29 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     expect(d.inventoryItems[0].stock).toBe(95);            // re-deducted back to sold state
   });
 
-  it("removeOperationalReturnForCreditNote: removes linked distribution customerReturns", () => {
+  it("H2: cancelling a generalProduct (finished-good) return RE-DEDUCTS stock (no silent inflation)", () => {
+    const d = {
+      salesOrders: [{
+        id: "so1", customerId: "c1", status: "delivered", date: "2026-06-01", createdAt: "so1",
+        items: [{ sourceType: "generalProduct", sourceId: "gp1", modelNo: "علبة", description: "علبة", unit: "علبة", qty: 5, unitPrice: 50, discountType: "pct", discountValue: 0, lineTotal: 250 }],
+        subtotal: 250, discountPct: 0, totalDiscount: 0, total: 250,
+        stockDeducted: true, stockDeductions: [{ itemId: "gp1", categoryId: "general", qty: 5, itemName: "علبة", unit: "علبة", unitCost: 30 }],
+      }],
+      salesInvoices: [], salesCreditNotes: [], stockMovements: [],
+      generalProducts: [{ id: "gp1", name: "علبة", unit: "علبة", stock: 95, avgCost: 30 }],
+      customers: [{ id: "c1", name: "عميل" }],
+    };
+    // forward return of 2 → stock restored 95 → 97
+    returnFromDirectSalesOrderMutator(d, { customerId: "c1", returns: [{ sourceId: "gp1", qty: 2 }] }, "t");
+    expect(d.generalProducts[0].stock).toBe(97);
+    const retId = d.salesOrders[0].returns[0].id;
+    // cancel the return → must re-deduct 97 → 95
+    const r = cancelReturnMutator(d, { kind: "so", soId: "so1", retId }, "t");
+    expect(r.ok).toBe(true);
+    expect(d.generalProducts[0].stock).toBe(95);           // pre-fix: stayed 97 (silent inflation)
+  });
+
+  it("removeOperationalReturnForCreditNote: returns orderReturns list for distribution (caller splices)", () => {
     const d = {
       orders: [{ id: "ord1", customerReturns: [{ id: "r1", custId: "c1", qty: 3, _key: "k1" }] }],
       salesCreditNotes: [{ id: "cn1", status: "posted", returnRefs: [{ orderId: "ord1", custId: "c1", _key: "k1" }] }],
@@ -357,7 +399,8 @@ describe("cancelReturnMutator (unified return cancellation)", () => {
     };
     const out = removeOperationalReturnForCreditNote(d, "cn1");
     expect(out.removed).toBe("dist");
-    expect(d.orders[0].customerReturns.length).toBe(0);
+    expect(out.orderReturns).toHaveLength(1);
+    expect(out.orderReturns[0]).toMatchObject({ orderId: "ord1", custId: "c1", _key: "k1" });
   });
 });
 

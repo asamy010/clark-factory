@@ -912,10 +912,15 @@ function _removeOrVoidCN(d, cnId, userName){
   return { id: cnId, was: cn.status || "draft", creditNoteNo: cn.creditNoteNo || "" };
 }
 
-export function cancelReturnMutator(d, ref, userName){
+export function cancelReturnMutator(d, ref, userName, ctx = {}){
   if(!ref || !ref.kind) return { ok: false, error: "مرجع غير محدد" };
   if(!Array.isArray(d.salesCreditNotes)) d.salesCreditNotes = [];
   if(!Array.isArray(d.stockMovements)) d.stockMovements = [];
+  /* V21.27.214 FIX (C2): أوامر التوزيعة (customerReturns) في subcollection الموسم
+     — مش في d.orders بتاع الـ config draft. بنقرأ من البيانات الحيّة ctx.orders
+     (fallback d.orders للتوافق مع الاختبارات) وبنرجّع معرّفات المرتجع عشان
+     الكومبوننت يشيله عبر updOrder (كتابة على الموسم). */
+  const liveOrders = Array.isArray(ctx.orders) ? ctx.orders : (Array.isArray(d.orders) ? d.orders : []);
 
   /* (1) مرتجع أمر بيع مباشر */
   if(ref.kind === "so"){
@@ -924,9 +929,12 @@ export function cancelReturnMutator(d, ref, userName){
     const idx = so.returns.findIndex(r => r && r.id === ref.retId);
     if(idx < 0) return { ok: false, error: "المرتجع غير موجود" };
     const ret = so.returns[idx];
-    /* صنف مخزون (خامة/إكسسوار): المرتجع كان رجّع المخزون فعليًا → اعكس
-       (re-deduct) + رجّع الخصم في stockDeductions + حركة خروج. */
-    if(ret.itemSourceType === "inventoryItem" && ret.categoryId){
+    /* صنف مخزون (خامة/إكسسوار) أو منتج جاهز (generalProduct): المرتجع كان رجّع
+       المخزون فعليًا → اعكس (re-deduct) + رجّع الخصم في stockDeductions + حركة خروج.
+       V21.27.214 FIX (H2): كان بيتعامل مع inventoryItem بس؛ المنتج الجاهز
+       (generalProduct، V21.27.160) كان بيرجع مخزون عند المرتجع لكن إلغاء المرتجع
+       ماكانش بيعكسه → تضخّم مخزون صامت. دلوقتي الاتنين. */
+    if((ret.itemSourceType === "inventoryItem" || ret.itemSourceType === "generalProduct") && ret.categoryId){
       const q = Number(ret.qty) || 0;
       applyStockDelta(d, ret.categoryId, ret.sourceId, -q, null);
       if(!Array.isArray(so.stockDeductions)) so.stockDeductions = [];
@@ -943,7 +951,7 @@ export function cancelReturnMutator(d, ref, userName){
 
   /* (2) مرتجع توزيعة (customerReturns) */
   if(ref.kind === "dist"){
-    const order = (d.orders || []).find(o => o && o.id === ref.orderId);
+    const order = liveOrders.find(o => o && o.id === ref.orderId);
     if(!order || !Array.isArray(order.customerReturns)) return { ok: false, error: "المرتجع غير موجود" };
     let idx = -1;
     if(ref.retId) idx = order.customerReturns.findIndex(r => r && r.id === ref.retId);
@@ -961,8 +969,11 @@ export function cancelReturnMutator(d, ref, userName){
       if(refs.length <= 1) cn = _removeOrVoidCN(d, cnObj.id, userName);
       else { cnMulti = true; cn = { id: cnObj.id, was: cnObj.status, creditNoteNo: cnObj.creditNoteNo || "", multi: true }; }
     }
-    order.customerReturns.splice(idx, 1);
-    return { ok: true, kind: "dist", cn, cnMulti, ret, orderId: order.id };
+    /* V21.27.214 FIX (C2): مابنعملش splice على أوردر الموسم هنا (مش جزء من الـ
+       config draft، والتعديل عليه لازم يمرّ بـ updOrder). بنرجّع معرّفات المرتجع
+       فقط، والكومبوننت بيشيله من customerReturns عبر updOrder. الإشعار الدائن
+       والحسابات فوق اتعدّلوا في d (config) وبيتحفظوا بالـ upConfig. */
+    return { ok: true, kind: "dist", cn, cnMulti, ret, orderId: order.id, retId: ret.id, retKey: ret._key, retIdx: idx };
   }
   return { ok: false, error: "نوع غير معروف" };
 }
@@ -970,15 +981,17 @@ export function cancelReturnMutator(d, ref, userName){
 /* V21.27.101: عكسي — لما يتلغي/يتحذف إشعار دائن من شاشته، شيل المرتجع التشغيلي
    المرتبط (ربط ثنائي). بيرجّع { removed:"so"|"dist"|null }. الـ GL reversal
    للإشعار نفسه بيتم في شاشته (autoPost.creditNoteVoided) — ده بس بيزامن التشغيلي. */
-export function removeOperationalReturnForCreditNote(d, creditNoteId){
+export function removeOperationalReturnForCreditNote(d, creditNoteId, ctx = {}){
   if(!creditNoteId) return { removed: null };
+  const liveOrders = Array.isArray(ctx.orders) ? ctx.orders : (Array.isArray(d.orders) ? d.orders : []);
   /* (أ) أمر بيع مباشر: so.returns[].creditNoteId === cnId */
   for(const so of (d.salesOrders || [])){
     if(!so || !Array.isArray(so.returns)) continue;
     const i = so.returns.findIndex(r => r && r.creditNoteId === creditNoteId);
     if(i >= 0){
       const ret = so.returns[i];
-      if(ret.itemSourceType === "inventoryItem" && ret.categoryId){
+      /* V21.27.214 FIX (H2): generalProduct زي inventoryItem — يرجّع يخصم المخزون. */
+      if((ret.itemSourceType === "inventoryItem" || ret.itemSourceType === "generalProduct") && ret.categoryId){
         const q = Number(ret.qty) || 0;
         applyStockDelta(d, ret.categoryId, ret.sourceId, -q, null);
         if(Array.isArray(so.stockDeductions)){
@@ -993,18 +1006,20 @@ export function removeOperationalReturnForCreditNote(d, creditNoteId){
       return { removed: "so" };
     }
   }
-  /* (ب) توزيعة: الإشعار returnRefs[].{orderId,custId,_key} → customerReturns */
+  /* (ب) توزيعة: الإشعار returnRefs[].{orderId,custId,_key} → customerReturns
+     V21.27.214 FIX (C3): أوردر الموسم مش في d — بنقرأ من ctx.orders وبنرجّع قائمة
+     المرتجعات المطلوب شيلها عشان الكومبوننت يشيلها عبر updOrder (كتابة الموسم). */
   const cn = (d.salesCreditNotes || []).find(c => c && c.id === creditNoteId);
   const refs = cn ? (Array.isArray(cn.returnRefs) && cn.returnRefs.length ? cn.returnRefs : (cn.returnRef ? [cn.returnRef] : [])) : [];
-  let removed = false;
+  const orderReturns = [];
   for(const rf of refs){
     if(!rf || !rf.orderId) continue;
-    const order = (d.orders || []).find(o => o && o.id === rf.orderId);
+    const order = liveOrders.find(o => o && o.id === rf.orderId);
     if(!order || !Array.isArray(order.customerReturns)) continue;
     const i = order.customerReturns.findIndex(r => r && r.custId === rf.custId && (rf._key ? r._key === rf._key : true));
-    if(i >= 0){ order.customerReturns.splice(i, 1); removed = true; }
+    if(i >= 0){ orderReturns.push({ orderId: rf.orderId, custId: rf.custId, _key: rf._key }); }
   }
-  return { removed: removed ? "dist" : null };
+  return { removed: orderReturns.length ? "dist" : null, orderReturns };
 }
 
 /* مجموع قيمة مرتجعات أمر البيع المباشر (للرصيد/الكشف). الأمر نفسه يفضل كامل. */

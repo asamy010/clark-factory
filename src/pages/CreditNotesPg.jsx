@@ -206,7 +206,19 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
     /* V21.27.101 (issue #4): ربط ثنائي — إلغاء الإشعار بيشيل المرتجع التشغيلي
        المرتبط كمان (يرجّع المخزون والرصيد) عشان الكشفين يفضلوا متطابقين. */
     if(!await ask("إلغاء إشعار دائن", "إلغاء إشعار "+cn.creditNoteNo+"؟\n\nسيتم إنشاء قيد عكسي + إلغاء المرتجع التشغيلي المرتبط (يرجّع المخزون وحساب العميل).", {danger:true,confirmText:"إلغاء"})) return;
-    upConfig(d => { removeOperationalReturnForCreditNote(d, cn.id); voidCreditNoteMutator(d, cn.id, userName, "إلغاء يدوي"); });
+    /* V21.27.214 FIX (C3): نمرّر الأوردرات الحيّة عشان يلاقي مرتجع التوزيعة،
+       ونشيله من أوردر الموسم عبر updOrder (upConfig بيحفظ config بس). */
+    let opRes=null;
+    upConfig(d => { opRes=removeOperationalReturnForCreditNote(d, cn.id, {orders:data.orders}); voidCreditNoteMutator(d, cn.id, userName, "إلغاء يدوي"); });
+    if(opRes&&opRes.removed==="dist"&&Array.isArray(opRes.orderReturns)){
+      for(const or of opRes.orderReturns){
+        updOrder(or.orderId,o=>{
+          if(!Array.isArray(o.customerReturns))return;
+          const i=o.customerReturns.findIndex(r=>r&&r.custId===or.custId&&(or._key?r._key===or._key:true));
+          if(i>=0)o.customerReturns.splice(i,1);
+        });
+      }
+    }
     if(cn.postedJournalRef){
       autoPost.creditNoteVoided(data, cn, "creditNote", userName).catch(e => console.warn("[void cn main] failed:", e));
       autoPost.creditNoteVoided(data, cn, "creditNoteCogs", userName).catch(e => console.warn("[void cn cogs] failed:", e));
@@ -216,7 +228,18 @@ export function CreditNotesPg({data, upConfig, updOrder, isMob, user}){
   };
   const handleDelete = async (cn) => {
     if(!await ask("حذف المسودة", "حذف مسودة الإشعار "+cn.creditNoteNo+"؟\n\nهيتلغي المرتجع التشغيلي المرتبط كمان (يرجّع المخزون والرصيد).", {danger:true,confirmText:"حذف"})) return;
-    upConfig(d => { removeOperationalReturnForCreditNote(d, cn.id); deleteDraftCreditNoteMutator(d, cn.id); });
+    /* V21.27.214 FIX (C3): زي handleVoid — أوردرات حيّة + updOrder للموسم. */
+    let opRes=null;
+    upConfig(d => { opRes=removeOperationalReturnForCreditNote(d, cn.id, {orders:data.orders}); deleteDraftCreditNoteMutator(d, cn.id); });
+    if(opRes&&opRes.removed==="dist"&&Array.isArray(opRes.orderReturns)){
+      for(const or of opRes.orderReturns){
+        updOrder(or.orderId,o=>{
+          if(!Array.isArray(o.customerReturns))return;
+          const i=o.customerReturns.findIndex(r=>r&&r.custId===or.custId&&(or._key?r._key===or._key:true));
+          if(i>=0)o.customerReturns.splice(i,1);
+        });
+      }
+    }
     showToast("✓ تم الحذف — رجع المرتجع التشغيلي والمخزون");
     setActiveCN(null);
   };

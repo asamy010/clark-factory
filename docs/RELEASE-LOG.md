@@ -12,6 +12,40 @@
 
 ---
 
+## V21.27.214 (2026-07-01) — 🛠️ إصلاح: زر إلغاء مرتجع التوزيعة الميّت + مرتجع الصنف الجاهز
+
+**المصدر:** الفحص الشامل (`docs/AUDIT-2026-07-01-FULL.md`) — C2/C3 (حرج) + H2 (عالي).
+
+### C2/C3 — إلغاء مرتجع التوزيعة/الإشعار الدائن كان no-op صامت
+**Root cause:** `cancelReturnMutator` (فرع `dist`) و`removeOperationalReturnForCreditNote`
+(فرع ب) كانوا بيقروا **`d.orders`** جوه `upConfig`، والأوردرات في subcollection
+الموسم (`seasons/{s}/orders`) — مش في الـ config draft. النتيجة: الزر كان بيرجّع
+«المرتجع غير موجود»، والإشعار الدائن يتعكس محاسبيًا بينما المرتجع التشغيلي يفضل
+موجود → desync. (نفس علّة V21.21.13 اللي اتصلّحت لـ`generateSalesOrders` واتنست هنا.)
+
+**الإصلاح:**
+- الدالتين بقوا ياخدوا `ctx.orders` (البيانات الحيّة من الموسم) للقراءة، وبيرجّعوا
+  **معرّفات المرتجع** بدل ما يعملوا splice على أوردر الموسم (اللي مش جزء من الـ
+  config draft). الإشعار الدائن + الحسابات في `d` (config) بيتحفظوا بالـ `upConfig`.
+- الكومبوننتات (`CustDeliverPg.cancelReturn` + `CreditNotesPg.handleVoid/handleDelete`)
+  بتمرّر `{orders:data.orders}` وبتشيل المرتجع من أوردر الموسم عبر `updOrder`.
+
+### H2 — إلغاء مرتجع الصنف الجاهز (generalProduct) مكانش بيرجّع يخصم المخزون
+**Root cause:** V21.27.160 خلّت مرتجعات `generalProduct` ترجّع مخزون حقيقي، لكن
+مسارَي الإلغاء (`cancelReturnMutator` so + `removeOperationalReturnForCreditNote`)
+كانوا بيتحققوا من `itemSourceType === "inventoryItem"` بس → إلغاء مرتجع الجاهز
+مكانش بيعكس الاسترجاع → **تضخّم مخزون صامت دائم**. الإصلاح: الشرط بقى يشمل
+`generalProduct` كمان.
+
+**الاختبار (§0.2):** build ✓ · 533 اختبار ✓ (+3: C2 regression بـ`ctx.orders`
+لما `d.orders` فاضية، عقد التوزيعة الجديد، H2 re-deduct) · emulator 3/3 ✓.
+
+**ملفات:** `src/utils/sales/salesOrders.js`، `src/pages/CustDeliverPg.jsx`،
+`src/pages/CreditNotesPg.jsx`، `src/utils/sales/__tests__/returnFromDirectSO.test.js`،
++ bump (package.json · constants · sw.js · changelog.json).
+
+---
+
 ## V21.27.213 (2026-07-01) — 📱 إصلاح: خط «بيان» الخزنة كبير/مش متناسق على الموبايل
 
 **الطلب (Ahmed + صورة):** «في نسخة الموبايل، في الخزنة وحركاتها، بيظهر الشرح

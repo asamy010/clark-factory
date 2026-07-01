@@ -1058,8 +1058,22 @@ export function CustDeliverPg({data,upConfig,upSales,upTasks,updOrder,isMob,isTa
   const cancelReturn=async(ref,label)=>{
     if(!await ask("إلغاء المرتجع","تأكيد إلغاء المرتجع"+(label?" — "+label:"")+"؟\n\nهيرجّع المخزون وحساب العميل، ويلغي/يحذف الإشعار الدائن المرتبط (لو موجود).",{danger:true,confirmText:"إلغاء المرتجع"}))return;
     let res=null;
-    upConfig(d=>{res=cancelReturnMutator(d,ref,userName)});
+    /* V21.27.214 FIX (C2): نمرّر الأوردرات الحيّة (data.orders من الموسم) للـ
+       mutator عشان يلاقي مرتجع التوزيعة — d.orders فاضية جوه upConfig. */
+    upConfig(d=>{res=cancelReturnMutator(d,ref,userName,{orders:data.orders})});
     if(!res||!res.ok){showToast("⛔ "+((res&&res.error)||"تعذّر إلغاء المرتجع"));return}
+    /* V21.27.214 FIX (C2): شيل مرتجع التوزيعة من أوردر الموسم عبر updOrder
+       (upConfig بيحفظ config بس — customerReturns على مستند الموسم). */
+    if(res.kind==="dist"&&res.orderId){
+      updOrder(res.orderId,o=>{
+        if(!Array.isArray(o.customerReturns))return;
+        let i=-1;
+        if(res.retId)i=o.customerReturns.findIndex(r=>r&&r.id===res.retId);
+        if(i<0&&res.retKey)i=o.customerReturns.findIndex(r=>r&&r._key===res.retKey);
+        if(i<0&&Number.isInteger(res.retIdx)&&res.retIdx>=0&&res.retIdx<o.customerReturns.length)i=res.retIdx;
+        if(i>=0)o.customerReturns.splice(i,1);
+      });
+    }
     /* عكس القيد المحاسبي (لو الإشعار كان مرحّل، أو مرتجع توزيعة مرحّل مباشرة بدون إشعار) */
     try{
       if(res.cn&&res.cn.was==="posted"&&res.cn.postedJournalRef){
