@@ -41,7 +41,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Cairo',sans-serif;background:#EFF6FF}
+    <style>*{margin:0;padding:0;box-sizing:border-box}
+    /* V21.27.213: منع iOS Safari من التكبير التلقائي للخطوط (font boosting /
+       text auto-inflation) — كان بيكبّر عمود «بيان» في حركات الخزنة على الموبايل
+       بشكل غير متناسق رغم `table{font-size:12px!important}` (الـ boosting بيتطبّق
+       فوق الـ !important). القيمة 100% بتثبّت الحجم الفعلي بدون إلغاء pinch-zoom.
+       الإصلاح القياسي (زي normalize.css) وبيطبّق على كل التطبيق. */
+    html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    body{font-family:'Cairo',sans-serif;background:#EFF6FF}
     /* V21.9.258: lock background scroll while ANY modal overlay (.pop-overlay)
        is open. Root cause of the "background scrolls behind the popup" bug:
        overlays were position:fixed but never prevented the underlying <body>
