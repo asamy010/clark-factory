@@ -12,6 +12,42 @@
 
 ---
 
+## V21.27.217 (2026-07-01) — 🛡️ حماية مستندَي المبيعات/المهام من المسح + تعافي التحميل
+
+**المصدر:** الفحص الشامل — H6 + H7 (عالي).
+
+### H6 — لا write-gate لـ factory/sales و factory/tasks
+**Root cause:** `upSales`/`upTasks` كانوا بيعتمدوا على `configLoaded` + علم الـ
+split بس. لو الـ listener بتاع `factory/sales` لسه ماضربش، `salesDoc={}` فشرط
+العلم vacuously false → الـ gate يعدّي → `setDoc(factory/sales, tinyObj,
+{merge:false})` يمسح الدوك + `_salesSplitDaysV1951Done` → الميرج يبطّل يقرا الـ
+day-docs → كل جلسات التسليم/الحزم تختفي. نافذتان: cold-start قبل وصول snapshot،
+و«متابعة على مسؤوليتي» (`forcedBypass` كان بيمنع upConfig بس).
+
+**الإصلاح:** state جديدة `salesLoaded`/`tasksLoaded` بتتظبط `true` أول ما الـ
+listener يضرب لأول مرة (حتى لو المستند مش موجود — عشان الإنشاء الأول يشتغل).
+`upSales`/`upTasks` بيرفضوا الكتابة قبلها + بيحترموا `forcedBypass` (زي
+`upConfig`). حماية V18.60/V21.9.16 اتعملت للـ config بس واتنست هنا.
+
+### H7 — resilience الـ V21.9.46 (تعليق التحميل) ناقصة على sales/tasks split listeners
+**Root cause:** خطأ terminal (مثلاً `permission-denied` بعد تغيير rules) على
+`packagesDays`/`custDeliverySessionsDays`/`tasksDays`/… كان بيخلّي
+`firstFires[field]=false` للأبد → `salesSplitLoaded` ما يقلبش → كل حفظ يترفض بـ
+«البرنامج لسه بيحمّل» بدون تعافي ولا تشخيص.
+
+**الإصلاح:** نسخنا كتلة V21.9.46 (المطبّقة على config-split) للـ error handlers
+بتاع sales-split و tasks-split: على الخطأ الـ terminal بنعلّم الحقل loaded-empty
+(الحالة المخبّأة مش بتتمسح) + بنكتب `window.__clarkListenerErrors` عشان بانر
+التشخيص يطلّع الحقل المكسور.
+
+**الاختبار (§0.2):** build ✓ · 536 اختبار ✓ · eslint نظيف · emulator 3/3 ✓.
+(تغيير في App.jsx wiring — الدوال النقية متغطّاة؛ الـ gate/resilience منطق
+listener بيتأكّد بالـ build + مراجعة الكود مقابل نمط config المثبت.)
+
+**ملفات:** `src/App.jsx` (state + listeners + upSales/upTasks gates + deps) + bump.
+
+---
+
 ## V21.27.216 (2026-07-01) — 🧾 إصلاح: اختلاف رصيد العميل بين الملخّص والكشف (نموذج الخصم)
 
 **المصدر:** الفحص الشامل — H4 (عالي).

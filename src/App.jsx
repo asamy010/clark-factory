@@ -355,6 +355,13 @@ export default function App(){
      Now: forcedBypass=true blocks all upConfig writes until a real listener
      fire updates configDoc. Reads still work — user can VIEW data but not SAVE. */
   const[forcedBypass,setForcedBypass]=useState(false);
+  /* V21.27.217 SAFETY (H6): زي configLoaded بس لمستندَي factory/sales و
+     factory/tasks. بيتظبط true أول ما الـ listener بتاعهم يضرب لأول مرة (سواء
+     المستند موجود أو لسه — عشان الإنشاء الأول يشتغل). upSales/upTasks بيرفضوا
+     الكتابة قبله عشان setDoc(merge:false) من base فاضي مايمسحش المستند + علم
+     الترحيل (الأعراض: اختفاء كل جلسات التسليم/الحزم). */
+  const[salesLoaded,setSalesLoaded]=useState(false);
+  const[tasksLoaded,setTasksLoaded]=useState(false);
   /* Tracks which listeners have fired at least once — populated by the listeners
      themselves. Used by the stall panel to show "config: ✓ / sales: ✗" status. */
   const[listenerStatus,setListenerStatus]=useState({config:false,sales:false,tasks:false,orders:false,lastError:null});
@@ -1837,9 +1844,9 @@ export default function App(){
     });
 
     /* Sales doc */
-    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data());setListenerStatus(s=>({...s,sales:true}))}},err=>{console.error("[V18.60] sales listener error:",err);setListenerStatus(s=>({...s,lastError:"sales: "+(err?.code||err?.message||"unknown")}))});
+    const u2=onSnapshot(doc(db,"factory","sales"),snap=>{setSalesLoaded(true);/* V21.27.217 (H6): علم الجاهزية أول fire حتى لو المستند مش موجود */if(snap.exists()){if(snap.metadata.hasPendingWrites)return;salesReady=true;setSalesDoc(snap.data());setListenerStatus(s=>({...s,sales:true}))}},err=>{console.error("[V18.60] sales listener error:",err);setListenerStatus(s=>({...s,lastError:"sales: "+(err?.code||err?.message||"unknown")}))});
     /* Tasks doc */
-    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data());setListenerStatus(s=>({...s,tasks:true}))}},err=>{console.error("[V18.60] tasks listener error:",err);setListenerStatus(s=>({...s,lastError:"tasks: "+(err?.code||err?.message||"unknown")}))});
+    const u3=onSnapshot(doc(db,"factory","tasks"),snap=>{setTasksLoaded(true);/* V21.27.217 (H6) */if(snap.exists()){if(snap.metadata.hasPendingWrites)return;tasksReady=true;setTasksDoc(snap.data());setListenerStatus(s=>({...s,tasks:true}))}},err=>{console.error("[V18.60] tasks listener error:",err);setListenerStatus(s=>({...s,lastError:"tasks: "+(err?.code||err?.message||"unknown")}))});
     /* V21.27.173: مستند «شجرة مساحة التخزين» المخصّص. لو مش موجود لسه → {} (تشغّل
        الهجرة). بنتجاهل الكتابات المحلية المعلّقة زي باقي الـ listeners. */
     const u4=onSnapshot(doc(db,"factory","documentsTree"),snap=>{if(snap.metadata.hasPendingWrites)return;const d=snap.exists()?snap.data():{};setDocsTreeDoc(d);docsTreeDocRef.current=d;},err=>{console.error("[V21.27.173] documentsTree listener error:",err);setListenerStatus(s=>({...s,lastError:"documentsTree: "+(err?.code||err?.message||"unknown")}))});
@@ -4164,6 +4171,24 @@ export default function App(){
       },err=>{
         console.error(`[V19.51] Sales listener error ${collName}:`,err);
         /* V19.61: do NOT wipe state on error — see split listener above. */
+        /* V21.27.217 RESILIENCE (H7): زي V21.9.46 بتاع الـ config split — لو
+           الخطأ terminal (permission-denied بعد تغيير rules مثلاً)، علّم الحقل
+           loaded-empty عشان upSales مايفضلش يرفض الحفظ للأبد بـ«البرنامج لسه
+           بيحمّل». الحالة المخبّأة مش بتتمسح. بانر التشخيص بيطلّع الحقل المكسور. */
+        const errCode=err?.code||"";
+        const TERMINAL_ERR_CODES=new Set(["permission-denied","failed-precondition","not-found","unimplemented"]);
+        const isTerminal=TERMINAL_ERR_CODES.has(errCode);
+        if(isTerminal&&!firstFires[field]){
+          console.warn(`[V21.27.217] Terminal sales-split listener error on ${collName} (${errCode}) — marking loaded-empty so upSales can proceed. Fix the underlying issue to restore data flow.`);
+          firstFires[field]=true;
+          if(SALES_SPLIT_FIELDS.every(f=>firstFires[f]))setSalesSplitLoaded(true);
+        }
+        try{
+          if(typeof window!=="undefined"){
+            window.__clarkListenerErrors=window.__clarkListenerErrors||{};
+            window.__clarkListenerErrors[collName]={code:errCode,message:err?.message||String(err),at:new Date().toISOString(),field,terminal:isTerminal,treatedAsLoaded:isTerminal};
+          }
+        }catch(_){}
       });
       unsubs.push(unsub);
     };
@@ -4239,6 +4264,22 @@ export default function App(){
       },err=>{
         console.error(`[V19.51] Tasks listener error ${collName}:`,err);
         /* V19.61: do NOT wipe state on error — see split listener above. */
+        /* V21.27.217 RESILIENCE (H7): زي V21.9.46 — علّم loaded-empty على الخطأ
+           الـ terminal عشان upTasks مايتعلّقش للأبد. */
+        const errCode=err?.code||"";
+        const TERMINAL_ERR_CODES=new Set(["permission-denied","failed-precondition","not-found","unimplemented"]);
+        const isTerminal=TERMINAL_ERR_CODES.has(errCode);
+        if(isTerminal&&!firstFires[field]){
+          console.warn(`[V21.27.217] Terminal tasks-split listener error on ${collName} (${errCode}) — marking loaded-empty so upTasks can proceed.`);
+          firstFires[field]=true;
+          if(TASKS_SPLIT_FIELDS.every(f=>firstFires[f]))setTasksSplitLoaded(true);
+        }
+        try{
+          if(typeof window!=="undefined"){
+            window.__clarkListenerErrors=window.__clarkListenerErrors||{};
+            window.__clarkListenerErrors[collName]={code:errCode,message:err?.message||String(err),at:new Date().toISOString(),field,terminal:isTerminal,treatedAsLoaded:isTerminal};
+          }
+        }catch(_){}
       });
       unsubs.push(unsub);
     };
@@ -5232,6 +5273,20 @@ export default function App(){
       showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
       return;
     }
+    /* V21.27.217 SAFETY (H6): ارفض قبل ما listener مستند factory/sales يضرب
+       لأول مرة — غير كده setDoc(merge:false) من base فاضي بيمسح المستند كله +
+       علم الترحيل (كل جلسات التسليم/الحزم تختفي). زي configLoaded لـ upConfig.
+       + forcedBypass (وضع القراءة فقط بعد stall) بيمنع الكتابة زي upConfig. */
+    if(!salesLoaded){
+      console.error("[V21.27.217 SAFETY] Refusing upSales — factory/sales listener has not fired yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المبيعات — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(forcedBypass){
+      console.error("[V21.27.217 SAFETY] Refusing upSales — read-only mode (forcedBypass after stall)");
+      showToast("⛔ الوضع للقراءة فقط — اقفل وافتح التطبيق عشان تحفظ");
+      return;
+    }
     /* V19.51 SAFETY: refuse if migration done but listeners not loaded */
     if(salesDoc&&salesDoc[SALES_SPLIT_FLAG_V1951]&&!salesSplitLoaded){
       console.error("[V19.51 SAFETY] Refusing upSales — salesSplitData not loaded yet");
@@ -5298,7 +5353,7 @@ export default function App(){
     }
     /* V19.56: return the Tx promise so callers can await actual flush (see upConfig). */
     return upSalesTx(stripped,newSalesSplit,explicitSalesSplitBefore);
-  },[upSalesTx,configLoaded,configError,salesDoc,salesSplitLoaded,registerPendingSalesSplitWrites]);
+  },[upSalesTx,configLoaded,configError,salesLoaded,forcedBypass,salesDoc,salesSplitLoaded,registerPendingSalesSplitWrites]);
 
   /* V19.51: upTasksTx parallels upSalesTx — accepts pre-computed values. */
   const upTasksTx=useCallback(async(precomputedNext,precomputedNewTasksSplit,explicitTasksSplitBefore)=>{
@@ -5397,6 +5452,18 @@ export default function App(){
       showToast("⛔ فيه مشكلة — اقفل وافتح التطبيق");
       return;
     }
+    /* V21.27.217 SAFETY (H6): زي upSales — ارفض قبل fire مستند factory/tasks +
+       احترم forcedBypass، عشان مايتمسحش المستند من base فاضي. */
+    if(!tasksLoaded){
+      console.error("[V21.27.217 SAFETY] Refusing upTasks — factory/tasks listener has not fired yet");
+      showToast("⏳ البرنامج لسه بيحمّل بيانات المهام — حاول تاني بعد ثانيتين");
+      return;
+    }
+    if(forcedBypass){
+      console.error("[V21.27.217 SAFETY] Refusing upTasks — read-only mode (forcedBypass after stall)");
+      showToast("⛔ الوضع للقراءة فقط — اقفل وافتح التطبيق عشان تحفظ");
+      return;
+    }
     /* V19.51 SAFETY: refuse if migration done but listeners not loaded */
     if(tasksDoc&&tasksDoc[TASKS_SPLIT_FLAG_V1951]&&!tasksSplitLoaded){
       console.error("[V19.51 SAFETY] Refusing upTasks — tasksSplitData not loaded yet");
@@ -5459,7 +5526,7 @@ export default function App(){
     }
     /* V19.56: return the Tx promise so callers can await actual flush (see upConfig). */
     return upTasksTx(stripped,newTasksSplit,explicitTasksSplitBefore);
-  },[upTasksTx,configLoaded,configError,tasksDoc,tasksSplitLoaded,registerPendingTasksSplitWrites]);
+  },[upTasksTx,configLoaded,configError,tasksLoaded,forcedBypass,tasksDoc,tasksSplitLoaded,registerPendingTasksSplitWrites]);
   /* V21.27.145: كاتب «شجرة مساحة التخزين» (documentsTree) — بيكتب في
      factory/tasks (مستند منفصل) بدل factory/config. السبب: documentsTree كان
      حقل عادي في config، والرفع الكبير كان بيخلّي config يتجاوز 1MB → السيرفر
