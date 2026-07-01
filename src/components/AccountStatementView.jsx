@@ -256,22 +256,36 @@ export function AccountStatementView({ data, partyType = "customer", isMob, fixe
     </div>`;
     /* V21.27.59: عنوان أدق — «كشف حساب تفصيلي» في الوضع التفصيلي */
     const docTitle = (detailed ? "كشف حساب تفصيلي" : "كشف حساب") + " — " + party.name;
-    const html = `
+    /* V21.27.204: طباعة متعددة الصفحات — صف العناوين (thead) يتكرّر أعلى كل
+       صفحة تلقائيًا (display:table-header-group هو الافتراضي، بس بنأكّده صراحةً).
+       صف العناوين + صف الإجماليات: خلفية سوداء + كتابة بيضاء.
+       ملاحظة معمارية: PRINT_CSS بيفرض `table *{color:#000!important}` على كل نص
+       الجدول → عشان الأبيض يكسب لازم قاعدة أعلى تخصيصًا (#report-content + class +
+       !important). و`print-color-adjust:exact` يضمن طباعة الخلفية السوداء فعليًا
+       (المتصفح بيشيل الخلفيات في الطباعة افتراضيًا). */
+    const stmtPrintStyle = `<style>
+      #report-content table.stmt-table thead{display:table-header-group}
+      #report-content table.stmt-table tfoot{display:table-footer-group}
+      #report-content table.stmt-table thead th{background:#000!important;color:#fff!important;border-color:#334155!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      #report-content table.stmt-table tfoot td{background:#000!important;color:#fff!important;border-color:#334155!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      @media print{#report-content table.stmt-table{page-break-inside:auto}#report-content table.stmt-table tr{page-break-inside:avoid}}
+    </style>`;
+    const html = stmtPrintStyle + `
       <h2 style="color:${accent};margin:0 0 4px">📊 ${docTitle}</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">
         ${party.phone ? "تليفون: " + ltrPhone(party.phone) + " · " : ""}${party.address ? "العنوان: " + party.address + " · " : ""}الوضع: ${mode === "accounting" ? "محاسبي" : "تشغيلي"}
         ${fromDate || toDate ? "<br>الفترة: " + (fromDate || "البداية") + " ← " + (toDate || "الآن") : ""}
       </div>
       ${kpiBlock}
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="background:${accent};color:#fff">
-          <th style="padding:6px;border:1px solid #cbd5e1">التاريخ</th><th style="padding:6px;border:1px solid #cbd5e1">البيان</th>
-          <th style="padding:6px;border:1px solid #cbd5e1">مدين</th><th style="padding:6px;border:1px solid #cbd5e1">دائن</th><th style="padding:6px;border:1px solid #cbd5e1">الرصيد</th>
+      <table class="stmt-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#000;color:#fff">
+          <th style="padding:6px;border:1px solid #334155">التاريخ</th><th style="padding:6px;border:1px solid #334155">البيان</th>
+          <th style="padding:6px;border:1px solid #334155">مدين</th><th style="padding:6px;border:1px solid #334155">دائن</th><th style="padding:6px;border:1px solid #334155">الرصيد</th>
         </tr></thead>
         <tbody>${rowsHtml.join("")}</tbody>
-        <tfoot><tr style="background:#eff6ff;font-weight:800"><td colspan="2" style="padding:6px;border:1px solid #cbd5e1;text-align:left">الإجمالي</td>
-          <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.debit.toFixed(2))}</td><td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.credit.toFixed(2))}</td>
-          <td style="padding:6px;border:1px solid #cbd5e1">${fmt(result.totals.closing.toFixed(2))}</td></tr></tfoot>
+        <tfoot><tr style="background:#000;color:#fff;font-weight:800"><td colspan="2" style="padding:6px;border:1px solid #334155;text-align:left">الإجمالي</td>
+          <td style="padding:6px;border:1px solid #334155">${fmt(result.totals.debit.toFixed(2))}</td><td style="padding:6px;border:1px solid #334155">${fmt(result.totals.credit.toFixed(2))}</td>
+          <td style="padding:6px;border:1px solid #334155">${fmt(result.totals.closing.toFixed(2))}</td></tr></tfoot>
       </table>
       <p style="margin-top:14px;font-weight:700">${balanceLabel(result.totals.closing, partyType).txt}</p>
       <div style="margin-top:6px;font-size:12px;color:#0f172a;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;padding:8px 12px;background:#f8fafc">${tafqitEGP(result.totals.closing)}</div>
